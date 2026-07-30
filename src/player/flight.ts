@@ -83,8 +83,15 @@ export function flightStep(
 
   // Lift acts perpendicular to velocity, in the plane containing the kite's up axis.
   let liftDir = up.clone().addScaledVector(vdir, -up.dot(vdir))
-  if (liftDir.lengthSq() < 1e-8) liftDir = new Vector3(0, 1, 0)
-  else liftDir.normalize()
+  if (liftDir.lengthSq() < 1e-8) {
+    // up is parallel to velocity, so the projection gives no direction. Any vector
+    // perpendicular to velocity will do, and it MUST be perpendicular: a fallback
+    // with a velocity-parallel component would do work along the flight path and
+    // inject energy, which would break the invariant that gliding never gains height.
+    liftDir = new Vector3().crossVectors(vdir, WORLD_UP)
+    if (liftDir.lengthSq() < 1e-8) liftDir = new Vector3().crossVectors(vdir, FALLBACK_RIGHT)
+  }
+  liftDir.normalize()
 
   const accel = new Vector3(0, -c.gravity, 0)
   accel.addScaledVector(liftDir, liftMag)

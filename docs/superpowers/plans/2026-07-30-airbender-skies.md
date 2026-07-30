@@ -798,8 +798,10 @@ function simulate(opts: {
   startSpeed?: number
   /** Velocity direction, if it should differ from where the kite points. */
   velPitchDeg?: number
+  /** Roll about the forward axis, radians. */
+  bank?: number
 }) {
-  const { pitchDeg, seconds, thrust = false, flare = false, startSpeed = 18 } = opts
+  const { pitchDeg, seconds, thrust = false, flare = false, startSpeed = 18, bank = 0 } = opts
   const rad = MathUtils.degToRad(pitchDeg)
   const forward = new Vector3(0, Math.sin(rad), -Math.cos(rad)).normalize()
   const vrad = MathUtils.degToRad(opts.velPitchDeg ?? pitchDeg)
@@ -810,7 +812,7 @@ function simulate(opts: {
   const startEnergy = totalEnergy(position, velocity, C.gravity)
   const dt = 1 / 60
   for (let t = 0; t < seconds; t += dt) {
-    const next = flightStep(position, velocity, { forward, thrust, flare, bank: 0 }, dt, C)
+    const next = flightStep(position, velocity, { forward, thrust, flare, bank }, dt, C)
     position = next.position
     velocity = next.velocity
   }
@@ -917,6 +919,34 @@ describe('flightStep', () => {
       expect(Number.isFinite(r.speed)).toBe(true)
     }
   })
+
+  it('an unpowered glide still loses energy with a non-zero bank', () => {
+    // Regression: liftDir must stay perpendicular to velocity even when kiteUp
+    // sweeps off vertical under bank, otherwise lift does work along the flight
+    // path and gliding could gain energy instead of losing it.
+    for (const bank of [0.7, -0.7, 1.5, -1.5]) {
+      const r = simulate({ pitchDeg: 0, seconds: 4, bank })
+      expect(r.endEnergy).toBeLessThan(r.startEnergy)
+    }
+  })
+
+  it('does not mutate the position or velocity it is given, with a non-zero bank', () => {
+    const position = new Vector3(0, 100, 0)
+    const velocity = new Vector3(0, 0, -20)
+    flightStep(position, velocity, {
+      forward: new Vector3(0, 0, -1), thrust: false, flare: false, bank: 0.7,
+    }, 1 / 60, C)
+    expect(position.toArray()).toEqual([0, 100, 0])
+    expect(velocity.toArray()).toEqual([0, 0, -20])
+  })
+
+  it('never produces non-finite values across a range of bank angles', () => {
+    for (const bank of [-1.5, -0.7, 0, 0.7, 1.5]) {
+      const r = simulate({ pitchDeg: -20, seconds: 3, thrust: true, bank })
+      expect(Number.isFinite(r.altitude)).toBe(true)
+      expect(Number.isFinite(r.speed)).toBe(true)
+    }
+  })
 })
 ```
 
@@ -979,8 +1009,15 @@ export function flightStep(
 
   // Lift acts perpendicular to velocity, in the plane containing the kite's up axis.
   let liftDir = up.clone().addScaledVector(vdir, -up.dot(vdir))
-  if (liftDir.lengthSq() < 1e-8) liftDir = new Vector3(0, 1, 0)
-  else liftDir.normalize()
+  if (liftDir.lengthSq() < 1e-8) {
+    // up is parallel to velocity, so the projection gives no direction. Any vector
+    // perpendicular to velocity will do, and it MUST be perpendicular: a fallback
+    // with a velocity-parallel component would do work along the flight path and
+    // inject energy, which would break the invariant that gliding never gains height.
+    liftDir = new Vector3().crossVectors(vdir, WORLD_UP)
+    if (liftDir.lengthSq() < 1e-8) liftDir = new Vector3().crossVectors(vdir, FALLBACK_RIGHT)
+  }
+  liftDir.normalize()
 
   const accel = new Vector3(0, -c.gravity, 0)
   accel.addScaledVector(liftDir, liftMag)
@@ -996,7 +1033,7 @@ export function flightStep(
 - [ ] **Step 4: Run the tests and verify they pass**
 
 Run: `npm test -- src/player/flight-step.test.ts`
-Expected: PASS, 14 tests.
+Expected: PASS, 17 tests.
 
 - [ ] **Step 5: Run the whole suite and typecheck**
 

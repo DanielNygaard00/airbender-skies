@@ -12,8 +12,10 @@ function simulate(opts: {
   startSpeed?: number
   /** Velocity direction, if it should differ from where the kite points. */
   velPitchDeg?: number
+  /** Roll about the forward axis, radians. */
+  bank?: number
 }) {
-  const { pitchDeg, seconds, thrust = false, flare = false, startSpeed = 18 } = opts
+  const { pitchDeg, seconds, thrust = false, flare = false, startSpeed = 18, bank = 0 } = opts
   const rad = MathUtils.degToRad(pitchDeg)
   const forward = new Vector3(0, Math.sin(rad), -Math.cos(rad)).normalize()
   const vrad = MathUtils.degToRad(opts.velPitchDeg ?? pitchDeg)
@@ -24,7 +26,7 @@ function simulate(opts: {
   const startEnergy = totalEnergy(position, velocity, C.gravity)
   const dt = 1 / 60
   for (let t = 0; t < seconds; t += dt) {
-    const next = flightStep(position, velocity, { forward, thrust, flare, bank: 0 }, dt, C)
+    const next = flightStep(position, velocity, { forward, thrust, flare, bank }, dt, C)
     position = next.position
     velocity = next.velocity
   }
@@ -127,6 +129,34 @@ describe('flightStep', () => {
   it('never produces non-finite values', () => {
     for (const pitchDeg of [-90, -45, 0, 45, 90]) {
       const r = simulate({ pitchDeg, seconds: 3, thrust: true })
+      expect(Number.isFinite(r.altitude)).toBe(true)
+      expect(Number.isFinite(r.speed)).toBe(true)
+    }
+  })
+
+  it('an unpowered glide still loses energy with a non-zero bank', () => {
+    // Regression: liftDir must stay perpendicular to velocity even when kiteUp
+    // sweeps off vertical under bank, otherwise lift does work along the flight
+    // path and gliding could gain energy instead of losing it.
+    for (const bank of [0.7, -0.7, 1.5, -1.5]) {
+      const r = simulate({ pitchDeg: 0, seconds: 4, bank })
+      expect(r.endEnergy).toBeLessThan(r.startEnergy)
+    }
+  })
+
+  it('does not mutate the position or velocity it is given, with a non-zero bank', () => {
+    const position = new Vector3(0, 100, 0)
+    const velocity = new Vector3(0, 0, -20)
+    flightStep(position, velocity, {
+      forward: new Vector3(0, 0, -1), thrust: false, flare: false, bank: 0.7,
+    }, 1 / 60, C)
+    expect(position.toArray()).toEqual([0, 100, 0])
+    expect(velocity.toArray()).toEqual([0, 0, -20])
+  })
+
+  it('never produces non-finite values across a range of bank angles', () => {
+    for (const bank of [-1.5, -0.7, 0, 0.7, 1.5]) {
+      const r = simulate({ pitchDeg: -20, seconds: 3, thrust: true, bank })
       expect(Number.isFinite(r.altitude)).toBe(true)
       expect(Number.isFinite(r.speed)).toBe(true)
     }
