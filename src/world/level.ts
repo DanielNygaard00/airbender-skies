@@ -1,5 +1,6 @@
 import type { Vector3 } from 'three'
 import type { IslandDef } from './island'
+import type { WaterfallDef } from './waterfall'
 
 export interface ShrineDef {
   islandId: string
@@ -13,6 +14,7 @@ export interface Level {
   worldFloorY: number
   islands: IslandDef[]
   shrines: ShrineDef[]
+  waterfalls: WaterfallDef[]
 }
 
 /** Throws on any structural error, with a message that names the offender. */
@@ -39,6 +41,19 @@ export function validateLevel(level: Level): void {
   for (const shrine of level.shrines) {
     if (!ids.has(shrine.islandId)) {
       throw new Error(`Level "${level.id}" shrine references unknown island "${shrine.islandId}"`)
+    }
+  }
+  for (const waterfall of level.waterfalls) {
+    if (!ids.has(waterfall.islandId)) {
+      throw new Error(
+        `Level "${level.id}" waterfall references unknown island "${waterfall.islandId}"`,
+      )
+    }
+    if (!(waterfall.width > 0)) {
+      throw new Error(`Waterfall on "${waterfall.islandId}" must have width > 0`)
+    }
+    if (!(waterfall.length > 0)) {
+      throw new Error(`Waterfall on "${waterfall.islandId}" must have length > 0`)
     }
   }
 

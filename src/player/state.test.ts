@@ -15,6 +15,7 @@ const level: Level = {
     { id: 'far', position: new Vector3(100, 20, 50), radius: 30, height: 10, biome: 'rock', noiseSeed: 2 },
   ],
   shrines: [],
+  waterfalls: [],
 }
 
 const terrain = (groundY: number | null): TerrainQuery => ({

@@ -40,4 +40,12 @@ export const ARCHIPELAGO: Level = {
     { islandId: 'rest', offset: new Vector3(0, 0, 0) },
     { islandId: 'spire', offset: new Vector3(0, 0, 0) },
   ],
+  waterfalls: [
+    { islandId: 'home', angle: 2.1, width: 10, length: 90 },
+    { islandId: 'home', angle: 4.4, width: 6, length: 70 },
+    { islandId: 'ring-east', angle: 0.7, width: 8, length: 80 },
+    { islandId: 'ring-south', angle: 3.5, width: 7, length: 75 },
+    { islandId: 'ring-west', angle: 5.2, width: 9, length: 85 },
+    { islandId: 'rest', angle: 1.2, width: 5, length: 55 },
+  ],
 }

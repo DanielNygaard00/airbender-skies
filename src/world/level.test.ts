@@ -12,6 +12,7 @@ const base = (): Level => ({
     biome: 'grass', noiseSeed: 1,
   }],
   shrines: [],
+  waterfalls: [],
 })
 
 describe('validateLevel', () => {
@@ -108,5 +109,34 @@ describe('ARCHIPELAGO', () => {
     expect(y('spire')).toBeGreaterThan(y('climb-far'))
     expect(y('climb-north')).toBeGreaterThan(y('home'))
     expect(y('ring-east')).toBeLessThan(y('home'))
+  })
+})
+
+describe('waterfall validation', () => {
+  it('rejects a waterfall on an unknown island', () => {
+    expect(() => validateLevel({
+      ...base(), waterfalls: [{ islandId: 'ghost', angle: 0, width: 8, length: 60 }],
+    })).toThrow(/waterfall references unknown island "ghost"/)
+  })
+
+  it('rejects a non-positive width', () => {
+    expect(() => validateLevel({
+      ...base(), waterfalls: [{ islandId: 'a', angle: 0, width: 0, length: 60 }],
+    })).toThrow(/width > 0/)
+  })
+
+  it('rejects a non-positive length', () => {
+    expect(() => validateLevel({
+      ...base(), waterfalls: [{ islandId: 'a', angle: 0, width: 8, length: -1 }],
+    })).toThrow(/length > 0/)
+  })
+
+  it('accepts a level with no waterfalls at all', () => {
+    expect(() => validateLevel({ ...base(), waterfalls: [] })).not.toThrow()
+  })
+
+  it('ARCHIPELAGO waterfalls all reference real islands', () => {
+    const ids = new Set(ARCHIPELAGO.islands.map((i) => i.id))
+    for (const w of ARCHIPELAGO.waterfalls) expect(ids.has(w.islandId)).toBe(true)
   })
 })

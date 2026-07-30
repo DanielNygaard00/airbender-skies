@@ -7,6 +7,7 @@ import { loadSave, writeSave } from './core/save'
 import { buildWorld, type World } from './world/world'
 import { ARCHIPELAGO } from './world/levels/archipelago'
 import { placeShrines, collectShrinesAt } from './world/shrine'
+import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
 import { controllerStep, type ControllerDeps } from './player/controller'
 import { applyShrineBonus } from './player/breath'
@@ -53,6 +54,16 @@ function start(): void {
     shrineGroup.add(mesh)
   }
   scene.add(shrineGroup)
+
+  const waterfalls: { advance(dt: number): void }[] = []
+  for (const def of ARCHIPELAGO.waterfalls) {
+    const island = ARCHIPELAGO.islands.find((i) => i.id === def.islandId)
+    if (!island) continue
+    const waterfall = createWaterfall(island, def, world.terrain)
+    if (!waterfall) continue
+    scene.add(waterfall.mesh)
+    waterfalls.push(waterfall)
+  }
 
   const avatar = createAvatar()
   scene.add(avatar.object)
@@ -120,6 +131,7 @@ function start(): void {
     camera.updateProjectionMatrix()
 
     for (const marker of markers.values()) marker.rotation.y += dt * 1.5
+    for (const waterfall of waterfalls) waterfall.advance(dt)
 
     wind.update(player.mode === 'kite' ? airspeed : 0)
     hud.update(hudModelFor(player))
