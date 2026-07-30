@@ -30,10 +30,28 @@ The fan model and every constant below were prototyped and measured before this 
 
 Fore-aft depth grows 2.34×. Fully opening takes 18 frames at 60 fps, which is 0.30 s.
 
+**Re-measured after the fore-aft sign fix (final review wave).** Every extent above is
+unchanged — extents don't move when you only flip and shift a position along one axis. What
+changes is `top of wing`'s stowed figure, because `STOWED_POSITION.y` was also raised slightly
+to clear the ground, and the *signed* z-range, which the extents table above cannot show at all:
+
+| State | span (X) | height (Y) | depth (Z) | top of wing | signed z-range |
+| --- | --- | --- | --- | --- | --- |
+| Stowed | 1.20 | 2.12 | 0.51 | y = 2.14 | −0.554 … −0.046 |
+| Deployed | 2.42 | 0.24 | 1.19 | y = 2.19 | 0.059 … 1.248 |
+
+Stowed now sits entirely behind the rider (z < 0, avatar-local +Z being forward) and clear of
+the ground (`min.y` 0.021, up from −0.059). Deployed now sits entirely ahead of the rider
+(z > 0) — which took more than mirroring the position's sign: the fan's own local shape is not
+symmetric about its pivot, so a plain sign flip (`DEPLOYED_POSITION.z` to +0.4) still left most
+of the wing behind the rider (`min.z` −0.641). `DEPLOYED_POSITION.z` was raised to 1.1 instead.
+
 **Two errors the prototype caught, both of which become regression tests.** They are worth understanding before you start, because both produce a glider that is visibly wrong while every pure-math test still passes:
 
-1. **A folding fan does not get longer when it opens — it gets wider.** Closed, a fan is a stick; open, it is a membrane. An early attempt gave each panel its own pivot spaced along the staff, each extending further outward, so "closed" laid them end-to-end and the stowed glider was *wider* than the deployed one (2.48 against 1.90). The fix is a single shared pivot per side, the way a real fan turns on its rivet. Spacing the pivots along the staff inflates the stowed span, making the stowed glider wider than the deployed one. The regression test that catches this asserts span growth and the structure directly, so the guard does not depend on transform algebra.
+1. **A folding fan does not get longer when it opens — it gets wider.** Closed, a fan is a stick; open, it is a membrane. An early attempt gave each panel its own pivot spaced along the staff, each extending further outward, so "closed" laid them end-to-end and the stowed glider was *wider* than the deployed one (2.48 against 1.90). The fix is a single shared pivot per side, the way a real fan turns on its rivet. The regression test that catches this asserts span growth and the structure directly, so the guard does not depend on transform algebra.
 2. **The staff must be laid along local X exactly once.** The cylinder's own axis is local Y, so the staff mesh is rotated a quarter turn about Z at build time. An early attempt *also* carried `z: Math.PI / 2` in the deployed rotation, left over from an earlier iteration. The two rotations compounded, standing the wing on its end and collapsing the deployed span to 0.09. The test that catches this asserts the deployed **height** is small — a near-horizontal wing.
+
+**A third error the prototype and this table did not catch: a sign error in the fore-aft position.** This table is a table of *extents* — span, height, depth — every one of them invariant to sign. `STOWED_POSITION.z` and `DEPLOYED_POSITION.z` were built with the opposite sign from what `Object3D.lookAt` actually does (it aligns local +Z with its target, not -Z, for a plain `Object3D`), so the stowed staff sat on the character's chest instead of its back and the deployed wing sat behind the rider instead of ahead — and every extent in this table still measured correctly, because an extent cannot see which end is which. The fix landed in a later review wave, together with signed-position assertions in `glider-mesh.test.ts` that a sign error cannot hide from. The lesson: a table of bounding-box extents is invariant to sign, so it cannot catch a transform expressed in a parent frame whose forward axis is not written down anywhere. Signed-position assertions are what catch that class of bug.
 
 ## File Structure
 
