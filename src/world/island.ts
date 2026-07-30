@@ -13,11 +13,22 @@ export interface IslandDef {
 }
 
 /** How strongly noise displaces the silhouette, and how the shape is squashed. */
-const ROUGHNESS = 0.28
+export const ROUGHNESS = 0.28
 const NOISE_FREQUENCY = 1.6
 const TOP_FLATTEN = 0.35
-const BOTTOM_STRETCH = 1.9
+export const BOTTOM_STRETCH = 1.9
 const DETAIL = 4
+
+/**
+ * How far below its position an island can reach, as a multiple of its height.
+ *
+ * Derived rather than measured or guessed, because level validation depends on
+ * it and a hardcoded number would drift away from the geometry the moment the
+ * shaping constants change. Noise displaces a vertex before the vertical squash
+ * applies, so the lowest a unit-sphere vertex can go is (1 + ROUGHNESS) and the
+ * stretch then scales that by BOTTOM_STRETCH.
+ */
+export const MAX_DEPTH_MULTIPLIER = BOTTOM_STRETCH * (1 + ROUGHNESS)
 
 /**
  * A floating island: a noise-displaced sphere squashed flat on top so it is

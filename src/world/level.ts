@@ -1,5 +1,5 @@
 import type { Vector3 } from 'three'
-import type { IslandDef } from './island'
+import { MAX_DEPTH_MULTIPLIER, type IslandDef } from './island'
 import type { WaterfallDef } from './waterfall'
 
 export interface ShrineDef {
@@ -57,7 +57,13 @@ export function validateLevel(level: Level): void {
     }
   }
 
-  const lowest = Math.min(...level.islands.map((i) => i.position.y - i.height * 2))
+  // Uses the multiplier derived from the island shaping constants rather than a
+  // literal, so the bound cannot understate the geometry that produces it. A
+  // floor above an island's lower spike passes a looser check and then lets the
+  // player fall straight through that spike into the void.
+  const lowest = Math.min(
+    ...level.islands.map((i) => i.position.y - i.height * MAX_DEPTH_MULTIPLIER),
+  )
   if (level.worldFloorY >= lowest) {
     throw new Error(
       `Level "${level.id}" worldFloorY (${level.worldFloorY}) must sit below ` +

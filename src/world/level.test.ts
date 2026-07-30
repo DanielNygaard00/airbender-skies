@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { validateLevel, findOverlappingIslands, type Level } from './level'
+import { MAX_DEPTH_MULTIPLIER } from './island'
 import { ARCHIPELAGO } from './levels/archipelago'
 
 const base = (): Level => ({
@@ -138,5 +139,28 @@ describe('waterfall validation', () => {
   it('ARCHIPELAGO waterfalls all reference real islands', () => {
     const ids = new Set(ARCHIPELAGO.islands.map((i) => i.id))
     for (const w of ARCHIPELAGO.waterfalls) expect(ids.has(w.islandId)).toBe(true)
+  })
+})
+
+describe('worldFloorY depth bound', () => {
+  it('derives a depth multiplier that exceeds the roughness-displaced stretch', () => {
+    // ROUGHNESS displaces vertices before BOTTOM_STRETCH scales them, so real
+    // geometry reaches deeper than BOTTOM_STRETCH alone would suggest.
+    expect(MAX_DEPTH_MULTIPLIER).toBeGreaterThan(2.4)
+  })
+
+  it('rejects a floor that clears height * 2 but not the real geometry', () => {
+    // An island of height 20 at y=0 reaches about -48.6, not -40. A floor at
+    // -45 sits inside the island's lower spike: validation used to accept it,
+    // and the player would fall through the spike into the void.
+    const l = base()
+    l.worldFloorY = -45
+    expect(() => validateLevel(l)).toThrow(/worldFloorY/)
+  })
+
+  it('still accepts a floor below the real geometry', () => {
+    const l = base()
+    l.worldFloorY = -50
+    expect(() => validateLevel(l)).not.toThrow()
   })
 })
