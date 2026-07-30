@@ -12,6 +12,7 @@ import { createPlayerState, spawnPointFor } from './player/state'
 import { controllerStep, type ControllerDeps } from './player/controller'
 import { collectStep } from './player/shrine-collect'
 import { createAvatar } from './player/avatar'
+import { createGlider } from './player/glider'
 import { animationFor } from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
 import { createHud, hudModelFor } from './ui/hud'
@@ -74,6 +75,10 @@ function start(): void {
   const avatar = createAvatar()
   scene.add(avatar.object)
 
+  const glider = createGlider()
+  // A child of the avatar, so it inherits the character's position and facing.
+  avatar.object.add(glider.object)
+
   const input = new InputTracker(window, canvas)
   const hud = createHud(document.body)
   const wind = createWindAudio()
@@ -117,6 +122,7 @@ function start(): void {
     }
     avatar.setAnimation(animationFor(player))
     avatar.update(dt)
+    glider.update(dt, player.mode === 'kite')
 
     const profile = profileFor(player.mode)
     const desired = pullInForTerrain(

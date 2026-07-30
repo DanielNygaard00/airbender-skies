@@ -28,8 +28,15 @@ change to physics, tuning constants, or the existing test baselines.
 
 ## The silhouette
 
-Aang's staff-glider: a closed wooden staff that fans open into a ribbed, bat-like wing held
-above and slightly ahead of the rider, who hangs below it.
+Aang's staff-glider: a closed wooden staff that fans open into a bat-like wing held above and
+slightly ahead of the rider, who hangs below it. ("Ribbed" was part of the original mental image
+but was dropped at planning time — see Geometry below — so it is left out here.)
+
+"Ahead" means avatar-local +Z: `Object3D.lookAt`, which `main.ts` calls on `avatar.object`, aligns
+local +Z with its target for a plain `Object3D` (only `Camera` and `Light` use -Z), so +Z is the
+character's forward. Getting that backwards is what caused this branch's one real defect — the
+stowed staff sat on the character's chest and the deployed wing sat behind the rider — fixed in
+a later review wave.
 
 This was chosen over three alternatives. A delta hang-glider wing is simpler geometry and matches
 the rigid-wing lift model most honestly, but reads as sport equipment rather than as an
@@ -87,7 +94,11 @@ reason.
 | --- | --- | --- |
 | Staff | thin cylinder | `0x6b4a2f`, warm wood |
 | Panels | flat triangles | `0xe0913f`, orange-tan fabric |
-| Ribs | slim boxes on each panel's leading edge | `0x5a3c26`, darker than the staff |
+
+Ribs on each panel's leading edge were considered — the silhouette section below still describes
+one — but were dropped at planning time rather than built: the flat panels alone already carry
+the fan-opening motion the feature is about, and a rib mesh would be pure decoration with no
+motion or test of its own to justify the added geometry. This table reflects what exists.
 
 The fabric colour echoes the existing direction cone (`0xd9863f`) so the character and the glider
 read as one palette, and lands in Air Nomad territory.
@@ -109,10 +120,9 @@ function panelAngle(
 ```
 
 `createGlider()` returns `{ object: Object3D; update(dt: number, deployed: boolean): void }`. The
-Three.js assembly around those two functions is thin, and is verified by eye rather than by unit
-test — the same deliberate split already used for the HUD, the input adapter, the avatar's mixer
-half, and the waterfall meshes, all of which touch DOM or GPU state that vitest's `node`
-environment does not provide.
+Three.js assembly around those two functions needs no WebGL — `Box3.setFromObject` and mesh
+construction are plain CPU work — so it is exercised by 16 headless assertions in
+`glider-mesh.test.ts` rather than by eye alone.
 
 ## What is explicitly not touched
 
@@ -123,9 +133,10 @@ backwards out of a vertical fall — and the flight tests encode measured behavi
 tuning pass has not yet re-baselined. Purely visual work has no business disturbing any of that.
 
 The consequence is a detail the design accepts knowingly: for the ~0.3 seconds the wing is
-opening, lift is already at full strength. At 60 frames a second, against a wing that is mostly
-behind the camera, this is not observable. Making lift ramp with the fan was considered and
-rejected precisely because it would have required redoing the tuning lap.
+opening, lift is already at full strength. At 60 frames a second and over a fraction of a second,
+this is not observable regardless of where the wing sits relative to the camera. Making lift ramp
+with the fan was considered and rejected precisely because it would have required redoing the
+tuning lap.
 
 ## Error handling
 
@@ -141,15 +152,22 @@ to a tight tolerance, reverses correctly when the deploy is interrupted mid-open
 angles are monotonic across the fan, collapse to a single angle at openness 0, and never produce
 non-finite values.
 
-The assembled meshes are verified by eye: staff on the back while walking, fanning overhead on
-deploy, folding away on stow, and no console errors.
+The assembled meshes are verified by 16 headless assertions in `glider-mesh.test.ts`: structure
+(one shared pivot per side, the right number of panels), finite geometry throughout the animation,
+span and depth growth from stowed to deployed, near-horizontal when deployed, symmetry about the
+centre line, settling back to the stowed shape, and — added in a later review wave — signed
+position checks that the stowed staff sits behind the rider and clear of the ground, and the
+deployed wing sits ahead of the rider. Only the in-game look — proportions, colour, how the fan
+reads in motion — is left to the eye.
 
 ## Known limitations, accepted
 
 1. **Re-parenting will be needed for a rigged character.** The glider hangs off the avatar root,
    which is right for the placeholder capsule and wrong for a skeleton — a real model wants it
-   parented to a hand or spine bone. `avatar.ts`'s `attachModel` does not currently know the
-   glider exists.
+   parented to a hand or spine bone. `attachModel` used to make this worse than it sounds: it
+   called `object.clear()`, which would have deleted the glider from the scene graph the moment a
+   real model loaded. That is now fixed — `attachModel` removes only the placeholder it replaces —
+   so what remains is purely the re-parenting work itself, not a hazard on the way to it.
 2. **The wing does not roll with bank input.** The physics banks the kite by
    `input.strafe * 0.6`, and matching that visually would need input plumbed through to the
    glider. Deferred: it is not required to answer "opens and closes", and it is a small follow-up.

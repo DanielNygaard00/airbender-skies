@@ -30,10 +30,28 @@ The fan model and every constant below were prototyped and measured before this 
 
 Fore-aft depth grows 2.34×. Fully opening takes 18 frames at 60 fps, which is 0.30 s.
 
+**Re-measured after the fore-aft sign fix (final review wave).** Every extent above is
+unchanged — extents don't move when you only flip and shift a position along one axis. What
+changes is `top of wing`'s stowed figure, because `STOWED_POSITION.y` was also raised slightly
+to clear the ground, and the *signed* z-range, which the extents table above cannot show at all:
+
+| State | span (X) | height (Y) | depth (Z) | top of wing | signed z-range |
+| --- | --- | --- | --- | --- | --- |
+| Stowed | 1.20 | 2.12 | 0.51 | y = 2.14 | −0.554 … −0.046 |
+| Deployed | 2.42 | 0.24 | 1.19 | y = 2.19 | 0.059 … 1.248 |
+
+Stowed now sits entirely behind the rider (z < 0, avatar-local +Z being forward) and clear of
+the ground (`min.y` 0.021, up from −0.059). Deployed now sits entirely ahead of the rider
+(z > 0) — which took more than mirroring the position's sign: the fan's own local shape is not
+symmetric about its pivot, so a plain sign flip (`DEPLOYED_POSITION.z` to +0.4) still left most
+of the wing behind the rider (`min.z` −0.641). `DEPLOYED_POSITION.z` was raised to 1.1 instead.
+
 **Two errors the prototype caught, both of which become regression tests.** They are worth understanding before you start, because both produce a glider that is visibly wrong while every pure-math test still passes:
 
-1. **A folding fan does not get longer when it opens — it gets wider.** Closed, a fan is a stick; open, it is a membrane. An early attempt gave each panel its own pivot spaced along the staff, each extending further outward, so "closed" laid them end-to-end and the stowed glider was *wider* than the deployed one (2.48 against 1.90). The fix is a single shared pivot per side, the way a real fan turns on its rivet. The test that catches this asserts fore-aft **depth** growth, not span growth.
+1. **A folding fan does not get longer when it opens — it gets wider.** Closed, a fan is a stick; open, it is a membrane. An early attempt gave each panel its own pivot spaced along the staff, each extending further outward, so "closed" laid them end-to-end and the stowed glider was *wider* than the deployed one (2.48 against 1.90). The fix is a single shared pivot per side, the way a real fan turns on its rivet. The regression test that catches this asserts span growth and the structure directly, so the guard does not depend on transform algebra.
 2. **The staff must be laid along local X exactly once.** The cylinder's own axis is local Y, so the staff mesh is rotated a quarter turn about Z at build time. An early attempt *also* carried `z: Math.PI / 2` in the deployed rotation, left over from an earlier iteration. The two rotations compounded, standing the wing on its end and collapsing the deployed span to 0.09. The test that catches this asserts the deployed **height** is small — a near-horizontal wing.
+
+**A third error the prototype and this table did not catch: a sign error in the fore-aft position.** This table is a table of *extents* — span, height, depth — every one of them invariant to sign. `STOWED_POSITION.z` and `DEPLOYED_POSITION.z` were built with the opposite sign from what `Object3D.lookAt` actually does (it aligns local +Z with its target, not -Z, for a plain `Object3D`), so the stowed staff sat on the character's chest instead of its back and the deployed wing sat behind the rider instead of ahead — and every extent in this table still measured correctly, because an extent cannot see which end is which. The fix landed in a later review wave, together with signed-position assertions in `glider-mesh.test.ts` that a sign error cannot hide from. The lesson: a table of bounding-box extents is invariant to sign, so it cannot catch a transform expressed in a parent frame whose forward axis is not written down anywhere. Signed-position assertions are what catch that class of bug.
 
 ## File Structure
 
@@ -271,9 +289,12 @@ Builds the staff and the two fans, and animates both from `openness`. Three.js m
 **Interfaces:**
 - Consumes: `advanceOpenness`, `easeOpenness`, `panelAngle`, `OPEN_SECONDS`, `PANELS_PER_SIDE`, `FAN_SPREAD` from Task 1.
 - Produces:
-  - `createGlider(): { object: Object3D; update(dt: number, deployed: boolean): void; opennessForTest(): number }`
+  - `createGlider(): { object: Object3D; update(dt: number, deployed: boolean): void; openness(): number }`
 
-`opennessForTest` exists so the tests can assert the animation settled without reaching into the closure. It is read-only and cheap; leave it exported.
+`openness()` is a plain read of the object's own state, not test scaffolding — the tests use it to
+assert the animation settled, but it is equally the accessor a debug overlay or a future HUD
+readout would want. Keeping it a legitimate getter rather than a `…ForTest` method is deliberate:
+test-only members on production objects are a defect, and this needs to be neither.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -282,7 +303,7 @@ Builds the staff and the two fans, and animates both from `openness`. Three.js m
 ```typescript
 import { describe, it, expect } from 'vitest'
 import { Box3 } from 'three'
-import { createGlider } from './glider'
+import { createGlider, PANELS_PER_SIDE } from './glider'
 
 function span(glider: ReturnType<typeof createGlider>) {
   glider.object.updateMatrixWorld(true)
@@ -305,11 +326,23 @@ describe('createGlider assembly', () => {
   })
 
   it('starts stowed', () => {
-    expect(createGlider().opennessForTest()).toBe(0)
+    expect(createGlider().openness()).toBe(0)
   })
 
   it('has a staff plus one fan root per side', () => {
     expect(createGlider().object.children).toHaveLength(3)
+  })
+
+  it('fans every leaf on a side from one shared pivot', () => {
+    // REGRESSION: giving each leaf its own pivot spaced along the staff lays them
+    // end-to-end when closed instead of stacking them. Asserting the structure
+    // directly does not depend on how the transforms happen to compose.
+    const glider = createGlider()
+    const roots = glider.object.children.filter((child) => child.children.length > 0)
+    expect(roots).toHaveLength(2)
+    for (const root of roots) {
+      expect(root.children).toHaveLength(PANELS_PER_SIDE)
+    }
   })
 
   it('produces finite geometry when stowed', () => {
@@ -320,9 +353,8 @@ describe('createGlider assembly', () => {
   })
 
   it('sweeps much deeper fore-and-aft when deployed', () => {
-    // REGRESSION: a folding fan does not get longer when it opens, it gets wider.
-    // Giving each panel its own pivot spaced along the staff makes the stowed
-    // glider WIDER than the deployed one. Depth is the axis that proves it opened.
+    // The fan actually opens: leaves which stack into a stick when closed sweep out
+    // into a membrane when open. This confirms the deployment animation is working.
     const stowed = span(createGlider())
     const glider = createGlider()
     settle(glider, true)
@@ -346,6 +378,10 @@ describe('createGlider assembly', () => {
   })
 
   it('widens its span when deployed', () => {
+    // REGRESSION: giving each leaf its own pivot spaced along the staff lays them
+    // end-to-end when closed instead of stacking them. Spacing the pivots inflates
+    // the stowed span so that the stowed glider ends up wider than the deployed one.
+    // This ratio catches the bug: stowed span < deployed span.
     const stowed = span(createGlider())
     const glider = createGlider()
     settle(glider, true)
@@ -363,7 +399,7 @@ describe('createGlider assembly', () => {
     const glider = createGlider()
     settle(glider, true)
     settle(glider, false)
-    expect(glider.opennessForTest()).toBe(0)
+    expect(glider.openness()).toBe(0)
     expect(span(glider).z).toBeCloseTo(stowed.z, 5)
   })
 
@@ -437,7 +473,7 @@ function createPanelGeometry(): BufferGeometry {
 export function createGlider(): {
   object: Object3D
   update(dt: number, deployed: boolean): void
-  opennessForTest(): number
+  openness(): number
 } {
   const object = new Group()
 
@@ -493,7 +529,7 @@ export function createGlider(): {
       openness = advanceOpenness(openness, deployed, dt, OPEN_SECONDS)
       apply()
     },
-    opennessForTest: () => openness,
+    openness: () => openness,
   }
 }
 ```
@@ -501,12 +537,12 @@ export function createGlider(): {
 - [ ] **Step 4: Run the tests and verify they pass**
 
 Run: `npm test -- src/player/glider-mesh.test.ts`
-Expected: PASS, 12 tests.
+Expected: PASS, 13 tests.
 
 - [ ] **Step 5: Verify the measured dimensions match the plan's table**
 
 Run the whole suite and typecheck: `npm test && npm run typecheck`
-Expected: all pass, suite now around 330 tests.
+Expected: all pass, suite now around 331 tests.
 
 If any of the geometry assertions fail, the constants have drifted from the prototype — fix the transcription rather than relaxing the assertion.
 
