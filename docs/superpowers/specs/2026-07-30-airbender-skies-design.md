@@ -64,25 +64,40 @@ src/
     level.ts             parse and validate level data → World
     island.ts            island mesh generation from noise parameters
     terrain-query.ts     ground height and raycast queries
-    props.ts             per-island prop scattering
+    world.ts             validate a level and assemble its meshes
+    shrine.ts            air shrine placement and collection
+    waterfall.ts         decorative rim waterfalls
+    levels/
+      archipelago.ts     the eight-island level data
   player/
-    state.ts             PlayerState: position, velocity, mode, breath
+    state.ts             player state construction and spawn resolution
     ground-move.ts       walk, run, jump, gravity, ground snapping
     flight.ts            glider aerodynamics and thrust (pure)
+    steering.ts          turning the kite toward the look direction (pure)
     breath.ts            breath meter drain and regeneration (pure)
     controller.ts        mode switching; orchestrates the modules above
+    shrine-collect.ts    the shrine collection step (pure)
     avatar.ts            character model and animation state machine
+    avatar-anim.ts       animation state machine (pure)
   camera/
     follow-cam.ts        third-person spring arm with terrain pull-in
   fx/
-    wind.ts              air trails and speed streaks
+    mapping.ts           airspeed to effect parameters (pure)
     audio.ts             wind loop driven by airspeed
   ui/
     hud.ts               breath meter, altitude, airspeed
-  abilities/
-    registry.ts          ability registration and dispatch
-    thrust.ts            the only ability in the first version
 ```
+
+**Not built, and deliberately so.** Two modules named in earlier drafts of this layout do not
+exist, and their absence is a decision rather than an omission:
+
+- `world/props.ts` — per-island prop scattering. Cut with the CC0 art pipeline; the islands
+  carry no props.
+- `fx/wind.ts` — air trails and speed streaks. Of the three speed effects this document
+  describes, wind audio and the field-of-view kick shipped and the ribbon trails did not. Their
+  mapping function survives, tested but unused, in `fx/mapping.ts` as `trailOpacityForSpeed`.
+
+There is also no `abilities/` directory. See the note below.
 
 ### Load-bearing interfaces
 
@@ -136,9 +151,31 @@ angle is applied.
 This keeps `flight.step` pure and independent of the camera implementation: it receives a
 direction vector, not a camera object.
 
-**`AbilityRegistry`** maps an ability id to a handler with a breath cost and a cooldown. The
-first version registers only `thrust`. Adding attacks later means registering new handlers,
-not modifying `controller.ts`.
+**`AbilityRegistry` was designed and then not built.** The intent was to map an ability id to a
+handler with a breath cost and a cooldown, so that adding attacks later meant registering
+handlers rather than modifying `controller.ts`. Building a registry to hold one hard-wired
+ability would have been indirection with no payoff, so thrust is simply a boolean on
+`FlightInput` and the registry is deferred to the first task of the attacks phase, when there
+is more than one thing to register.
+
+**What the attacks phase will actually cost, stated honestly.** An earlier version of this
+document claimed `FlightInput` was the seam that would keep that phase cheap. That was wrong,
+and anyone planning the work should know why before estimating it. `FlightInput` carries flight
+*forces* — `forward`, `thrust`, `flare`, `bank` — and of the four planned abilities only Air
+Scooter is a movement mode at all. Air Blast, Tornado and Air Shield are not forces on the kite.
+They run into three real gaps:
+
+- **No free input bindings.** `InputState` has five fields and all are consumed, and
+  `InputTracker` registers no mouse-button listeners at all. Adding one touches `types.ts`,
+  `input.ts`, and every `InputState` literal in the tests.
+- **Nowhere to hold ability state.** `PlayerState` has no cooldown field, and it is constructed
+  as a literal in nine places across five test files, so adding a required field touches all of
+  them.
+- **No dispatch point.** `controllerStep` is a single branch over mode with the flight path
+  inlined.
+
+The seams that genuinely are load-bearing, and that should be protected as this code changes,
+are `TerrainQuery` and the purity of `flightStep`.
 
 ## The flight model
 
