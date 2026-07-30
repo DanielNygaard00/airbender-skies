@@ -89,7 +89,7 @@ The important consequence, which the tests must lock in: **a dive-then-climb cyc
 Sets up the toolchain, creates the shared type contracts every later task imports, and gets a deploy pipeline running so the game is publishable from day one.
 
 **Files:**
-- Create: `package.json`, `tsconfig.json`, `vite.config.ts`, `vitest.config.ts`, `index.html`, `.gitignore` (already exists — verify), `README.md`
+- Create: `package.json`, `tsconfig.json`, `vite.config.ts`, `vitest.config.ts`, `index.html`, `.gitignore` (already exists — verify), `.npmrc`, `README.md`
 - Create: `src/core/types.ts`, `src/core/config.ts`, `src/main.ts`
 - Create: `.github/workflows/deploy.yml`
 - Test: `src/core/config.test.ts`
@@ -110,8 +110,8 @@ Sets up the toolchain, creates the shared type contracts every later task import
 ```bash
 cd /Users/danielnygaard/Developer/airbender-skies
 npm init -y
-npm i three@0.185.1 simplex-noise@4.0.3
-npm i -D typescript@7.0.2 vite@8.1.5 vitest@4.1.10 @types/three@0.185.1
+npm i --save-exact three@0.185.1 simplex-noise@4.0.3
+npm i --save-exact -D typescript@7.0.2 vite@8.1.5 vitest@4.1.10 @types/three@0.185.1
 ```
 
 - [ ] **Step 2: Write the config files**
