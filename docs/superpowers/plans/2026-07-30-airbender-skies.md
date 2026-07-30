@@ -1855,3 +1855,888 @@ git commit -m "Add terrain query for ground height and downward raycasts"
 ```
 
 ---
+
+### Task 10: Level data, validation, and the archipelago
+
+The level is authored by hand so exploration has designed sightlines and a route that teaches flight. Validation catches authoring mistakes with readable messages instead of letting the player fall through a broken world.
+
+**Files:**
+- Create: `src/world/level.ts`
+- Create: `src/world/levels/archipelago.ts`
+- Test: `src/world/level.test.ts`
+
+**Interfaces:**
+- Consumes: `IslandDef` and `Biome` from Task 8.
+- Produces:
+  - `interface ShrineDef { islandId: string; offset: Vector3 }`
+  - `interface Level { id: string; spawn: { islandId: string; offset: Vector3 }; worldFloorY: number; islands: IslandDef[]; shrines: ShrineDef[] }`
+  - `validateLevel(level: Level): void` — throws with a readable message on any structural error.
+  - `findOverlappingIslands(level: Level): [string, string][]` — authoring feedback, does not throw.
+  - `ARCHIPELAGO: Level` from `src/world/levels/archipelago.ts`.
+
+- [ ] **Step 1: Write the failing tests**
+
+`src/world/level.test.ts`:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { Vector3 } from 'three'
+import { validateLevel, findOverlappingIslands, type Level } from './level'
+import { ARCHIPELAGO } from './levels/archipelago'
+
+const base = (): Level => ({
+  id: 'test',
+  spawn: { islandId: 'a', offset: new Vector3(0, 5, 0) },
+  worldFloorY: -500,
+  islands: [{
+    id: 'a', position: new Vector3(0, 0, 0), radius: 40, height: 20,
+    biome: 'grass', noiseSeed: 1,
+  }],
+  shrines: [],
+})
+
+describe('validateLevel', () => {
+  it('accepts a minimal valid level', () => {
+    expect(() => validateLevel(base())).not.toThrow()
+  })
+
+  it('rejects a level with no islands', () => {
+    expect(() => validateLevel({ ...base(), islands: [] })).toThrow(/no islands/)
+  })
+
+  it('rejects duplicate island ids', () => {
+    const l = base()
+    l.islands.push({ ...l.islands[0]! })
+    expect(() => validateLevel(l)).toThrow(/duplicate island id "a"/)
+  })
+
+  it('rejects a spawn on an unknown island', () => {
+    expect(() => validateLevel({ ...base(), spawn: { islandId: 'nope', offset: new Vector3() } }))
+      .toThrow(/unknown island "nope"/)
+  })
+
+  it('rejects a shrine on an unknown island', () => {
+    expect(() => validateLevel({
+      ...base(), shrines: [{ islandId: 'ghost', offset: new Vector3() }],
+    })).toThrow(/unknown island "ghost"/)
+  })
+
+  it('rejects a non-positive radius', () => {
+    const l = base()
+    l.islands[0]!.radius = 0
+    expect(() => validateLevel(l)).toThrow(/radius > 0/)
+  })
+
+  it('rejects a non-positive height', () => {
+    const l = base()
+    l.islands[0]!.height = -5
+    expect(() => validateLevel(l)).toThrow(/height > 0/)
+  })
+
+  it('rejects a world floor above the lowest island', () => {
+    expect(() => validateLevel({ ...base(), worldFloorY: 100 })).toThrow(/worldFloorY/)
+  })
+})
+
+describe('findOverlappingIslands', () => {
+  it('finds none in a well-spaced level', () => {
+    expect(findOverlappingIslands(base())).toEqual([])
+  })
+
+  it('flags two islands sharing the same space', () => {
+    const l = base()
+    l.islands.push({
+      id: 'b', position: new Vector3(5, 0, 5), radius: 40, height: 20,
+      biome: 'rock', noiseSeed: 2,
+    })
+    expect(findOverlappingIslands(l)).toEqual([['a', 'b']])
+  })
+
+  it('does not flag islands separated vertically', () => {
+    const l = base()
+    l.islands.push({
+      id: 'b', position: new Vector3(0, 400, 0), radius: 40, height: 20,
+      biome: 'rock', noiseSeed: 2,
+    })
+    expect(findOverlappingIslands(l)).toEqual([])
+  })
+})
+
+describe('ARCHIPELAGO', () => {
+  it('is valid', () => {
+    expect(() => validateLevel(ARCHIPELAGO)).not.toThrow()
+  })
+
+  it('has exactly eight islands', () => {
+    expect(ARCHIPELAGO.islands).toHaveLength(8)
+  })
+
+  it('has one shrine per island', () => {
+    expect(ARCHIPELAGO.shrines).toHaveLength(ARCHIPELAGO.islands.length)
+    expect(new Set(ARCHIPELAGO.shrines.map((s) => s.islandId)).size).toBe(8)
+  })
+
+  it('has no overlapping islands', () => {
+    expect(findOverlappingIslands(ARCHIPELAGO)).toEqual([])
+  })
+
+  it('spawns on the home island', () => {
+    expect(ARCHIPELAGO.spawn.islandId).toBe('home')
+  })
+
+  it('places the spire highest and above the glide ring', () => {
+    const y = (id: string) => ARCHIPELAGO.islands.find((i) => i.id === id)!.position.y
+    expect(y('spire')).toBeGreaterThan(y('climb-far'))
+    expect(y('climb-north')).toBeGreaterThan(y('home'))
+    expect(y('ring-east')).toBeLessThan(y('home'))
+  })
+})
+```
+
+- [ ] **Step 2: Run the tests and verify they fail**
+
+Run: `npm test -- src/world/level.test.ts`
+Expected: FAIL — cannot resolve module `./level`.
+
+- [ ] **Step 3: Write `src/world/level.ts`**
+
+```typescript
+import type { Vector3 } from 'three'
+import type { IslandDef } from './island'
+
+export interface ShrineDef {
+  islandId: string
+  offset: Vector3
+}
+
+export interface Level {
+  id: string
+  spawn: { islandId: string; offset: Vector3 }
+  /** Falling below this height triggers a respawn. */
+  worldFloorY: number
+  islands: IslandDef[]
+  shrines: ShrineDef[]
+}
+
+/** Throws on any structural error, with a message that names the offender. */
+export function validateLevel(level: Level): void {
+  if (level.islands.length === 0) throw new Error(`Level "${level.id}" has no islands`)
+
+  const ids = new Set<string>()
+  for (const island of level.islands) {
+    if (ids.has(island.id)) {
+      throw new Error(`Level "${level.id}" has duplicate island id "${island.id}"`)
+    }
+    ids.add(island.id)
+    if (!(island.radius > 0)) {
+      throw new Error(`Island "${island.id}" must have radius > 0, got ${island.radius}`)
+    }
+    if (!(island.height > 0)) {
+      throw new Error(`Island "${island.id}" must have height > 0, got ${island.height}`)
+    }
+  }
+
+  if (!ids.has(level.spawn.islandId)) {
+    throw new Error(`Level "${level.id}" spawn references unknown island "${level.spawn.islandId}"`)
+  }
+  for (const shrine of level.shrines) {
+    if (!ids.has(shrine.islandId)) {
+      throw new Error(`Level "${level.id}" shrine references unknown island "${shrine.islandId}"`)
+    }
+  }
+
+  const lowest = Math.min(...level.islands.map((i) => i.position.y - i.height * 2))
+  if (level.worldFloorY >= lowest) {
+    throw new Error(
+      `Level "${level.id}" worldFloorY (${level.worldFloorY}) must sit below ` +
+      `the lowest island (${lowest})`,
+    )
+  }
+}
+
+/**
+ * Islands close enough to intersect visually. Reported rather than thrown,
+ * because it is a design smell rather than a broken level.
+ */
+export function findOverlappingIslands(level: Level): [string, string][] {
+  const clashes: [string, string][] = []
+  for (let i = 0; i < level.islands.length; i++) {
+    for (let j = i + 1; j < level.islands.length; j++) {
+      const a = level.islands[i]!
+      const b = level.islands[j]!
+      const horizontal = Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z)
+      const verticalGap = Math.abs(a.position.y - b.position.y)
+      if (horizontal < a.radius + b.radius && verticalGap < (a.height + b.height) * 2) {
+        clashes.push([a.id, b.id])
+      }
+    }
+  }
+  return clashes
+}
+```
+
+- [ ] **Step 4: Write `src/world/levels/archipelago.ts`**
+
+```typescript
+import { Vector3 } from 'three'
+import type { Level } from '../level'
+import type { Biome } from '../island'
+
+const island = (
+  id: string, x: number, y: number, z: number, radius: number, height: number,
+  biome: Biome, noiseSeed: number,
+) => ({ id, position: new Vector3(x, y, z), radius, height, biome, noiseSeed })
+
+/**
+ * Eight islands sequenced to teach the flight model:
+ *  - home:    large and flat. Learn walking, jumping, deploying the kite.
+ *  - ring-*:  below and outward. Reachable by gliding alone, which teaches that
+ *             altitude converts to distance.
+ *  - climb-*: above home. Need sustained thrust, which introduces breath as a cost.
+ *  - rest:    a mid-height waypoint for recovering breath on a long crossing.
+ *  - spire:   highest. Needs a dive, a zoom climb, and thrust together.
+ */
+export const ARCHIPELAGO: Level = {
+  id: 'archipelago',
+  spawn: { islandId: 'home', offset: new Vector3(0, 6, 0) },
+  worldFloorY: -600,
+  islands: [
+    island('home', 0, 0, 0, 70, 34, 'grass', 1001),
+    island('ring-east', 320, -70, 40, 46, 24, 'grass', 1002),
+    island('ring-south', -60, -110, 340, 42, 22, 'grass', 1003),
+    island('ring-west', -350, -60, -80, 50, 26, 'rock', 1004),
+    island('climb-north', 40, 120, -330, 38, 20, 'rock', 1005),
+    island('climb-far', 380, 190, -300, 34, 18, 'rock', 1006),
+    island('rest', -300, 40, 320, 30, 16, 'grass', 1007),
+    island('spire', 60, 420, 60, 26, 44, 'temple', 1008),
+  ],
+  shrines: [
+    { islandId: 'home', offset: new Vector3(20, 0, -14) },
+    { islandId: 'ring-east', offset: new Vector3(0, 0, 0) },
+    { islandId: 'ring-south', offset: new Vector3(-8, 0, 6) },
+    { islandId: 'ring-west', offset: new Vector3(10, 0, 10) },
+    { islandId: 'climb-north', offset: new Vector3(0, 0, 0) },
+    { islandId: 'climb-far', offset: new Vector3(0, 0, 0) },
+    { islandId: 'rest', offset: new Vector3(0, 0, 0) },
+    { islandId: 'spire', offset: new Vector3(0, 0, 0) },
+  ],
+}
+```
+
+- [ ] **Step 5: Run the tests and verify they pass**
+
+Run: `npm test -- src/world/level.test.ts`
+Expected: PASS, 17 tests.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/world/level.ts src/world/levels/archipelago.ts src/world/level.test.ts
+git commit -m "Add level validation and the eight-island archipelago"
+```
+
+---
+
+### Task 11: Ground movement
+
+Camera-relative walking, running, jumping, and ground snapping. Depends only on `TerrainQuery`, so it is tested against a synthetic flat world rather than real island geometry.
+
+**Files:**
+- Create: `src/player/ground-move.ts`
+- Modify: `src/core/types.ts` (add `GroundConfig`), `src/core/config.ts` (add `DEFAULT_GROUND_CONFIG`)
+- Test: `src/player/ground-move.test.ts`
+
+**Interfaces:**
+- Consumes: `InputState`, `PlayerState`, `TerrainQuery` from `src/core/types.ts`.
+- Produces:
+  - `interface GroundConfig { walkSpeed: number; runSpeed: number; jumpSpeed: number; gravity: number; snapDistance: number; eyeProbeHeight: number }` — added to `src/core/types.ts`.
+  - `DEFAULT_GROUND_CONFIG: GroundConfig` — added to `src/core/config.ts`.
+  - `horizontalForward(lookDirection: Vector3): Vector3`
+  - `desiredVelocity(input: InputState, c: GroundConfig): Vector3`
+  - `groundStep(state: PlayerState, input: InputState, dt: number, terrain: TerrainQuery, c: GroundConfig): PlayerState`
+
+- [ ] **Step 1: Add the config**
+
+Append to `src/core/types.ts`:
+
+```typescript
+export interface GroundConfig {
+  walkSpeed: number
+  runSpeed: number
+  jumpSpeed: number
+  gravity: number
+  /** How far below the feet the ground still counts as underfoot. */
+  snapDistance: number
+  /** How far above the feet the ground probe starts. */
+  eyeProbeHeight: number
+}
+```
+
+Append to `src/core/config.ts`:
+
+```typescript
+import type { GroundConfig } from './types'
+
+export const DEFAULT_GROUND_CONFIG: GroundConfig = {
+  walkSpeed: 7,
+  runSpeed: 13,
+  jumpSpeed: 9,
+  gravity: 20,
+  snapDistance: 1.2,
+  eyeProbeHeight: 2,
+}
+```
+
+- [ ] **Step 2: Write the failing tests**
+
+`src/player/ground-move.test.ts`:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { Vector3 } from 'three'
+import { groundStep, desiredVelocity, horizontalForward } from './ground-move'
+import { DEFAULT_GROUND_CONFIG as G } from '../core/config'
+import type { InputState, PlayerState, TerrainQuery } from '../core/types'
+
+/** Flat ground at y=0 everywhere, so movement can be reasoned about exactly. */
+const flatGround: TerrainQuery = {
+  groundHeightAt: () => 0,
+  raycastDown: (from, maxDistance) =>
+    from.y >= 0 && from.y - maxDistance <= 0
+      ? { point: new Vector3(from.x, 0, from.z), normal: new Vector3(0, 1, 0), islandId: 'flat' }
+      : null,
+}
+const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+
+const input = (over: Partial<InputState> = {}): InputState => ({
+  lookDirection: new Vector3(0, 0, -1), forward: 0, strafe: 0,
+  sprint: false, actionPressed: false, ...over,
+})
+const player = (over: Partial<PlayerState> = {}): PlayerState => ({
+  mode: 'ground', position: new Vector3(0, 0, 0), velocity: new Vector3(),
+  forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
+  grounded: true, lastGroundIslandId: 'flat', ...over,
+})
+
+describe('horizontalForward', () => {
+  it('strips the vertical component', () => {
+    expect(horizontalForward(new Vector3(0, 0.9, -1)).y).toBe(0)
+  })
+
+  it('stays normalised', () => {
+    expect(horizontalForward(new Vector3(0, 0.9, -1)).length()).toBeCloseTo(1, 6)
+  })
+
+  it('falls back to negative Z when looking straight down', () => {
+    expect(horizontalForward(new Vector3(0, -1, 0)).toArray()).toEqual([0, 0, -1])
+  })
+})
+
+describe('desiredVelocity', () => {
+  it('is zero with no input', () => {
+    expect(desiredVelocity(input(), G).length()).toBe(0)
+  })
+
+  it('moves along the look direction on W', () => {
+    expect(desiredVelocity(input({ forward: 1 }), G).z).toBeCloseTo(-G.walkSpeed, 5)
+  })
+
+  it('moves right on D', () => {
+    expect(desiredVelocity(input({ strafe: 1 }), G).x).toBeCloseTo(G.walkSpeed, 5)
+  })
+
+  it('is camera-relative, so yawing changes the world direction', () => {
+    const v = desiredVelocity(input({ forward: 1, lookDirection: new Vector3(-1, 0, 0) }), G)
+    expect(v.x).toBeCloseTo(-G.walkSpeed, 5)
+  })
+
+  it('sprinting is faster than walking', () => {
+    expect(desiredVelocity(input({ forward: 1, sprint: true }), G).length())
+      .toBeGreaterThan(desiredVelocity(input({ forward: 1 }), G).length())
+  })
+
+  it('diagonal movement is not faster than straight', () => {
+    expect(desiredVelocity(input({ forward: 1, strafe: 1 }), G).length())
+      .toBeCloseTo(G.walkSpeed, 5)
+  })
+})
+
+describe('groundStep', () => {
+  it('stays grounded standing still on flat ground', () => {
+    const s = groundStep(player(), input(), 1 / 60, flatGround, G)
+    expect(s.grounded).toBe(true)
+    expect(s.position.y).toBeCloseTo(0, 6)
+  })
+
+  it('jumps when the action is pressed while grounded', () => {
+    expect(groundStep(player(), input({ actionPressed: true }), 1 / 60, flatGround, G).velocity.y)
+      .toBeGreaterThan(0)
+  })
+
+  it('cannot jump while airborne', () => {
+    const airborne = player({ position: new Vector3(0, 50, 0), grounded: false })
+    expect(groundStep(airborne, input({ actionPressed: true }), 1 / 60, voidWorld, G).velocity.y)
+      .toBeLessThan(0)
+  })
+
+  it('falls when there is no ground below', () => {
+    const s = groundStep(player({ grounded: false }), input(), 1 / 60, voidWorld, G)
+    expect(s.grounded).toBe(false)
+    expect(s.position.y).toBeLessThan(0)
+  })
+
+  it('records which island it is standing on', () => {
+    expect(groundStep(player(), input(), 1 / 60, flatGround, G).lastGroundIslandId).toBe('flat')
+  })
+
+  it('does not mutate the state it is given', () => {
+    const s = player()
+    groundStep(s, input({ forward: 1 }), 1 / 60, flatGround, G)
+    expect(s.position.toArray()).toEqual([0, 0, 0])
+  })
+
+  it('walking off an edge begins a fall', () => {
+    const s = groundStep(player(), input({ forward: 1 }), 1 / 60, voidWorld, G)
+    expect(s.grounded).toBe(false)
+  })
+
+  it('a jump rises then returns to the ground', () => {
+    let s = groundStep(player(), input({ actionPressed: true }), 1 / 60, flatGround, G)
+    expect(s.velocity.y).toBeGreaterThan(0)
+    let peak = s.position.y
+    for (let i = 0; i < 200; i++) {
+      s = groundStep(s, input(), 1 / 60, flatGround, G)
+      peak = Math.max(peak, s.position.y)
+    }
+    expect(peak).toBeGreaterThan(1)
+    expect(s.grounded).toBe(true)
+    expect(s.position.y).toBeCloseTo(0, 4)
+  })
+})
+```
+
+- [ ] **Step 3: Run the tests and verify they fail**
+
+Run: `npm test -- src/player/ground-move.test.ts`
+Expected: FAIL — cannot resolve module `./ground-move`.
+
+- [ ] **Step 4: Write `src/player/ground-move.ts`**
+
+```typescript
+import { Vector3 } from 'three'
+import type { GroundConfig, InputState, PlayerState, TerrainQuery } from '../core/types'
+
+const WORLD_UP = new Vector3(0, 1, 0)
+
+/** Flatten a look direction onto the horizontal plane. */
+export function horizontalForward(lookDirection: Vector3): Vector3 {
+  const flat = new Vector3(lookDirection.x, 0, lookDirection.z)
+  if (flat.lengthSq() < 1e-8) return new Vector3(0, 0, -1)
+  return flat.normalize()
+}
+
+/** Camera-relative desired horizontal velocity. Normalised so diagonals are not faster. */
+export function desiredVelocity(input: InputState, c: GroundConfig): Vector3 {
+  const forward = horizontalForward(input.lookDirection)
+  const right = new Vector3().crossVectors(forward, WORLD_UP).normalize()
+  const move = forward.multiplyScalar(input.forward).addScaledVector(right, input.strafe)
+  if (move.lengthSq() < 1e-8) return new Vector3()
+  return move.normalize().multiplyScalar(input.sprint ? c.runSpeed : c.walkSpeed)
+}
+
+export function groundStep(
+  state: PlayerState,
+  input: InputState,
+  dt: number,
+  terrain: TerrainQuery,
+  c: GroundConfig,
+): PlayerState {
+  const horizontal = desiredVelocity(input, c)
+  let velocityY = state.velocity.y
+
+  if (state.grounded && input.actionPressed) velocityY = c.jumpSpeed
+  else velocityY -= c.gravity * dt
+
+  const velocity = new Vector3(horizontal.x, velocityY, horizontal.z)
+  const position = state.position.clone().addScaledVector(velocity, dt)
+
+  // Snap only while descending, otherwise a jump is cancelled on its first frame.
+  let grounded = false
+  let lastGroundIslandId = state.lastGroundIslandId
+  if (velocity.y <= 0) {
+    const probe = position.clone().setY(position.y + c.eyeProbeHeight)
+    const hit = terrain.raycastDown(probe, c.eyeProbeHeight + c.snapDistance)
+    if (hit) {
+      position.y = hit.point.y
+      velocity.y = 0
+      grounded = true
+      lastGroundIslandId = hit.islandId
+    }
+  }
+
+  return {
+    ...state, position, velocity,
+    forward: state.forward.clone(), grounded, lastGroundIslandId,
+  }
+}
+```
+
+- [ ] **Step 5: Run the tests and verify they pass**
+
+Run: `npm test -- src/player/ground-move.test.ts`
+Expected: PASS, 17 tests.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/player/ground-move.ts src/player/ground-move.test.ts src/core/types.ts src/core/config.ts
+git commit -m "Add camera-relative ground movement"
+```
+
+---
+
+### Task 12: Player controller
+
+Owns the ground-to-kite transitions and every safety net. This is the only module that knows both movement modes exist.
+
+**Files:**
+- Create: `src/player/controller.ts`
+- Test: `src/player/controller.test.ts`
+
+**Interfaces:**
+- Consumes: `flightStep` (Task 4), `steerToward` (Task 5), `stepBreath` and `canThrust` (Task 6), `groundStep` (Task 11), and the config types.
+- Produces:
+  - `interface ControllerDeps { terrain: TerrainQuery; flight: FlightConfig; ground: GroundConfig; worldFloorY: number; spawnPointFor(islandId: string | null): Vector3 }`
+  - `respawn(state: PlayerState, deps: ControllerDeps): PlayerState`
+  - `controllerStep(state: PlayerState, input: InputState, dt: number, deps: ControllerDeps): PlayerState`
+
+**Behaviour rules this task locks in:**
+
+| Situation | Result |
+| --- | --- |
+| `Space` while grounded | Jump. The kite does not deploy. |
+| `Space` while falling in ground mode | Deploy the kite, pointing where the player looks. |
+| `Space` while flying | Stow the kite and fall. |
+| Touchdown at or below `landingSpeed` | Land cleanly, velocity zeroed. |
+| Touchdown above `landingSpeed` | Land with 30% horizontal momentum kept as a stagger. |
+| Position below `worldFloorY` | Respawn at the last island stood on. |
+| Any non-finite value in state | Respawn rather than propagate the corruption. |
+
+- [ ] **Step 1: Write the failing tests**
+
+`src/player/controller.test.ts`:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { Vector3 } from 'three'
+import { controllerStep, respawn, type ControllerDeps } from './controller'
+import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG } from '../core/config'
+import type { InputState, PlayerState, TerrainQuery } from '../core/types'
+
+const flatGround: TerrainQuery = {
+  groundHeightAt: () => 0,
+  raycastDown: (from, maxDistance) =>
+    from.y >= 0 && from.y - maxDistance <= 0
+      ? { point: new Vector3(from.x, 0, from.z), normal: new Vector3(0, 1, 0), islandId: 'flat' }
+      : null,
+}
+const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+
+const deps = (terrain: TerrainQuery): ControllerDeps => ({
+  terrain,
+  flight: DEFAULT_FLIGHT_CONFIG,
+  ground: DEFAULT_GROUND_CONFIG,
+  worldFloorY: -600,
+  spawnPointFor: (id) => (id === 'flat' ? new Vector3(0, 0, 0) : new Vector3(1, 1, 1)),
+})
+
+const input = (over: Partial<InputState> = {}): InputState => ({
+  lookDirection: new Vector3(0, 0, -1), forward: 0, strafe: 0,
+  sprint: false, actionPressed: false, ...over,
+})
+const player = (over: Partial<PlayerState> = {}): PlayerState => ({
+  mode: 'ground', position: new Vector3(0, 0, 0), velocity: new Vector3(),
+  forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
+  grounded: true, lastGroundIslandId: 'flat', ...over,
+})
+
+describe('mode switching', () => {
+  it('pressing action while grounded jumps rather than deploying', () => {
+    const s = controllerStep(player(), input({ actionPressed: true }), 1 / 60, deps(flatGround))
+    expect(s.mode).toBe('ground')
+    expect(s.velocity.y).toBeGreaterThan(0)
+  })
+
+  it('pressing action mid-fall deploys the kite', () => {
+    const falling = player({
+      position: new Vector3(0, 200, 0), grounded: false, velocity: new Vector3(0, -12, 0),
+    })
+    expect(controllerStep(falling, input({ actionPressed: true }), 1 / 60, deps(voidWorld)).mode)
+      .toBe('kite')
+  })
+
+  it('deploying points the kite where the player is looking', () => {
+    const falling = player({ position: new Vector3(0, 200, 0), grounded: false })
+    const s = controllerStep(
+      falling, input({ actionPressed: true, lookDirection: new Vector3(1, 0, 0) }),
+      1 / 60, deps(voidWorld),
+    )
+    expect(s.forward.x).toBeCloseTo(1, 5)
+  })
+
+  it('pressing action in the air while flying stows the kite', () => {
+    const flying = player({
+      mode: 'kite', position: new Vector3(0, 200, 0), grounded: false,
+      velocity: new Vector3(0, 0, -20),
+    })
+    expect(controllerStep(flying, input({ actionPressed: true }), 1 / 60, deps(voidWorld)).mode)
+      .toBe('ground')
+  })
+})
+
+describe('flying', () => {
+  const flying = (over: Partial<PlayerState> = {}) => player({
+    mode: 'kite', position: new Vector3(0, 300, 0), grounded: false,
+    velocity: new Vector3(0, 0, -24), ...over,
+  })
+
+  it('gliding costs no breath', () => {
+    expect(controllerStep(flying(), input(), 1 / 60, deps(voidWorld)).breath).toBe(100)
+  })
+
+  it('thrusting spends breath', () => {
+    expect(controllerStep(flying(), input({ forward: 1 }), 1 / 60, deps(voidWorld)).breath)
+      .toBeLessThan(100)
+  })
+
+  it('cannot thrust with an empty meter', () => {
+    const empty = flying({ breath: 0 })
+    const thrust = controllerStep(empty, input({ forward: 1 }), 1 / 60, deps(voidWorld))
+    const glide = controllerStep(empty, input(), 1 / 60, deps(voidWorld))
+    expect(thrust.velocity.length()).toBeCloseTo(glide.velocity.length(), 5)
+  })
+
+  it('steers the kite toward the look direction over time', () => {
+    let s = flying()
+    const look = new Vector3(1, 0, 0)
+    for (let i = 0; i < 120; i++) {
+      s = controllerStep(s, input({ lookDirection: look }), 1 / 60, deps(voidWorld))
+    }
+    expect(s.forward.angleTo(look)).toBeLessThan(flying().forward.angleTo(look))
+  })
+
+  it('does not mutate the state it is given', () => {
+    const s = flying()
+    controllerStep(s, input({ forward: 1 }), 1 / 60, deps(voidWorld))
+    expect(s.position.toArray()).toEqual([0, 300, 0])
+    expect(s.breath).toBe(100)
+  })
+})
+
+describe('landing', () => {
+  it('a slow touchdown lands cleanly and stops', () => {
+    const slow = player({
+      mode: 'kite', position: new Vector3(0, 1, 0), grounded: false,
+      velocity: new Vector3(0, -2, -4),
+    })
+    const s = controllerStep(slow, input(), 1 / 60, deps(flatGround))
+    expect(s.mode).toBe('ground')
+    expect(s.grounded).toBe(true)
+    expect(s.velocity.length()).toBe(0)
+  })
+
+  it('a fast touchdown keeps some momentum as a stagger', () => {
+    const fast = player({
+      mode: 'kite', position: new Vector3(0, 1, 0), grounded: false,
+      velocity: new Vector3(0, -5, -50),
+    })
+    const s = controllerStep(fast, input(), 1 / 60, deps(flatGround))
+    expect(s.mode).toBe('ground')
+    expect(s.velocity.length()).toBeGreaterThan(0)
+  })
+
+  it('records the island landed on', () => {
+    const slow = player({
+      mode: 'kite', position: new Vector3(0, 1, 0), grounded: false,
+      velocity: new Vector3(0, -2, 0), lastGroundIslandId: null,
+    })
+    expect(controllerStep(slow, input(), 1 / 60, deps(flatGround)).lastGroundIslandId).toBe('flat')
+  })
+})
+
+describe('safety nets', () => {
+  it('respawns after falling past the world floor', () => {
+    const lost = player({ mode: 'kite', position: new Vector3(0, -900, 0), grounded: false })
+    const s = controllerStep(lost, input(), 1 / 60, deps(voidWorld))
+    expect(s.mode).toBe('ground')
+    expect(s.position.toArray()).toEqual([0, 0, 0])
+  })
+
+  it('respawns at the last island stood on', () => {
+    const lost = player({ position: new Vector3(0, -900, 0), lastGroundIslandId: 'elsewhere' })
+    expect(controllerStep(lost, input(), 1 / 60, deps(voidWorld)).position.toArray())
+      .toEqual([1, 1, 1])
+  })
+
+  it('respawns rather than propagating non-finite state', () => {
+    const broken = player({ position: new Vector3(NaN, 10, 0) })
+    expect(Number.isFinite(controllerStep(broken, input(), 1 / 60, deps(voidWorld)).position.x))
+      .toBe(true)
+  })
+
+  it('restores breath on respawn', () => {
+    expect(respawn(player({ breath: 3 }), deps(voidWorld)).breath).toBe(100)
+  })
+
+  it('regenerates breath while standing on the ground', () => {
+    expect(controllerStep(player({ breath: 50 }), input(), 1 / 60, deps(flatGround)).breath)
+      .toBeGreaterThan(50)
+  })
+})
+```
+
+- [ ] **Step 2: Run the tests and verify they fail**
+
+Run: `npm test -- src/player/controller.test.ts`
+Expected: FAIL — cannot resolve module `./controller`.
+
+- [ ] **Step 3: Write `src/player/controller.ts`**
+
+```typescript
+import { Vector3 } from 'three'
+import type {
+  FlightConfig, GroundConfig, InputState, PlayerState, TerrainQuery,
+} from '../core/types'
+import { flightStep } from './flight'
+import { steerToward } from './steering'
+import { stepBreath, canThrust } from './breath'
+import { groundStep } from './ground-move'
+
+export interface ControllerDeps {
+  terrain: TerrainQuery
+  flight: FlightConfig
+  ground: GroundConfig
+  worldFloorY: number
+  /** Where to respawn for the given island, or the level spawn when null. */
+  spawnPointFor(islandId: string | null): Vector3
+}
+
+/** Distance below the kite at which touching down counts as landing. */
+const LANDING_PROBE = 2.5
+/** Fraction of horizontal speed kept after a too-fast landing. */
+const STAGGER_RETENTION = 0.3
+
+function isFinitePlayer(s: PlayerState): boolean {
+  const nums = [
+    ...s.position.toArray(), ...s.velocity.toArray(), ...s.forward.toArray(), s.breath,
+  ]
+  return nums.every(Number.isFinite)
+}
+
+export function respawn(state: PlayerState, deps: ControllerDeps): PlayerState {
+  return {
+    ...state,
+    mode: 'ground',
+    position: deps.spawnPointFor(state.lastGroundIslandId),
+    velocity: new Vector3(),
+    forward: new Vector3(0, 0, -1),
+    grounded: true,
+    breath: state.maxBreath,
+  }
+}
+
+export function controllerStep(
+  state: PlayerState,
+  input: InputState,
+  dt: number,
+  deps: ControllerDeps,
+): PlayerState {
+  if (!isFinitePlayer(state)) return respawn(state, deps)
+  if (state.position.y < deps.worldFloorY) return respawn(state, deps)
+
+  let next: PlayerState
+
+  if (state.mode === 'ground') {
+    if (input.actionPressed && !state.grounded) {
+      // Deploy the kite mid-fall. Grounded presses are jumps, handled by groundStep.
+      next = {
+        ...state,
+        mode: 'kite',
+        forward: input.lookDirection.clone().normalize(),
+        position: state.position.clone(),
+        velocity: state.velocity.clone(),
+        grounded: false,
+      }
+    } else {
+      next = groundStep(state, input, dt, deps.terrain, deps.ground)
+    }
+  } else if (input.actionPressed) {
+    next = {
+      ...state, mode: 'ground', grounded: false,
+      position: state.position.clone(),
+      velocity: state.velocity.clone(),
+      forward: state.forward.clone(),
+    }
+  } else {
+    const speed = state.velocity.length()
+    const thrusting = input.forward > 0 && canThrust(state)
+    const forward = steerToward(
+      state.forward, input.lookDirection, speed, input.strafe, dt, deps.flight,
+    )
+    const moved = flightStep(state.position, state.velocity, {
+      forward,
+      thrust: thrusting,
+      flare: input.forward < 0,
+      bank: input.strafe * 0.6,
+    }, dt, deps.flight)
+    const breath = stepBreath(state, thrusting, false, dt, deps.flight)
+
+    next = {
+      ...state, forward,
+      position: moved.position, velocity: moved.velocity,
+      breath: breath.breath, grounded: false,
+    }
+
+    const hit = deps.terrain.raycastDown(next.position, LANDING_PROBE)
+    if (hit) {
+      const landingSpeed = next.velocity.length()
+      next = {
+        ...next, mode: 'ground', grounded: true,
+        position: hit.point.clone(),
+        velocity: landingSpeed <= deps.flight.landingSpeed
+          ? new Vector3()
+          : new Vector3(
+              next.velocity.x * STAGGER_RETENTION, 0, next.velocity.z * STAGGER_RETENTION,
+            ),
+        lastGroundIslandId: hit.islandId,
+      }
+    }
+  }
+
+  // Breath recovers on foot. Flight handles its own drain above.
+  if (state.mode === 'ground' && next.mode === 'ground') {
+    next = { ...next, breath: stepBreath(next, false, next.grounded, dt, deps.flight).breath }
+  }
+
+  return isFinitePlayer(next) ? next : respawn(state, deps)
+}
+```
+
+- [ ] **Step 4: Run the tests and verify they pass**
+
+Run: `npm test -- src/player/controller.test.ts`
+Expected: PASS, 17 tests.
+
+- [ ] **Step 5: Run the whole suite and typecheck**
+
+Run: `npm test && npm run typecheck`
+Expected: all pass. The suite should now be around 140 tests.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/player/controller.ts src/player/controller.test.ts
+git commit -m "Add player controller with mode switching and safety nets"
+```
+
+---
