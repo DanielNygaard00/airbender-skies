@@ -130,6 +130,24 @@ describe('pullInForTerrain', () => {
     expect(dist).toBeGreaterThanOrEqual(2)
   })
 
+  it('leaves the camera alone when the player is below the terrain in that column', () => {
+    // groundHeightAt reports the HIGHEST surface in a column, so a camera flying
+    // under an island reads "terrain in the way" for geometry that is above both
+    // the camera and the player. Lifting there would pin the camera to the
+    // island's roof and drop the player out of frame.
+    const below = new Vector3(0, -60, 0)
+    const desired = new Vector3(0, -56.8, 10)
+    const out = pullInForTerrain(below, desired, groundAt(11.9))
+    expect(out.toArray()).toEqual(desired.toArray())
+    expect(out).not.toBe(desired)
+  })
+
+  it('still lifts when the player is above the terrain and the camera is not', () => {
+    const above = new Vector3(0, 20, 0)
+    const desired = new Vector3(0, 1, 10)
+    expect(pullInForTerrain(above, desired, groundAt(5)).y).toBeGreaterThan(desired.y)
+  })
+
   it('does not return a reference-identical copy on early return', () => {
     const desired = new Vector3(0, 20, 10)
     const out = pullInForTerrain(target, desired, noGround)

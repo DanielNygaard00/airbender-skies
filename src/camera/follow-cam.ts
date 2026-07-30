@@ -38,12 +38,28 @@ export function smoothTowards(
   return current.clone().lerp(desired, MathUtils.clamp(alpha, 0, 1))
 }
 
-/** Lift the camera when terrain would sit between it and the player. */
+/**
+ * Lift the camera when terrain would sit between it and the player.
+ *
+ * This is an approximation, bounded by what `TerrainQuery` can answer.
+ * `groundHeightAt` reports the highest surface in a column, so it cannot say
+ * whether that surface is between the camera and the player or merely somewhere
+ * overhead. Two consequences worth knowing:
+ *
+ *  - When the player is at or below that surface, the terrain is above them
+ *    both and lifting would pin the camera to a roof with the player out of
+ *    frame, so we leave the camera where it is.
+ *  - The arm still does not shorten when it would pass through a terrain wall,
+ *    which is what the spec asks for. Doing that needs a general segment cast
+ *    (`TerrainQuery.raycast(from, direction, maxDistance)`), which does not
+ *    exist yet. Until it does, the camera is permissive rather than wrong.
+ */
 export function pullInForTerrain(
   target: Vector3, desired: Vector3, terrain: TerrainQuery, minDistance = 2,
 ): Vector3 {
   const ground = terrain.groundHeightAt(desired.x, desired.z)
   if (ground === null || desired.y > ground + minDistance) return desired.clone()
+  if (target.y <= ground) return desired.clone()
 
   const lifted = desired.clone()
   lifted.y = ground + minDistance
