@@ -4633,9 +4633,9 @@ import { createStepper } from './core/loop'
 import { InputTracker } from './core/input'
 import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG } from './core/config'
 import { loadSave, writeSave } from './core/save'
-import { buildWorld } from './world/world'
+import { buildWorld, type World } from './world/world'
 import { ARCHIPELAGO } from './world/levels/archipelago'
-import { placeShrines, collectShrinesAt, type Shrine } from './world/shrine'
+import { placeShrines, collectShrinesAt } from './world/shrine'
 import { createPlayerState, spawnPointFor } from './player/state'
 import { controllerStep, type ControllerDeps } from './player/controller'
 import { applyShrineBonus } from './player/breath'
@@ -4654,7 +4654,7 @@ function start(): void {
     return showFallback('Could not find the game canvas.')
   }
 
-  let world
+  let world: World
   try {
     world = buildWorld(ARCHIPELAGO)
   } catch (error) {
@@ -4716,7 +4716,7 @@ function start(): void {
         (acc) => applyShrineBonus(acc, DEFAULT_FLIGHT_CONFIG),
         { breath: player.breath, maxBreath: player.maxBreath },
       )
-      player = { ...player, breath: bonus.maxBreath, maxBreath: bonus.maxBreath }
+      player = { ...player, breath: bonus.breath, maxBreath: bonus.maxBreath }
       writeSave(localStorage, {
         collectedShrines: shrines.filter((s) => s.collected).map((s) => s.id),
         maxBreath: player.maxBreath,
@@ -4767,6 +4767,20 @@ function start(): void {
 
 start()
 ```
+
+`bonus.breath` (not `bonus.maxBreath`) is deliberate: a shrine permanently raises the breath
+ceiling but must not refund the breath already spent getting there, or breath stops being a real
+constraint on how high the player can climb. `applyShrineBonus` (Task 6, `src/player/breath.ts`)
+already returns `breath: Math.min(s.breath, maxBreath)` to preserve current breath — this step
+must consume that value rather than overriding it.
+
+Add `src/world/shrine-collection.test.ts`, pinning that contract at the values a collection event
+actually produces, using `applyShrineBonus` directly against `DEFAULT_FLIGHT_CONFIG`:
+- starting at breath 40 / maxBreath 100, one shrine gives breath 40 and maxBreath 110 — current
+  breath unchanged, ceiling raised.
+- starting at breath 100 / maxBreath 100 (full), one shrine gives breath 100 and maxBreath 110 —
+  a full player is not clamped downward.
+- applying the bonus twice from breath 40 gives maxBreath 120 with breath still 40.
 
 - [ ] **Step 3: Verify the suite, typecheck, and build**
 

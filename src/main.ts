@@ -6,7 +6,7 @@ import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG } from './core/config'
 import { loadSave, writeSave } from './core/save'
 import { buildWorld, type World } from './world/world'
 import { ARCHIPELAGO } from './world/levels/archipelago'
-import { placeShrines, collectShrinesAt, type Shrine } from './world/shrine'
+import { placeShrines, collectShrinesAt } from './world/shrine'
 import { createPlayerState, spawnPointFor } from './player/state'
 import { controllerStep, type ControllerDeps } from './player/controller'
 import { applyShrineBonus } from './player/breath'
@@ -87,7 +87,7 @@ function start(): void {
         (acc) => applyShrineBonus(acc, DEFAULT_FLIGHT_CONFIG),
         { breath: player.breath, maxBreath: player.maxBreath },
       )
-      player = { ...player, breath: bonus.maxBreath, maxBreath: bonus.maxBreath }
+      player = { ...player, breath: bonus.breath, maxBreath: bonus.maxBreath }
       writeSave(localStorage, {
         collectedShrines: shrines.filter((s) => s.collected).map((s) => s.id),
         maxBreath: player.maxBreath,
