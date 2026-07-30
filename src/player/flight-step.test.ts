@@ -135,9 +135,11 @@ describe('flightStep', () => {
   })
 
   it('an unpowered glide still loses energy with a non-zero bank', () => {
-    // Regression: liftDir must stay perpendicular to velocity even when kiteUp
-    // sweeps off vertical under bank, otherwise lift does work along the flight
-    // path and gliding could gain energy instead of losing it.
+    // Covers the ordinary banked path, where liftDir is the projection of kiteUp
+    // off the velocity direction and is perpendicular by construction. It does
+    // NOT reach the degenerate fallback branch, which needs the angle of attack
+    // within 0.0057 degrees of 90; that branch is covered by the vertical-fall
+    // deploy tests below.
     for (const bank of [0.7, -0.7, 1.5, -1.5]) {
       const r = simulate({ pitchDeg: 0, seconds: 4, bank })
       expect(r.endEnergy).toBeLessThan(r.startEnergy)
@@ -160,5 +162,115 @@ describe('flightStep', () => {
       expect(Number.isFinite(r.altitude)).toBe(true)
       expect(Number.isFinite(r.speed)).toBe(true)
     }
+  })
+})
+
+/**
+ * Fly from an explicit velocity rather than one derived from the kite's pitch,
+ * which is what lets these tests set up an exactly vertical fall.
+ */
+function simulateFrom(opts: {
+  velocity: Vector3
+  forward: Vector3
+  seconds: number
+  bank?: number
+  thrust?: boolean
+}) {
+  const { seconds, bank = 0, thrust = false } = opts
+  const forward = opts.forward.clone().normalize()
+  const start = new Vector3(0, 500, 0)
+  let position = start.clone()
+  let velocity = opts.velocity.clone()
+  const dt = 1 / 60
+  for (let t = 0; t < seconds; t += dt) {
+    const next = flightStep(position, velocity, { forward, thrust, flare: false, bank }, dt, C)
+    position = next.position
+    velocity = next.velocity
+  }
+  const displacement = position.clone().sub(start)
+  const heading = new Vector3(forward.x, 0, forward.z)
+  return {
+    displacement,
+    /**
+     * Metres travelled across the ground along the heading. Negative means
+     * going backwards. Deliberately measured against the *horizontal* heading
+     * rather than against `forward` itself: a nose-up kite falling straight
+     * down has a negative projection onto its own pitched forward axis while
+     * not travelling backwards at all.
+     */
+    alongHeading: heading.lengthSq() < 1e-12
+      ? 0
+      : displacement.dot(heading.normalize()),
+    horizontal: Math.hypot(displacement.x, displacement.z),
+    position,
+    velocity,
+  }
+}
+
+/**
+ * Deploying the kite out of a coast is the most common deployment: groundStep
+ * writes horizontal velocity with no inertia, so releasing WASD mid-fall zeroes
+ * x and z exactly, and pressing the action key then hands flightStep a velocity
+ * of exactly (0, vy, 0) with up dot vdir of exactly -1. That is a 90 degree
+ * angle of attack, where lift must be zero and its direction must not matter.
+ */
+describe('flightStep deploying from a vertical fall', () => {
+  const straightDown = () => new Vector3(0, -20, 0)
+  /**
+   * The correct answer for a broadside kite is zero horizontal travel, which
+   * accumulates float noise on the order of 1e-14 over hundreds of steps. This
+   * tolerance admits that noise and nothing else: the bug being pinned moved
+   * the player tens to hundreds of metres.
+   */
+  const BACKWARDS_EPSILON = -1e-9
+
+  it('never travels backwards along the heading', () => {
+    const r = simulateFrom({
+      velocity: straightDown(), forward: new Vector3(0, 0, -1), seconds: 1,
+    })
+    expect(r.alongHeading).toBeGreaterThan(BACKWARDS_EPSILON)
+  })
+
+  it('never travels backwards along the heading over a long fall', () => {
+    const r = simulateFrom({
+      velocity: straightDown(), forward: new Vector3(0, 0, -1), seconds: 10,
+    })
+    expect(r.alongHeading).toBeGreaterThan(BACKWARDS_EPSILON)
+  })
+
+  it('does not glide sideways when banked', () => {
+    for (const bank of [0.02, 0.3, 0.6, 1]) {
+      const r = simulateFrom({
+        velocity: straightDown(), forward: new Vector3(0, 0, -1), seconds: 4, bank,
+      })
+      expect(r.alongHeading).toBeGreaterThan(BACKWARDS_EPSILON)
+      // Broadside to the airflow the kite generates no lift, so it simply falls.
+      expect(r.horizontal).toBeLessThan(1)
+    }
+  })
+
+  it('falls rather than gliding backwards, whatever the nose-up look pitch', () => {
+    for (const pitchDeg of [0, 10, 30]) {
+      const rad = MathUtils.degToRad(pitchDeg)
+      const r = simulateFrom({
+        velocity: straightDown(),
+        forward: new Vector3(0, Math.sin(rad), -Math.cos(rad)),
+        seconds: 4,
+      })
+      expect(r.alongHeading).toBeGreaterThan(BACKWARDS_EPSILON)
+      expect(r.horizontal).toBeLessThan(1)
+      expect(r.position.y).toBeLessThan(500)
+    }
+  })
+
+  it('still glides forward once the player looks down out of the fall', () => {
+    const rad = MathUtils.degToRad(-20)
+    const r = simulateFrom({
+      velocity: straightDown(),
+      forward: new Vector3(0, Math.sin(rad), -Math.cos(rad)),
+      seconds: 4,
+    })
+    expect(r.alongHeading).toBeGreaterThan(0)
+    expect(r.displacement.z).toBeLessThan(0)
   })
 })

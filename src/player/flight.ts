@@ -76,7 +76,13 @@ export function flightStep(
 
   // Lift falls off linearly below stall speed rather than cutting off abruptly.
   const stallFactor = speed < c.stallSpeed ? Math.max(0, speed / c.stallSpeed) : 1
-  const clampedAoa = MathUtils.clamp(effectiveAoa, -1.2, 1.2)
+  // Bound at a quarter turn, which is where sin(2·aoa) reaches zero: a kite held
+  // broadside to the airflow makes pure drag and no lift. Any tighter bound would
+  // make lift plateau near its peak instead of falling away, contradicting the
+  // model above, and would leave near-peak lift pointing in a direction that is
+  // ill-conditioned at exactly 90 degrees. This is a bound on the formula's
+  // domain, not a tuning value.
+  const clampedAoa = MathUtils.clamp(effectiveAoa, -Math.PI / 2, Math.PI / 2)
   const liftMag = c.liftCoeff * speed * speed * Math.sin(2 * clampedAoa) * stallFactor
   const dragMag =
     c.dragCoeff * speed * speed * (1 + c.inducedDragFactor * Math.sin(effectiveAoa) ** 2)
@@ -84,11 +90,17 @@ export function flightStep(
   // Lift acts perpendicular to velocity, in the plane containing the kite's up axis.
   let liftDir = up.clone().addScaledVector(vdir, -up.dot(vdir))
   if (liftDir.lengthSq() < 1e-8) {
-    // up is parallel to velocity, so the projection gives no direction. Any vector
-    // perpendicular to velocity will do, and it MUST be perpendicular: a fallback
-    // with a velocity-parallel component would do work along the flight path and
-    // inject energy, which would break the invariant that gliding never gains height.
-    liftDir = new Vector3().crossVectors(vdir, WORLD_UP)
+    // up is parallel to velocity, so the projection gives no direction. The
+    // fallback has two requirements. It MUST be perpendicular to velocity: a
+    // component along the flight path would do work and inject energy, breaking
+    // the invariant that gliding never gains height. And it must be related to
+    // where the kite points, or lift gets applied in a direction with no bearing
+    // on the player's heading — which is how deploying out of a vertical fall
+    // used to glide backwards. Projecting forward off the velocity direction
+    // satisfies both; the world-axis crosses are only a last resort for when
+    // forward is itself parallel to velocity.
+    liftDir = input.forward.clone().addScaledVector(vdir, -input.forward.dot(vdir))
+    if (liftDir.lengthSq() < 1e-8) liftDir = new Vector3().crossVectors(vdir, WORLD_UP)
     if (liftDir.lengthSq() < 1e-8) liftDir = new Vector3().crossVectors(vdir, FALLBACK_RIGHT)
   }
   liftDir.normalize()
