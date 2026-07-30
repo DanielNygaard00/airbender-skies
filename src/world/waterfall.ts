@@ -15,8 +15,10 @@ export interface WaterfallDef {
   length: number
 }
 
-/** How far in from the silhouette edge to hang the curtain, so it meets the rock. */
-const RIM_INSET = 0.88
+/** Insets to try, outermost first. Noise displacement means the outermost rim
+ *  point often has no ground under it, so stepping inward finds the real edge
+ *  instead of silently dropping the waterfall. */
+const RIM_INSETS = [0.88, 0.84, 0.8, 0.76, 0.72] as const
 /** How far above the found ground the curtain starts, hiding the seam. */
 const LIP_RAISE = 0.6
 const TEXTURE_SIZE = 64
@@ -29,25 +31,30 @@ export function advanceScroll(offset: number, dt: number, speed: number): number
 }
 
 /**
- * Where the curtain hangs and which way it faces. Returns null when the rim
- * point has no ground under it, so a misplaced waterfall is dropped rather
- * than left hanging in mid-air.
+ * Where the curtain hangs and which way it faces. Steps inward through
+ * RIM_INSETS until it finds ground, so noise-displaced silhouettes that miss
+ * the outermost probe still resolve to the real edge. Returns null only when
+ * every inset comes up empty, so a genuinely misplaced waterfall is dropped
+ * rather than left hanging in mid-air.
  */
 export function waterfallAnchor(
   island: IslandDef, def: WaterfallDef, terrain: TerrainQuery,
 ): { position: Vector3; rotationY: number } | null {
-  const reach = island.radius * RIM_INSET
-  const x = island.position.x + Math.cos(def.angle) * reach
-  const z = island.position.z + Math.sin(def.angle) * reach
+  for (const inset of RIM_INSETS) {
+    const reach = island.radius * inset
+    const x = island.position.x + Math.cos(def.angle) * reach
+    const z = island.position.z + Math.sin(def.angle) * reach
 
-  const groundY = terrain.groundHeightAt(x, z)
-  if (groundY === null) return null
+    const groundY = terrain.groundHeightAt(x, z)
+    if (groundY === null) continue
 
-  return {
-    position: new Vector3(x, groundY, z),
-    // Face outward, away from the island centre.
-    rotationY: -def.angle + Math.PI / 2,
+    return {
+      position: new Vector3(x, groundY, z),
+      // Face outward, away from the island centre.
+      rotationY: -def.angle + Math.PI / 2,
+    }
   }
+  return null
 }
 
 /**

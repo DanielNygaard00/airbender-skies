@@ -4942,9 +4942,11 @@ licensed, downloaded, or committed — consistent with the project's CC0-only as
 
 ```typescript
 import { describe, it, expect } from 'vitest'
-import { Vector3 } from 'three'
+import { Mesh, MeshBasicMaterial, Vector3 } from 'three'
 import { waterfallAnchor, advanceScroll, type WaterfallDef } from './waterfall'
-import type { IslandDef } from './island'
+import { createIslandGeometry, type IslandDef } from './island'
+import { createTerrainQuery, type IslandMesh } from './terrain-query'
+import { ARCHIPELAGO } from './levels/archipelago'
 import type { TerrainQuery } from '../core/types'
 
 const island: IslandDef = {
@@ -5025,6 +5027,47 @@ describe('waterfallAnchor', () => {
     expect(a.rotationY).toBeCloseTo(b.rotationY, 10)
   })
 })
+
+describe('waterfallAnchor rim retry', () => {
+  // Ground only under the two innermost insets (0.76, 0.72 of the radius),
+  // so the outermost probes must miss before this returns a hit.
+  const outerMissesInnerHits: TerrainQuery = {
+    groundHeightAt: (x, z) => {
+      const reach = Math.hypot(x - island.position.x, z - island.position.z)
+      return reach <= island.radius * 0.78 ? 25 : null
+    },
+    raycastDown: () => null,
+  }
+
+  it('steps inward and finds ground when the outermost rim point misses', () => {
+    expect(waterfallAnchor(island, def(), outerMissesInnerHits)).not.toBeNull()
+  })
+
+  it('the retried point is still a plausible rim distance from the centre', () => {
+    const anchor = waterfallAnchor(island, def(), outerMissesInnerHits)!
+    const horizontal = Math.hypot(
+      anchor.position.x - island.position.x, anchor.position.z - island.position.z,
+    )
+    expect(horizontal).toBeGreaterThan(island.radius * 0.7)
+  })
+
+  it('still returns null when there is no ground at any inset', () => {
+    const noGroundAnywhere: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+    expect(waterfallAnchor(island, def(), noGroundAnywhere)).toBeNull()
+  })
+
+  it('resolves a real island angle that the single fixed inset used to miss', () => {
+    const home = ARCHIPELAGO.islands.find((i) => i.id === 'ring-east')!
+    const waterfallDef = ARCHIPELAGO.waterfalls.find((w) => w.islandId === 'ring-east')!
+    const mesh = new Mesh(createIslandGeometry(home), new MeshBasicMaterial())
+    mesh.position.copy(home.position)
+    mesh.updateMatrixWorld(true)
+    const islandMesh: IslandMesh = { id: home.id, mesh }
+    const terrain = createTerrainQuery([islandMesh])
+
+    expect(waterfallAnchor(home, waterfallDef, terrain)).not.toBeNull()
+  })
+})
 ```
 
 - [ ] **Step 2: Run and verify it fails**
@@ -5052,8 +5095,10 @@ export interface WaterfallDef {
   length: number
 }
 
-/** How far in from the silhouette edge to hang the curtain, so it meets the rock. */
-const RIM_INSET = 0.88
+/** Insets to try, outermost first. Noise displacement means the outermost rim
+ *  point often has no ground under it, so stepping inward finds the real edge
+ *  instead of silently dropping the waterfall. */
+const RIM_INSETS = [0.88, 0.84, 0.8, 0.76, 0.72] as const
 /** How far above the found ground the curtain starts, hiding the seam. */
 const LIP_RAISE = 0.6
 const TEXTURE_SIZE = 64
@@ -5066,25 +5111,30 @@ export function advanceScroll(offset: number, dt: number, speed: number): number
 }
 
 /**
- * Where the curtain hangs and which way it faces. Returns null when the rim
- * point has no ground under it, so a misplaced waterfall is dropped rather
- * than left hanging in mid-air.
+ * Where the curtain hangs and which way it faces. Steps inward through
+ * RIM_INSETS until it finds ground, so noise-displaced silhouettes that miss
+ * the outermost probe still resolve to the real edge. Returns null only when
+ * every inset comes up empty, so a genuinely misplaced waterfall is dropped
+ * rather than left hanging in mid-air.
  */
 export function waterfallAnchor(
   island: IslandDef, def: WaterfallDef, terrain: TerrainQuery,
 ): { position: Vector3; rotationY: number } | null {
-  const reach = island.radius * RIM_INSET
-  const x = island.position.x + Math.cos(def.angle) * reach
-  const z = island.position.z + Math.sin(def.angle) * reach
+  for (const inset of RIM_INSETS) {
+    const reach = island.radius * inset
+    const x = island.position.x + Math.cos(def.angle) * reach
+    const z = island.position.z + Math.sin(def.angle) * reach
 
-  const groundY = terrain.groundHeightAt(x, z)
-  if (groundY === null) return null
+    const groundY = terrain.groundHeightAt(x, z)
+    if (groundY === null) continue
 
-  return {
-    position: new Vector3(x, groundY + LIP_RAISE, z),
-    // Face outward, away from the island centre.
-    rotationY: -def.angle + Math.PI / 2,
+    return {
+      position: new Vector3(x, groundY, z),
+      // Face outward, away from the island centre.
+      rotationY: -def.angle + Math.PI / 2,
+    }
   }
+  return null
 }
 
 /**
@@ -5134,8 +5184,13 @@ export function createWaterfall(
   })
 
   const mesh = new Mesh(geometry, material)
-  // The plane's origin is its centre, so drop it half its length to hang from the lip.
-  mesh.position.set(anchor.position.x, anchor.position.y - def.length / 2, anchor.position.z)
+  // The plane's origin is its centre, so drop it half its length to hang from the lip,
+  // raised by LIP_RAISE above the found ground so the mesh overlaps the rock and hides the seam.
+  mesh.position.set(
+    anchor.position.x,
+    anchor.position.y + LIP_RAISE - def.length / 2,
+    anchor.position.z,
+  )
   mesh.rotation.y = anchor.rotationY
 
   let offset = 0
@@ -5152,7 +5207,7 @@ export function createWaterfall(
 - [ ] **Step 4: Run and verify it passes**
 
 Run: `npm test -- src/world/waterfall.test.ts`
-Expected: PASS, 12 tests. Note `createWaterfallTexture` and `createWaterfall` touch `document`
+Expected: PASS, 15 tests. Note `createWaterfallTexture` and `createWaterfall` touch `document`
 and are therefore not covered by these tests — the same deliberate split used for the input
 adapter in Task 7. They are verified by eye in Step 8.
 
@@ -5254,7 +5309,13 @@ for (const def of ARCHIPELAGO.waterfalls) {
   const island = ARCHIPELAGO.islands.find((i) => i.id === def.islandId)
   if (!island) continue
   const waterfall = createWaterfall(island, def, world.terrain)
-  if (!waterfall) continue
+  if (!waterfall) {
+    console.warn(
+      `Dropped waterfall on island "${def.islandId}" at angle ${def.angle}: no ground found ` +
+      'at any rim inset.',
+    )
+    continue
+  }
   scene.add(waterfall.mesh)
   waterfalls.push(waterfall)
 }

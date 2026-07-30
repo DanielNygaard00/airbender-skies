@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { Vector3 } from 'three'
+import { Mesh, MeshBasicMaterial, Vector3 } from 'three'
 import { waterfallAnchor, advanceScroll, type WaterfallDef } from './waterfall'
-import type { IslandDef } from './island'
+import { createIslandGeometry, type IslandDef } from './island'
+import { createTerrainQuery, type IslandMesh } from './terrain-query'
+import { ARCHIPELAGO } from './levels/archipelago'
 import type { TerrainQuery } from '../core/types'
 
 const island: IslandDef = {
@@ -80,5 +82,46 @@ describe('waterfallAnchor', () => {
     const b = waterfallAnchor(island, def(), solid)!
     expect(a.position.toArray()).toEqual(b.position.toArray())
     expect(a.rotationY).toBeCloseTo(b.rotationY, 10)
+  })
+})
+
+describe('waterfallAnchor rim retry', () => {
+  // Ground only under the two innermost insets (0.76, 0.72 of the radius),
+  // so the outermost probes must miss before this returns a hit.
+  const outerMissesInnerHits: TerrainQuery = {
+    groundHeightAt: (x, z) => {
+      const reach = Math.hypot(x - island.position.x, z - island.position.z)
+      return reach <= island.radius * 0.78 ? 25 : null
+    },
+    raycastDown: () => null,
+  }
+
+  it('steps inward and finds ground when the outermost rim point misses', () => {
+    expect(waterfallAnchor(island, def(), outerMissesInnerHits)).not.toBeNull()
+  })
+
+  it('the retried point is still a plausible rim distance from the centre', () => {
+    const anchor = waterfallAnchor(island, def(), outerMissesInnerHits)!
+    const horizontal = Math.hypot(
+      anchor.position.x - island.position.x, anchor.position.z - island.position.z,
+    )
+    expect(horizontal).toBeGreaterThan(island.radius * 0.7)
+  })
+
+  it('still returns null when there is no ground at any inset', () => {
+    const noGroundAnywhere: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+    expect(waterfallAnchor(island, def(), noGroundAnywhere)).toBeNull()
+  })
+
+  it('resolves a real island angle that the single fixed inset used to miss', () => {
+    const home = ARCHIPELAGO.islands.find((i) => i.id === 'ring-east')!
+    const waterfallDef = ARCHIPELAGO.waterfalls.find((w) => w.islandId === 'ring-east')!
+    const mesh = new Mesh(createIslandGeometry(home), new MeshBasicMaterial())
+    mesh.position.copy(home.position)
+    mesh.updateMatrixWorld(true)
+    const islandMesh: IslandMesh = { id: home.id, mesh }
+    const terrain = createTerrainQuery([islandMesh])
+
+    expect(waterfallAnchor(home, waterfallDef, terrain)).not.toBeNull()
   })
 })

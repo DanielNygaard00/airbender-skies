@@ -60,7 +60,13 @@ function start(): void {
     const island = ARCHIPELAGO.islands.find((i) => i.id === def.islandId)
     if (!island) continue
     const waterfall = createWaterfall(island, def, world.terrain)
-    if (!waterfall) continue
+    if (!waterfall) {
+      console.warn(
+        `Dropped waterfall on island "${def.islandId}" at angle ${def.angle}: no ground found ` +
+        'at any rim inset.',
+      )
+      continue
+    }
     scene.add(waterfall.mesh)
     waterfalls.push(waterfall)
   }
