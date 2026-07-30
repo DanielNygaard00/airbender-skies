@@ -6,11 +6,11 @@ import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG } from './core/config'
 import { loadSave, writeSave } from './core/save'
 import { buildWorld, type World } from './world/world'
 import { ARCHIPELAGO } from './world/levels/archipelago'
-import { placeShrines, collectShrinesAt } from './world/shrine'
+import { placeShrines } from './world/shrine'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
 import { controllerStep, type ControllerDeps } from './player/controller'
-import { applyShrineBonus } from './player/breath'
+import { collectStep } from './player/shrine-collect'
 import { createAvatar } from './player/avatar'
 import { animationFor } from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
@@ -93,18 +93,14 @@ function start(): void {
     const state = input.sample()
     player = controllerStep(player, state, dt, deps)
 
-    const collected = collectShrinesAt(shrines, player.position)
-    if (collected.length > 0) {
-      for (const id of collected) {
+    const collection = collectStep(player, shrines, DEFAULT_FLIGHT_CONFIG)
+    if (collection.collected.length > 0) {
+      player = collection.player
+      shrines = collection.shrines
+      for (const id of collection.collected) {
         const marker = markers.get(id)
         if (marker) marker.visible = false
       }
-      shrines = shrines.map((s) => (collected.includes(s.id) ? { ...s, collected: true } : s))
-      const bonus = collected.reduce(
-        (acc) => applyShrineBonus(acc, DEFAULT_FLIGHT_CONFIG),
-        { breath: player.breath, maxBreath: player.maxBreath },
-      )
-      player = { ...player, breath: bonus.breath, maxBreath: bonus.maxBreath }
       writeSave(localStorage, {
         collectedShrines: shrines.filter((s) => s.collected).map((s) => s.id),
         maxBreath: player.maxBreath,
