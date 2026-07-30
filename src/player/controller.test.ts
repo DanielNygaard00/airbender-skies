@@ -13,12 +13,16 @@ const flatGround: TerrainQuery = {
 }
 const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
 
-const deps = (terrain: TerrainQuery): ControllerDeps => ({
+const deps = (
+  terrain: TerrainQuery,
+  spawnPointFor?: (id: string | null) => Vector3,
+): ControllerDeps => ({
   terrain,
   flight: DEFAULT_FLIGHT_CONFIG,
   ground: DEFAULT_GROUND_CONFIG,
   worldFloorY: -600,
-  spawnPointFor: (id) => (id === 'flat' ? new Vector3(0, 0, 0) : new Vector3(1, 1, 1)),
+  spawnPointFor:
+    spawnPointFor ?? ((id) => (id === 'flat' ? new Vector3(0, 0, 0) : new Vector3(1, 1, 1))),
 })
 
 const input = (over: Partial<InputState> = {}): InputState => ({
@@ -162,5 +166,55 @@ describe('safety nets', () => {
   it('regenerates breath while standing on the ground', () => {
     expect(controllerStep(player({ breath: 50 }), input(), 1 / 60, deps(flatGround)).breath)
       .toBeGreaterThan(50)
+  })
+
+  it('a NaN maxBreath on the incoming state produces a finite result', () => {
+    const broken = player({ maxBreath: NaN })
+    const s = controllerStep(broken, input(), 1 / 60, deps(voidWorld))
+    expect(Number.isFinite(s.breath)).toBe(true)
+    expect(Number.isFinite(s.maxBreath)).toBe(true)
+    expect(s.maxBreath).toBeGreaterThan(0)
+    expect(s.breath).toBeGreaterThan(0)
+  })
+
+  it('a spawnPointFor that returns a non-finite position still yields a finite result', () => {
+    const brokenSpawn = deps(voidWorld, () => new Vector3(NaN, NaN, NaN))
+    const lost = player({ position: new Vector3(0, -900, 0) })
+    const s = controllerStep(lost, input(), 1 / 60, brokenSpawn)
+    expect(Number.isFinite(s.position.x)).toBe(true)
+    expect(Number.isFinite(s.position.y)).toBe(true)
+    expect(Number.isFinite(s.position.z)).toBe(true)
+    expect(Number.isFinite(s.velocity.length())).toBe(true)
+    expect(Number.isFinite(s.breath)).toBe(true)
+    expect(Number.isFinite(s.maxBreath)).toBe(true)
+  })
+
+  it('a broken spawnPointFor never lets non-finite state escape across repeated frames', () => {
+    const brokenSpawn = deps(voidWorld, () => new Vector3(NaN, NaN, NaN))
+    let s = player({ position: new Vector3(0, -900, 0) })
+    for (let i = 0; i < 10; i++) {
+      s = controllerStep(s, input(), 1 / 60, brokenSpawn)
+      expect(Number.isFinite(s.position.x)).toBe(true)
+      expect(Number.isFinite(s.position.y)).toBe(true)
+      expect(Number.isFinite(s.position.z)).toBe(true)
+      expect(Number.isFinite(s.velocity.x)).toBe(true)
+      expect(Number.isFinite(s.breath)).toBe(true)
+      expect(Number.isFinite(s.maxBreath)).toBe(true)
+    }
+  })
+
+  it('respawn sanitises a NaN maxBreath', () => {
+    const s = respawn(player({ maxBreath: NaN }), deps(voidWorld))
+    expect(Number.isFinite(s.breath)).toBe(true)
+    expect(Number.isFinite(s.maxBreath)).toBe(true)
+    expect(s.maxBreath).toBe(DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
+    expect(s.breath).toBe(DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
+  })
+
+  it('respawn falls back to baseMaxBreath for a non-positive maxBreath', () => {
+    const zero = respawn(player({ maxBreath: 0 }), deps(voidWorld))
+    const negative = respawn(player({ maxBreath: -5 }), deps(voidWorld))
+    expect(zero.maxBreath).toBe(DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
+    expect(negative.maxBreath).toBe(DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
   })
 })

@@ -2493,12 +2493,16 @@ const flatGround: TerrainQuery = {
 }
 const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
 
-const deps = (terrain: TerrainQuery): ControllerDeps => ({
+const deps = (
+  terrain: TerrainQuery,
+  spawnPointFor?: (id: string | null) => Vector3,
+): ControllerDeps => ({
   terrain,
   flight: DEFAULT_FLIGHT_CONFIG,
   ground: DEFAULT_GROUND_CONFIG,
   worldFloorY: -600,
-  spawnPointFor: (id) => (id === 'flat' ? new Vector3(0, 0, 0) : new Vector3(1, 1, 1)),
+  spawnPointFor:
+    spawnPointFor ?? ((id) => (id === 'flat' ? new Vector3(0, 0, 0) : new Vector3(1, 1, 1))),
 })
 
 const input = (over: Partial<InputState> = {}): InputState => ({
@@ -2643,6 +2647,56 @@ describe('safety nets', () => {
     expect(controllerStep(player({ breath: 50 }), input(), 1 / 60, deps(flatGround)).breath)
       .toBeGreaterThan(50)
   })
+
+  it('a NaN maxBreath on the incoming state produces a finite result', () => {
+    const broken = player({ maxBreath: NaN })
+    const s = controllerStep(broken, input(), 1 / 60, deps(voidWorld))
+    expect(Number.isFinite(s.breath)).toBe(true)
+    expect(Number.isFinite(s.maxBreath)).toBe(true)
+    expect(s.maxBreath).toBeGreaterThan(0)
+    expect(s.breath).toBeGreaterThan(0)
+  })
+
+  it('a spawnPointFor that returns a non-finite position still yields a finite result', () => {
+    const brokenSpawn = deps(voidWorld, () => new Vector3(NaN, NaN, NaN))
+    const lost = player({ position: new Vector3(0, -900, 0) })
+    const s = controllerStep(lost, input(), 1 / 60, brokenSpawn)
+    expect(Number.isFinite(s.position.x)).toBe(true)
+    expect(Number.isFinite(s.position.y)).toBe(true)
+    expect(Number.isFinite(s.position.z)).toBe(true)
+    expect(Number.isFinite(s.velocity.length())).toBe(true)
+    expect(Number.isFinite(s.breath)).toBe(true)
+    expect(Number.isFinite(s.maxBreath)).toBe(true)
+  })
+
+  it('a broken spawnPointFor never lets non-finite state escape across repeated frames', () => {
+    const brokenSpawn = deps(voidWorld, () => new Vector3(NaN, NaN, NaN))
+    let s = player({ position: new Vector3(0, -900, 0) })
+    for (let i = 0; i < 10; i++) {
+      s = controllerStep(s, input(), 1 / 60, brokenSpawn)
+      expect(Number.isFinite(s.position.x)).toBe(true)
+      expect(Number.isFinite(s.position.y)).toBe(true)
+      expect(Number.isFinite(s.position.z)).toBe(true)
+      expect(Number.isFinite(s.velocity.x)).toBe(true)
+      expect(Number.isFinite(s.breath)).toBe(true)
+      expect(Number.isFinite(s.maxBreath)).toBe(true)
+    }
+  })
+
+  it('respawn sanitises a NaN maxBreath', () => {
+    const s = respawn(player({ maxBreath: NaN }), deps(voidWorld))
+    expect(Number.isFinite(s.breath)).toBe(true)
+    expect(Number.isFinite(s.maxBreath)).toBe(true)
+    expect(s.maxBreath).toBe(DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
+    expect(s.breath).toBe(DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
+  })
+
+  it('respawn falls back to baseMaxBreath for a non-positive maxBreath', () => {
+    const zero = respawn(player({ maxBreath: 0 }), deps(voidWorld))
+    const negative = respawn(player({ maxBreath: -5 }), deps(voidWorld))
+    expect(zero.maxBreath).toBe(DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
+    expect(negative.maxBreath).toBe(DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
+  })
 })
 ```
 
@@ -2679,12 +2733,18 @@ const STAGGER_RETENTION = 0.3
 
 function isFinitePlayer(s: PlayerState): boolean {
   const nums = [
-    ...s.position.toArray(), ...s.velocity.toArray(), ...s.forward.toArray(), s.breath,
+    ...s.position.toArray(), ...s.velocity.toArray(), ...s.forward.toArray(),
+    s.breath, s.maxBreath,
   ]
   return nums.every(Number.isFinite)
 }
 
 export function respawn(state: PlayerState, deps: ControllerDeps): PlayerState {
+  // A corrupt maxBreath would otherwise be laundered into breath and escape the guard.
+  const maxBreath =
+    Number.isFinite(state.maxBreath) && state.maxBreath > 0
+      ? state.maxBreath
+      : deps.flight.baseMaxBreath
   return {
     ...state,
     mode: 'ground',
@@ -2692,7 +2752,29 @@ export function respawn(state: PlayerState, deps: ControllerDeps): PlayerState {
     velocity: new Vector3(),
     forward: new Vector3(0, 0, -1),
     grounded: true,
-    breath: state.maxBreath,
+    breath: maxBreath,
+    maxBreath,
+  }
+}
+
+/**
+ * Respawn, then verify the result. spawnPointFor is injected, so a caller bug
+ * could hand us a non-finite position; without this check the corrupted state
+ * would be returned and re-corrupted every frame thereafter.
+ */
+function safeRespawn(state: PlayerState, deps: ControllerDeps): PlayerState {
+  const respawned = respawn(state, deps)
+  if (isFinitePlayer(respawned)) return respawned
+  console.warn('spawnPointFor returned a non-finite position; falling back to the origin.')
+  return {
+    mode: 'ground',
+    position: new Vector3(),
+    velocity: new Vector3(),
+    forward: new Vector3(0, 0, -1),
+    breath: deps.flight.baseMaxBreath,
+    maxBreath: deps.flight.baseMaxBreath,
+    grounded: false,
+    lastGroundIslandId: null,
   }
 }
 
@@ -2702,8 +2784,8 @@ export function controllerStep(
   dt: number,
   deps: ControllerDeps,
 ): PlayerState {
-  if (!isFinitePlayer(state)) return respawn(state, deps)
-  if (state.position.y < deps.worldFloorY) return respawn(state, deps)
+  if (!isFinitePlayer(state)) return safeRespawn(state, deps)
+  if (state.position.y < deps.worldFloorY) return safeRespawn(state, deps)
 
   let next: PlayerState
 
@@ -2769,19 +2851,19 @@ export function controllerStep(
     next = { ...next, breath: stepBreath(next, false, next.grounded, dt, deps.flight).breath }
   }
 
-  return isFinitePlayer(next) ? next : respawn(state, deps)
+  return isFinitePlayer(next) ? next : safeRespawn(state, deps)
 }
 ```
 
 - [ ] **Step 4: Run the tests and verify they pass**
 
 Run: `npm test -- src/player/controller.test.ts`
-Expected: PASS, 17 tests.
+Expected: PASS, 22 tests.
 
 - [ ] **Step 5: Run the whole suite and typecheck**
 
 Run: `npm test && npm run typecheck`
-Expected: all pass. The suite should now be around 140 tests.
+Expected: all pass. The suite should now be around 148 tests.
 
 - [ ] **Step 6: Commit**
 

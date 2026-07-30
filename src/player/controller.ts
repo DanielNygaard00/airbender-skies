@@ -23,12 +23,18 @@ const STAGGER_RETENTION = 0.3
 
 function isFinitePlayer(s: PlayerState): boolean {
   const nums = [
-    ...s.position.toArray(), ...s.velocity.toArray(), ...s.forward.toArray(), s.breath,
+    ...s.position.toArray(), ...s.velocity.toArray(), ...s.forward.toArray(),
+    s.breath, s.maxBreath,
   ]
   return nums.every(Number.isFinite)
 }
 
 export function respawn(state: PlayerState, deps: ControllerDeps): PlayerState {
+  // A corrupt maxBreath would otherwise be laundered into breath and escape the guard.
+  const maxBreath =
+    Number.isFinite(state.maxBreath) && state.maxBreath > 0
+      ? state.maxBreath
+      : deps.flight.baseMaxBreath
   return {
     ...state,
     mode: 'ground',
@@ -36,7 +42,29 @@ export function respawn(state: PlayerState, deps: ControllerDeps): PlayerState {
     velocity: new Vector3(),
     forward: new Vector3(0, 0, -1),
     grounded: true,
-    breath: state.maxBreath,
+    breath: maxBreath,
+    maxBreath,
+  }
+}
+
+/**
+ * Respawn, then verify the result. spawnPointFor is injected, so a caller bug
+ * could hand us a non-finite position; without this check the corrupted state
+ * would be returned and re-corrupted every frame thereafter.
+ */
+function safeRespawn(state: PlayerState, deps: ControllerDeps): PlayerState {
+  const respawned = respawn(state, deps)
+  if (isFinitePlayer(respawned)) return respawned
+  console.warn('spawnPointFor returned a non-finite position; falling back to the origin.')
+  return {
+    mode: 'ground',
+    position: new Vector3(),
+    velocity: new Vector3(),
+    forward: new Vector3(0, 0, -1),
+    breath: deps.flight.baseMaxBreath,
+    maxBreath: deps.flight.baseMaxBreath,
+    grounded: false,
+    lastGroundIslandId: null,
   }
 }
 
@@ -46,8 +74,8 @@ export function controllerStep(
   dt: number,
   deps: ControllerDeps,
 ): PlayerState {
-  if (!isFinitePlayer(state)) return respawn(state, deps)
-  if (state.position.y < deps.worldFloorY) return respawn(state, deps)
+  if (!isFinitePlayer(state)) return safeRespawn(state, deps)
+  if (state.position.y < deps.worldFloorY) return safeRespawn(state, deps)
 
   let next: PlayerState
 
@@ -113,5 +141,5 @@ export function controllerStep(
     next = { ...next, breath: stepBreath(next, false, next.grounded, dt, deps.flight).breath }
   }
 
-  return isFinitePlayer(next) ? next : respawn(state, deps)
+  return isFinitePlayer(next) ? next : safeRespawn(state, deps)
 }
