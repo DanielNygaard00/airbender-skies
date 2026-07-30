@@ -167,10 +167,20 @@ Gliding needs no input at all — gravity and lift carry the player forward. `W`
 acceleration on top of that, and it is the only breath cost in flight. There is no separate
 boost key: sustained thrust and boost are the same verb.
 
-The integration approximately conserves energy, which produces the central skill expression:
-dive to build airspeed, then pull up to convert that airspeed back into altitude. Chaining
-dive-and-climb cycles lets a skilled player reach islands that thrust alone cannot, without
-making thrust feel useless.
+The integration approximately conserves energy — a prototype measured 4.3% loss over a five
+second unpowered glide — which produces the central skill expression: the **zoom climb**. A
+dive builds airspeed, and pulling up converts that airspeed into height, carrying the player
+roughly thirty metres above the point where the pull-up began.
+
+A zoom climb is net-lossy, and this is deliberate. Measured from the prototype, a dive costs
+about 57 metres of altitude and the following climb buys back about 29, so the player ends the
+cycle both lower and slower. Gliding is therefore a way to spend height on distance and on
+brief bursts of reach, never a way to gain height for free.
+
+**Thrust is the only source of net altitude**, and thrust costs breath. This is what makes air
+shrines the real progression gate: raising maximum breath is what extends how far upward the
+player can go, while gliding skill determines how efficiently they spend what they have. The
+two systems reinforce each other rather than competing.
 
 Landing below a threshold speed stows the kite cleanly. Landing above it causes a stagger
 animation with no damage.
