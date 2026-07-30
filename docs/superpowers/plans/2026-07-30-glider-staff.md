@@ -271,9 +271,12 @@ Builds the staff and the two fans, and animates both from `openness`. Three.js m
 **Interfaces:**
 - Consumes: `advanceOpenness`, `easeOpenness`, `panelAngle`, `OPEN_SECONDS`, `PANELS_PER_SIDE`, `FAN_SPREAD` from Task 1.
 - Produces:
-  - `createGlider(): { object: Object3D; update(dt: number, deployed: boolean): void; opennessForTest(): number }`
+  - `createGlider(): { object: Object3D; update(dt: number, deployed: boolean): void; openness(): number }`
 
-`opennessForTest` exists so the tests can assert the animation settled without reaching into the closure. It is read-only and cheap; leave it exported.
+`openness()` is a plain read of the object's own state, not test scaffolding — the tests use it to
+assert the animation settled, but it is equally the accessor a debug overlay or a future HUD
+readout would want. Keeping it a legitimate getter rather than a `…ForTest` method is deliberate:
+test-only members on production objects are a defect, and this needs to be neither.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -305,7 +308,7 @@ describe('createGlider assembly', () => {
   })
 
   it('starts stowed', () => {
-    expect(createGlider().opennessForTest()).toBe(0)
+    expect(createGlider().openness()).toBe(0)
   })
 
   it('has a staff plus one fan root per side', () => {
@@ -363,7 +366,7 @@ describe('createGlider assembly', () => {
     const glider = createGlider()
     settle(glider, true)
     settle(glider, false)
-    expect(glider.opennessForTest()).toBe(0)
+    expect(glider.openness()).toBe(0)
     expect(span(glider).z).toBeCloseTo(stowed.z, 5)
   })
 
@@ -437,7 +440,7 @@ function createPanelGeometry(): BufferGeometry {
 export function createGlider(): {
   object: Object3D
   update(dt: number, deployed: boolean): void
-  opennessForTest(): number
+  openness(): number
 } {
   const object = new Group()
 
@@ -493,7 +496,7 @@ export function createGlider(): {
       openness = advanceOpenness(openness, deployed, dt, OPEN_SECONDS)
       apply()
     },
-    opennessForTest: () => openness,
+    openness: () => openness,
   }
 }
 ```
