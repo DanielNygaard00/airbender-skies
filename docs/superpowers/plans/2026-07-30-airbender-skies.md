@@ -4747,3 +4747,390 @@ Two ways to run this plan:
 
 Tasks 1–13 and 15–19 are pure logic with a hard pass/fail signal. Task 14 and Task 20 need a human at a browser, so expect to stop there regardless of which mode is used.
 
+---
+
+### Task 21: Waterfalls
+
+Added after the plan was written, at the user's request. Water spilling off an island's rim and
+dissolving into the void below is the signature image of a floating archipelago, and it costs
+almost nothing because it needs no new assets and no gameplay changes.
+
+**Runs after Task 20**, not inserted mid-plan: waterfalls are pure scenery with no effect on
+flight, and by the end of Task 20 the renderer, fog, camera profiles and field-of-view kick are
+all settled — so the look gets tuned once against the finished image rather than re-tuned when
+Task 20 changes it.
+
+**Scope boundary:** decorative only. Waterfalls have no collision, do not affect flight, do not
+consume or restore breath, and are not collectible. The player flies straight through them.
+
+**Files:**
+- Create: `src/world/waterfall.ts`
+- Modify: `src/world/level.ts` (add `WaterfallDef`, extend `Level`, validate)
+- Modify: `src/world/levels/archipelago.ts` (add waterfall entries)
+- Modify: `src/main.ts` (build the meshes, advance the scroll each frame)
+- Test: `src/world/waterfall.test.ts`
+- Modify: `src/world/level.test.ts` (validation cases for the new field)
+
+**Interfaces:**
+- Consumes: `IslandDef` (Task 8), `TerrainQuery` (Task 9), `Level` (Task 10), `seededNoise2D` (Task 2).
+- Produces:
+  - `interface WaterfallDef { islandId: string; angle: number; width: number; length: number }` — `angle` in radians around the island's rim, `length` in metres of visible fall before it fades out.
+  - `waterfallAnchor(island: IslandDef, def: WaterfallDef, terrain: TerrainQuery): { position: Vector3; rotationY: number } | null` — where the curtain hangs and which way it faces. Returns `null` if the rim point has no ground, so a misplaced waterfall is dropped rather than left hanging in the air.
+  - `advanceScroll(offset: number, dt: number, speed: number): number` — the scrolling texture offset, wrapped into `[0, 1)`.
+  - `createWaterfallTexture(seed: number): CanvasTexture` — vertical streaks generated in code, seeded, so no image asset is needed and the result is reproducible.
+  - `createWaterfall(island: IslandDef, def: WaterfallDef, terrain: TerrainQuery): { mesh: Mesh; advance(dt: number): void } | null`
+
+**Why a scrolling curtain rather than particles:** a translucent quad with a vertically scrolling
+texture is one draw call and needs no simulation, which suits scenery that may be visible from a
+long way off. A GPU particle system would look better up close and cost far more for something the
+player mostly sees from a distance. The texture is generated procedurally so nothing has to be
+licensed, downloaded, or committed — consistent with the project's CC0-only asset rule.
+
+- [ ] **Step 1: Write the failing tests**
+
+`src/world/waterfall.test.ts`:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { Vector3 } from 'three'
+import { waterfallAnchor, advanceScroll, type WaterfallDef } from './waterfall'
+import type { IslandDef } from './island'
+import type { TerrainQuery } from '../core/types'
+
+const island: IslandDef = {
+  id: 'home', position: new Vector3(100, 20, -50), radius: 40, height: 30,
+  biome: 'grass', noiseSeed: 1,
+}
+const def = (over: Partial<WaterfallDef> = {}): WaterfallDef => ({
+  islandId: 'home', angle: 0, width: 8, length: 60, ...over,
+})
+
+const solid: TerrainQuery = {
+  groundHeightAt: () => 25,
+  raycastDown: (from) => ({
+    point: new Vector3(from.x, 25, from.z), normal: new Vector3(0, 1, 0), islandId: 'home',
+  }),
+}
+const empty: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+
+describe('advanceScroll', () => {
+  it('advances with time', () => {
+    expect(advanceScroll(0, 1, 0.25)).toBeCloseTo(0.25, 6)
+  })
+
+  it('wraps back into the unit range instead of growing without bound', () => {
+    expect(advanceScroll(0.9, 1, 0.25)).toBeCloseTo(0.15, 6)
+  })
+
+  it('stays within the unit range over a long run', () => {
+    let offset = 0
+    for (let i = 0; i < 10000; i++) offset = advanceScroll(offset, 1 / 60, 1.4)
+    expect(offset).toBeGreaterThanOrEqual(0)
+    expect(offset).toBeLessThan(1)
+  })
+
+  it('does not move when time does not pass', () => {
+    expect(advanceScroll(0.4, 0, 1.4)).toBeCloseTo(0.4, 6)
+  })
+})
+
+describe('waterfallAnchor', () => {
+  it('places the curtain out at the island rim, not at its centre', () => {
+    const anchor = waterfallAnchor(island, def(), solid)!
+    const horizontal = Math.hypot(
+      anchor.position.x - island.position.x, anchor.position.z - island.position.z,
+    )
+    expect(horizontal).toBeGreaterThan(island.radius * 0.7)
+  })
+
+  it('puts the curtain at the ground height it found', () => {
+    expect(waterfallAnchor(island, def(), solid)!.position.y).toBeCloseTo(25, 5)
+  })
+
+  it('faces outward, so the angle follows the rim position', () => {
+    const north = waterfallAnchor(island, def({ angle: 0 }), solid)!
+    const east = waterfallAnchor(island, def({ angle: Math.PI / 2 }), solid)!
+    expect(north.rotationY).not.toBeCloseTo(east.rotationY, 3)
+  })
+
+  it('moves around the rim as the angle changes', () => {
+    const a = waterfallAnchor(island, def({ angle: 0 }), solid)!
+    const b = waterfallAnchor(island, def({ angle: Math.PI }), solid)!
+    expect(a.position.distanceTo(b.position)).toBeGreaterThan(island.radius)
+  })
+
+  it('returns null when the rim point has no ground beneath it', () => {
+    expect(waterfallAnchor(island, def(), empty)).toBeNull()
+  })
+
+  it('does not mutate the island position it is given', () => {
+    waterfallAnchor(island, def(), solid)
+    expect(island.position.toArray()).toEqual([100, 20, -50])
+  })
+
+  it('is deterministic for the same inputs', () => {
+    const a = waterfallAnchor(island, def(), solid)!
+    const b = waterfallAnchor(island, def(), solid)!
+    expect(a.position.toArray()).toEqual(b.position.toArray())
+    expect(a.rotationY).toBeCloseTo(b.rotationY, 10)
+  })
+})
+```
+
+- [ ] **Step 2: Run and verify it fails**
+
+Run: `npm test -- src/world/waterfall.test.ts`
+Expected: FAIL — cannot resolve module `./waterfall`.
+
+- [ ] **Step 3: Write `src/world/waterfall.ts`**
+
+```typescript
+import {
+  Mesh, PlaneGeometry, MeshBasicMaterial, CanvasTexture, RepeatWrapping,
+  Vector3, DoubleSide, type Texture,
+} from 'three'
+import type { IslandDef } from './island'
+import type { TerrainQuery } from '../core/types'
+import { mulberry32 } from '../core/rng'
+
+export interface WaterfallDef {
+  islandId: string
+  /** Radians around the island rim, measured from +X toward +Z. */
+  angle: number
+  width: number
+  /** Metres of visible fall before it fades out. */
+  length: number
+}
+
+/** How far in from the silhouette edge to hang the curtain, so it meets the rock. */
+const RIM_INSET = 0.88
+/** How far above the found ground the curtain starts, hiding the seam. */
+const LIP_RAISE = 0.6
+const TEXTURE_SIZE = 64
+const SCROLL_SPEED = 1.4
+
+/** Scrolling texture offset, wrapped so it never grows without bound. */
+export function advanceScroll(offset: number, dt: number, speed: number): number {
+  const next = (offset + dt * speed) % 1
+  return next < 0 ? next + 1 : next
+}
+
+/**
+ * Where the curtain hangs and which way it faces. Returns null when the rim
+ * point has no ground under it, so a misplaced waterfall is dropped rather
+ * than left hanging in mid-air.
+ */
+export function waterfallAnchor(
+  island: IslandDef, def: WaterfallDef, terrain: TerrainQuery,
+): { position: Vector3; rotationY: number } | null {
+  const reach = island.radius * RIM_INSET
+  const x = island.position.x + Math.cos(def.angle) * reach
+  const z = island.position.z + Math.sin(def.angle) * reach
+
+  const groundY = terrain.groundHeightAt(x, z)
+  if (groundY === null) return null
+
+  return {
+    position: new Vector3(x, groundY + LIP_RAISE, z),
+    // Face outward, away from the island centre.
+    rotationY: -def.angle + Math.PI / 2,
+  }
+}
+
+/**
+ * Vertical streaks generated in code rather than loaded, so the effect needs no
+ * asset and no licence. Seeded, so it is reproducible.
+ */
+export function createWaterfallTexture(seed: number): CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = TEXTURE_SIZE
+  canvas.height = TEXTURE_SIZE
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Could not get a 2D context for the waterfall texture')
+
+  const random = mulberry32(seed)
+  ctx.fillStyle = 'rgba(226, 244, 255, 0.30)'
+  ctx.fillRect(0, 0, TEXTURE_SIZE, TEXTURE_SIZE)
+
+  for (let i = 0; i < 26; i++) {
+    const x = Math.floor(random() * TEXTURE_SIZE)
+    const height = TEXTURE_SIZE * (0.3 + random() * 0.7)
+    const y = random() * TEXTURE_SIZE
+    ctx.fillStyle = `rgba(255, 255, 255, ${0.25 + random() * 0.5})`
+    ctx.fillRect(x, y, 1 + Math.floor(random() * 2), height)
+  }
+
+  const texture = new CanvasTexture(canvas)
+  texture.wrapS = RepeatWrapping
+  texture.wrapT = RepeatWrapping
+  return texture
+}
+
+/** A curtain of falling water, or null if it has nowhere to hang. */
+export function createWaterfall(
+  island: IslandDef, def: WaterfallDef, terrain: TerrainQuery,
+): { mesh: Mesh; advance(dt: number): void } | null {
+  const anchor = waterfallAnchor(island, def, terrain)
+  if (!anchor) return null
+
+  const geometry = new PlaneGeometry(def.width, def.length)
+  const texture: Texture = createWaterfallTexture(island.noiseSeed)
+  // Repeat vertically so the streaks tile as the offset scrolls.
+  texture.repeat.set(1, Math.max(1, Math.round(def.length / def.width)))
+
+  const material = new MeshBasicMaterial({
+    map: texture, transparent: true, opacity: 0.55,
+    side: DoubleSide, depthWrite: false,
+  })
+
+  const mesh = new Mesh(geometry, material)
+  // The plane's origin is its centre, so drop it half its length to hang from the lip.
+  mesh.position.set(anchor.position.x, anchor.position.y - def.length / 2, anchor.position.z)
+  mesh.rotation.y = anchor.rotationY
+
+  let offset = 0
+  return {
+    mesh,
+    advance(dt: number): void {
+      offset = advanceScroll(offset, dt, SCROLL_SPEED)
+      texture.offset.y = -offset
+    },
+  }
+}
+```
+
+- [ ] **Step 4: Run and verify it passes**
+
+Run: `npm test -- src/world/waterfall.test.ts`
+Expected: PASS, 12 tests. Note `createWaterfallTexture` and `createWaterfall` touch `document`
+and are therefore not covered by these tests — the same deliberate split used for the input
+adapter in Task 7. They are verified by eye in Step 8.
+
+- [ ] **Step 5: Extend the level format**
+
+In `src/world/level.ts`, add the import and the field:
+
+```typescript
+import type { WaterfallDef } from './waterfall'
+```
+
+Add to `Level`:
+
+```typescript
+  waterfalls: WaterfallDef[]
+```
+
+And inside `validateLevel`, after the shrine reference check, add:
+
+```typescript
+  for (const waterfall of level.waterfalls) {
+    if (!ids.has(waterfall.islandId)) {
+      throw new Error(
+        `Level "${level.id}" waterfall references unknown island "${waterfall.islandId}"`,
+      )
+    }
+    if (!(waterfall.width > 0)) {
+      throw new Error(`Waterfall on "${waterfall.islandId}" must have width > 0`)
+    }
+    if (!(waterfall.length > 0)) {
+      throw new Error(`Waterfall on "${waterfall.islandId}" must have length > 0`)
+    }
+  }
+```
+
+- [ ] **Step 6: Add the validation tests**
+
+Append to `src/world/level.test.ts`. Note the existing `base()` helper needs `waterfalls: []`
+added to it, and the `ARCHIPELAGO` block gains one case:
+
+```typescript
+describe('waterfall validation', () => {
+  it('rejects a waterfall on an unknown island', () => {
+    expect(() => validateLevel({
+      ...base(), waterfalls: [{ islandId: 'ghost', angle: 0, width: 8, length: 60 }],
+    })).toThrow(/waterfall references unknown island "ghost"/)
+  })
+
+  it('rejects a non-positive width', () => {
+    expect(() => validateLevel({
+      ...base(), waterfalls: [{ islandId: 'a', angle: 0, width: 0, length: 60 }],
+    })).toThrow(/width > 0/)
+  })
+
+  it('rejects a non-positive length', () => {
+    expect(() => validateLevel({
+      ...base(), waterfalls: [{ islandId: 'a', angle: 0, width: 8, length: -1 }],
+    })).toThrow(/length > 0/)
+  })
+
+  it('accepts a level with no waterfalls at all', () => {
+    expect(() => validateLevel({ ...base(), waterfalls: [] })).not.toThrow()
+  })
+
+  it('ARCHIPELAGO waterfalls all reference real islands', () => {
+    const ids = new Set(ARCHIPELAGO.islands.map((i) => i.id))
+    for (const w of ARCHIPELAGO.waterfalls) expect(ids.has(w.islandId)).toBe(true)
+  })
+})
+```
+
+- [ ] **Step 7: Add waterfalls to the archipelago**
+
+In `src/world/levels/archipelago.ts`, add the field to `ARCHIPELAGO`. Placed on the larger,
+wetter islands only — the bare `rock` islands and the `temple` spire stay dry, which makes the
+biomes read as different places rather than decorated copies:
+
+```typescript
+  waterfalls: [
+    { islandId: 'home', angle: 2.1, width: 10, length: 90 },
+    { islandId: 'home', angle: 4.4, width: 6, length: 70 },
+    { islandId: 'ring-east', angle: 0.7, width: 8, length: 80 },
+    { islandId: 'ring-south', angle: 3.5, width: 7, length: 75 },
+    { islandId: 'ring-west', angle: 5.2, width: 9, length: 85 },
+    { islandId: 'rest', angle: 1.2, width: 5, length: 55 },
+  ],
+```
+
+- [ ] **Step 8: Wire them into `src/main.ts` and verify by eye**
+
+Add the import, build the waterfalls alongside the shrines, and advance them in `update`:
+
+```typescript
+import { createWaterfall } from './world/waterfall'
+
+// ...after the shrine markers are built:
+const waterfalls: { advance(dt: number): void }[] = []
+for (const def of ARCHIPELAGO.waterfalls) {
+  const island = ARCHIPELAGO.islands.find((i) => i.id === def.islandId)
+  if (!island) continue
+  const waterfall = createWaterfall(island, def, world.terrain)
+  if (!waterfall) continue
+  scene.add(waterfall.mesh)
+  waterfalls.push(waterfall)
+}
+
+// ...inside update(dt), near the shrine marker rotation:
+for (const waterfall of waterfalls) waterfall.advance(dt)
+```
+
+Then run `npm run dev` and confirm:
+
+- [ ] Water curtains hang from the rim of `home`, the three `ring-*` islands, and `rest`.
+- [ ] The `climb-*` islands and `spire` have none.
+- [ ] The texture scrolls downward, and the speed reads as falling water rather than sliding wallpaper.
+- [ ] Each curtain meets the rock at its top with no visible gap.
+- [ ] Curtains are visible from a distance and fade into the fog with everything else.
+- [ ] Flying straight through a waterfall passes through it with no collision and no stutter.
+- [ ] Frame rate is unchanged — six extra transparent draw calls should not register.
+- [ ] The console is free of errors.
+
+- [ ] **Step 9: Run the whole suite, typecheck, build, and commit**
+
+Run: `npm test && npm run typecheck && npm run build`
+
+```bash
+git add -A
+git commit -m "Add scrolling waterfalls to the island scenery"
+git push
+```
+
