@@ -43,11 +43,16 @@ export function pullInForTerrain(
   target: Vector3, desired: Vector3, terrain: TerrainQuery, minDistance = 2,
 ): Vector3 {
   const ground = terrain.groundHeightAt(desired.x, desired.z)
-  if (ground === null || desired.y > ground + minDistance) return desired
+  if (ground === null || desired.y > ground + minDistance) return desired.clone()
 
   const lifted = desired.clone()
   lifted.y = ground + minDistance
   const toTarget = target.clone().sub(lifted)
+  if (toTarget.lengthSq() < 1e-12) {
+    // The lifted camera landed exactly on the player. Any direction will do;
+    // back off along world +Z so the result stays a sane distance away.
+    return target.clone().add(new Vector3(0, 0, minDistance))
+  }
   if (toTarget.length() < minDistance) {
     return target.clone().addScaledVector(toTarget.normalize(), -minDistance)
   }

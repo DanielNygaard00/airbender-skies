@@ -3423,12 +3423,24 @@ describe('smoothTowards', () => {
     const d = new Vector3(10, 0, 0)
     for (let i = 0; i < 120; i++) fast = smoothTowards(fast, d, 9, 1 / 120)
     for (let i = 0; i < 60; i++) slow = smoothTowards(slow, d, 9, 1 / 60)
-    expect(Math.abs(fast.x - slow.x)).toBeLessThan(0.2)
+    expect(Math.abs(fast.x - slow.x)).toBeLessThan(0.01)
   })
 
   it('never overshoots the target', () => {
     expect(smoothTowards(new Vector3(), new Vector3(10, 0, 0), 1000, 1).x)
       .toBeLessThanOrEqual(10)
+  })
+
+  it('does not mutate the current vector', () => {
+    const c = new Vector3(0, 0, 0)
+    smoothTowards(c, new Vector3(10, 0, 0), 9, 1 / 60)
+    expect(c.toArray()).toEqual([0, 0, 0])
+  })
+
+  it('does not mutate the desired vector', () => {
+    const d = new Vector3(10, 0, 0)
+    smoothTowards(new Vector3(0, 0, 0), d, 9, 1 / 60)
+    expect(d.toArray()).toEqual([10, 0, 0])
   })
 })
 
@@ -3453,6 +3465,35 @@ describe('pullInForTerrain', () => {
   it('never returns a non-finite position', () => {
     const out = pullInForTerrain(target, new Vector3(0, 19, 0), groundAt(19))
     expect(Number.isFinite(out.x + out.y + out.z)).toBe(true)
+  })
+
+  it('handles the zero-length case when lifted camera lands on player', () => {
+    // Target at y=20, ground at y=18, minDistance=2, so lifted would be at y=20.
+    // This makes toTarget = (0, 0, 0), a degenerate case.
+    const out = pullInForTerrain(target, new Vector3(0, 18, 0), groundAt(18))
+    expect(Number.isFinite(out.x + out.y + out.z)).toBe(true)
+    const dist = out.clone().sub(target).length()
+    expect(dist).toBeGreaterThanOrEqual(2)
+  })
+
+  it('does not return a reference-identical copy on early return', () => {
+    const desired = new Vector3(0, 20, 10)
+    const out = pullInForTerrain(target, desired, noGround)
+    expect(out).not.toBe(desired)
+  })
+
+  it('does not mutate the target vector', () => {
+    const t = new Vector3(0, 20, 0)
+    const orig = t.toArray()
+    pullInForTerrain(t, new Vector3(0, 1, 10), groundAt(5))
+    expect(t.toArray()).toEqual(orig)
+  })
+
+  it('does not mutate the desired vector', () => {
+    const d = new Vector3(0, 1, 10)
+    const orig = d.toArray()
+    pullInForTerrain(target, d, groundAt(5))
+    expect(d.toArray()).toEqual(orig)
   })
 })
 ```
@@ -3510,11 +3551,16 @@ export function pullInForTerrain(
   target: Vector3, desired: Vector3, terrain: TerrainQuery, minDistance = 2,
 ): Vector3 {
   const ground = terrain.groundHeightAt(desired.x, desired.z)
-  if (ground === null || desired.y > ground + minDistance) return desired
+  if (ground === null || desired.y > ground + minDistance) return desired.clone()
 
   const lifted = desired.clone()
   lifted.y = ground + minDistance
   const toTarget = target.clone().sub(lifted)
+  if (toTarget.lengthSq() < 1e-12) {
+    // The lifted camera landed exactly on the player. Any direction will do;
+    // back off along world +Z so the result stays a sane distance away.
+    return target.clone().add(new Vector3(0, 0, minDistance))
+  }
   if (toTarget.length() < minDistance) {
     return target.clone().addScaledVector(toTarget.normalize(), -minDistance)
   }
@@ -3525,7 +3571,7 @@ export function pullInForTerrain(
 - [ ] **Step 4: Run the tests and verify they pass**
 
 Run: `npm test -- src/camera/follow-cam.test.ts`
-Expected: PASS, 16 tests.
+Expected: PASS, 22 tests.
 
 - [ ] **Step 5: Commit**
 
