@@ -89,7 +89,7 @@ The important consequence, which the tests must lock in: **a dive-then-climb cyc
 Sets up the toolchain, creates the shared type contracts every later task imports, and gets a deploy pipeline running so the game is publishable from day one.
 
 **Files:**
-- Create: `package.json`, `tsconfig.json`, `vite.config.ts`, `vitest.config.ts`, `index.html`, `.gitignore` (already exists — verify), `README.md`
+- Create: `package.json`, `tsconfig.json`, `vite.config.ts`, `vitest.config.ts`, `index.html`, `.gitignore` (already exists — verify), `.npmrc`, `README.md`
 - Create: `src/core/types.ts`, `src/core/config.ts`, `src/main.ts`
 - Create: `.github/workflows/deploy.yml`
 - Test: `src/core/config.test.ts`
@@ -110,8 +110,8 @@ Sets up the toolchain, creates the shared type contracts every later task import
 ```bash
 cd /Users/danielnygaard/Developer/airbender-skies
 npm init -y
-npm i three@0.185.1 simplex-noise@4.0.3
-npm i -D typescript@7.0.2 vite@8.1.5 vitest@4.1.10 @types/three@0.185.1
+npm i --save-exact three@0.185.1 simplex-noise@4.0.3
+npm i --save-exact -D typescript@7.0.2 vite@8.1.5 vitest@4.1.10 @types/three@0.185.1
 ```
 
 - [ ] **Step 2: Write the config files**
@@ -798,8 +798,10 @@ function simulate(opts: {
   startSpeed?: number
   /** Velocity direction, if it should differ from where the kite points. */
   velPitchDeg?: number
+  /** Roll about the forward axis, radians. */
+  bank?: number
 }) {
-  const { pitchDeg, seconds, thrust = false, flare = false, startSpeed = 18 } = opts
+  const { pitchDeg, seconds, thrust = false, flare = false, startSpeed = 18, bank = 0 } = opts
   const rad = MathUtils.degToRad(pitchDeg)
   const forward = new Vector3(0, Math.sin(rad), -Math.cos(rad)).normalize()
   const vrad = MathUtils.degToRad(opts.velPitchDeg ?? pitchDeg)
@@ -810,7 +812,7 @@ function simulate(opts: {
   const startEnergy = totalEnergy(position, velocity, C.gravity)
   const dt = 1 / 60
   for (let t = 0; t < seconds; t += dt) {
-    const next = flightStep(position, velocity, { forward, thrust, flare, bank: 0 }, dt, C)
+    const next = flightStep(position, velocity, { forward, thrust, flare, bank }, dt, C)
     position = next.position
     velocity = next.velocity
   }
@@ -917,6 +919,34 @@ describe('flightStep', () => {
       expect(Number.isFinite(r.speed)).toBe(true)
     }
   })
+
+  it('an unpowered glide still loses energy with a non-zero bank', () => {
+    // Regression: liftDir must stay perpendicular to velocity even when kiteUp
+    // sweeps off vertical under bank, otherwise lift does work along the flight
+    // path and gliding could gain energy instead of losing it.
+    for (const bank of [0.7, -0.7, 1.5, -1.5]) {
+      const r = simulate({ pitchDeg: 0, seconds: 4, bank })
+      expect(r.endEnergy).toBeLessThan(r.startEnergy)
+    }
+  })
+
+  it('does not mutate the position or velocity it is given, with a non-zero bank', () => {
+    const position = new Vector3(0, 100, 0)
+    const velocity = new Vector3(0, 0, -20)
+    flightStep(position, velocity, {
+      forward: new Vector3(0, 0, -1), thrust: false, flare: false, bank: 0.7,
+    }, 1 / 60, C)
+    expect(position.toArray()).toEqual([0, 100, 0])
+    expect(velocity.toArray()).toEqual([0, 0, -20])
+  })
+
+  it('never produces non-finite values across a range of bank angles', () => {
+    for (const bank of [-1.5, -0.7, 0, 0.7, 1.5]) {
+      const r = simulate({ pitchDeg: -20, seconds: 3, thrust: true, bank })
+      expect(Number.isFinite(r.altitude)).toBe(true)
+      expect(Number.isFinite(r.speed)).toBe(true)
+    }
+  })
 })
 ```
 
@@ -979,8 +1009,15 @@ export function flightStep(
 
   // Lift acts perpendicular to velocity, in the plane containing the kite's up axis.
   let liftDir = up.clone().addScaledVector(vdir, -up.dot(vdir))
-  if (liftDir.lengthSq() < 1e-8) liftDir = new Vector3(0, 1, 0)
-  else liftDir.normalize()
+  if (liftDir.lengthSq() < 1e-8) {
+    // up is parallel to velocity, so the projection gives no direction. Any vector
+    // perpendicular to velocity will do, and it MUST be perpendicular: a fallback
+    // with a velocity-parallel component would do work along the flight path and
+    // inject energy, which would break the invariant that gliding never gains height.
+    liftDir = new Vector3().crossVectors(vdir, WORLD_UP)
+    if (liftDir.lengthSq() < 1e-8) liftDir = new Vector3().crossVectors(vdir, FALLBACK_RIGHT)
+  }
+  liftDir.normalize()
 
   const accel = new Vector3(0, -c.gravity, 0)
   accel.addScaledVector(liftDir, liftMag)
@@ -996,7 +1033,7 @@ export function flightStep(
 - [ ] **Step 4: Run the tests and verify they pass**
 
 Run: `npm test -- src/player/flight-step.test.ts`
-Expected: PASS, 14 tests.
+Expected: PASS, 17 tests.
 
 - [ ] **Step 5: Run the whole suite and typecheck**
 
@@ -2456,12 +2493,16 @@ const flatGround: TerrainQuery = {
 }
 const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
 
-const deps = (terrain: TerrainQuery): ControllerDeps => ({
+const deps = (
+  terrain: TerrainQuery,
+  spawnPointFor?: (id: string | null) => Vector3,
+): ControllerDeps => ({
   terrain,
   flight: DEFAULT_FLIGHT_CONFIG,
   ground: DEFAULT_GROUND_CONFIG,
   worldFloorY: -600,
-  spawnPointFor: (id) => (id === 'flat' ? new Vector3(0, 0, 0) : new Vector3(1, 1, 1)),
+  spawnPointFor:
+    spawnPointFor ?? ((id) => (id === 'flat' ? new Vector3(0, 0, 0) : new Vector3(1, 1, 1))),
 })
 
 const input = (over: Partial<InputState> = {}): InputState => ({
@@ -2606,6 +2647,56 @@ describe('safety nets', () => {
     expect(controllerStep(player({ breath: 50 }), input(), 1 / 60, deps(flatGround)).breath)
       .toBeGreaterThan(50)
   })
+
+  it('a NaN maxBreath on the incoming state produces a finite result', () => {
+    const broken = player({ maxBreath: NaN })
+    const s = controllerStep(broken, input(), 1 / 60, deps(voidWorld))
+    expect(Number.isFinite(s.breath)).toBe(true)
+    expect(Number.isFinite(s.maxBreath)).toBe(true)
+    expect(s.maxBreath).toBeGreaterThan(0)
+    expect(s.breath).toBeGreaterThan(0)
+  })
+
+  it('a spawnPointFor that returns a non-finite position still yields a finite result', () => {
+    const brokenSpawn = deps(voidWorld, () => new Vector3(NaN, NaN, NaN))
+    const lost = player({ position: new Vector3(0, -900, 0) })
+    const s = controllerStep(lost, input(), 1 / 60, brokenSpawn)
+    expect(Number.isFinite(s.position.x)).toBe(true)
+    expect(Number.isFinite(s.position.y)).toBe(true)
+    expect(Number.isFinite(s.position.z)).toBe(true)
+    expect(Number.isFinite(s.velocity.length())).toBe(true)
+    expect(Number.isFinite(s.breath)).toBe(true)
+    expect(Number.isFinite(s.maxBreath)).toBe(true)
+  })
+
+  it('a broken spawnPointFor never lets non-finite state escape across repeated frames', () => {
+    const brokenSpawn = deps(voidWorld, () => new Vector3(NaN, NaN, NaN))
+    let s = player({ position: new Vector3(0, -900, 0) })
+    for (let i = 0; i < 10; i++) {
+      s = controllerStep(s, input(), 1 / 60, brokenSpawn)
+      expect(Number.isFinite(s.position.x)).toBe(true)
+      expect(Number.isFinite(s.position.y)).toBe(true)
+      expect(Number.isFinite(s.position.z)).toBe(true)
+      expect(Number.isFinite(s.velocity.x)).toBe(true)
+      expect(Number.isFinite(s.breath)).toBe(true)
+      expect(Number.isFinite(s.maxBreath)).toBe(true)
+    }
+  })
+
+  it('respawn sanitises a NaN maxBreath', () => {
+    const s = respawn(player({ maxBreath: NaN }), deps(voidWorld))
+    expect(Number.isFinite(s.breath)).toBe(true)
+    expect(Number.isFinite(s.maxBreath)).toBe(true)
+    expect(s.maxBreath).toBe(DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
+    expect(s.breath).toBe(DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
+  })
+
+  it('respawn falls back to baseMaxBreath for a non-positive maxBreath', () => {
+    const zero = respawn(player({ maxBreath: 0 }), deps(voidWorld))
+    const negative = respawn(player({ maxBreath: -5 }), deps(voidWorld))
+    expect(zero.maxBreath).toBe(DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
+    expect(negative.maxBreath).toBe(DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
+  })
 })
 ```
 
@@ -2642,12 +2733,18 @@ const STAGGER_RETENTION = 0.3
 
 function isFinitePlayer(s: PlayerState): boolean {
   const nums = [
-    ...s.position.toArray(), ...s.velocity.toArray(), ...s.forward.toArray(), s.breath,
+    ...s.position.toArray(), ...s.velocity.toArray(), ...s.forward.toArray(),
+    s.breath, s.maxBreath,
   ]
   return nums.every(Number.isFinite)
 }
 
 export function respawn(state: PlayerState, deps: ControllerDeps): PlayerState {
+  // A corrupt maxBreath would otherwise be laundered into breath and escape the guard.
+  const maxBreath =
+    Number.isFinite(state.maxBreath) && state.maxBreath > 0
+      ? state.maxBreath
+      : deps.flight.baseMaxBreath
   return {
     ...state,
     mode: 'ground',
@@ -2655,7 +2752,29 @@ export function respawn(state: PlayerState, deps: ControllerDeps): PlayerState {
     velocity: new Vector3(),
     forward: new Vector3(0, 0, -1),
     grounded: true,
-    breath: state.maxBreath,
+    breath: maxBreath,
+    maxBreath,
+  }
+}
+
+/**
+ * Respawn, then verify the result. spawnPointFor is injected, so a caller bug
+ * could hand us a non-finite position; without this check the corrupted state
+ * would be returned and re-corrupted every frame thereafter.
+ */
+function safeRespawn(state: PlayerState, deps: ControllerDeps): PlayerState {
+  const respawned = respawn(state, deps)
+  if (isFinitePlayer(respawned)) return respawned
+  console.warn('spawnPointFor returned a non-finite position; falling back to the origin.')
+  return {
+    mode: 'ground',
+    position: new Vector3(),
+    velocity: new Vector3(),
+    forward: new Vector3(0, 0, -1),
+    breath: deps.flight.baseMaxBreath,
+    maxBreath: deps.flight.baseMaxBreath,
+    grounded: false,
+    lastGroundIslandId: null,
   }
 }
 
@@ -2665,8 +2784,8 @@ export function controllerStep(
   dt: number,
   deps: ControllerDeps,
 ): PlayerState {
-  if (!isFinitePlayer(state)) return respawn(state, deps)
-  if (state.position.y < deps.worldFloorY) return respawn(state, deps)
+  if (!isFinitePlayer(state)) return safeRespawn(state, deps)
+  if (state.position.y < deps.worldFloorY) return safeRespawn(state, deps)
 
   let next: PlayerState
 
@@ -2732,19 +2851,19 @@ export function controllerStep(
     next = { ...next, breath: stepBreath(next, false, next.grounded, dt, deps.flight).breath }
   }
 
-  return isFinitePlayer(next) ? next : respawn(state, deps)
+  return isFinitePlayer(next) ? next : safeRespawn(state, deps)
 }
 ```
 
 - [ ] **Step 4: Run the tests and verify they pass**
 
 Run: `npm test -- src/player/controller.test.ts`
-Expected: PASS, 17 tests.
+Expected: PASS, 22 tests.
 
 - [ ] **Step 5: Run the whole suite and typecheck**
 
 Run: `npm test && npm run typecheck`
-Expected: all pass. The suite should now be around 140 tests.
+Expected: all pass. The suite should now be around 148 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -3179,7 +3298,15 @@ start()
 npm run dev
 ```
 
-Open the served URL. Expected: a blue sky with the eight islands visible as green and grey shapes, each with a flat top and a spike below, fading into fog with distance. Check the browser console is free of errors.
+Open the served URL. Expected: a blue sky with islands visible as green and grey shapes, each with
+a flat top and a spike below, fading into fog with distance. Check the browser console is free of
+errors.
+
+**Do not expect all eight islands in frame.** This vantage point is a fixed placeholder and the
+archipelago spans roughly x −350 to 380 and y −110 to 420, so only the nearest few — `home` and a
+couple of its neighbours — fall inside the frustum. What this step verifies is that geometry,
+materials, lighting and fog all work, not that the level is fully framed. Task 15's follow camera
+replaces this vantage point entirely.
 
 - [ ] **Step 11: Verify the whole suite, typecheck, and build**
 
@@ -3296,12 +3423,24 @@ describe('smoothTowards', () => {
     const d = new Vector3(10, 0, 0)
     for (let i = 0; i < 120; i++) fast = smoothTowards(fast, d, 9, 1 / 120)
     for (let i = 0; i < 60; i++) slow = smoothTowards(slow, d, 9, 1 / 60)
-    expect(Math.abs(fast.x - slow.x)).toBeLessThan(0.2)
+    expect(Math.abs(fast.x - slow.x)).toBeLessThan(0.01)
   })
 
   it('never overshoots the target', () => {
     expect(smoothTowards(new Vector3(), new Vector3(10, 0, 0), 1000, 1).x)
       .toBeLessThanOrEqual(10)
+  })
+
+  it('does not mutate the current vector', () => {
+    const c = new Vector3(0, 0, 0)
+    smoothTowards(c, new Vector3(10, 0, 0), 9, 1 / 60)
+    expect(c.toArray()).toEqual([0, 0, 0])
+  })
+
+  it('does not mutate the desired vector', () => {
+    const d = new Vector3(10, 0, 0)
+    smoothTowards(new Vector3(0, 0, 0), d, 9, 1 / 60)
+    expect(d.toArray()).toEqual([10, 0, 0])
   })
 })
 
@@ -3326,6 +3465,35 @@ describe('pullInForTerrain', () => {
   it('never returns a non-finite position', () => {
     const out = pullInForTerrain(target, new Vector3(0, 19, 0), groundAt(19))
     expect(Number.isFinite(out.x + out.y + out.z)).toBe(true)
+  })
+
+  it('handles the zero-length case when lifted camera lands on player', () => {
+    // Target at y=20, ground at y=18, minDistance=2, so lifted would be at y=20.
+    // This makes toTarget = (0, 0, 0), a degenerate case.
+    const out = pullInForTerrain(target, new Vector3(0, 18, 0), groundAt(18))
+    expect(Number.isFinite(out.x + out.y + out.z)).toBe(true)
+    const dist = out.clone().sub(target).length()
+    expect(dist).toBeGreaterThanOrEqual(2)
+  })
+
+  it('does not return a reference-identical copy on early return', () => {
+    const desired = new Vector3(0, 20, 10)
+    const out = pullInForTerrain(target, desired, noGround)
+    expect(out).not.toBe(desired)
+  })
+
+  it('does not mutate the target vector', () => {
+    const t = new Vector3(0, 20, 0)
+    const orig = t.toArray()
+    pullInForTerrain(t, new Vector3(0, 1, 10), groundAt(5))
+    expect(t.toArray()).toEqual(orig)
+  })
+
+  it('does not mutate the desired vector', () => {
+    const d = new Vector3(0, 1, 10)
+    const orig = d.toArray()
+    pullInForTerrain(target, d, groundAt(5))
+    expect(d.toArray()).toEqual(orig)
   })
 })
 ```
@@ -3383,11 +3551,16 @@ export function pullInForTerrain(
   target: Vector3, desired: Vector3, terrain: TerrainQuery, minDistance = 2,
 ): Vector3 {
   const ground = terrain.groundHeightAt(desired.x, desired.z)
-  if (ground === null || desired.y > ground + minDistance) return desired
+  if (ground === null || desired.y > ground + minDistance) return desired.clone()
 
   const lifted = desired.clone()
   lifted.y = ground + minDistance
   const toTarget = target.clone().sub(lifted)
+  if (toTarget.lengthSq() < 1e-12) {
+    // The lifted camera landed exactly on the player. Any direction will do;
+    // back off along world +Z so the result stays a sane distance away.
+    return target.clone().add(new Vector3(0, 0, minDistance))
+  }
   if (toTarget.length() < minDistance) {
     return target.clone().addScaledVector(toTarget.normalize(), -minDistance)
   }
@@ -3398,7 +3571,7 @@ export function pullInForTerrain(
 - [ ] **Step 4: Run the tests and verify they pass**
 
 Run: `npm test -- src/camera/follow-cam.test.ts`
-Expected: PASS, 16 tests.
+Expected: PASS, 22 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -4460,9 +4633,9 @@ import { createStepper } from './core/loop'
 import { InputTracker } from './core/input'
 import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG } from './core/config'
 import { loadSave, writeSave } from './core/save'
-import { buildWorld } from './world/world'
+import { buildWorld, type World } from './world/world'
 import { ARCHIPELAGO } from './world/levels/archipelago'
-import { placeShrines, collectShrinesAt, type Shrine } from './world/shrine'
+import { placeShrines, collectShrinesAt } from './world/shrine'
 import { createPlayerState, spawnPointFor } from './player/state'
 import { controllerStep, type ControllerDeps } from './player/controller'
 import { applyShrineBonus } from './player/breath'
@@ -4481,7 +4654,7 @@ function start(): void {
     return showFallback('Could not find the game canvas.')
   }
 
-  let world
+  let world: World
   try {
     world = buildWorld(ARCHIPELAGO)
   } catch (error) {
@@ -4543,7 +4716,7 @@ function start(): void {
         (acc) => applyShrineBonus(acc, DEFAULT_FLIGHT_CONFIG),
         { breath: player.breath, maxBreath: player.maxBreath },
       )
-      player = { ...player, breath: bonus.maxBreath, maxBreath: bonus.maxBreath }
+      player = { ...player, breath: bonus.breath, maxBreath: bonus.maxBreath }
       writeSave(localStorage, {
         collectedShrines: shrines.filter((s) => s.collected).map((s) => s.id),
         maxBreath: player.maxBreath,
@@ -4594,6 +4767,20 @@ function start(): void {
 
 start()
 ```
+
+`bonus.breath` (not `bonus.maxBreath`) is deliberate: a shrine permanently raises the breath
+ceiling but must not refund the breath already spent getting there, or breath stops being a real
+constraint on how high the player can climb. `applyShrineBonus` (Task 6, `src/player/breath.ts`)
+already returns `breath: Math.min(s.breath, maxBreath)` to preserve current breath — this step
+must consume that value rather than overriding it.
+
+Add `src/world/shrine-collection.test.ts`, pinning that contract at the values a collection event
+actually produces, using `applyShrineBonus` directly against `DEFAULT_FLIGHT_CONFIG`:
+- starting at breath 40 / maxBreath 100, one shrine gives breath 40 and maxBreath 110 — current
+  breath unchanged, ceiling raised.
+- starting at breath 100 / maxBreath 100 (full), one shrine gives breath 100 and maxBreath 110 —
+  a full player is not clamped downward.
+- applying the bonus twice from breath 40 gives maxBreath 120 with breath still 40.
 
 - [ ] **Step 3: Verify the suite, typecheck, and build**
 
@@ -4678,7 +4865,8 @@ Open `https://danielnygaard00.github.io/airbender-skies/` and repeat a short ver
 | Ground movement | 11 |
 | Landscape, island generation, eight-island sequence | 8, 9, 10 |
 | Exploration reward, air shrines, persistence | 18 |
-| Presentation, camera profiles, wind, trails, FOV kick | 15, 19 |
+| Presentation, camera profiles, wind, FOV kick | 15, 19 |
+| Presentation: ribbon trails from the kite tips | **not implemented.** The spec names three speed effects; wind audio and the FOV kick shipped, the trails did not. Their mapping functions, `trailOpacityForSpeed` and `TRAIL_SPEED_THRESHOLD` in `fx/mapping.ts`, exist and are tested but are never called by anything. Either build the trails against those functions or delete them; leaving tested dead code implies a feature that is not there. |
 | Art assets, placeholder fallback, `ASSETS.md` | 16 |
 | Error handling table | asset failure in 16, level validation in 10 and 14, non-finite guard in 12, respawn in 12, WebGL fallback in 14 |
 | Testing strategy | every task; rendering deliberately manual in 14 and 20 |
@@ -4687,7 +4875,15 @@ Open `https://danielnygaard00.github.io/airbender-skies/` and repeat a short ver
 
 **Deviations from the spec, and why:**
 
-1. **The ability registry is not built.** The spec listed `abilities/registry.ts` with `thrust` as its only entry. Building a registry to hold one hard-wired ability would be indirection with no payoff — thrust lives in `flight.ts` as a boolean. The seam the registry was protecting is real and is preserved differently: `flightStep` takes a `FlightInput` struct, so adding abilities means extending that struct and the controller's construction of it, not restructuring movement. Add the registry in the first task of the attacks phase, when there is more than one ability to register.
+1. **The ability registry is not built.** The spec listed `abilities/registry.ts` with `thrust` as its only entry. Building a registry to hold one hard-wired ability would be indirection with no payoff — thrust lives in `flight.ts` as a boolean. Add the registry in the first task of the attacks phase, when there is more than one ability to register.
+
+   **The decision stands, but do not believe the reason originally given for it.** This entry used to claim the registry's seam was "preserved differently" because `flightStep` takes a `FlightInput` struct, so adding abilities would mean extending that struct. That is not true, and anyone starting the attacks phase expecting a cheap extension point will not find one. `FlightInput` carries *flight forces* — `forward`, `thrust`, `flare`, `bank` — and of the four planned abilities only Air Scooter is a movement mode at all. Air Blast, Tornado and Air Shield are not forces on the kite; they need bindings, breath costs, cooldowns and effect dispatch. Concretely, the first attacks task will have to:
+
+   - **Add input bindings.** `InputState`'s five fields are all consumed, and `InputTracker` registers `keydown`, `keyup`, `blur` and `mousemove` but no mouse-button listeners at all. Abilities will want the mouse buttons. That means `core/types.ts`, `core/input.ts`, and every `InputState` literal across the test suite.
+   - **Find somewhere to hold cooldowns.** `PlayerState` has no field for ability or cooldown state, and it is constructed as a literal in nine places across five test files, so adding a required field touches all of them.
+   - **Create a dispatch point.** `controllerStep` is a single if/else over `mode` with the flight path inlined. There is no place an ability handler could hook.
+
+   None of that is a reason to build the registry now: the core argument, that indirection for one hard-wired ability pays nothing, still holds. It is a reason to budget the attacks phase for real seam work rather than for extending a struct. The seams that genuinely do exist and are worth defending are `TerrainQuery` and `flightStep`'s purity.
 
 2. **`BASE_FOV` lives in `src/fx/mapping.ts`, not the renderer.** Field of view is a speed effect and both modules need the constant. One definition, imported by the renderer.
 
@@ -4709,4 +4905,452 @@ Two ways to run this plan:
 2. **Inline execution** — batch through tasks in one session with checkpoints.
 
 Tasks 1–13 and 15–19 are pure logic with a hard pass/fail signal. Task 14 and Task 20 need a human at a browser, so expect to stop there regardless of which mode is used.
+
+---
+
+### Task 21: Waterfalls
+
+Added after the plan was written, at the user's request. Water spilling off an island's rim and
+dissolving into the void below is the signature image of a floating archipelago, and it costs
+almost nothing because it needs no new assets and no gameplay changes.
+
+**Runs after Task 20**, not inserted mid-plan: waterfalls are pure scenery with no effect on
+flight, and by the end of Task 20 the renderer, fog, camera profiles and field-of-view kick are
+all settled — so the look gets tuned once against the finished image rather than re-tuned when
+Task 20 changes it.
+
+**Scope boundary:** decorative only. Waterfalls have no collision, do not affect flight, do not
+consume or restore breath, and are not collectible. The player flies straight through them.
+
+**Files:**
+- Create: `src/world/waterfall.ts`
+- Modify: `src/world/level.ts` (add `WaterfallDef`, extend `Level`, validate)
+- Modify: `src/world/levels/archipelago.ts` (add waterfall entries)
+- Modify: `src/main.ts` (build the meshes, advance the scroll each frame)
+- Test: `src/world/waterfall.test.ts`
+- Modify: `src/world/level.test.ts` (validation cases for the new field)
+
+**Interfaces:**
+- Consumes: `IslandDef` (Task 8), `TerrainQuery` (Task 9), `Level` (Task 10), `seededNoise2D` (Task 2).
+- Produces:
+  - `interface WaterfallDef { islandId: string; angle: number; width: number; length: number }` — `angle` in radians around the island's rim, `length` in metres of visible fall before it fades out.
+  - `waterfallAnchor(island: IslandDef, def: WaterfallDef, terrain: TerrainQuery): { position: Vector3; rotationY: number } | null` — where the curtain hangs and which way it faces. Returns `null` if the rim point has no ground, so a misplaced waterfall is dropped rather than left hanging in the air.
+  - `advanceScroll(offset: number, dt: number, speed: number): number` — the scrolling texture offset, wrapped into `[0, 1)`.
+  - `createWaterfallTexture(seed: number): CanvasTexture` — vertical streaks generated in code, seeded, so no image asset is needed and the result is reproducible.
+  - `createWaterfall(island: IslandDef, def: WaterfallDef, terrain: TerrainQuery): { mesh: Mesh; advance(dt: number): void } | null`
+
+**Why a scrolling curtain rather than particles:** a translucent quad with a vertically scrolling
+texture is one draw call and needs no simulation, which suits scenery that may be visible from a
+long way off. A GPU particle system would look better up close and cost far more for something the
+player mostly sees from a distance. The texture is generated procedurally so nothing has to be
+licensed, downloaded, or committed — consistent with the project's CC0-only asset rule.
+
+- [ ] **Step 1: Write the failing tests**
+
+`src/world/waterfall.test.ts`:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { Mesh, MeshBasicMaterial, Vector3 } from 'three'
+import { waterfallAnchor, advanceScroll, type WaterfallDef } from './waterfall'
+import { createIslandGeometry, type IslandDef } from './island'
+import { createTerrainQuery, type IslandMesh } from './terrain-query'
+import { ARCHIPELAGO } from './levels/archipelago'
+import type { TerrainQuery } from '../core/types'
+
+const island: IslandDef = {
+  id: 'home', position: new Vector3(100, 20, -50), radius: 40, height: 30,
+  biome: 'grass', noiseSeed: 1,
+}
+const def = (over: Partial<WaterfallDef> = {}): WaterfallDef => ({
+  islandId: 'home', angle: 0, width: 8, length: 60, ...over,
+})
+
+const solid: TerrainQuery = {
+  groundHeightAt: () => 25,
+  raycastDown: (from) => ({
+    point: new Vector3(from.x, 25, from.z), normal: new Vector3(0, 1, 0), islandId: 'home',
+  }),
+}
+const empty: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+
+describe('advanceScroll', () => {
+  it('advances with time', () => {
+    expect(advanceScroll(0, 1, 0.25)).toBeCloseTo(0.25, 6)
+  })
+
+  it('wraps back into the unit range instead of growing without bound', () => {
+    expect(advanceScroll(0.9, 1, 0.25)).toBeCloseTo(0.15, 6)
+  })
+
+  it('stays within the unit range over a long run', () => {
+    let offset = 0
+    for (let i = 0; i < 10000; i++) offset = advanceScroll(offset, 1 / 60, 1.4)
+    expect(offset).toBeGreaterThanOrEqual(0)
+    expect(offset).toBeLessThan(1)
+  })
+
+  it('does not move when time does not pass', () => {
+    expect(advanceScroll(0.4, 0, 1.4)).toBeCloseTo(0.4, 6)
+  })
+})
+
+describe('waterfallAnchor', () => {
+  it('places the curtain out at the island rim, not at its centre', () => {
+    const anchor = waterfallAnchor(island, def(), solid)!
+    const horizontal = Math.hypot(
+      anchor.position.x - island.position.x, anchor.position.z - island.position.z,
+    )
+    expect(horizontal).toBeGreaterThan(island.radius * 0.7)
+  })
+
+  it('puts the curtain at the ground height it found', () => {
+    expect(waterfallAnchor(island, def(), solid)!.position.y).toBeCloseTo(25, 5)
+  })
+
+  it('faces outward, so the angle follows the rim position', () => {
+    const north = waterfallAnchor(island, def({ angle: 0 }), solid)!
+    const east = waterfallAnchor(island, def({ angle: Math.PI / 2 }), solid)!
+    expect(north.rotationY).not.toBeCloseTo(east.rotationY, 3)
+  })
+
+  it('moves around the rim as the angle changes', () => {
+    const a = waterfallAnchor(island, def({ angle: 0 }), solid)!
+    const b = waterfallAnchor(island, def({ angle: Math.PI }), solid)!
+    expect(a.position.distanceTo(b.position)).toBeGreaterThan(island.radius)
+  })
+
+  it('returns null when the rim point has no ground beneath it', () => {
+    expect(waterfallAnchor(island, def(), empty)).toBeNull()
+  })
+
+  it('does not mutate the island position it is given', () => {
+    waterfallAnchor(island, def(), solid)
+    expect(island.position.toArray()).toEqual([100, 20, -50])
+  })
+
+  it('is deterministic for the same inputs', () => {
+    const a = waterfallAnchor(island, def(), solid)!
+    const b = waterfallAnchor(island, def(), solid)!
+    expect(a.position.toArray()).toEqual(b.position.toArray())
+    expect(a.rotationY).toBeCloseTo(b.rotationY, 10)
+  })
+})
+
+describe('waterfallAnchor rim retry', () => {
+  // Ground only under the two innermost insets (0.76, 0.72 of the radius),
+  // so the outermost probes must miss before this returns a hit.
+  const outerMissesInnerHits: TerrainQuery = {
+    groundHeightAt: (x, z) => {
+      const reach = Math.hypot(x - island.position.x, z - island.position.z)
+      return reach <= island.radius * 0.78 ? 25 : null
+    },
+    raycastDown: () => null,
+  }
+
+  it('steps inward and finds ground when the outermost rim point misses', () => {
+    expect(waterfallAnchor(island, def(), outerMissesInnerHits)).not.toBeNull()
+  })
+
+  it('the retried point is still a plausible rim distance from the centre', () => {
+    const anchor = waterfallAnchor(island, def(), outerMissesInnerHits)!
+    const horizontal = Math.hypot(
+      anchor.position.x - island.position.x, anchor.position.z - island.position.z,
+    )
+    expect(horizontal).toBeGreaterThan(island.radius * 0.7)
+  })
+
+  it('still returns null when there is no ground at any inset', () => {
+    const noGroundAnywhere: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+    expect(waterfallAnchor(island, def(), noGroundAnywhere)).toBeNull()
+  })
+
+  it('resolves a real island angle that the single fixed inset used to miss', () => {
+    const home = ARCHIPELAGO.islands.find((i) => i.id === 'ring-east')!
+    const waterfallDef = ARCHIPELAGO.waterfalls.find((w) => w.islandId === 'ring-east')!
+    const mesh = new Mesh(createIslandGeometry(home), new MeshBasicMaterial())
+    mesh.position.copy(home.position)
+    mesh.updateMatrixWorld(true)
+    const islandMesh: IslandMesh = { id: home.id, mesh }
+    const terrain = createTerrainQuery([islandMesh])
+
+    expect(waterfallAnchor(home, waterfallDef, terrain)).not.toBeNull()
+  })
+})
+```
+
+- [ ] **Step 2: Run and verify it fails**
+
+Run: `npm test -- src/world/waterfall.test.ts`
+Expected: FAIL — cannot resolve module `./waterfall`.
+
+- [ ] **Step 3: Write `src/world/waterfall.ts`**
+
+```typescript
+import {
+  Mesh, PlaneGeometry, MeshBasicMaterial, CanvasTexture, RepeatWrapping,
+  Vector3, DoubleSide, type Texture,
+} from 'three'
+import type { IslandDef } from './island'
+import type { TerrainQuery } from '../core/types'
+import { mulberry32 } from '../core/rng'
+
+export interface WaterfallDef {
+  islandId: string
+  /** Radians around the island rim, measured from +X toward +Z. */
+  angle: number
+  width: number
+  /** Metres of visible fall before it fades out. */
+  length: number
+}
+
+/** Insets to try, outermost first. Noise displacement means the outermost rim
+ *  point often has no ground under it, so stepping inward finds the real edge
+ *  instead of silently dropping the waterfall. */
+const RIM_INSETS = [0.88, 0.84, 0.8, 0.76, 0.72] as const
+/** How far above the found ground the curtain starts, hiding the seam. */
+const LIP_RAISE = 0.6
+const TEXTURE_SIZE = 64
+const SCROLL_SPEED = 1.4
+
+/** Scrolling texture offset, wrapped so it never grows without bound. */
+export function advanceScroll(offset: number, dt: number, speed: number): number {
+  const next = (offset + dt * speed) % 1
+  return next < 0 ? next + 1 : next
+}
+
+/**
+ * Where the curtain hangs and which way it faces. Steps inward through
+ * RIM_INSETS until it finds ground, so noise-displaced silhouettes that miss
+ * the outermost probe still resolve to the real edge. Returns null only when
+ * every inset comes up empty, so a genuinely misplaced waterfall is dropped
+ * rather than left hanging in mid-air.
+ */
+export function waterfallAnchor(
+  island: IslandDef, def: WaterfallDef, terrain: TerrainQuery,
+): { position: Vector3; rotationY: number } | null {
+  for (const inset of RIM_INSETS) {
+    const reach = island.radius * inset
+    const x = island.position.x + Math.cos(def.angle) * reach
+    const z = island.position.z + Math.sin(def.angle) * reach
+
+    const groundY = terrain.groundHeightAt(x, z)
+    if (groundY === null) continue
+
+    return {
+      position: new Vector3(x, groundY, z),
+      // Face outward, away from the island centre.
+      rotationY: -def.angle + Math.PI / 2,
+    }
+  }
+  return null
+}
+
+/**
+ * Vertical streaks generated in code rather than loaded, so the effect needs no
+ * asset and no licence. Seeded, so it is reproducible.
+ */
+export function createWaterfallTexture(seed: number): CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = TEXTURE_SIZE
+  canvas.height = TEXTURE_SIZE
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Could not get a 2D context for the waterfall texture')
+
+  const random = mulberry32(seed)
+  ctx.fillStyle = 'rgba(226, 244, 255, 0.30)'
+  ctx.fillRect(0, 0, TEXTURE_SIZE, TEXTURE_SIZE)
+
+  for (let i = 0; i < 26; i++) {
+    const x = Math.floor(random() * TEXTURE_SIZE)
+    const height = TEXTURE_SIZE * (0.3 + random() * 0.7)
+    const y = random() * TEXTURE_SIZE
+    ctx.fillStyle = `rgba(255, 255, 255, ${0.25 + random() * 0.5})`
+    ctx.fillRect(x, y, 1 + Math.floor(random() * 2), height)
+  }
+
+  const texture = new CanvasTexture(canvas)
+  texture.wrapS = RepeatWrapping
+  texture.wrapT = RepeatWrapping
+  return texture
+}
+
+/** A curtain of falling water, or null if it has nowhere to hang. */
+export function createWaterfall(
+  island: IslandDef, def: WaterfallDef, terrain: TerrainQuery,
+): { mesh: Mesh; advance(dt: number): void } | null {
+  const anchor = waterfallAnchor(island, def, terrain)
+  if (!anchor) return null
+
+  const geometry = new PlaneGeometry(def.width, def.length)
+  const texture: Texture = createWaterfallTexture(island.noiseSeed)
+  // Repeat vertically so the streaks tile as the offset scrolls.
+  texture.repeat.set(1, Math.max(1, Math.round(def.length / def.width)))
+
+  const material = new MeshBasicMaterial({
+    map: texture, transparent: true, opacity: 0.55,
+    side: DoubleSide, depthWrite: false,
+  })
+
+  const mesh = new Mesh(geometry, material)
+  // The plane's origin is its centre, so drop it half its length to hang from the lip,
+  // raised by LIP_RAISE above the found ground so the mesh overlaps the rock and hides the seam.
+  mesh.position.set(
+    anchor.position.x,
+    anchor.position.y + LIP_RAISE - def.length / 2,
+    anchor.position.z,
+  )
+  mesh.rotation.y = anchor.rotationY
+
+  let offset = 0
+  return {
+    mesh,
+    advance(dt: number): void {
+      offset = advanceScroll(offset, dt, SCROLL_SPEED)
+      texture.offset.y = -offset
+    },
+  }
+}
+```
+
+- [ ] **Step 4: Run and verify it passes**
+
+Run: `npm test -- src/world/waterfall.test.ts`
+Expected: PASS, 15 tests. Note `createWaterfallTexture` and `createWaterfall` touch `document`
+and are therefore not covered by these tests — the same deliberate split used for the input
+adapter in Task 7. They are verified by eye in Step 8.
+
+- [ ] **Step 5: Extend the level format**
+
+In `src/world/level.ts`, add the import and the field:
+
+```typescript
+import type { WaterfallDef } from './waterfall'
+```
+
+Add to `Level`:
+
+```typescript
+  waterfalls: WaterfallDef[]
+```
+
+And inside `validateLevel`, after the shrine reference check, add:
+
+```typescript
+  for (const waterfall of level.waterfalls) {
+    if (!ids.has(waterfall.islandId)) {
+      throw new Error(
+        `Level "${level.id}" waterfall references unknown island "${waterfall.islandId}"`,
+      )
+    }
+    if (!(waterfall.width > 0)) {
+      throw new Error(`Waterfall on "${waterfall.islandId}" must have width > 0`)
+    }
+    if (!(waterfall.length > 0)) {
+      throw new Error(`Waterfall on "${waterfall.islandId}" must have length > 0`)
+    }
+  }
+```
+
+- [ ] **Step 6: Add the validation tests**
+
+Append to `src/world/level.test.ts`. Note the existing `base()` helper needs `waterfalls: []`
+added to it, and the `ARCHIPELAGO` block gains one case:
+
+```typescript
+describe('waterfall validation', () => {
+  it('rejects a waterfall on an unknown island', () => {
+    expect(() => validateLevel({
+      ...base(), waterfalls: [{ islandId: 'ghost', angle: 0, width: 8, length: 60 }],
+    })).toThrow(/waterfall references unknown island "ghost"/)
+  })
+
+  it('rejects a non-positive width', () => {
+    expect(() => validateLevel({
+      ...base(), waterfalls: [{ islandId: 'a', angle: 0, width: 0, length: 60 }],
+    })).toThrow(/width > 0/)
+  })
+
+  it('rejects a non-positive length', () => {
+    expect(() => validateLevel({
+      ...base(), waterfalls: [{ islandId: 'a', angle: 0, width: 8, length: -1 }],
+    })).toThrow(/length > 0/)
+  })
+
+  it('accepts a level with no waterfalls at all', () => {
+    expect(() => validateLevel({ ...base(), waterfalls: [] })).not.toThrow()
+  })
+
+  it('ARCHIPELAGO waterfalls all reference real islands', () => {
+    const ids = new Set(ARCHIPELAGO.islands.map((i) => i.id))
+    for (const w of ARCHIPELAGO.waterfalls) expect(ids.has(w.islandId)).toBe(true)
+  })
+})
+```
+
+- [ ] **Step 7: Add waterfalls to the archipelago**
+
+In `src/world/levels/archipelago.ts`, add the field to `ARCHIPELAGO`. Placed on the larger,
+wetter islands only — the bare `rock` islands and the `temple` spire stay dry, which makes the
+biomes read as different places rather than decorated copies:
+
+```typescript
+  waterfalls: [
+    { islandId: 'home', angle: 2.1, width: 10, length: 90 },
+    { islandId: 'home', angle: 4.4, width: 6, length: 70 },
+    { islandId: 'ring-east', angle: 0.7, width: 8, length: 80 },
+    { islandId: 'ring-south', angle: 3.5, width: 7, length: 75 },
+    { islandId: 'ring-west', angle: 5.2, width: 9, length: 85 },
+    { islandId: 'rest', angle: 1.2, width: 5, length: 55 },
+  ],
+```
+
+- [ ] **Step 8: Wire them into `src/main.ts` and verify by eye**
+
+Add the import, build the waterfalls alongside the shrines, and advance them in `update`:
+
+```typescript
+import { createWaterfall } from './world/waterfall'
+
+// ...after the shrine markers are built:
+const waterfalls: { advance(dt: number): void }[] = []
+for (const def of ARCHIPELAGO.waterfalls) {
+  const island = ARCHIPELAGO.islands.find((i) => i.id === def.islandId)
+  if (!island) continue
+  const waterfall = createWaterfall(island, def, world.terrain)
+  if (!waterfall) {
+    console.warn(
+      `Dropped waterfall on island "${def.islandId}" at angle ${def.angle}: no ground found ` +
+      'at any rim inset.',
+    )
+    continue
+  }
+  scene.add(waterfall.mesh)
+  waterfalls.push(waterfall)
+}
+
+// ...inside update(dt), near the shrine marker rotation:
+for (const waterfall of waterfalls) waterfall.advance(dt)
+```
+
+Then run `npm run dev` and confirm:
+
+- [ ] Water curtains hang from the rim of `home`, the three `ring-*` islands, and `rest`.
+- [ ] The `climb-*` islands and `spire` have none.
+- [ ] The texture scrolls downward, and the speed reads as falling water rather than sliding wallpaper.
+- [ ] Each curtain meets the rock at its top with no visible gap.
+- [ ] Curtains are visible from a distance and fade into the fog with everything else.
+- [ ] Flying straight through a waterfall passes through it with no collision and no stutter.
+- [ ] Frame rate is unchanged — six extra transparent draw calls should not register.
+- [ ] The console is free of errors.
+
+- [ ] **Step 9: Run the whole suite, typecheck, build, and commit**
+
+Run: `npm test && npm run typecheck && npm run build`
+
+```bash
+git add -A
+git commit -m "Add scrolling waterfalls to the island scenery"
+git push
+```
 

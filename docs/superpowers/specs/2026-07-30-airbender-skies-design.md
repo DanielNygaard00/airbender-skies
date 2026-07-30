@@ -64,25 +64,40 @@ src/
     level.ts             parse and validate level data → World
     island.ts            island mesh generation from noise parameters
     terrain-query.ts     ground height and raycast queries
-    props.ts             per-island prop scattering
+    world.ts             validate a level and assemble its meshes
+    shrine.ts            air shrine placement and collection
+    waterfall.ts         decorative rim waterfalls
+    levels/
+      archipelago.ts     the eight-island level data
   player/
-    state.ts             PlayerState: position, velocity, mode, breath
+    state.ts             player state construction and spawn resolution
     ground-move.ts       walk, run, jump, gravity, ground snapping
     flight.ts            glider aerodynamics and thrust (pure)
+    steering.ts          turning the kite toward the look direction (pure)
     breath.ts            breath meter drain and regeneration (pure)
     controller.ts        mode switching; orchestrates the modules above
+    shrine-collect.ts    the shrine collection step (pure)
     avatar.ts            character model and animation state machine
+    avatar-anim.ts       animation state machine (pure)
   camera/
     follow-cam.ts        third-person spring arm with terrain pull-in
   fx/
-    wind.ts              air trails and speed streaks
+    mapping.ts           airspeed to effect parameters (pure)
     audio.ts             wind loop driven by airspeed
   ui/
     hud.ts               breath meter, altitude, airspeed
-  abilities/
-    registry.ts          ability registration and dispatch
-    thrust.ts            the only ability in the first version
 ```
+
+**Not built, and deliberately so.** Two modules named in earlier drafts of this layout do not
+exist, and their absence is a decision rather than an omission:
+
+- `world/props.ts` — per-island prop scattering. Cut with the CC0 art pipeline; the islands
+  carry no props.
+- `fx/wind.ts` — air trails and speed streaks. Of the three speed effects this document
+  describes, wind audio and the field-of-view kick shipped and the ribbon trails did not. Their
+  mapping function survives, tested but unused, in `fx/mapping.ts` as `trailOpacityForSpeed`.
+
+There is also no `abilities/` directory. See the note below.
 
 ### Load-bearing interfaces
 
@@ -118,20 +133,49 @@ alongside the key states:
 
 ```ts
 interface InputState {
-  lookDirection: Vec3   // normalised camera forward
-  thrust: boolean       // W
-  flare: boolean        // S
-  bank: number          // -1..1 from A/D
-  toggleKite: boolean   // Space
+  lookDirection: Vec3    // normalised camera forward
+  forward: number        // W = +1, S = -1
+  strafe: number         // D = +1, A = -1
+  sprint: boolean        // Shift
+  actionPressed: boolean // Space, edge-triggered
 }
 ```
+
+`InputState` deliberately describes intent rather than kite-specific forces. Naming the axes
+`forward` and `strafe` instead of `thrust` and `bank` is what makes the "both modes share the
+same bindings" claim below true in code: one axis means thrust in the air and walk on the
+ground, and `actionPressed` means jump, deploy, or stow depending on mode. The mapping from
+these axes to flight forces happens in the controller, which is also where the kite's bank
+angle is applied.
 
 This keeps `flight.step` pure and independent of the camera implementation: it receives a
 direction vector, not a camera object.
 
-**`AbilityRegistry`** maps an ability id to a handler with a breath cost and a cooldown. The
-first version registers only `thrust`. Adding attacks later means registering new handlers,
-not modifying `controller.ts`.
+**`AbilityRegistry` was designed and then not built.** The intent was to map an ability id to a
+handler with a breath cost and a cooldown, so that adding attacks later meant registering
+handlers rather than modifying `controller.ts`. Building a registry to hold one hard-wired
+ability would have been indirection with no payoff, so thrust is simply a boolean on
+`FlightInput` and the registry is deferred to the first task of the attacks phase, when there
+is more than one thing to register.
+
+**What the attacks phase will actually cost, stated honestly.** An earlier version of this
+document claimed `FlightInput` was the seam that would keep that phase cheap. That was wrong,
+and anyone planning the work should know why before estimating it. `FlightInput` carries flight
+*forces* — `forward`, `thrust`, `flare`, `bank` — and of the four planned abilities only Air
+Scooter is a movement mode at all. Air Blast, Tornado and Air Shield are not forces on the kite.
+They run into three real gaps:
+
+- **No free input bindings.** `InputState` has five fields and all are consumed, and
+  `InputTracker` registers no mouse-button listeners at all. Adding one touches `types.ts`,
+  `input.ts`, and every `InputState` literal in the tests.
+- **Nowhere to hold ability state.** `PlayerState` has no cooldown field, and it is constructed
+  as a literal in nine places across five test files, so adding a required field touches all of
+  them.
+- **No dispatch point.** `controllerStep` is a single branch over mode with the flight path
+  inlined.
+
+The seams that genuinely are load-bearing, and that should be protected as this code changes,
+are `TerrainQuery` and the purity of `flightStep`.
 
 ## The flight model
 
@@ -143,7 +187,14 @@ deliberately not flight-sim convention, where the mouse would be a raw pitch and
 Kite mode integrates three forces:
 
 - Gravity, constant downward.
-- Lift, proportional to `v² · cos(angleOfAttack)`, perpendicular to the kite's forward axis.
+- Lift, proportional to `v² · sin(2 · angleOfAttack)`, perpendicular to velocity and lying in
+  the plane that contains the kite's up axis. The `sin(2 · aoa)` shape is what produces the
+  stall behaviour described two paragraphs below: lift peaks near 45 degrees of angle of
+  attack and then falls away to zero with the kite broadside to the airflow, so a high angle
+  of attack collapses lift as a consequence of the geometry rather than through a special
+  case. A `cos(angleOfAttack)` term would be largest exactly where the kite should stall and
+  could not produce that behaviour. The angle is bounded to a quarter turn, which is where
+  the term reaches zero, so lift decays to nothing broadside and never reverses.
 - Drag, proportional to `v²`, opposing velocity.
 
 **Angle of attack is derived, not an input.** It is the angle between the kite's forward
@@ -230,7 +281,15 @@ The first version ships eight islands, sequenced to teach the flight model:
 1. A starting island large enough to learn walking, jumping, and deploying the kite.
 2. A ring of islands reachable by gliding alone, teaching that altitude converts to distance.
 3. Two islands that require sustained thrust to reach, introducing breath as a resource.
-4. A high spire reachable only by chaining dive-and-climb cycles, as the skill test.
+4. A high spire that needs a dive, a zoom climb, and thrust used together, as the skill test.
+   Not reachable by chaining dive-and-climb cycles alone: a cycle is net-lossy, so chaining
+   cycles loses height rather than gaining it, and thrust remains the only source of net
+   altitude. The spire tests whether the player can convert a dive into a climb efficiently
+   enough that the breath they have left covers the remaining gap.
+5. A mid-height waypoint island between the low ring and the high islands, where breath
+   regenerates part-way through a long crossing. It exists because the crossing to the
+   thrust-gated islands is otherwise a single breath budget with no recovery point, which
+   makes the gate a wall rather than a challenge.
 
 ### Exploration reward
 
@@ -260,6 +319,23 @@ Audio and effects are deliberately minimal but chosen for impact on the sense of
 looping wind sound whose volume and pitch follow airspeed, ribbon trails from the kite tips
 above a speed threshold, and a field-of-view kick when airspeed crosses that threshold.
 
+### Waterfalls
+
+Islands carry waterfalls spilling off their rims: a scrolling curtain of water hanging from
+the edge and fading out below. They are scenery with no physics and no collision, and they
+exist for two reasons. They give the islands a reason to read as torn from a world that had
+water in it, and more usefully they mark rim edges, which a player about to walk off one
+needs to see. Like the islands themselves they use no binary assets — the texture is
+generated procedurally at load time from a seeded random source, so it stays deterministic
+and raises no licence question.
+
+Each waterfall is authored in the level file as an island id, an angle around that island's
+rim, a width, and a visible length. Placement then has to find the real rim, which is not at
+a fixed radius: noise displaces each island's silhouette, so the nominal rim point often has
+no ground beneath it. Placement probes inward through a sequence of insets and anchors at the
+first one that finds ground, and drops the waterfall with a warning if none does. A dropped
+waterfall costs some scenery; one anchored at a guessed radius would hang in mid-air.
+
 ## Art assets
 
 The character is a freely licensed rigged model with idle, run, fall, and glide animations.
@@ -276,7 +352,7 @@ rather than failing to start.
 | --- | --- |
 | Asset fails to load | Substitute a primitive placeholder, log a warning, keep running. |
 | Level data invalid | Throw with a readable message in development; skip the offending island in production. |
-| Non-finite velocity in flight integration | Reset velocity to the last known good value and log. |
+| Non-finite velocity in flight integration | Respawn the player at the last island they stood on, reset to ground mode, and log. A velocity restore was the original intent, but there is no trustworthy "last known good" state once a non-finite value has appeared: position may already be corrupt, and breath and maximum breath must be re-validated too or a corrupt maximum can be laundered into current breath. A respawn is a teleport, which is a more visible interruption than a velocity reset, and that is the accepted trade for guaranteeing the player lands in a state that is finite by construction. |
 | Player falls below the world floor | Respawn at the last island touched. |
 | WebGL unavailable | Replace the canvas with an explanatory HTML message. |
 
