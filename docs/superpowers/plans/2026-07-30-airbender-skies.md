@@ -3298,7 +3298,15 @@ start()
 npm run dev
 ```
 
-Open the served URL. Expected: a blue sky with the eight islands visible as green and grey shapes, each with a flat top and a spike below, fading into fog with distance. Check the browser console is free of errors.
+Open the served URL. Expected: a blue sky with islands visible as green and grey shapes, each with
+a flat top and a spike below, fading into fog with distance. Check the browser console is free of
+errors.
+
+**Do not expect all eight islands in frame.** This vantage point is a fixed placeholder and the
+archipelago spans roughly x −350 to 380 and y −110 to 420, so only the nearest few — `home` and a
+couple of its neighbours — fall inside the frustum. What this step verifies is that geometry,
+materials, lighting and fog all work, not that the level is fully framed. Task 15's follow camera
+replaces this vantage point entirely.
 
 - [ ] **Step 11: Verify the whole suite, typecheck, and build**
 
