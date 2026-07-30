@@ -38,3 +38,14 @@ export function validateFlightConfig(c: FlightConfig): void {
     )
   }
 }
+
+import type { GroundConfig } from './types'
+
+export const DEFAULT_GROUND_CONFIG: GroundConfig = {
+  walkSpeed: 7,
+  runSpeed: 13,
+  jumpSpeed: 9,
+  gravity: 20,
+  snapDistance: 1.2,
+  eyeProbeHeight: 2,
+}

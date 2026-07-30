@@ -76,3 +76,14 @@ export interface FlightConfig {
   /** Each shrine adds this fraction of baseMaxBreath to the maximum. */
   shrineBreathBonusFraction: number
 }
+
+export interface GroundConfig {
+  walkSpeed: number
+  runSpeed: number
+  jumpSpeed: number
+  gravity: number
+  /** How far below the feet the ground still counts as underfoot. */
+  snapDistance: number
+  /** How far above the feet the ground probe starts. */
+  eyeProbeHeight: number
+}
