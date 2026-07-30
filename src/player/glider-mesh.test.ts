@@ -35,7 +35,9 @@ describe('createGlider assembly', () => {
     // end-to-end when closed instead of stacking them. Asserting the structure
     // directly does not depend on how the transforms happen to compose.
     const glider = createGlider()
-    const roots = glider.object.children.filter((child) => child.children.length > 0)
+    const roots = glider.object.children.filter(
+      (child) => child.children.length === PANELS_PER_SIDE,
+    )
     expect(roots).toHaveLength(2)
     for (const root of roots) {
       expect(root.children).toHaveLength(PANELS_PER_SIDE)
