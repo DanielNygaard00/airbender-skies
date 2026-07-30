@@ -2740,3 +2740,1959 @@ git commit -m "Add player controller with mode switching and safety nets"
 ```
 
 ---
+
+### Task 13: Fixed-step loop
+
+Simulation must advance in fixed increments so the flight model behaves identically on a 60 Hz and a 144 Hz display, and so a browser tab stall does not teleport the player.
+
+**Files:**
+- Create: `src/core/loop.ts`
+- Test: `src/core/loop.test.ts`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces:
+  - `FIXED_DT: number` (1/60), `MAX_STEPS_PER_FRAME: number` (5)
+  - `interface LoopCallbacks { update(dt: number): void; render(): void }`
+  - `createStepper(callbacks: LoopCallbacks, fixedDt?: number): { advance(elapsed: number): number; pendingTime(): number }` — `advance` takes real elapsed seconds and returns how many simulation steps ran.
+
+- [ ] **Step 1: Write the failing tests**
+
+`src/core/loop.test.ts`:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { createStepper, FIXED_DT, MAX_STEPS_PER_FRAME } from './loop'
+
+function spy() {
+  const dts: number[] = []
+  let renders = 0
+  return {
+    dts,
+    renders: () => renders,
+    cb: { update: (dt: number) => dts.push(dt), render: () => { renders++ } },
+  }
+}
+
+describe('createStepper', () => {
+  it('runs one step for exactly one frame of time', () => {
+    const s = spy()
+    expect(createStepper(s.cb).advance(FIXED_DT)).toBe(1)
+    expect(s.dts).toEqual([FIXED_DT])
+  })
+
+  it('always steps by the fixed delta, never the real one', () => {
+    const s = spy()
+    createStepper(s.cb).advance(FIXED_DT * 2.5)
+    expect(new Set(s.dts)).toEqual(new Set([FIXED_DT]))
+  })
+
+  it('runs no step when too little time has passed', () => {
+    expect(createStepper(spy().cb).advance(FIXED_DT / 3)).toBe(0)
+  })
+
+  it('accumulates leftover time across frames', () => {
+    const stepper = createStepper(spy().cb)
+    stepper.advance(FIXED_DT * 0.6)
+    expect(stepper.advance(FIXED_DT * 0.6)).toBe(1)
+  })
+
+  it('renders once per frame even with no simulation step', () => {
+    const s = spy()
+    createStepper(s.cb).advance(FIXED_DT / 4)
+    expect(s.renders()).toBe(1)
+  })
+
+  it('renders once per frame when several steps run', () => {
+    const s = spy()
+    createStepper(s.cb).advance(FIXED_DT * 3)
+    expect(s.renders()).toBe(1)
+  })
+
+  it('clamps a long stall instead of simulating minutes at once', () => {
+    expect(createStepper(spy().cb).advance(30)).toBe(MAX_STEPS_PER_FRAME)
+  })
+
+  it('does not build up debt after a stall', () => {
+    const stepper = createStepper(spy().cb)
+    stepper.advance(30)
+    expect(stepper.pendingTime()).toBeLessThan(FIXED_DT)
+  })
+
+  it('ignores a non-finite or negative delta but still renders', () => {
+    const s = spy()
+    const stepper = createStepper(s.cb)
+    expect(stepper.advance(NaN)).toBe(0)
+    expect(stepper.advance(-1)).toBe(0)
+    expect(s.renders()).toBe(2)
+  })
+})
+```
+
+- [ ] **Step 2: Run the tests and verify they fail**
+
+Run: `npm test -- src/core/loop.test.ts`
+Expected: FAIL — cannot resolve module `./loop`.
+
+- [ ] **Step 3: Write `src/core/loop.ts`**
+
+```typescript
+export const FIXED_DT = 1 / 60
+/** Never simulate more than this in one frame, or a stall cascades into a freeze. */
+export const MAX_STEPS_PER_FRAME = 5
+
+export interface LoopCallbacks {
+  update(dt: number): void
+  render(): void
+}
+
+/**
+ * Fixed-step accumulator. Simulation always advances in FIXED_DT increments so
+ * the flight model behaves identically regardless of display refresh rate.
+ */
+export function createStepper(callbacks: LoopCallbacks, fixedDt = FIXED_DT) {
+  let accumulator = 0
+  return {
+    /** Feed real elapsed seconds. Returns how many simulation steps ran. */
+    advance(elapsed: number): number {
+      if (!Number.isFinite(elapsed) || elapsed <= 0) {
+        callbacks.render()
+        return 0
+      }
+      // Clamping here is what stops a backgrounded tab from discharging
+      // thousands of steps the moment it regains focus.
+      accumulator += Math.min(elapsed, fixedDt * MAX_STEPS_PER_FRAME)
+      let steps = 0
+      while (accumulator >= fixedDt && steps < MAX_STEPS_PER_FRAME) {
+        callbacks.update(fixedDt)
+        accumulator -= fixedDt
+        steps++
+      }
+      callbacks.render()
+      return steps
+    },
+    pendingTime: () => accumulator,
+  }
+}
+```
+
+- [ ] **Step 4: Run the tests and verify they pass**
+
+Run: `npm test -- src/core/loop.test.ts`
+Expected: PASS, 9 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/core/loop.ts src/core/loop.test.ts
+git commit -m "Add fixed-step simulation loop"
+```
+
+---
+
+### Task 14: Renderer and first pixels
+
+The first task with something visible. Builds the renderer, scene, lighting, and sky, generates the archipelago's meshes, and puts them on screen. No player yet — this proves the world renders before anything moves through it.
+
+**Files:**
+- Create: `src/core/renderer.ts`
+- Create: `src/world/world.ts`
+- Modify: `src/main.ts`
+- Test: `src/core/renderer.test.ts`, `src/world/world.test.ts`
+
+**Interfaces:**
+- Consumes: `createIslandGeometry` (Task 8), `createTerrainQuery` and `IslandMesh` (Task 9), `Level` and `validateLevel` (Task 10).
+- Produces:
+  - `hasWebGL(): boolean` and `WEBGL_MESSAGE: string`
+  - `showFallback(message: string): void` — reveals the `#fallback` div and hides the canvas.
+  - `createRenderer(canvas: HTMLCanvasElement): { renderer: WebGLRenderer; scene: Scene; camera: PerspectiveCamera; resize(): void }`
+  - `interface World { islands: IslandMesh[]; terrain: TerrainQuery; group: Group }`
+  - `buildWorld(level: Level): World` — validates the level, generates meshes, returns them grouped.
+
+**On level validation in production:** the spec requires validation to throw in development but skip the offending island in production. `buildWorld` throws; `main.ts` catches, logs, and calls `showFallback` with the validation message. This keeps `buildWorld` simple and testable while still never showing a blank screen.
+
+- [ ] **Step 1: Write the failing tests for `buildWorld`**
+
+`src/world/world.test.ts`:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { Vector3 } from 'three'
+import { buildWorld } from './world'
+import { ARCHIPELAGO } from './levels/archipelago'
+import type { Level } from './level'
+
+describe('buildWorld', () => {
+  it('creates one mesh per island', () => {
+    expect(buildWorld(ARCHIPELAGO).islands).toHaveLength(ARCHIPELAGO.islands.length)
+  })
+
+  it('positions each mesh where the level says', () => {
+    const world = buildWorld(ARCHIPELAGO)
+    const home = ARCHIPELAGO.islands.find((i) => i.id === 'home')!
+    const mesh = world.islands.find((i) => i.id === 'home')!.mesh
+    expect(mesh.position.toArray()).toEqual(home.position.toArray())
+  })
+
+  it('adds every mesh to the returned group', () => {
+    const world = buildWorld(ARCHIPELAGO)
+    expect(world.group.children).toHaveLength(ARCHIPELAGO.islands.length)
+  })
+
+  it('exposes a terrain query that finds the home island', () => {
+    const world = buildWorld(ARCHIPELAGO)
+    const home = ARCHIPELAGO.islands.find((i) => i.id === 'home')!
+    expect(world.terrain.groundHeightAt(home.position.x, home.position.z)).not.toBeNull()
+  })
+
+  it('rejects an invalid level rather than building a broken world', () => {
+    const broken: Level = { ...ARCHIPELAGO, spawn: { islandId: 'nope', offset: new Vector3() } }
+    expect(() => buildWorld(broken)).toThrow(/unknown island "nope"/)
+  })
+
+  it('is deterministic, so the same level always builds the same geometry', () => {
+    const a = buildWorld(ARCHIPELAGO).islands[0]!.mesh.geometry.attributes.position!.array
+    const b = buildWorld(ARCHIPELAGO).islands[0]!.mesh.geometry.attributes.position!.array
+    expect(Array.from(a)).toEqual(Array.from(b))
+  })
+})
+```
+
+- [ ] **Step 2: Run and verify it fails**
+
+Run: `npm test -- src/world/world.test.ts`
+Expected: FAIL — cannot resolve module `./world`.
+
+- [ ] **Step 3: Write `src/world/world.ts`**
+
+```typescript
+import { Group, Mesh, MeshLambertMaterial, Color, type BufferGeometry } from 'three'
+import type { TerrainQuery } from '../core/types'
+import { createIslandGeometry, type Biome } from './island'
+import { createTerrainQuery, type IslandMesh } from './terrain-query'
+import { validateLevel, type Level } from './level'
+
+const BIOME_COLOURS: Record<Biome, number> = {
+  grass: 0x7fa85c,
+  rock: 0x8a8579,
+  temple: 0xb9a67f,
+}
+
+export interface World {
+  islands: IslandMesh[]
+  terrain: TerrainQuery
+  group: Group
+}
+
+/** Validate, generate geometry, and assemble the scene graph for a level. */
+export function buildWorld(level: Level): World {
+  validateLevel(level)
+
+  const group = new Group()
+  const islands: IslandMesh[] = []
+
+  for (const def of level.islands) {
+    const geometry: BufferGeometry = createIslandGeometry(def)
+    const material = new MeshLambertMaterial({ color: new Color(BIOME_COLOURS[def.biome]) })
+    const mesh = new Mesh(geometry, material)
+    mesh.position.copy(def.position)
+    mesh.updateMatrixWorld(true)
+    group.add(mesh)
+    islands.push({ id: def.id, mesh })
+  }
+
+  return { islands, terrain: createTerrainQuery(islands), group }
+}
+```
+
+- [ ] **Step 4: Run and verify it passes**
+
+Run: `npm test -- src/world/world.test.ts`
+Expected: PASS, 6 tests.
+
+- [ ] **Step 5: Write the failing test for the WebGL fallback**
+
+`src/core/renderer.test.ts`:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { WEBGL_MESSAGE } from './renderer'
+
+describe('WEBGL_MESSAGE', () => {
+  it('explains the problem in plain language', () => {
+    expect(WEBGL_MESSAGE.toLowerCase()).toContain('webgl')
+  })
+
+  it('tells the player what to do about it', () => {
+    expect(WEBGL_MESSAGE.length).toBeGreaterThan(40)
+  })
+})
+```
+
+- [ ] **Step 6: Run and verify it fails**
+
+Run: `npm test -- src/core/renderer.test.ts`
+Expected: FAIL — cannot resolve module `./renderer`.
+
+- [ ] **Step 7: Write `src/core/renderer.ts`**
+
+```typescript
+import {
+  WebGLRenderer, Scene, PerspectiveCamera, Color, Fog,
+  HemisphereLight, DirectionalLight,
+} from 'three'
+import { BASE_FOV } from '../fx/mapping'
+
+export const WEBGL_MESSAGE =
+  'This game needs WebGL, which your browser has disabled or does not support. ' +
+  'Try a recent version of Chrome, Firefox, Safari, or Edge with hardware acceleration enabled.'
+
+const SKY_COLOUR = 0x9dc4e8
+const FOG_NEAR = 400
+const FOG_FAR = 2200
+
+export function hasWebGL(): boolean {
+  try {
+    const canvas = document.createElement('canvas')
+    return Boolean(canvas.getContext('webgl2') ?? canvas.getContext('webgl'))
+  } catch {
+    return false
+  }
+}
+
+/** Reveal the fallback message and hide the canvas. Never leaves a blank screen. */
+export function showFallback(message: string): void {
+  const fallback = document.getElementById('fallback')
+  const canvas = document.getElementById('game')
+  if (canvas) canvas.style.display = 'none'
+  if (fallback) {
+    fallback.style.display = 'block'
+    fallback.textContent = message
+  }
+}
+
+export function createRenderer(canvas: HTMLCanvasElement) {
+  const renderer = new WebGLRenderer({ canvas, antialias: true })
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+
+  const scene = new Scene()
+  scene.background = new Color(SKY_COLOUR)
+  // Fog hides the empty void between islands and sells the sense of altitude.
+  scene.fog = new Fog(SKY_COLOUR, FOG_NEAR, FOG_FAR)
+
+  scene.add(new HemisphereLight(SKY_COLOUR, 0x4a5a3a, 1.5))
+  const sun = new DirectionalLight(0xfff2d8, 1.8)
+  sun.position.set(200, 400, 150)
+  scene.add(sun)
+
+  const camera = new PerspectiveCamera(BASE_FOV, 1, 0.5, FOG_FAR)
+
+  function resize(): void {
+    const width = window.innerWidth
+    const height = window.innerHeight
+    renderer.setSize(width, height, false)
+    camera.aspect = width / Math.max(height, 1)
+    camera.updateProjectionMatrix()
+  }
+  resize()
+  window.addEventListener('resize', resize)
+
+  return { renderer, scene, camera, resize }
+}
+```
+
+- [ ] **Step 8: Run and verify it passes**
+
+Run: `npm test -- src/core/renderer.test.ts`
+Expected: PASS, 2 tests.
+
+- [ ] **Step 9: Wire `src/main.ts` to render the archipelago**
+
+```typescript
+import { createRenderer, hasWebGL, showFallback, WEBGL_MESSAGE } from './core/renderer'
+import { createStepper } from './core/loop'
+import { buildWorld } from './world/world'
+import { ARCHIPELAGO } from './world/levels/archipelago'
+import { Vector3 } from 'three'
+
+function start(): void {
+  if (!hasWebGL()) {
+    showFallback(WEBGL_MESSAGE)
+    return
+  }
+
+  const canvas = document.getElementById('game')
+  if (!(canvas instanceof HTMLCanvasElement)) {
+    showFallback('Could not find the game canvas.')
+    return
+  }
+
+  let world
+  try {
+    world = buildWorld(ARCHIPELAGO)
+  } catch (error) {
+    showFallback(`The level failed to load: ${(error as Error).message}`)
+    return
+  }
+
+  const { renderer, scene, camera } = createRenderer(canvas)
+  scene.add(world.group)
+
+  // Temporary fixed vantage point. Task 15 replaces this with the follow camera.
+  camera.position.set(160, 90, 200)
+  camera.lookAt(new Vector3(0, 0, 0))
+
+  const stepper = createStepper({
+    update: () => {},
+    render: () => renderer.render(scene, camera),
+  })
+
+  let last = performance.now()
+  function frame(now: number): void {
+    stepper.advance((now - last) / 1000)
+    last = now
+    requestAnimationFrame(frame)
+  }
+  requestAnimationFrame(frame)
+}
+
+start()
+```
+
+- [ ] **Step 10: Verify visually in the browser**
+
+```bash
+npm run dev
+```
+
+Open the served URL. Expected: a blue sky with the eight islands visible as green and grey shapes, each with a flat top and a spike below, fading into fog with distance. Check the browser console is free of errors.
+
+- [ ] **Step 11: Verify the whole suite, typecheck, and build**
+
+Run: `npm test && npm run typecheck && npm run build`
+Expected: all pass.
+
+- [ ] **Step 12: Commit**
+
+```bash
+git add src/core/renderer.ts src/core/renderer.test.ts src/world/world.ts src/world/world.test.ts src/main.ts
+git commit -m "Add renderer, world assembly, and first rendered archipelago"
+```
+
+---
+
+### Task 15: Follow camera
+
+In flight the camera is the steering device, not just presentation, so it is a gameplay-critical system. The two modes invert the camera-character relationship: on ground the character leads and the camera trails; in flight the camera leads and the kite follows.
+
+**Files:**
+- Create: `src/camera/follow-cam.ts`
+- Test: `src/camera/follow-cam.test.ts`
+
+**Interfaces:**
+- Consumes: `PlayerState` and `TerrainQuery` from `src/core/types.ts`.
+- Produces:
+  - `interface CamProfile { distance: number; height: number; smoothing: number }`
+  - `GROUND_PROFILE`, `KITE_PROFILE`, `profileFor(mode: PlayerState['mode']): CamProfile`
+  - `desiredCameraPosition(target: Vector3, lookDirection: Vector3, profile: CamProfile): Vector3`
+  - `smoothTowards(current: Vector3, desired: Vector3, smoothing: number, dt: number): Vector3`
+  - `pullInForTerrain(target: Vector3, desired: Vector3, terrain: TerrainQuery, minDistance?: number): Vector3`
+
+- [ ] **Step 1: Write the failing tests**
+
+`src/camera/follow-cam.test.ts`:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { Vector3 } from 'three'
+import {
+  profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain,
+  GROUND_PROFILE, KITE_PROFILE,
+} from './follow-cam'
+import type { TerrainQuery } from '../core/types'
+
+const noGround: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+const groundAt = (y: number): TerrainQuery => ({
+  groundHeightAt: () => y,
+  raycastDown: (from) => ({
+    point: new Vector3(from.x, y, from.z), normal: new Vector3(0, 1, 0), islandId: 'g',
+  }),
+})
+
+describe('profileFor', () => {
+  it('uses the ground profile on foot', () => {
+    expect(profileFor('ground')).toBe(GROUND_PROFILE)
+  })
+
+  it('uses the kite profile in flight', () => {
+    expect(profileFor('kite')).toBe(KITE_PROFILE)
+  })
+
+  it('pulls further back in flight to sell speed', () => {
+    expect(KITE_PROFILE.distance).toBeGreaterThan(GROUND_PROFILE.distance)
+  })
+
+  it('smooths tighter in flight, because the camera is the steering device', () => {
+    expect(KITE_PROFILE.smoothing).toBeGreaterThan(GROUND_PROFILE.smoothing)
+  })
+})
+
+describe('desiredCameraPosition', () => {
+  const target = new Vector3(0, 0, 0)
+
+  it('sits behind the look direction', () => {
+    expect(desiredCameraPosition(target, new Vector3(0, 0, -1), GROUND_PROFILE).z)
+      .toBeCloseTo(GROUND_PROFILE.distance, 5)
+  })
+
+  it('sits above the target', () => {
+    expect(desiredCameraPosition(target, new Vector3(0, 0, -1), GROUND_PROFILE).y)
+      .toBeCloseTo(GROUND_PROFILE.height, 5)
+  })
+
+  it('follows the look direction around', () => {
+    expect(desiredCameraPosition(target, new Vector3(-1, 0, 0), GROUND_PROFILE).x)
+      .toBeCloseTo(GROUND_PROFILE.distance, 5)
+  })
+
+  it('does not mutate the target it is given', () => {
+    const t = new Vector3(1, 2, 3)
+    desiredCameraPosition(t, new Vector3(0, 0, -1), GROUND_PROFILE)
+    expect(t.toArray()).toEqual([1, 2, 3])
+  })
+})
+
+describe('smoothTowards', () => {
+  it('moves toward the desired position', () => {
+    const out = smoothTowards(new Vector3(0, 0, 0), new Vector3(10, 0, 0), 9, 1 / 60)
+    expect(out.x).toBeGreaterThan(0)
+    expect(out.x).toBeLessThan(10)
+  })
+
+  it('converges over many frames', () => {
+    let c = new Vector3(0, 0, 0)
+    const d = new Vector3(10, 0, 0)
+    for (let i = 0; i < 200; i++) c = smoothTowards(c, d, 9, 1 / 60)
+    expect(c.x).toBeCloseTo(10, 3)
+  })
+
+  it('is frame-rate independent to within a small tolerance', () => {
+    let fast = new Vector3()
+    let slow = new Vector3()
+    const d = new Vector3(10, 0, 0)
+    for (let i = 0; i < 120; i++) fast = smoothTowards(fast, d, 9, 1 / 120)
+    for (let i = 0; i < 60; i++) slow = smoothTowards(slow, d, 9, 1 / 60)
+    expect(Math.abs(fast.x - slow.x)).toBeLessThan(0.2)
+  })
+
+  it('never overshoots the target', () => {
+    expect(smoothTowards(new Vector3(), new Vector3(10, 0, 0), 1000, 1).x)
+      .toBeLessThanOrEqual(10)
+  })
+})
+
+describe('pullInForTerrain', () => {
+  const target = new Vector3(0, 20, 0)
+
+  it('leaves the camera alone in open air', () => {
+    const desired = new Vector3(0, 20, 10)
+    expect(pullInForTerrain(target, desired, noGround).toArray()).toEqual(desired.toArray())
+  })
+
+  it('leaves the camera alone when well above terrain', () => {
+    const desired = new Vector3(0, 20, 10)
+    expect(pullInForTerrain(target, desired, groundAt(0)).toArray()).toEqual(desired.toArray())
+  })
+
+  it('lifts the camera above terrain it would clip into', () => {
+    const desired = new Vector3(0, 1, 10)
+    expect(pullInForTerrain(target, desired, groundAt(5)).y).toBeGreaterThan(desired.y)
+  })
+
+  it('never returns a non-finite position', () => {
+    const out = pullInForTerrain(target, new Vector3(0, 19, 0), groundAt(19))
+    expect(Number.isFinite(out.x + out.y + out.z)).toBe(true)
+  })
+})
+```
+
+- [ ] **Step 2: Run the tests and verify they fail**
+
+Run: `npm test -- src/camera/follow-cam.test.ts`
+Expected: FAIL — cannot resolve module `./follow-cam`.
+
+- [ ] **Step 3: Write `src/camera/follow-cam.ts`**
+
+```typescript
+import { Vector3, MathUtils } from 'three'
+import type { PlayerState, TerrainQuery } from '../core/types'
+
+export interface CamProfile {
+  distance: number
+  height: number
+  /** Higher is snappier. */
+  smoothing: number
+}
+
+/** On foot the character leads and the camera trails. */
+export const GROUND_PROFILE: CamProfile = { distance: 7, height: 2.6, smoothing: 9 }
+/**
+ * In flight the camera leads: the kite steers toward it. Smoothing must stay
+ * tight here or steering feels laggy — the kite's weight comes from the
+ * airspeed-limited turn rate, not from a sluggish camera.
+ */
+export const KITE_PROFILE: CamProfile = { distance: 12, height: 3.2, smoothing: 16 }
+
+export function profileFor(mode: PlayerState['mode']): CamProfile {
+  return mode === 'kite' ? KITE_PROFILE : GROUND_PROFILE
+}
+
+/** Where the camera wants to sit, before smoothing or terrain collision. */
+export function desiredCameraPosition(
+  target: Vector3, lookDirection: Vector3, profile: CamProfile,
+): Vector3 {
+  return target.clone()
+    .addScaledVector(lookDirection.clone().normalize(), -profile.distance)
+    .add(new Vector3(0, profile.height, 0))
+}
+
+/** Exponential smoothing, stable at any frame rate and never overshooting. */
+export function smoothTowards(
+  current: Vector3, desired: Vector3, smoothing: number, dt: number,
+): Vector3 {
+  const alpha = 1 - Math.exp(-smoothing * dt)
+  return current.clone().lerp(desired, MathUtils.clamp(alpha, 0, 1))
+}
+
+/** Lift the camera when terrain would sit between it and the player. */
+export function pullInForTerrain(
+  target: Vector3, desired: Vector3, terrain: TerrainQuery, minDistance = 2,
+): Vector3 {
+  const ground = terrain.groundHeightAt(desired.x, desired.z)
+  if (ground === null || desired.y > ground + minDistance) return desired
+
+  const lifted = desired.clone()
+  lifted.y = ground + minDistance
+  const toTarget = target.clone().sub(lifted)
+  if (toTarget.length() < minDistance) {
+    return target.clone().addScaledVector(toTarget.normalize(), -minDistance)
+  }
+  return lifted
+}
+```
+
+- [ ] **Step 4: Run the tests and verify they pass**
+
+Run: `npm test -- src/camera/follow-cam.test.ts`
+Expected: PASS, 16 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/camera/follow-cam.ts src/camera/follow-cam.test.ts
+git commit -m "Add follow camera with ground and flight profiles"
+```
+
+---
+
+### Task 16: Avatar and asset loading
+
+The character on screen. The animation state machine is pure and tested; the Three.js model and mixer are thin glue around it. Assets load with a placeholder fallback so the game is never blocked on a download.
+
+**Files:**
+- Create: `src/player/avatar-anim.ts`
+- Create: `src/core/assets.ts`
+- Create: `src/player/avatar.ts`
+- Create: `ASSETS.md`
+- Test: `src/player/avatar-anim.test.ts`
+
+**Interfaces:**
+- Consumes: `PlayerState` from `src/core/types.ts`.
+- Produces:
+  - `type AnimationName = 'idle' | 'walk' | 'run' | 'fall' | 'glide'`
+  - `animationFor(state: PlayerState): AnimationName`
+  - `loadGLTF(url: string): Promise<GLTF | null>` — resolves `null` on failure rather than rejecting.
+  - `createAvatar(): { object: Object3D; setAnimation(name: AnimationName): void; update(dt: number): void; attachModel(gltf: GLTF): void }`
+
+**Asset strategy:** the placeholder is built first and the real model swapped in when it arrives. The game is fully playable before any asset exists, which means this task never blocks on a download.
+
+- [ ] **Step 1: Write the failing tests for the animation state machine**
+
+`src/player/avatar-anim.test.ts`:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { Vector3 } from 'three'
+import { animationFor } from './avatar-anim'
+import type { PlayerState } from '../core/types'
+
+const p = (over: Partial<PlayerState> = {}): PlayerState => ({
+  mode: 'ground', position: new Vector3(), velocity: new Vector3(),
+  forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
+  grounded: true, lastGroundIslandId: null, ...over,
+})
+
+describe('animationFor', () => {
+  it('glides whenever the kite is out', () => {
+    expect(animationFor(p({ mode: 'kite', grounded: false }))).toBe('glide')
+  })
+
+  it('glides even when the kite is barely moving', () => {
+    expect(animationFor(p({ mode: 'kite', grounded: false, velocity: new Vector3() })))
+      .toBe('glide')
+  })
+
+  it('falls when airborne without the kite', () => {
+    expect(animationFor(p({ grounded: false }))).toBe('fall')
+  })
+
+  it('idles when standing still', () => {
+    expect(animationFor(p())).toBe('idle')
+  })
+
+  it('walks at a walking pace', () => {
+    expect(animationFor(p({ velocity: new Vector3(0, 0, -7) }))).toBe('walk')
+  })
+
+  it('runs at a running pace', () => {
+    expect(animationFor(p({ velocity: new Vector3(0, 0, -13) }))).toBe('run')
+  })
+
+  it('ignores vertical speed when picking a ground clip', () => {
+    expect(animationFor(p({ velocity: new Vector3(0, -30, 0) }))).toBe('idle')
+  })
+})
+```
+
+- [ ] **Step 2: Run and verify it fails**
+
+Run: `npm test -- src/player/avatar-anim.test.ts`
+Expected: FAIL — cannot resolve module `./avatar-anim`.
+
+- [ ] **Step 3: Write `src/player/avatar-anim.ts`**
+
+```typescript
+import type { PlayerState } from '../core/types'
+
+export type AnimationName = 'idle' | 'walk' | 'run' | 'fall' | 'glide'
+
+const WALK_THRESHOLD = 0.5
+const RUN_THRESHOLD = 9
+
+/**
+ * Which clip should be playing. Pure, so the state machine is testable without
+ * a Three.js AnimationMixer.
+ */
+export function animationFor(state: PlayerState): AnimationName {
+  if (state.mode === 'kite') return 'glide'
+  if (!state.grounded) return 'fall'
+  const horizontal = Math.hypot(state.velocity.x, state.velocity.z)
+  if (horizontal < WALK_THRESHOLD) return 'idle'
+  return horizontal >= RUN_THRESHOLD ? 'run' : 'walk'
+}
+```
+
+- [ ] **Step 4: Run and verify it passes**
+
+Run: `npm test -- src/player/avatar-anim.test.ts`
+Expected: PASS, 7 tests.
+
+- [ ] **Step 5: Write `src/core/assets.ts`**
+
+```typescript
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
+
+const loader = new GLTFLoader()
+const cache = new Map<string, Promise<GLTF | null>>()
+
+/**
+ * Load a model, resolving null on any failure. Callers substitute a placeholder
+ * rather than failing to start, so a missing asset never blanks the screen.
+ */
+export function loadGLTF(url: string): Promise<GLTF | null> {
+  const cached = cache.get(url)
+  if (cached) return cached
+
+  const promise = loader.loadAsync(url).catch((error: unknown) => {
+    console.warn(`Failed to load "${url}", using a placeholder instead.`, error)
+    return null
+  })
+  cache.set(url, promise)
+  return promise
+}
+```
+
+- [ ] **Step 6: Write `src/player/avatar.ts`**
+
+```typescript
+import {
+  Object3D, Group, Mesh, CapsuleGeometry, ConeGeometry,
+  MeshLambertMaterial, AnimationMixer, type AnimationClip,
+} from 'three'
+import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
+import type { AnimationName } from './avatar-anim'
+
+const FADE_SECONDS = 0.18
+
+/** Primitive stand-in used until a real model loads, and if none ever does. */
+function createPlaceholder(): Group {
+  const group = new Group()
+
+  const body = new Mesh(
+    new CapsuleGeometry(0.4, 1.0, 4, 8),
+    new MeshLambertMaterial({ color: 0xf0e6d2 }),
+  )
+  body.position.y = 0.9
+  group.add(body)
+
+  // A cone marks the facing direction, so orientation is readable while testing.
+  const nose = new Mesh(
+    new ConeGeometry(0.22, 0.5, 8),
+    new MeshLambertMaterial({ color: 0xd9863f }),
+  )
+  nose.rotation.x = Math.PI / 2
+  nose.position.set(0, 1.1, -0.45)
+  group.add(nose)
+
+  return group
+}
+
+export function createAvatar() {
+  const object: Object3D = new Group()
+  object.add(createPlaceholder())
+
+  let mixer: AnimationMixer | null = null
+  let clips = new Map<AnimationName, AnimationClip>()
+  let current: AnimationName | null = null
+
+  return {
+    object,
+
+    /** Swap the placeholder for a real model once it has loaded. */
+    attachModel(gltf: GLTF): void {
+      object.clear()
+      object.add(gltf.scene)
+      mixer = new AnimationMixer(gltf.scene)
+      clips = new Map()
+      for (const clip of gltf.animations) {
+        const name = clip.name.toLowerCase() as AnimationName
+        clips.set(name, clip)
+      }
+      current = null
+    },
+
+    setAnimation(name: AnimationName): void {
+      if (name === current) return
+      const clip = clips.get(name)
+      if (!mixer || !clip) {
+        // No model or no matching clip: the placeholder simply does not animate.
+        current = name
+        return
+      }
+      const next = mixer.clipAction(clip)
+      if (current) {
+        const previous = clips.get(current)
+        if (previous) mixer.clipAction(previous).fadeOut(FADE_SECONDS)
+      }
+      next.reset().fadeIn(FADE_SECONDS).play()
+      current = name
+    },
+
+    update(dt: number): void {
+      mixer?.update(dt)
+    },
+  }
+}
+```
+
+- [ ] **Step 7: Write `ASSETS.md`**
+
+```markdown
+# Assets
+
+Every asset in this repository is CC0 or equivalently permissive, so the project
+stays clean as a public repository.
+
+| Asset | Path | Source | License |
+| --- | --- | --- | --- |
+| Placeholder character | generated in code | `src/player/avatar.ts` | n/a |
+
+## Adding an asset
+
+1. Confirm the license is CC0, public domain, or equally permissive. If
+   redistribution in a public repository is unclear, do not commit it.
+2. Put the file under `public/models/` or `public/audio/`.
+3. Add a row to the table above with its real source URL.
+
+## Recommended sources
+
+- Quaternius (CC0) — animated low-poly characters and environment packs
+- Kenney (CC0) — props and audio
+- Poly Pizza (mixed, check per asset) — low-poly models
+
+When adding a rigged character, name its clips `idle`, `walk`, `run`, `fall`,
+and `glide` so `avatar.ts` matches them automatically.
+```
+
+- [ ] **Step 8: Verify the suite, typecheck, and build**
+
+Run: `npm test && npm run typecheck && npm run build`
+Expected: all pass.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add src/player/avatar-anim.ts src/player/avatar-anim.test.ts src/player/avatar.ts src/core/assets.ts ASSETS.md
+git commit -m "Add avatar with animation state machine and placeholder fallback"
+```
+
+---
+
+### Task 17: HUD
+
+Breath, altitude, and airspeed. The formatting is pure and tested; the DOM writing is a thin wrapper.
+
+**Files:**
+- Create: `src/ui/hud.ts`
+- Test: `src/ui/hud.test.ts`
+
+**Interfaces:**
+- Consumes: `PlayerState` from `src/core/types.ts`.
+- Produces:
+  - `formatAltitude(y: number): string`, `formatAirspeed(speed: number): string`
+  - `breathFraction(state: PlayerState): number`
+  - `interface HudModel { altitude: string; airspeed: string; breath: number; showBreath: boolean }`
+  - `hudModelFor(state: PlayerState): HudModel`
+  - `createHud(parent: HTMLElement): { update(model: HudModel): void; dispose(): void }`
+
+- [ ] **Step 1: Write the failing tests**
+
+`src/ui/hud.test.ts`:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { Vector3 } from 'three'
+import { formatAltitude, formatAirspeed, breathFraction, hudModelFor } from './hud'
+import type { PlayerState } from '../core/types'
+
+const p = (over: Partial<PlayerState> = {}): PlayerState => ({
+  mode: 'ground', position: new Vector3(), velocity: new Vector3(),
+  forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
+  grounded: true, lastGroundIslandId: null, ...over,
+})
+
+describe('formatAltitude', () => {
+  it('rounds to whole metres', () => {
+    expect(formatAltitude(123.7)).toBe('124 m')
+  })
+
+  it('handles negative altitude below the islands', () => {
+    expect(formatAltitude(-42.2)).toBe('-42 m')
+  })
+
+  it('never shows a non-finite value to the player', () => {
+    expect(formatAltitude(NaN)).toBe('— m')
+  })
+})
+
+describe('formatAirspeed', () => {
+  it('rounds to whole metres per second', () => {
+    expect(formatAirspeed(23.91)).toBe('24 m/s')
+  })
+
+  it('shows zero at rest', () => {
+    expect(formatAirspeed(0)).toBe('0 m/s')
+  })
+
+  it('never shows a non-finite value to the player', () => {
+    expect(formatAirspeed(Infinity)).toBe('— m/s')
+  })
+})
+
+describe('breathFraction', () => {
+  it('is one at full breath', () => {
+    expect(breathFraction(p())).toBe(1)
+  })
+
+  it('is a half at half breath', () => {
+    expect(breathFraction(p({ breath: 50 }))).toBe(0.5)
+  })
+
+  it('is zero when empty', () => {
+    expect(breathFraction(p({ breath: 0 }))).toBe(0)
+  })
+
+  it('accounts for a raised maximum from shrines', () => {
+    expect(breathFraction(p({ breath: 90, maxBreath: 180 }))).toBeCloseTo(0.5, 5)
+  })
+
+  it('guards against a zero maximum rather than dividing by zero', () => {
+    expect(breathFraction(p({ breath: 0, maxBreath: 0 }))).toBe(0)
+  })
+})
+
+describe('hudModelFor', () => {
+  it('reports altitude from the player position', () => {
+    expect(hudModelFor(p({ position: new Vector3(0, 250, 0) })).altitude).toBe('250 m')
+  })
+
+  it('reports airspeed from the velocity magnitude', () => {
+    expect(hudModelFor(p({ velocity: new Vector3(0, 0, -30) })).airspeed).toBe('30 m/s')
+  })
+
+  it('hides the breath meter when full and on the ground', () => {
+    expect(hudModelFor(p()).showBreath).toBe(false)
+  })
+
+  it('shows the breath meter while flying', () => {
+    expect(hudModelFor(p({ mode: 'kite', grounded: false })).showBreath).toBe(true)
+  })
+
+  it('shows the breath meter when it is not full, even on the ground', () => {
+    expect(hudModelFor(p({ breath: 60 })).showBreath).toBe(true)
+  })
+})
+```
+
+- [ ] **Step 2: Run and verify it fails**
+
+Run: `npm test -- src/ui/hud.test.ts`
+Expected: FAIL — cannot resolve module `./hud`.
+
+- [ ] **Step 3: Write `src/ui/hud.ts`**
+
+```typescript
+import type { PlayerState } from '../core/types'
+
+/** Shown when a value is not finite, so the player never sees NaN. */
+const NO_VALUE = '—'
+
+export function formatAltitude(y: number): string {
+  return Number.isFinite(y) ? `${Math.round(y)} m` : `${NO_VALUE} m`
+}
+
+export function formatAirspeed(speed: number): string {
+  return Number.isFinite(speed) ? `${Math.round(speed)} m/s` : `${NO_VALUE} m/s`
+}
+
+export function breathFraction(state: PlayerState): number {
+  if (!(state.maxBreath > 0)) return 0
+  return state.breath / state.maxBreath
+}
+
+export interface HudModel {
+  altitude: string
+  airspeed: string
+  /** 0 to 1. */
+  breath: number
+  showBreath: boolean
+}
+
+export function hudModelFor(state: PlayerState): HudModel {
+  const breath = breathFraction(state)
+  return {
+    altitude: formatAltitude(state.position.y),
+    airspeed: formatAirspeed(state.velocity.length()),
+    breath,
+    // Keep the screen clean when the meter has nothing to say.
+    showBreath: state.mode === 'kite' || breath < 1,
+  }
+}
+
+const STYLE = `
+.hud { position: fixed; inset: auto auto 20px 20px; color: #f3f6fb;
+  font: 500 14px/1.4 system-ui, sans-serif; text-shadow: 0 1px 3px rgba(0,0,0,.6);
+  pointer-events: none; }
+.hud-readouts { display: flex; gap: 16px; margin-bottom: 8px; }
+.hud-breath { width: 180px; height: 8px; border-radius: 4px;
+  background: rgba(255,255,255,.22); overflow: hidden; transition: opacity .2s; }
+.hud-breath-fill { height: 100%; width: 100%; background: linear-gradient(90deg,#8fd8ff,#d9f4ff);
+  transform-origin: left center; }
+`
+
+export function createHud(parent: HTMLElement) {
+  const style = document.createElement('style')
+  style.textContent = STYLE
+  document.head.append(style)
+
+  const root = document.createElement('div')
+  root.className = 'hud'
+  root.innerHTML = `
+    <div class="hud-readouts">
+      <span data-altitude></span>
+      <span data-airspeed></span>
+    </div>
+    <div class="hud-breath"><div class="hud-breath-fill"></div></div>
+  `
+  parent.append(root)
+
+  const altitude = root.querySelector('[data-altitude]') as HTMLElement
+  const airspeed = root.querySelector('[data-airspeed]') as HTMLElement
+  const breathBar = root.querySelector('.hud-breath') as HTMLElement
+  const breathFill = root.querySelector('.hud-breath-fill') as HTMLElement
+
+  return {
+    update(model: HudModel): void {
+      altitude.textContent = model.altitude
+      airspeed.textContent = model.airspeed
+      breathBar.style.opacity = model.showBreath ? '1' : '0'
+      breathFill.style.transform = `scaleX(${model.breath})`
+    },
+    dispose(): void {
+      root.remove()
+      style.remove()
+    },
+  }
+}
+```
+
+- [ ] **Step 4: Run and verify it passes**
+
+Run: `npm test -- src/ui/hud.test.ts`
+Expected: PASS, 16 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/ui/hud.ts src/ui/hud.test.ts
+git commit -m "Add HUD with breath, altitude, and airspeed readouts"
+```
+
+---
+
+### Task 18: Air shrines and save persistence
+
+The reward that makes exploration compound: each shrine permanently raises maximum breath, so the islands you reach extend the reach you have. Persistence is behind an injectable storage interface, so it is tested without a browser and never crashes on blocked or full storage.
+
+**Files:**
+- Create: `src/world/shrine.ts`
+- Create: `src/core/save.ts`
+- Test: `src/world/shrine.test.ts`, `src/core/save.test.ts`
+
+**Interfaces:**
+- Consumes: `TerrainQuery` from `src/core/types.ts`, `Level` from Task 10.
+- Produces:
+  - `interface Shrine { id: string; position: Vector3; collected: boolean }`
+  - `COLLECT_RADIUS: number`
+  - `placeShrines(level: Level, terrain: TerrainQuery, collected: readonly string[]): Shrine[]`
+  - `collectShrinesAt(shrines: readonly Shrine[], position: Vector3): string[]`
+  - `interface SaveData { collectedShrines: string[]; maxBreath: number }`
+  - `interface StorageLike { getItem(key: string): string | null; setItem(key: string, value: string): void }`
+  - `SAVE_KEY`, `defaultSave(baseMaxBreath: number): SaveData`
+  - `loadSave(storage: StorageLike, baseMaxBreath: number): SaveData` — never throws.
+  - `writeSave(storage: StorageLike, data: SaveData): boolean` — never throws; returns success.
+
+- [ ] **Step 1: Write the failing tests for shrines**
+
+`src/world/shrine.test.ts`:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { Vector3 } from 'three'
+import { placeShrines, collectShrinesAt, COLLECT_RADIUS } from './shrine'
+import { ARCHIPELAGO } from './levels/archipelago'
+import type { TerrainQuery } from '../core/types'
+import type { Level } from './level'
+
+const flat: TerrainQuery = {
+  groundHeightAt: () => 10,
+  raycastDown: (from) => ({
+    point: new Vector3(from.x, 10, from.z), normal: new Vector3(0, 1, 0), islandId: 'x',
+  }),
+}
+const empty: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+
+describe('placeShrines', () => {
+  it('places one shrine per level shrine definition', () => {
+    expect(placeShrines(ARCHIPELAGO, flat, [])).toHaveLength(ARCHIPELAGO.shrines.length)
+  })
+
+  it('sits shrines above the ground surface', () => {
+    expect(placeShrines(ARCHIPELAGO, flat, [])[0]!.position.y).toBeGreaterThan(10)
+  })
+
+  it('marks already-collected shrines', () => {
+    const shrines = placeShrines(ARCHIPELAGO, flat, ['home'])
+    expect(shrines.find((s) => s.id === 'home')!.collected).toBe(true)
+    expect(shrines.find((s) => s.id === 'spire')!.collected).toBe(false)
+  })
+
+  it('drops shrines whose island has no ground beneath them', () => {
+    expect(placeShrines(ARCHIPELAGO, empty, [])).toHaveLength(0)
+  })
+
+  it('skips shrines referencing a missing island', () => {
+    const level: Level = { ...ARCHIPELAGO, shrines: [{ islandId: 'ghost', offset: new Vector3() }] }
+    expect(placeShrines(level, flat, [])).toHaveLength(0)
+  })
+})
+
+describe('collectShrinesAt', () => {
+  const shrines = [
+    { id: 'a', position: new Vector3(0, 0, 0), collected: false },
+    { id: 'b', position: new Vector3(100, 0, 0), collected: false },
+    { id: 'c', position: new Vector3(0, 0, 0), collected: true },
+  ]
+
+  it('collects a shrine within range', () => {
+    expect(collectShrinesAt(shrines, new Vector3(1, 0, 0))).toEqual(['a'])
+  })
+
+  it('ignores shrines out of range', () => {
+    expect(collectShrinesAt(shrines, new Vector3(50, 0, 0))).toEqual([])
+  })
+
+  it('does not re-collect an already-collected shrine', () => {
+    expect(collectShrinesAt(shrines, new Vector3(0, 0, 0))).toEqual(['a'])
+  })
+
+  it('collects exactly at the radius boundary', () => {
+    expect(collectShrinesAt(shrines, new Vector3(COLLECT_RADIUS, 0, 0))).toEqual(['a'])
+  })
+
+  it('returns empty when nothing is nearby', () => {
+    expect(collectShrinesAt(shrines, new Vector3(0, 500, 0))).toEqual([])
+  })
+})
+```
+
+- [ ] **Step 2: Run and verify it fails**
+
+Run: `npm test -- src/world/shrine.test.ts`
+Expected: FAIL — cannot resolve module `./shrine`.
+
+- [ ] **Step 3: Write `src/world/shrine.ts`**
+
+```typescript
+import { Vector3 } from 'three'
+import type { TerrainQuery } from '../core/types'
+import type { Level } from './level'
+
+export interface Shrine {
+  id: string
+  position: Vector3
+  collected: boolean
+}
+
+/** How close the player must be to collect a shrine. */
+export const COLLECT_RADIUS = 6
+/** How far above the surface a shrine floats. */
+const HOVER_HEIGHT = 1.5
+
+/** Place shrines on their island's surface, dropping any that miss the ground. */
+export function placeShrines(
+  level: Level, terrain: TerrainQuery, collected: readonly string[],
+): Shrine[] {
+  const already = new Set(collected)
+  const shrines: Shrine[] = []
+
+  for (const def of level.shrines) {
+    const island = level.islands.find((i) => i.id === def.islandId)
+    if (!island) continue
+    const x = island.position.x + def.offset.x
+    const z = island.position.z + def.offset.z
+    const groundY = terrain.groundHeightAt(x, z)
+    // A shrine with no ground under it would be unreachable, so drop it.
+    if (groundY === null) continue
+    shrines.push({
+      id: def.islandId,
+      position: new Vector3(x, groundY + HOVER_HEIGHT, z),
+      collected: already.has(def.islandId),
+    })
+  }
+  return shrines
+}
+
+/** Ids newly collected this frame. Empty when nothing is in range. */
+export function collectShrinesAt(shrines: readonly Shrine[], position: Vector3): string[] {
+  return shrines
+    .filter((s) => !s.collected && s.position.distanceTo(position) <= COLLECT_RADIUS)
+    .map((s) => s.id)
+}
+```
+
+- [ ] **Step 4: Run and verify it passes**
+
+Run: `npm test -- src/world/shrine.test.ts`
+Expected: PASS, 10 tests.
+
+- [ ] **Step 5: Write the failing tests for save persistence**
+
+`src/core/save.test.ts`:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import { loadSave, writeSave, defaultSave, SAVE_KEY, type StorageLike } from './save'
+
+function memory(initial: Record<string, string> = {}): StorageLike {
+  const data = { ...initial }
+  return { getItem: (k) => data[k] ?? null, setItem: (k, v) => { data[k] = v } }
+}
+const hostile: StorageLike = {
+  getItem: () => { throw new Error('blocked') },
+  setItem: () => { throw new Error('quota exceeded') },
+}
+
+describe('loadSave', () => {
+  it('returns a fresh save when storage is empty', () => {
+    expect(loadSave(memory(), 100)).toEqual(defaultSave(100))
+  })
+
+  it('round-trips a written save', () => {
+    const s = memory()
+    writeSave(s, { collectedShrines: ['home', 'spire'], maxBreath: 120 })
+    expect(loadSave(s, 100)).toEqual({ collectedShrines: ['home', 'spire'], maxBreath: 120 })
+  })
+
+  it('falls back on malformed JSON rather than throwing', () => {
+    expect(loadSave(memory({ [SAVE_KEY]: '{not json' }), 100)).toEqual(defaultSave(100))
+  })
+
+  it('falls back when the stored value is not an object', () => {
+    expect(loadSave(memory({ [SAVE_KEY]: '42' }), 100)).toEqual(defaultSave(100))
+  })
+
+  it('discards non-string shrine entries', () => {
+    const raw = JSON.stringify({ collectedShrines: ['home', 7, null], maxBreath: 110 })
+    expect(loadSave(memory({ [SAVE_KEY]: raw }), 100).collectedShrines).toEqual(['home'])
+  })
+
+  it('rejects an implausible maxBreath', () => {
+    const raw = JSON.stringify({ collectedShrines: [], maxBreath: -5 })
+    expect(loadSave(memory({ [SAVE_KEY]: raw }), 100).maxBreath).toBe(100)
+  })
+
+  it('survives storage that throws on read', () => {
+    expect(loadSave(hostile, 100)).toEqual(defaultSave(100))
+  })
+})
+
+describe('writeSave', () => {
+  it('reports success on a working store', () => {
+    expect(writeSave(memory(), defaultSave(100))).toBe(true)
+  })
+
+  it('reports failure instead of throwing when storage is full', () => {
+    expect(writeSave(hostile, defaultSave(100))).toBe(false)
+  })
+})
+```
+
+- [ ] **Step 6: Run and verify it fails**
+
+Run: `npm test -- src/core/save.test.ts`
+Expected: FAIL — cannot resolve module `./save`.
+
+- [ ] **Step 7: Write `src/core/save.ts`**
+
+```typescript
+export interface SaveData {
+  collectedShrines: string[]
+  maxBreath: number
+}
+
+/** Injectable so persistence is testable and a blocked localStorage is survivable. */
+export interface StorageLike {
+  getItem(key: string): string | null
+  setItem(key: string, value: string): void
+}
+
+export const SAVE_KEY = 'airbender-skies:save:v1'
+
+export function defaultSave(baseMaxBreath: number): SaveData {
+  return { collectedShrines: [], maxBreath: baseMaxBreath }
+}
+
+/**
+ * Never throws. A corrupt, hand-edited, or unavailable save falls back to a
+ * fresh one rather than preventing the game from starting.
+ */
+export function loadSave(storage: StorageLike, baseMaxBreath: number): SaveData {
+  try {
+    const raw = storage.getItem(SAVE_KEY)
+    if (!raw) return defaultSave(baseMaxBreath)
+
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null) return defaultSave(baseMaxBreath)
+
+    const data = parsed as Partial<SaveData>
+    const shrines = Array.isArray(data.collectedShrines)
+      ? data.collectedShrines.filter((s): s is string => typeof s === 'string')
+      : []
+    const maxBreath =
+      typeof data.maxBreath === 'number' && Number.isFinite(data.maxBreath) && data.maxBreath > 0
+        ? data.maxBreath
+        : baseMaxBreath
+
+    return { collectedShrines: shrines, maxBreath }
+  } catch {
+    return defaultSave(baseMaxBreath)
+  }
+}
+
+/** Never throws. Private browsing and a full quota must not crash the game. */
+export function writeSave(storage: StorageLike, data: SaveData): boolean {
+  try {
+    storage.setItem(SAVE_KEY, JSON.stringify(data))
+    return true
+  } catch {
+    return false
+  }
+}
+```
+
+- [ ] **Step 8: Run and verify it passes**
+
+Run: `npm test -- src/core/save.test.ts`
+Expected: PASS, 9 tests.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add src/world/shrine.ts src/world/shrine.test.ts src/core/save.ts src/core/save.test.ts
+git commit -m "Add air shrines and resilient save persistence"
+```
+
+---
+
+### Task 19: Speed effects and wind audio
+
+Cheap effects with a disproportionate payoff for the sense of speed. Every mapping from airspeed to an effect parameter is a pure function, so the feel is tunable and testable in one place.
+
+**Files:**
+- Create: `src/fx/mapping.ts`
+- Create: `src/fx/audio.ts`
+- Test: `src/fx/mapping.test.ts`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces:
+  - `FX_SPEED_REFERENCE`, `BASE_FOV`, `MAX_FOV_KICK`, `TRAIL_SPEED_THRESHOLD`
+  - `speedIntensity(airspeed: number): number` — 0 at rest, 1 at the reference speed.
+  - `fovForSpeed`, `windVolumeForSpeed`, `windPitchForSpeed`, `trailOpacityForSpeed`
+  - `createWindAudio(): { start(): void; update(airspeed: number): void; dispose(): void }`
+
+**Note:** `BASE_FOV` lives here rather than in the renderer because the field of view is a speed effect, and Task 14 already imports it from this module.
+
+- [ ] **Step 1: Write the failing tests**
+
+`src/fx/mapping.test.ts`:
+
+```typescript
+import { describe, it, expect } from 'vitest'
+import {
+  speedIntensity, fovForSpeed, windVolumeForSpeed, windPitchForSpeed, trailOpacityForSpeed,
+  BASE_FOV, MAX_FOV_KICK, FX_SPEED_REFERENCE, TRAIL_SPEED_THRESHOLD,
+} from './mapping'
+
+describe('speedIntensity', () => {
+  it('is zero at rest', () => { expect(speedIntensity(0)).toBe(0) })
+  it('is one at the reference speed', () => { expect(speedIntensity(FX_SPEED_REFERENCE)).toBe(1) })
+  it('clamps above the reference', () => { expect(speedIntensity(500)).toBe(1) })
+  it('clamps below zero', () => { expect(speedIntensity(-10)).toBe(0) })
+})
+
+describe('fovForSpeed', () => {
+  it('is the base field of view at rest', () => { expect(fovForSpeed(0)).toBe(BASE_FOV) })
+
+  it('kicks out at full speed', () => {
+    expect(fovForSpeed(FX_SPEED_REFERENCE)).toBe(BASE_FOV + MAX_FOV_KICK)
+  })
+
+  it('increases monotonically', () => {
+    expect(fovForSpeed(40)).toBeGreaterThan(fovForSpeed(20))
+  })
+
+  it('stays within a sane range', () => {
+    expect(fovForSpeed(1000)).toBeLessThanOrEqual(BASE_FOV + MAX_FOV_KICK)
+  })
+})
+
+describe('windVolumeForSpeed', () => {
+  it('is silent at rest', () => { expect(windVolumeForSpeed(0)).toBe(0) })
+
+  it('is full at the reference speed', () => {
+    expect(windVolumeForSpeed(FX_SPEED_REFERENCE)).toBe(1)
+  })
+
+  it('ramps in slowly rather than linearly', () => {
+    expect(windVolumeForSpeed(FX_SPEED_REFERENCE / 2)).toBeLessThan(0.5)
+  })
+
+  it('never exceeds one', () => { expect(windVolumeForSpeed(1000)).toBe(1) })
+})
+
+describe('windPitchForSpeed', () => {
+  it('rises with speed', () => {
+    expect(windPitchForSpeed(50)).toBeGreaterThan(windPitchForSpeed(5))
+  })
+
+  it('stays positive at rest so playback never stops', () => {
+    expect(windPitchForSpeed(0)).toBeGreaterThan(0)
+  })
+})
+
+describe('trailOpacityForSpeed', () => {
+  it('shows nothing below the threshold', () => {
+    expect(trailOpacityForSpeed(TRAIL_SPEED_THRESHOLD - 1)).toBe(0)
+  })
+
+  it('fades in above the threshold', () => {
+    expect(trailOpacityForSpeed(TRAIL_SPEED_THRESHOLD + 5)).toBeGreaterThan(0)
+  })
+
+  it('is fully opaque at the reference speed', () => {
+    expect(trailOpacityForSpeed(FX_SPEED_REFERENCE)).toBe(1)
+  })
+
+  it('never exceeds one', () => { expect(trailOpacityForSpeed(1000)).toBe(1) })
+})
+```
+
+- [ ] **Step 2: Run and verify it fails**
+
+Run: `npm test -- src/fx/mapping.test.ts`
+Expected: FAIL — cannot resolve module `./mapping`.
+
+- [ ] **Step 3: Write `src/fx/mapping.ts`**
+
+```typescript
+import { MathUtils } from 'three'
+
+/** Airspeed at which speed effects reach full strength. */
+export const FX_SPEED_REFERENCE = 55
+export const BASE_FOV = 70
+export const MAX_FOV_KICK = 14
+export const TRAIL_SPEED_THRESHOLD = 30
+
+/** 0 at rest, 1 at the reference speed. Drives every speed-reactive effect. */
+export function speedIntensity(airspeed: number): number {
+  return MathUtils.clamp(airspeed / FX_SPEED_REFERENCE, 0, 1)
+}
+
+export function fovForSpeed(airspeed: number): number {
+  return BASE_FOV + MAX_FOV_KICK * speedIntensity(airspeed)
+}
+
+export function windVolumeForSpeed(airspeed: number): number {
+  // Squared so slow flight stays quiet and only fast flight gets loud.
+  return speedIntensity(airspeed) ** 2
+}
+
+export function windPitchForSpeed(airspeed: number): number {
+  return 0.7 + 0.8 * speedIntensity(airspeed)
+}
+
+export function trailOpacityForSpeed(airspeed: number): number {
+  if (airspeed <= TRAIL_SPEED_THRESHOLD) return 0
+  return MathUtils.clamp(
+    (airspeed - TRAIL_SPEED_THRESHOLD) / (FX_SPEED_REFERENCE - TRAIL_SPEED_THRESHOLD),
+    0, 1,
+  )
+}
+```
+
+- [ ] **Step 4: Run and verify it passes**
+
+Run: `npm test -- src/fx/mapping.test.ts`
+Expected: PASS, 18 tests.
+
+- [ ] **Step 5: Write `src/fx/audio.ts`**
+
+Wind is synthesised with filtered noise rather than shipped as an audio file, which avoids an asset and a licence entirely.
+
+```typescript
+import { windVolumeForSpeed, windPitchForSpeed } from './mapping'
+
+const NOISE_SECONDS = 2
+
+/** Filtered white noise, pitched and mixed by airspeed. No audio asset needed. */
+export function createWindAudio() {
+  let context: AudioContext | null = null
+  let source: AudioBufferSourceNode | null = null
+  let gain: GainNode | null = null
+  let filter: BiquadFilterNode | null = null
+
+  return {
+    /** Must be called from a user gesture, or the browser blocks audio. */
+    start(): void {
+      if (context) return
+      try {
+        context = new AudioContext()
+        const buffer = context.createBuffer(
+          1, context.sampleRate * NOISE_SECONDS, context.sampleRate,
+        )
+        const data = buffer.getChannelData(0)
+        for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1
+
+        source = context.createBufferSource()
+        source.buffer = buffer
+        source.loop = true
+
+        filter = context.createBiquadFilter()
+        filter.type = 'lowpass'
+        filter.frequency.value = 700
+
+        gain = context.createGain()
+        gain.gain.value = 0
+
+        source.connect(filter).connect(gain).connect(context.destination)
+        source.start()
+      } catch (error) {
+        console.warn('Wind audio unavailable, continuing without it.', error)
+        context = null
+      }
+    },
+
+    update(airspeed: number): void {
+      if (!context || !gain || !filter) return
+      const now = context.currentTime
+      // Ramps rather than direct assignment, otherwise the audio clicks.
+      gain.gain.setTargetAtTime(windVolumeForSpeed(airspeed) * 0.35, now, 0.1)
+      filter.frequency.setTargetAtTime(400 + 900 * windPitchForSpeed(airspeed), now, 0.1)
+    },
+
+    dispose(): void {
+      source?.stop()
+      void context?.close()
+      context = null
+    },
+  }
+}
+```
+
+- [ ] **Step 6: Verify the suite and typecheck**
+
+Run: `npm test && npm run typecheck`
+Expected: all pass.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/fx/mapping.ts src/fx/mapping.test.ts src/fx/audio.ts
+git commit -m "Add speed effect mappings and synthesised wind audio"
+```
+
+---
+
+### Task 20: Assemble the game and tune
+
+Wires every module into a playable game and tunes the feel. This is the first task whose deliverable is judged by playing rather than by tests.
+
+**Files:**
+- Modify: `src/main.ts` (full rewrite)
+- Create: `src/player/state.ts`
+- Modify: `README.md` (record the tuning outcome)
+
+**Interfaces:**
+- Consumes: everything built in Tasks 1–19.
+- Produces:
+  - `createPlayerState(level: Level, terrain: TerrainQuery, save: SaveData, config: FlightConfig): PlayerState`
+  - `spawnPointFor(level: Level, terrain: TerrainQuery): (islandId: string | null) => Vector3`
+
+- [ ] **Step 1: Write `src/player/state.ts`**
+
+```typescript
+import { Vector3 } from 'three'
+import type { FlightConfig, PlayerState, TerrainQuery } from '../core/types'
+import type { Level } from '../world/level'
+import type { SaveData } from '../core/save'
+
+/** How far above the surface to place a spawning player. */
+const SPAWN_CLEARANCE = 2
+
+/** Resolve a respawn position, falling back to the level spawn island. */
+export function spawnPointFor(
+  level: Level, terrain: TerrainQuery,
+): (islandId: string | null) => Vector3 {
+  return (islandId) => {
+    const island =
+      level.islands.find((i) => i.id === islandId) ??
+      level.islands.find((i) => i.id === level.spawn.islandId)!
+    const x = island.position.x
+    const z = island.position.z
+    const groundY = terrain.groundHeightAt(x, z)
+    // If the surface cannot be found, sit above the island's nominal top.
+    const y = groundY === null ? island.position.y + island.height : groundY
+    return new Vector3(x, y + SPAWN_CLEARANCE, z)
+  }
+}
+
+export function createPlayerState(
+  level: Level, terrain: TerrainQuery, save: SaveData, config: FlightConfig,
+): PlayerState {
+  const position = spawnPointFor(level, terrain)(level.spawn.islandId)
+  const maxBreath = Math.max(save.maxBreath, config.baseMaxBreath)
+  return {
+    mode: 'ground',
+    position,
+    velocity: new Vector3(),
+    forward: new Vector3(0, 0, -1),
+    breath: maxBreath,
+    maxBreath,
+    grounded: true,
+    lastGroundIslandId: level.spawn.islandId,
+  }
+}
+```
+
+- [ ] **Step 2: Rewrite `src/main.ts` to assemble the game**
+
+```typescript
+import { Vector3, Mesh, OctahedronGeometry, MeshBasicMaterial, Group } from 'three'
+import { createRenderer, hasWebGL, showFallback, WEBGL_MESSAGE } from './core/renderer'
+import { createStepper } from './core/loop'
+import { InputTracker } from './core/input'
+import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG } from './core/config'
+import { loadSave, writeSave } from './core/save'
+import { buildWorld } from './world/world'
+import { ARCHIPELAGO } from './world/levels/archipelago'
+import { placeShrines, collectShrinesAt, type Shrine } from './world/shrine'
+import { createPlayerState, spawnPointFor } from './player/state'
+import { controllerStep, type ControllerDeps } from './player/controller'
+import { applyShrineBonus } from './player/breath'
+import { createAvatar } from './player/avatar'
+import { animationFor } from './player/avatar-anim'
+import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
+import { createHud, hudModelFor } from './ui/hud'
+import { createWindAudio } from './fx/audio'
+import { fovForSpeed } from './fx/mapping'
+
+function start(): void {
+  if (!hasWebGL()) return showFallback(WEBGL_MESSAGE)
+
+  const canvas = document.getElementById('game')
+  if (!(canvas instanceof HTMLCanvasElement)) {
+    return showFallback('Could not find the game canvas.')
+  }
+
+  let world
+  try {
+    world = buildWorld(ARCHIPELAGO)
+  } catch (error) {
+    return showFallback(`The level failed to load: ${(error as Error).message}`)
+  }
+
+  const { renderer, scene, camera } = createRenderer(canvas)
+  scene.add(world.group)
+
+  const save = loadSave(localStorage, DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
+  let player = createPlayerState(ARCHIPELAGO, world.terrain, save, DEFAULT_FLIGHT_CONFIG)
+  let shrines = placeShrines(ARCHIPELAGO, world.terrain, save.collectedShrines)
+
+  // Shrine markers: a spinning octahedron each, hidden once collected.
+  const shrineGroup = new Group()
+  const markers = new Map<string, Mesh>()
+  for (const shrine of shrines) {
+    const mesh = new Mesh(
+      new OctahedronGeometry(1.2),
+      new MeshBasicMaterial({ color: 0xd9f4ff }),
+    )
+    mesh.position.copy(shrine.position)
+    mesh.visible = !shrine.collected
+    markers.set(shrine.id, mesh)
+    shrineGroup.add(mesh)
+  }
+  scene.add(shrineGroup)
+
+  const avatar = createAvatar()
+  scene.add(avatar.object)
+
+  const input = new InputTracker(window, canvas)
+  const hud = createHud(document.body)
+  const wind = createWindAudio()
+  canvas.addEventListener('click', () => wind.start(), { once: true })
+
+  const deps: ControllerDeps = {
+    terrain: world.terrain,
+    flight: DEFAULT_FLIGHT_CONFIG,
+    ground: DEFAULT_GROUND_CONFIG,
+    worldFloorY: ARCHIPELAGO.worldFloorY,
+    spawnPointFor: spawnPointFor(ARCHIPELAGO, world.terrain),
+  }
+
+  let cameraPosition = camera.position.clone()
+
+  function update(dt: number): void {
+    const state = input.sample()
+    player = controllerStep(player, state, dt, deps)
+
+    const collected = collectShrinesAt(shrines, player.position)
+    if (collected.length > 0) {
+      for (const id of collected) {
+        const marker = markers.get(id)
+        if (marker) marker.visible = false
+      }
+      shrines = shrines.map((s) => (collected.includes(s.id) ? { ...s, collected: true } : s))
+      const bonus = collected.reduce(
+        (acc) => applyShrineBonus(acc, DEFAULT_FLIGHT_CONFIG),
+        { breath: player.breath, maxBreath: player.maxBreath },
+      )
+      player = { ...player, breath: bonus.maxBreath, maxBreath: bonus.maxBreath }
+      writeSave(localStorage, {
+        collectedShrines: shrines.filter((s) => s.collected).map((s) => s.id),
+        maxBreath: player.maxBreath,
+      })
+    }
+
+    // Face the character along the kite forward, or along travel on foot.
+    const facing = player.mode === 'kite'
+      ? player.forward
+      : new Vector3(player.velocity.x, 0, player.velocity.z)
+    avatar.object.position.copy(player.position)
+    if (facing.lengthSq() > 1e-4) {
+      avatar.object.lookAt(player.position.clone().add(facing))
+    }
+    avatar.setAnimation(animationFor(player))
+    avatar.update(dt)
+
+    const profile = profileFor(player.mode)
+    const desired = pullInForTerrain(
+      player.position,
+      desiredCameraPosition(player.position, state.lookDirection, profile),
+      world.terrain,
+    )
+    cameraPosition = smoothTowards(cameraPosition, desired, profile.smoothing, dt)
+
+    const airspeed = player.velocity.length()
+    camera.position.copy(cameraPosition)
+    camera.lookAt(player.position)
+    camera.fov = player.mode === 'kite' ? fovForSpeed(airspeed) : fovForSpeed(0)
+    camera.updateProjectionMatrix()
+
+    for (const marker of markers.values()) marker.rotation.y += dt * 1.5
+
+    wind.update(player.mode === 'kite' ? airspeed : 0)
+    hud.update(hudModelFor(player))
+  }
+
+  const stepper = createStepper({ update, render: () => renderer.render(scene, camera) })
+
+  let last = performance.now()
+  function frame(now: number): void {
+    stepper.advance((now - last) / 1000)
+    last = now
+    requestAnimationFrame(frame)
+  }
+  requestAnimationFrame(frame)
+}
+
+start()
+```
+
+- [ ] **Step 3: Verify the suite, typecheck, and build**
+
+Run: `npm test && npm run typecheck && npm run build`
+Expected: all pass, roughly 230 tests.
+
+- [ ] **Step 4: Play the game and work through this checklist**
+
+```bash
+npm run dev
+```
+
+Click the canvas to capture the mouse, then confirm each item:
+
+- [ ] Walking with `WASD` moves relative to where the camera points.
+- [ ] `Shift` visibly sprints.
+- [ ] `Space` jumps while grounded, and the jump lands cleanly.
+- [ ] Walking off the edge of `home` starts a fall.
+- [ ] `Space` mid-fall deploys the kite and flight begins.
+- [ ] Looking down builds airspeed; looking up trades airspeed for height.
+- [ ] Holding `W` accelerates and visibly drains the breath meter.
+- [ ] Releasing `W` lets breath recover.
+- [ ] `S` slows the kite noticeably.
+- [ ] `A` and `D` tighten a turn.
+- [ ] A fast turn is visibly wider than a slow one.
+- [ ] The field of view widens and the wind gets louder at speed.
+- [ ] Touching down slowly stows the kite; touching down fast staggers.
+- [ ] Each `ring-*` island is reachable from `home` by gliding alone.
+- [ ] `climb-north` requires holding `W`.
+- [ ] `spire` requires a dive, a zoom climb, and thrust together.
+- [ ] Touching a shrine hides its marker and raises maximum breath.
+- [ ] Reloading the page keeps collected shrines and the raised maximum.
+- [ ] Falling into the void respawns at the last island.
+- [ ] The console has no errors or warnings.
+
+- [ ] **Step 5: Tune anything the checklist exposed**
+
+All flight tuning lives in `DEFAULT_FLIGHT_CONFIG`. Adjust one constant at a time and re-run `npm test` — the flight tests encode the measured behaviour table, so a change that breaks the feel usually breaks a test first. If a test now contradicts a deliberate design change, update the test and say so in the commit message.
+
+Common adjustments:
+
+| Symptom | Constant to change |
+| --- | --- |
+| Sinks too fast while gliding | raise `liftCoeff`, or lower `dragCoeff` |
+| Never slows down | raise `dragCoeff` or `inducedDragFactor` |
+| Climbing feels free | lower `thrustAccel` or raise `breathDrainPerSecond` |
+| Turning feels twitchy at speed | lower `turnRateSpeedRef` |
+| Stalls constantly | lower `stallSpeed` |
+| Cannot reach `spire` at all | raise `baseMaxBreath`, or move the island down in `archipelago.ts` |
+
+- [ ] **Step 6: Record the outcome in `README.md`**
+
+Add a short "Feel notes" section describing the final cruise speed, the glide ratio, and which islands need thrust. This gives the next change a baseline to compare against.
+
+- [ ] **Step 7: Commit and deploy**
+
+```bash
+git add -A
+git commit -m "Assemble the playable game and tune flight feel"
+git push
+gh run watch --exit-status
+```
+
+- [ ] **Step 8: Confirm the deployed build plays**
+
+Open `https://danielnygaard00.github.io/airbender-skies/` and repeat a short version of the Step 4 checklist: deploy the kite, fly to one island, collect a shrine, reload, and confirm the shrine stayed collected.
+
+---
+
+## Plan Self-Review
+
+**Spec coverage.** Every section of the design document maps to a task:
+
+| Spec section | Task |
+| --- | --- |
+| Technology choices | 1 |
+| Module layout, load-bearing interfaces | 1, and each module's own task |
+| Flight model, derived angle of attack, zoom climb | 3, 4 |
+| Camera-relative steering, airspeed-limited turn rate | 5 |
+| Breath meter | 6 |
+| Controls table | 7, and verified in 20 |
+| Ground movement | 11 |
+| Landscape, island generation, eight-island sequence | 8, 9, 10 |
+| Exploration reward, air shrines, persistence | 18 |
+| Presentation, camera profiles, wind, trails, FOV kick | 15, 19 |
+| Art assets, placeholder fallback, `ASSETS.md` | 16 |
+| Error handling table | asset failure in 16, level validation in 10 and 14, non-finite guard in 12, respawn in 12, WebGL fallback in 14 |
+| Testing strategy | every task; rendering deliberately manual in 14 and 20 |
+| Delivery, Pages deploy | 1, confirmed in 20 |
+| Roadmap beyond v1 | not implemented by design; the ability registry seam is noted below |
+
+**Deviations from the spec, and why:**
+
+1. **The ability registry is not built.** The spec listed `abilities/registry.ts` with `thrust` as its only entry. Building a registry to hold one hard-wired ability would be indirection with no payoff — thrust lives in `flight.ts` as a boolean. The seam the registry was protecting is real and is preserved differently: `flightStep` takes a `FlightInput` struct, so adding abilities means extending that struct and the controller's construction of it, not restructuring movement. Add the registry in the first task of the attacks phase, when there is more than one ability to register.
+
+2. **`BASE_FOV` lives in `src/fx/mapping.ts`, not the renderer.** Field of view is a speed effect and both modules need the constant. One definition, imported by the renderer.
+
+3. **Wind audio is synthesised, not a file.** Filtered white noise through a `BiquadFilterNode` avoids shipping an audio asset and its licence question entirely.
+
+4. **Level validation always throws.** The spec asked for skip-in-production. `buildWorld` throws and `main.ts` catches it into the visible fallback, which keeps validation simple and testable while still never blanking the screen. A half-built world silently missing an island is harder to diagnose than a clear message.
+
+**Type consistency.** `InputState`, `PlayerState`, `TerrainQuery`, `TerrainHit`, `FlightConfig`, and `GroundConfig` are declared once in `src/core/types.ts` and imported everywhere. Task 1 creates that file precisely so no later task invents a competing shape. `FlightConfig` grows twice — Task 6 adds the four breath fields, Task 11 adds `GroundConfig` alongside it — and both are called out in the task that does it.
+
+**Verification status.** Every code block and test in Tasks 1–13, 15, and 17–19, plus `buildWorld` from Task 14, was executed against the real toolchain before being written into this plan: **231 tests across 20 files pass, and `tsc --noEmit` is clean** on Node 26.5.0 with the exact pinned versions. The prototype used to establish this has been discarded, per TDD — implementers write the tests first and implement fresh. Not executed, because they need a browser: the `InputTracker` DOM adapter, `createRenderer`, `createHud`'s DOM half, `createWindAudio`, `avatar.ts`'s Three.js half, and `main.ts`. Each is deliberately thin, with its logic in a tested pure function, and each is covered by the Task 20 manual checklist.
+
+---
+
+## Execution Handoff
+
+Two ways to run this plan:
+
+1. **Subagent-driven (recommended)** — a fresh subagent per task with review between tasks. Best fit here: tasks are small, sharply bounded, and each ends with a green test run, so a reviewer can accept or reject one task without untangling its neighbours.
+2. **Inline execution** — batch through tasks in one session with checkpoints.
+
+Tasks 1–13 and 15–19 are pure logic with a hard pass/fail signal. Task 14 and Task 20 need a human at a browser, so expect to stop there regardless of which mode is used.
+
