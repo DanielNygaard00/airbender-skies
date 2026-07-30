@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Box3 } from 'three'
-import { createGlider } from './glider'
+import { createGlider, PANELS_PER_SIDE } from './glider'
 
 function span(glider: ReturnType<typeof createGlider>) {
   glider.object.updateMatrixWorld(true)
@@ -30,6 +30,18 @@ describe('createGlider assembly', () => {
     expect(createGlider().object.children).toHaveLength(3)
   })
 
+  it('fans every leaf on a side from one shared pivot', () => {
+    // REGRESSION: giving each leaf its own pivot spaced along the staff lays them
+    // end-to-end when closed instead of stacking them. Asserting the structure
+    // directly does not depend on how the transforms happen to compose.
+    const glider = createGlider()
+    const roots = glider.object.children.filter((child) => child.children.length > 0)
+    expect(roots).toHaveLength(2)
+    for (const root of roots) {
+      expect(root.children).toHaveLength(PANELS_PER_SIDE)
+    }
+  })
+
   it('produces finite geometry when stowed', () => {
     const stowed = span(createGlider())
     for (const value of [stowed.x, stowed.y, stowed.z]) {
@@ -38,9 +50,8 @@ describe('createGlider assembly', () => {
   })
 
   it('sweeps much deeper fore-and-aft when deployed', () => {
-    // REGRESSION: a folding fan does not get longer when it opens, it gets wider.
-    // Giving each panel its own pivot spaced along the staff makes the stowed
-    // glider WIDER than the deployed one. Depth is the axis that proves it opened.
+    // The fan actually opens: leaves which stack into a stick when closed sweep out
+    // into a membrane when open. This confirms the deployment animation is working.
     const stowed = span(createGlider())
     const glider = createGlider()
     settle(glider, true)
@@ -64,6 +75,10 @@ describe('createGlider assembly', () => {
   })
 
   it('widens its span when deployed', () => {
+    // REGRESSION: giving each leaf its own pivot spaced along the staff lays them
+    // end-to-end when closed instead of stacking them. Spacing the pivots inflates
+    // the stowed span so that the stowed glider ends up wider than the deployed one.
+    // This ratio catches the bug: stowed span < deployed span.
     const stowed = span(createGlider())
     const glider = createGlider()
     settle(glider, true)
