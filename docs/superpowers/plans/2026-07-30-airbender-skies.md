@@ -23,6 +23,20 @@
 - Repository: `DanielNygaard00/airbender-skies`, public. The `gh` CLI is already authenticated as `DanielNygaard00`.
 - The Vite `base` must be `/airbender-skies/` so GitHub Pages serves assets correctly.
 
+## Execution Order
+
+Tasks run in numeric order **except that Task 19 runs before Task 14**:
+
+```
+1 … 13, 19, 14, 15, 16, 17, 18, 20
+```
+
+Task 14's `src/core/renderer.ts` imports `BASE_FOV` from `src/fx/mapping.ts`, which
+Task 19 creates. Field of view is a speed effect, so the constant belongs in `fx/mapping.ts`
+rather than being duplicated in the renderer — and Task 19 depends on nothing from Tasks
+14–18, so moving it earlier costs nothing. Numbering is left alone so task references stay
+stable.
+
 ## Tuning Constants Are Pre-Validated
 
 The flight model in this plan was prototyped and measured before the plan was written. **The prototype code was exploration and has been discarded** — implementers write tests first and implement fresh. What carries forward is the validated constants and this measured behavior table, which the tests in Tasks 3–5 assert against:
