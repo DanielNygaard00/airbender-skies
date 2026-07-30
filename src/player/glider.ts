@@ -50,10 +50,18 @@ const PIVOT_OFFSET = 0.16
 const PANEL_LENGTH = 1.05
 const PANEL_HALF_WIDTH = 0.15
 
-const STOWED_POSITION = new Vector3(0, 1.0, 0.3)
+// Avatar-local +Z is forward: Object3D.lookAt aligns local +Z with its target (only
+// Camera and Light use -Z), and avatar.object in main.ts is a plain Group. So the
+// stowed staff sits behind the rider (-Z) and the deployed wing sits ahead (+Z).
+// y bumped from 1.0 to clear the ground: at y=1.0 the stowed box's min.y was -0.059,
+// six centimetres through the terrain (the avatar origin is at the feet).
+const STOWED_POSITION = new Vector3(0, 1.08, -0.3)
 /** Tilted well off horizontal so the stowed staff reads as slung across the back. */
 const STOWED_ROTATION = new Vector3(0.1, 0, 1.05)
-const DEPLOYED_POSITION = new Vector3(0, 2.0, -0.4)
+// z is 1.1, not the mirrored 0.4, because the fan's own local shape is asymmetric:
+// fully open, it sweeps from local z -1.04 to +0.15, not centred on the pivot. 0.4
+// left most of the wing (min.z -0.64) still behind the rider; 1.1 clears zero.
+const DEPLOYED_POSITION = new Vector3(0, 2.0, 1.1)
 /**
  * Near-level. The staff mesh is already laid along local X at build time, so this
  * rotation must NOT add another quarter turn about Z — doing so stands the wing on

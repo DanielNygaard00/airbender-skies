@@ -107,6 +107,25 @@ describe('createGlider assembly', () => {
     expect(Math.abs(box.max.x + box.min.x)).toBeLessThan(0.35)
   })
 
+  it('carries the stowed staff behind the character, not on the chest', () => {
+    // REGRESSION: local +Z is the character's FRONT, because Object3D.lookAt aligns
+    // local +Z with the target (only Camera and Light use -Z). Extent-based
+    // assertions cannot catch a sign error here; this one can.
+    expect(span(createGlider()).box.max.z).toBeLessThan(0)
+  })
+
+  it('keeps the stowed staff clear of the ground', () => {
+    // The avatar origin is at the feet, so a negative min.y means the staff clips
+    // through the terrain while walking.
+    expect(span(createGlider()).box.min.y).toBeGreaterThanOrEqual(0)
+  })
+
+  it('holds the deployed wing ahead of the rider', () => {
+    const glider = createGlider()
+    settle(glider, true)
+    expect(span(glider).box.min.z).toBeGreaterThan(0)
+  })
+
   it('never produces non-finite geometry mid-animation', () => {
     const glider = createGlider()
     for (let i = 0; i < 200; i++) {
