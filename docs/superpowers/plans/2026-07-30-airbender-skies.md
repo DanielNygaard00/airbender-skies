@@ -4865,7 +4865,8 @@ Open `https://danielnygaard00.github.io/airbender-skies/` and repeat a short ver
 | Ground movement | 11 |
 | Landscape, island generation, eight-island sequence | 8, 9, 10 |
 | Exploration reward, air shrines, persistence | 18 |
-| Presentation, camera profiles, wind, trails, FOV kick | 15, 19 |
+| Presentation, camera profiles, wind, FOV kick | 15, 19 |
+| Presentation: ribbon trails from the kite tips | **not implemented.** The spec names three speed effects; wind audio and the FOV kick shipped, the trails did not. Their mapping functions, `trailOpacityForSpeed` and `TRAIL_SPEED_THRESHOLD` in `fx/mapping.ts`, exist and are tested but are never called by anything. Either build the trails against those functions or delete them; leaving tested dead code implies a feature that is not there. |
 | Art assets, placeholder fallback, `ASSETS.md` | 16 |
 | Error handling table | asset failure in 16, level validation in 10 and 14, non-finite guard in 12, respawn in 12, WebGL fallback in 14 |
 | Testing strategy | every task; rendering deliberately manual in 14 and 20 |
@@ -4874,7 +4875,15 @@ Open `https://danielnygaard00.github.io/airbender-skies/` and repeat a short ver
 
 **Deviations from the spec, and why:**
 
-1. **The ability registry is not built.** The spec listed `abilities/registry.ts` with `thrust` as its only entry. Building a registry to hold one hard-wired ability would be indirection with no payoff — thrust lives in `flight.ts` as a boolean. The seam the registry was protecting is real and is preserved differently: `flightStep` takes a `FlightInput` struct, so adding abilities means extending that struct and the controller's construction of it, not restructuring movement. Add the registry in the first task of the attacks phase, when there is more than one ability to register.
+1. **The ability registry is not built.** The spec listed `abilities/registry.ts` with `thrust` as its only entry. Building a registry to hold one hard-wired ability would be indirection with no payoff — thrust lives in `flight.ts` as a boolean. Add the registry in the first task of the attacks phase, when there is more than one ability to register.
+
+   **The decision stands, but do not believe the reason originally given for it.** This entry used to claim the registry's seam was "preserved differently" because `flightStep` takes a `FlightInput` struct, so adding abilities would mean extending that struct. That is not true, and anyone starting the attacks phase expecting a cheap extension point will not find one. `FlightInput` carries *flight forces* — `forward`, `thrust`, `flare`, `bank` — and of the four planned abilities only Air Scooter is a movement mode at all. Air Blast, Tornado and Air Shield are not forces on the kite; they need bindings, breath costs, cooldowns and effect dispatch. Concretely, the first attacks task will have to:
+
+   - **Add input bindings.** `InputState`'s five fields are all consumed, and `InputTracker` registers `keydown`, `keyup`, `blur` and `mousemove` but no mouse-button listeners at all. Abilities will want the mouse buttons. That means `core/types.ts`, `core/input.ts`, and every `InputState` literal across the test suite.
+   - **Find somewhere to hold cooldowns.** `PlayerState` has no field for ability or cooldown state, and it is constructed as a literal in nine places across five test files, so adding a required field touches all of them.
+   - **Create a dispatch point.** `controllerStep` is a single if/else over `mode` with the flight path inlined. There is no place an ability handler could hook.
+
+   None of that is a reason to build the registry now: the core argument, that indirection for one hard-wired ability pays nothing, still holds. It is a reason to budget the attacks phase for real seam work rather than for extending a struct. The seams that genuinely do exist and are worth defending are `TerrainQuery` and `flightStep`'s purity.
 
 2. **`BASE_FOV` lives in `src/fx/mapping.ts`, not the renderer.** Field of view is a speed effect and both modules need the constant. One definition, imported by the renderer.
 
