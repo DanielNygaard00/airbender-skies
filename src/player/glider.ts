@@ -1,4 +1,7 @@
-import { MathUtils } from 'three'
+import {
+  MathUtils, Object3D, Group, Mesh, CylinderGeometry, BufferGeometry, BufferAttribute,
+  MeshLambertMaterial, Vector3, DoubleSide,
+} from 'three'
 
 /** How long the fan takes to travel from fully stowed to fully deployed. */
 export const OPEN_SECONDS = 0.3
@@ -38,4 +41,101 @@ export function panelAngle(
 ): number {
   if (count <= 1) return 0
   return easeOpenness(openness) * spread * (index / (count - 1))
+}
+
+const STAFF_LENGTH = 1.9
+const STAFF_RADIUS = 0.045
+/** How far out from the grip each side's fan pivots, along the staff. */
+const PIVOT_OFFSET = 0.16
+const PANEL_LENGTH = 1.05
+const PANEL_HALF_WIDTH = 0.15
+
+const STOWED_POSITION = new Vector3(0, 1.0, 0.3)
+/** Tilted well off horizontal so the stowed staff reads as slung across the back. */
+const STOWED_ROTATION = new Vector3(0.1, 0, 1.05)
+const DEPLOYED_POSITION = new Vector3(0, 2.0, -0.4)
+/**
+ * Near-level. The staff mesh is already laid along local X at build time, so this
+ * rotation must NOT add another quarter turn about Z — doing so stands the wing on
+ * its end and collapses the span to nothing.
+ */
+const DEPLOYED_ROTATION = new Vector3(0.18, 0, 0)
+
+/**
+ * One fan leaf: a long thin triangle running out along +X from the pivot, widening
+ * slightly in Z at its tip so the open fan reads as a membrane rather than spokes.
+ */
+function createPanelGeometry(): BufferGeometry {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([
+    0, 0, 0,
+    PANEL_LENGTH, 0, -PANEL_HALF_WIDTH,
+    PANEL_LENGTH, 0, PANEL_HALF_WIDTH,
+  ]), 3))
+  geometry.computeVertexNormals()
+  geometry.computeBoundingBox()
+  return geometry
+}
+
+export function createGlider(): {
+  object: Object3D
+  update(dt: number, deployed: boolean): void
+  openness(): number
+} {
+  const object = new Group()
+
+  const staffMaterial = new MeshLambertMaterial({ color: 0x6b4a2f })
+  const fabricMaterial = new MeshLambertMaterial({ color: 0xe0913f, side: DoubleSide })
+
+  // The cylinder's axis is local Y, so lay it along local X to be the spanwise staff.
+  const staff = new Mesh(
+    new CylinderGeometry(STAFF_RADIUS, STAFF_RADIUS, STAFF_LENGTH, 8), staffMaterial,
+  )
+  staff.rotation.z = Math.PI / 2
+  object.add(staff)
+
+  // Each side fans from a single shared pivot, the way a real fan turns on its rivet.
+  // Spacing the pivots along the staff instead would lay the leaves end-to-end when
+  // closed, making the stowed glider wider than the deployed one.
+  const panels: { pivot: Group; index: number; side: number }[] = []
+  for (const side of [-1, 1]) {
+    const root = new Group()
+    root.position.x = PIVOT_OFFSET * side
+    object.add(root)
+    for (let index = 0; index < PANELS_PER_SIDE; index++) {
+      const pivot = new Group()
+      const panel = new Mesh(createPanelGeometry(), fabricMaterial)
+      panel.scale.x = side
+      pivot.add(panel)
+      root.add(pivot)
+      panels.push({ pivot, index, side })
+    }
+  }
+
+  let openness = 0
+
+  function apply(): void {
+    const eased = easeOpenness(openness)
+    object.position.lerpVectors(STOWED_POSITION, DEPLOYED_POSITION, eased)
+    object.rotation.set(
+      MathUtils.lerp(STOWED_ROTATION.x, DEPLOYED_ROTATION.x, eased),
+      MathUtils.lerp(STOWED_ROTATION.y, DEPLOYED_ROTATION.y, eased),
+      MathUtils.lerp(STOWED_ROTATION.z, DEPLOYED_ROTATION.z, eased),
+    )
+    for (const { pivot, index, side } of panels) {
+      // Rotating about Y sweeps each leaf fore-aft in the wing plane. Closed, every
+      // leaf sits at zero and they stack into a stick along the staff.
+      pivot.rotation.y = panelAngle(index, PANELS_PER_SIDE, openness, FAN_SPREAD) * side
+    }
+  }
+  apply()
+
+  return {
+    object,
+    update(dt: number, deployed: boolean): void {
+      openness = advanceOpenness(openness, deployed, dt, OPEN_SECONDS)
+      apply()
+    },
+    openness: () => openness,
+  }
 }
