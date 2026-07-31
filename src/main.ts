@@ -13,7 +13,7 @@ import { controllerStep, type ControllerDeps } from './player/controller'
 import { collectStep } from './player/shrine-collect'
 import { createAvatar } from './player/avatar'
 import { createGlider } from './player/glider'
-import { animationFor } from './player/avatar-anim'
+import { animationFor, chargeSquashScale } from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
 import { createHud, hudModelFor } from './ui/hud'
 import { createWindAudio } from './fx/audio'
@@ -121,6 +121,7 @@ function start(): void {
       avatar.object.lookAt(player.position.clone().add(facing))
     }
     avatar.setAnimation(animationFor(player))
+    avatar.object.scale.y = chargeSquashScale(player, DEFAULT_GROUND_CONFIG)
     avatar.update(dt)
     glider.update(dt, player.mode === 'kite')
 
