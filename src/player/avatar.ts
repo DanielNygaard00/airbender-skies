@@ -18,6 +18,12 @@ const TARGET_HEIGHT = 1.8
  */
 const MODEL_YAW = 0
 
+/**
+ * Where in a borrowed clip a frozen pose sits. The jump clip is 1.000s long, so
+ * halfway through is its airborne portion rather than the crouch or the landing.
+ */
+const FREEZE_TIME = 0.5
+
 /** Primitive stand-in used until a real model loads, and if none ever does. */
 function createPlaceholder(): Group {
   const group = new Group()
@@ -116,6 +122,13 @@ export function createAvatar() {
         if (previous) mixer.clipAction(previous.clip).fadeOut(FADE_SECONDS)
       }
       next.reset().fadeIn(FADE_SECONDS).play()
+      // A frozen state has no clip of its own — it holds one frame of a borrowed
+      // one. timeScale = 0 stops playback while leaving the fade's weight
+      // blending to run, where `paused` would stall that too. Restoring 1 is not
+      // optional: fall and glide share the jump clip, and therefore share one
+      // action, so a glide that left timeScale at 0 would freeze falling as well.
+      next.timeScale = entry.freeze ? 0 : 1
+      if (entry.freeze) next.time = FREEZE_TIME
       current = name
     },
 

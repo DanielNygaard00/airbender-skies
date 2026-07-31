@@ -121,3 +121,76 @@ describe('createAvatar attachModel', () => {
     expect(Number.isFinite(spanOf(avatar.object).height)).toBe(true)
   })
 })
+
+describe('createAvatar frozen poses', () => {
+  const REAL_CLIPS = [
+    'Human Armature|Idle',
+    'Human Armature|Walk',
+    'Human Armature|Run',
+    'Human Armature|Jump',
+  ]
+
+  /**
+   * Run the mixer past the cross-fade, then report the animated value.
+   *
+   * The frame count must not advance the action by a whole multiple of the
+   * clip's duration. The fixture's clips are exactly 1.000s long, so 60 frames
+   * of 1/60 would land every sample back on the same phase — making a looping
+   * action look frozen. 25 frames advances 5/12 of a cycle, so consecutive
+   * samples sit at distinct phases (0.417, 0.833, 0.250) while still clearing
+   * the 0.18s cross-fade on the first call.
+   */
+  function settle(avatar: ReturnType<typeof createAvatar>): number {
+    for (let i = 0; i < 25; i++) avatar.update(1 / 60)
+    const body = avatar.object.getObjectByName('Body')
+    if (!body) throw new Error('fixture mesh missing')
+    return body.position.y
+  }
+
+  it('stops advancing time while gliding', () => {
+    const avatar = createAvatar()
+    avatar.attachModel(fakeGltf(REAL_CLIPS))
+    avatar.setAnimation('glide')
+
+    const first = settle(avatar)
+    const second = settle(avatar)
+
+    expect(second).toBeCloseTo(first, 6)
+  })
+
+  it('keeps advancing time while falling', () => {
+    const avatar = createAvatar()
+    avatar.attachModel(fakeGltf(REAL_CLIPS))
+    avatar.setAnimation('fall')
+
+    const samples = [settle(avatar), settle(avatar), settle(avatar)]
+
+    expect(new Set(samples.map((v) => v.toFixed(4))).size).toBeGreaterThan(1)
+  })
+
+  it('resumes falling after a glide released the shared clip', () => {
+    // REGRESSION: fall and glide borrow the same jump clip, so they share one
+    // AnimationAction. Freezing it for glide without restoring timeScale leaves
+    // falling frozen too.
+    const avatar = createAvatar()
+    avatar.attachModel(fakeGltf(REAL_CLIPS))
+
+    avatar.setAnimation('glide')
+    settle(avatar)
+    avatar.setAnimation('fall')
+
+    const samples = [settle(avatar), settle(avatar), settle(avatar)]
+
+    expect(new Set(samples.map((v) => v.toFixed(4))).size).toBeGreaterThan(1)
+  })
+
+  it('does not freeze an ordinary clip', () => {
+    const avatar = createAvatar()
+    avatar.attachModel(fakeGltf(REAL_CLIPS))
+    avatar.setAnimation('walk')
+
+    const samples = [settle(avatar), settle(avatar), settle(avatar)]
+
+    expect(new Set(samples.map((v) => v.toFixed(4))).size).toBeGreaterThan(1)
+  })
+})
