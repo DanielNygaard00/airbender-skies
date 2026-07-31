@@ -1,7 +1,8 @@
 # Assets
 
-Every asset in this repository is CC0 or equivalently permissive, so the project
-stays clean as a public repository.
+Every asset in this repository is CC0, or CC-BY with its attribution recorded
+here and carried into a shipped build, so the project stays clean as a public
+repository.
 
 | Asset | Path | Source | License |
 | --- | --- | --- | --- |
@@ -9,8 +10,10 @@ stays clean as a public repository.
 
 ## Adding an asset
 
-1. Confirm the license is CC0, public domain, or equally permissive. If
-   redistribution in a public repository is unclear, do not commit it.
+1. Confirm the license is CC0, public domain, or CC-BY. If redistribution in
+   a public repository is unclear, do not commit it. CC-BY is allowed only if
+   the required attribution is recorded in the table above and credited in
+   `README.md`.
 2. Put the file under `public/models/` or `public/audio/`.
 3. Add a row to the table above with its real source URL.
 

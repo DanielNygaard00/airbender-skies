@@ -29,3 +29,8 @@ npm run build      # production build into dist/
 ```
 
 Design documents live in `docs/superpowers/`.
+
+## Credits
+
+The player character model ("Animated Human") is by Quaternius, used under
+CC-BY. See `ASSETS.md` for the full asset list and sources.
