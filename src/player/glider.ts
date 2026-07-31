@@ -58,17 +58,22 @@ const PANEL_HALF_WIDTH = 0.15
 const STOWED_POSITION = new Vector3(0, 1.08, -0.3)
 /** Tilted well off horizontal so the stowed staff reads as slung across the back. */
 const STOWED_ROTATION = new Vector3(0.1, 0, 1.05)
-// z is 1.1, not the mirrored 0.4, because the fan's own local shape is asymmetric:
-// fully open, it sweeps from local z -1.04 to +0.15, not centred on the pivot. 0.4
-// left most of the wing (min.z -0.64) still behind the rider; 1.1 clears zero.
+// The staff rests on the rider's back, so both numbers come from the glide pose
+// rather than from clearances.
 //
-// y was 2.0 while the rider stood upright beneath the wing. Now that gliding lays
-// the body flat at about y 0.95, that left the wing floating a metre clear of the
-// rider, reading as two unrelated objects. 1.55 closes the gap while keeping the
-// staff about 0.69 from both the head and the leading hand, so nothing clips: the
-// fan sweeps backwards *and upwards* in its own plane, putting its trailing edge
-// near y 1.74 rather than down in the rider's back.
-const DEPLOYED_POSITION = new Vector3(0, 1.55, 1.1)
+// z was 1.1 while the rider stood upright: the fan sweeps from local z -1.04 to
+// +0.15, so 1.1 was the smallest value keeping the whole wing ahead of a standing
+// body. Gliding lays the rider flat from z -0.96 to +0.92, so there is no longer
+// an "ahead" to stay in front of — the wing lies over the body instead, and 0.45
+// puts the staff across the shoulders and upper back.
+//
+// y is where the staff comes to rest on the rider. Not derivable from the back's
+// height alone: the wing's lowest point is a forward fan tip that overhangs past
+// the shoulders with no body under it, so bounding boxes mislead here. Measured
+// instead by sweeping the wing down until the closest wing-to-skin distance
+// reaches zero, which happens at 1.1867. 1.19 leaves 3mm — contact to the eye,
+// while keeping the two surfaces off each other so they cannot z-fight.
+const DEPLOYED_POSITION = new Vector3(0, 1.19, 0.45)
 /**
  * Nose-up tilt of the deployed wing, in radians. Exported because the rider's
  * glide pose lies parallel to the wing, and the two must not drift apart: retune

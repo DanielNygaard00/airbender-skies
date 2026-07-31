@@ -9,11 +9,12 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import {
   Box3, Group, Mesh, Object3D, BoxGeometry, CapsuleGeometry, AnimationClip, VectorKeyframeTrack,
-  QuaternionKeyframeTrack, Quaternion, Euler, Vector3,
+  QuaternionKeyframeTrack, Quaternion, Euler, Vector3, type SkinnedMesh,
 } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import { createAvatar } from './avatar'
+import { createGlider } from './glider'
 import { planClips } from './clip-map'
 
 /**
@@ -363,6 +364,77 @@ describe('createAvatar with the real committed model', () => {
     const bodyAxis = at('Head').sub(at('Hips')).normalize()
     expect(bodyAxis.z).toBeGreaterThan(0.9)
     expect(Math.abs(bodyAxis.y)).toBeLessThan(0.3)
+  })
+
+  it("rests the deployed wing on the gliding rider's back", async () => {
+    // Where the wing sits is only meaningful against the rider it rests on, which
+    // is why this lives here rather than in glider-mesh.test.ts: it needs the posed
+    // model. Bounding boxes cannot express it either — the wing's lowest point is a
+    // forward fan tip overhanging past the shoulders with no body beneath it, so
+    // this measures surface to surface instead.
+    const modelPath = fileURLToPath(
+      new URL('../../public/models/character.glb', import.meta.url),
+    )
+    const bytes = readFileSync(modelPath)
+    const arrayBuffer = bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer
+    const gltf = await new Promise<GLTF>((resolve, reject) => {
+      new GLTFLoader().parse(arrayBuffer, '', resolve, reject)
+    })
+
+    const avatar = createAvatar()
+    avatar.attachModel(gltf)
+    // Parented exactly as main.ts parents it, so the wing inherits avatar space.
+    const glider = createGlider()
+    avatar.object.add(glider.object)
+    avatar.setAnimation('glide')
+    for (let i = 0; i < 60; i++) {
+      avatar.update(1 / 60)
+      glider.update(1 / 60, true)
+    }
+    avatar.object.updateMatrixWorld(true)
+
+    let skinned: SkinnedMesh | null = null
+    avatar.object.traverse((node) => {
+      if ((node as SkinnedMesh).isSkinnedMesh) skinned = node as SkinnedMesh
+    })
+    if (!skinned) throw new Error('no skinned mesh')
+    const mesh: SkinnedMesh = skinned
+
+    const skin: Vector3[] = []
+    const attribute = mesh.geometry.attributes.position
+    if (!attribute) throw new Error('no position attribute')
+    for (let i = 0; i < attribute.count; i++) {
+      const point = new Vector3().fromBufferAttribute(attribute, i)
+      mesh.applyBoneTransform(i, point)
+      skin.push(mesh.localToWorld(point))
+    }
+
+    const wing: Vector3[] = []
+    glider.object.traverse((node) => {
+      const candidate = node as Mesh
+      if (!candidate.isMesh) return
+      const positions = candidate.geometry.attributes.position
+      if (!positions) return
+      for (let i = 0; i < positions.count; i++) {
+        wing.push(candidate.localToWorld(new Vector3().fromBufferAttribute(positions, i)))
+      }
+    })
+
+    // Closest vertical distance from the wing down to the skin below it.
+    const NEAR = 0.09
+    let gap = Infinity
+    for (const w of wing) {
+      for (const s of skin) {
+        if (Math.abs(w.x - s.x) > NEAR || Math.abs(w.z - s.z) > NEAR) continue
+        gap = Math.min(gap, w.y - s.y)
+      }
+    }
+
+    expect(gap).toBeLessThan(0.02) // touching, not hovering above the back
+    expect(gap).toBeGreaterThanOrEqual(0) // resting on it, not sunk through it
   })
 })
 

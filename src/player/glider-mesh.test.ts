@@ -87,15 +87,12 @@ describe('createGlider assembly', () => {
     expect(span(glider).x).toBeGreaterThan(stowed.x * 1.5)
   })
 
-  it('sits overhead when deployed', () => {
-    // The old threshold of max.y above 2 was written when the rider stood upright
-    // beneath the wing. Gliding now lays the body flat, topping out near y 1.1, so
-    // "overhead" is measured against that instead — and against the whole wing
-    // rather than just its highest corner: no part of it may reach the rider.
-    const glider = createGlider()
-    settle(glider, true)
-    expect(span(glider).box.min.y).toBeGreaterThan(1.2)
-  })
+  // Where the deployed wing sits vertically is only meaningful against the rider it
+  // rests on, so that assertion lives in avatar.test.ts, next to the posed model —
+  // see "rests the deployed wing on the gliding rider's back". It replaces an
+  // assertion here that max.y cleared 2, which described a standing rider and, by
+  // measuring only the wing's highest corner, would have passed with the wing
+  // buried in the body.
 
   it('returns to its stowed shape after stowing', () => {
     const stowed = span(createGlider())
@@ -126,10 +123,16 @@ describe('createGlider assembly', () => {
     expect(span(createGlider()).box.min.y).toBeGreaterThanOrEqual(0)
   })
 
-  it('holds the deployed wing ahead of the rider', () => {
+  it('lies across the rider rather than out in front', () => {
+    // This replaces an assertion that the whole wing stayed ahead of z 0, which
+    // described a rider standing upright as a column at the origin. Gliding lays
+    // the body flat from z -0.96 to +0.92, so the wing now spans the rider: part
+    // ahead of the shoulders, most of it back over the legs.
     const glider = createGlider()
     settle(glider, true)
-    expect(span(glider).box.min.z).toBeGreaterThan(0)
+    const { box } = span(glider)
+    expect(box.min.z).toBeLessThan(0)
+    expect(box.max.z).toBeGreaterThan(0)
   })
 
   it('never produces non-finite geometry mid-animation', () => {
