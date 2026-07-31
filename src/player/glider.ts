@@ -63,11 +63,17 @@ const STOWED_ROTATION = new Vector3(0.1, 0, 1.05)
 // left most of the wing (min.z -0.64) still behind the rider; 1.1 clears zero.
 const DEPLOYED_POSITION = new Vector3(0, 2.0, 1.1)
 /**
+ * Nose-up tilt of the deployed wing, in radians. Exported because the rider's
+ * glide pose lies parallel to the wing, and the two must not drift apart: retune
+ * the wing and the pose follows.
+ */
+export const DEPLOYED_PITCH = 0.18
+/**
  * Near-level. The staff mesh is already laid along local X at build time, so this
  * rotation must NOT add another quarter turn about Z — doing so stands the wing on
  * its end and collapses the span to nothing.
  */
-const DEPLOYED_ROTATION = new Vector3(0.18, 0, 0)
+const DEPLOYED_ROTATION = new Vector3(DEPLOYED_PITCH, 0, 0)
 
 /**
  * One fan leaf: a long thin triangle running out along +X from the pivot, widening

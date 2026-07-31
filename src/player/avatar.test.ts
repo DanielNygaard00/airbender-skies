@@ -358,7 +358,11 @@ describe('createAvatar with the real committed model', () => {
 
     expect(knee('LeftUpLeg', 'LeftLeg', 'LeftFoot')).toBeGreaterThan(120)
     expect(knee('RightUpLeg', 'RightLeg', 'RightFoot')).toBeGreaterThan(120)
-    expect(at('LeftHand').y).toBeGreaterThan(at('LeftShoulder').y)
+
+    // Prone beneath the wing, so the body runs forwards rather than standing up.
+    const bodyAxis = at('Head').sub(at('Hips')).normalize()
+    expect(bodyAxis.z).toBeGreaterThan(0.9)
+    expect(Math.abs(bodyAxis.y)).toBeLessThan(0.3)
   })
 })
 

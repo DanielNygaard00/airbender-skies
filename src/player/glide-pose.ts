@@ -2,6 +2,7 @@ import {
   AnimationClip, AnimationMixer, Quaternion, QuaternionKeyframeTrack,
   Vector3, VectorKeyframeTrack, type Object3D, type Bone,
 } from 'three'
+import { DEPLOYED_PITCH } from './glider'
 
 /**
  * Stock character packs ship no gliding animation, and freezing a frame of the
@@ -16,6 +17,17 @@ import {
 
 /** Bones from the waist down. Everything else takes the upper-body source. */
 const LOWER_BODY = /Leg|Foot|Toe|Hips/
+
+/**
+ * Pitch laid onto the hips so the rider hangs flat beneath the wing rather than
+ * dangling upright from it. A quarter turn would be dead level; backing off by
+ * the wing's own nose-up tilt leaves the body parallel to it, so the two read as
+ * one object in flight.
+ *
+ * Applied about world X, which is valid because the armature node carries no
+ * rotation of its own — the hips' parent space is world-aligned.
+ */
+const GLIDE_PITCH = Math.PI / 2 - DEPLOYED_PITCH
 
 /**
  * Where each half of the pose comes from, best first, matched against clip names
@@ -72,6 +84,40 @@ function sampleBones(root: Object3D, clip: AnimationClip, fraction: number): Map
 }
 
 /**
+ * The rotation that lays the composed pose parallel to the wing.
+ *
+ * Measured rather than assumed. A fixed quarter turn leaves the body wherever the
+ * source pose's own spine lean puts it — the composed pose sits about six degrees
+ * off — so this reads the pose's actual hips-to-head axis and computes the
+ * rotation that carries it onto the wing's heading. That keeps the result correct
+ * if either source frame is retuned, or if the model is replaced.
+ *
+ * Falls back to a plain pitch when the rig lacks the bones to measure.
+ */
+function pitchOnto(root: Object3D, composed: Map<string, BonePose>): Quaternion {
+  const fixed = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), GLIDE_PITCH)
+
+  const hips = root.getObjectByName('Hips')
+  const head = root.getObjectByName('Head')
+  if (!hips || !head) return fixed
+
+  for (const [name, pose] of composed) {
+    const bone = root.getObjectByName(name)
+    if (bone) bone.quaternion.copy(pose.quaternion)
+  }
+  root.updateMatrixWorld(true)
+
+  const axis = head.getWorldPosition(new Vector3())
+    .sub(hips.getWorldPosition(new Vector3()))
+    .normalize()
+  if (axis.lengthSq() < 1e-6) return fixed
+
+  // Where the body should point: the wing's own heading, nose tilted up.
+  const target = new Vector3(0, Math.sin(DEPLOYED_PITCH), Math.cos(DEPLOYED_PITCH))
+  return new Quaternion().setFromUnitVectors(axis, target)
+}
+
+/**
  * Build the glide pose for a model that has no glide clip of its own. Returns
  * null when neither source clip is present, leaving the caller on its fallback.
  */
@@ -83,12 +129,23 @@ export function buildGlideClip(root: Object3D, clips: AnimationClip[]): Animatio
   const upper = sampleBones(root, upperSource, UPPER_FRACTION)
   const lower = sampleBones(root, lowerSource, LOWER_FRACTION)
 
-  const tracks: (QuaternionKeyframeTrack | VectorKeyframeTrack)[] = []
+  const composed = new Map<string, BonePose>()
   for (const name of upper.keys()) {
     const pose = (LOWER_BODY.test(name) ? lower : upper).get(name)
-    if (!pose) continue
+    if (pose) composed.set(name, pose)
+  }
 
-    const { x, y, z, w } = pose.quaternion
+  const pitch = pitchOnto(root, composed)
+
+  const tracks: (QuaternionKeyframeTrack | VectorKeyframeTrack)[] = []
+  for (const [name, pose] of composed) {
+    // Pitching the hips carries every descendant with it, so the whole body lies
+    // down at once. Pre-multiplying rotates in the parent's space rather than the
+    // bone's own, which is what makes this a world-axis pitch.
+    const rotation = name === 'Hips'
+      ? pitch.clone().multiply(pose.quaternion)
+      : pose.quaternion
+    const { x, y, z, w } = rotation
     tracks.push(new QuaternionKeyframeTrack(`${name}.quaternion`, TIMES, [x, y, z, w, x, y, z, w]))
 
     // Only the hips translate in these clips; every other bone keeps its bind

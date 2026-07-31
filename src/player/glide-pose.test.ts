@@ -11,6 +11,7 @@ import { AnimationClip, AnimationMixer, Group, Vector3 } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import { buildGlideClip } from './glide-pose'
+import { DEPLOYED_PITCH } from './glider'
 
 const MODEL_PATH = fileURLToPath(new URL('../../public/models/character.glb', import.meta.url))
 
@@ -40,11 +41,19 @@ function poseWith(gltf: GLTF, clip: AnimationClip) {
     return (Math.acos(Math.max(-1, Math.min(1, a.dot(b)))) * 180) / Math.PI
   }
 
+  // The body lies down when gliding, so "raised" arms and body tilt have to be
+  // measured against the body's own axis rather than against world up.
+  const bodyAxis = at('Head').sub(at('Hips')).normalize()
+
   return {
     kneeL: kneeAngle('LeftUpLeg', 'LeftLeg', 'LeftFoot'),
     kneeR: kneeAngle('RightUpLeg', 'RightLeg', 'RightFoot'),
     feetGap: at('LeftFoot').distanceTo(at('RightFoot')),
-    handAboveShoulder: at('LeftHand').y - at('LeftShoulder').y,
+    /** How far the hand sits towards the head end of the body. */
+    handAlongBody: at('LeftHand').sub(at('LeftShoulder')).dot(bodyAxis),
+    /** Degrees the body is tilted above horizontal. */
+    pitchDegrees: (Math.asin(bodyAxis.y) * 180) / Math.PI,
+    headForwardOfHips: at('Head').z - at('Hips').z,
   }
 }
 
@@ -74,7 +83,22 @@ describe('buildGlideClip', () => {
     if (!clip) throw new Error('expected a glide clip')
 
     // Hanging arms are what made the borrowed jump frame look wrong.
-    expect(poseWith(gltf, clip).handAboveShoulder).toBeGreaterThan(0)
+    expect(poseWith(gltf, clip).handAlongBody).toBeGreaterThan(0)
+  })
+
+  it('lies parallel to the deployed wing', async () => {
+    const gltf = await loadModel()
+    const clip = buildGlideClip(gltf.scene, gltf.animations)
+    if (!clip) throw new Error('expected a glide clip')
+
+    const pose = poseWith(gltf, clip)
+    const wingPitchDegrees = (DEPLOYED_PITCH * 180) / Math.PI
+
+    // Parallel to the wing, not merely level: the rider and the glider should read
+    // as one object rather than a body dangling at its own angle.
+    expect(pose.pitchDegrees).toBeCloseTo(wingPitchDegrees, 1)
+    // Prone and facing its direction of travel, not lying feet-first.
+    expect(pose.headForwardOfHips).toBeGreaterThan(1)
   })
 
   it('holds a single pose rather than animating', async () => {
