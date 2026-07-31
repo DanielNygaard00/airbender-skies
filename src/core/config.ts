@@ -14,6 +14,10 @@ export const DEFAULT_FLIGHT_CONFIG: FlightConfig = {
   turnRateSpeedRef: 40,
   bankTurnRate: 1.5,
   breathDrainPerSecond: 18,
+  // Hovering costs about 1.7x thrust, so holding station is a deliberate spend
+  // rather than a free way to wait out a bad approach.
+  hoverBreathPerSecond: 30,
+  hoverDamping: 1.6,
   landingSpeed: 14,
   baseMaxBreath: 100,
   breathRegenPerSecond: 12,
@@ -27,10 +31,17 @@ export function validateFlightConfig(c: FlightConfig): void {
     'thrustAccel', 'baseTurnRate', 'turnRateSpeedRef',
     'breathDrainPerSecond', 'landingSpeed', 'baseMaxBreath',
     'breathRegenPerSecond', 'breathRegenGroundedMultiplier',
-    'shrineBreathBonusFraction',
+    'shrineBreathBonusFraction', 'hoverBreathPerSecond', 'hoverDamping',
   ]
   for (const key of positive) {
     if (!(c[key] > 0)) throw new Error(`FlightConfig.${key} must be > 0, got ${c[key]}`)
+  }
+  if (c.hoverBreathPerSecond <= c.breathDrainPerSecond) {
+    throw new Error(
+      `FlightConfig.hoverBreathPerSecond (${c.hoverBreathPerSecond}) must exceed ` +
+      `breathDrainPerSecond (${c.breathDrainPerSecond}): hovering carries the whole ` +
+      'glider, thrust only adds to a flying wing',
+    )
   }
   if (c.stallSpeed >= c.turnRateSpeedRef) {
     throw new Error(

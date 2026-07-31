@@ -41,6 +41,23 @@ export interface FlightInput {
   flare: boolean
   /** Roll about the forward axis, radians. */
   bank: number
+  /** Bending air downward to hold station, rather than only to go faster. */
+  hover: boolean
+}
+
+/**
+ * Airbending downward hard enough to hold the glider up, and to stop it.
+ *
+ * This is what separates a bender from anyone else on the same staff: a plain
+ * glider can only trade altitude for distance, so it must keep moving to keep
+ * flying. Cancelling gravity lets the glider hold altitude with no updraft, and
+ * bleeding the airspeed lets it stop dead rather than merely stop sinking.
+ *
+ * Deliberately not clamped to only oppose descent: bending against an upward
+ * velocity too is what makes a hover settle rather than balloon.
+ */
+export function hoverAccel(velocity: Vector3, c: FlightConfig): Vector3 {
+  return new Vector3(0, c.gravity, 0).addScaledVector(velocity, -c.hoverDamping)
 }
 
 export interface FlightResult {
@@ -109,6 +126,7 @@ export function flightStep(
   accel.addScaledVector(liftDir, liftMag)
   accel.addScaledVector(vdir, -dragMag)
   if (input.thrust) accel.addScaledVector(input.forward, c.thrustAccel)
+  if (input.hover) accel.add(hoverAccel(velocity, c))
 
   const nextVelocity = velocity.clone().addScaledVector(accel, dt)
   const nextPosition = position.clone().addScaledVector(nextVelocity, dt)

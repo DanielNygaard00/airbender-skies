@@ -26,7 +26,7 @@ function simulate(opts: {
   const startEnergy = totalEnergy(position, velocity, C.gravity)
   const dt = 1 / 60
   for (let t = 0; t < seconds; t += dt) {
-    const next = flightStep(position, velocity, { forward, thrust, flare, bank }, dt, C)
+    const next = flightStep(position, velocity, { forward, thrust, flare, bank, hover: false }, dt, C)
     position = next.position
     velocity = next.velocity
   }
@@ -43,7 +43,7 @@ describe('flightStep', () => {
     const position = new Vector3(0, 100, 0)
     const velocity = new Vector3(0, 0, -20)
     flightStep(position, velocity, {
-      forward: new Vector3(0, 0, -1), thrust: false, flare: false, bank: 0,
+      forward: new Vector3(0, 0, -1), thrust: false, flare: false, bank: 0, hover: false,
     }, 1 / 60, C)
     expect(position.toArray()).toEqual([0, 100, 0])
     expect(velocity.toArray()).toEqual([0, 0, -20])
@@ -150,7 +150,7 @@ describe('flightStep', () => {
     const position = new Vector3(0, 100, 0)
     const velocity = new Vector3(0, 0, -20)
     flightStep(position, velocity, {
-      forward: new Vector3(0, 0, -1), thrust: false, flare: false, bank: 0.7,
+      forward: new Vector3(0, 0, -1), thrust: false, flare: false, bank: 0.7, hover: false,
     }, 1 / 60, C)
     expect(position.toArray()).toEqual([0, 100, 0])
     expect(velocity.toArray()).toEqual([0, 0, -20])
@@ -183,7 +183,7 @@ function simulateFrom(opts: {
   let velocity = opts.velocity.clone()
   const dt = 1 / 60
   for (let t = 0; t < seconds; t += dt) {
-    const next = flightStep(position, velocity, { forward, thrust, flare: false, bank }, dt, C)
+    const next = flightStep(position, velocity, { forward, thrust, flare: false, bank, hover: false }, dt, C)
     position = next.position
     velocity = next.velocity
   }

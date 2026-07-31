@@ -12,11 +12,14 @@ air kite.
 | Mouse | Look | Steer — the kite turns toward where you look |
 | `W` / `S` | Walk forward / back | Airbending thrust / flare |
 | `A` / `D` | Strafe | Bank into the turn |
-| `Shift` | Sprint | — |
+| `Shift` | Sprint | Hover — hold position in mid-air |
 | `Space` | Jump | Deploy or stow the kite |
 
-Gliding costs nothing. Thrust costs breath, and thrust is the only way to gain net altitude.
-Collect air shrines to raise your maximum breath.
+Gliding on its own can only trade altitude for distance, and it costs nothing. Airbending is
+what makes the difference: thrust is the only way to gain net altitude, and hovering holds you
+still in the air with no updraft to ride. Both spend breath, and hovering spends it fastest,
+because holding station carries the glider's whole weight rather than just adding to a wing that
+is already flying. Collect air shrines to raise your maximum breath.
 
 ## Development
 

@@ -6,21 +6,33 @@ export interface BreathState {
   maxBreath: number
 }
 
-/** Drain while thrusting, otherwise recover — faster with feet on the ground. */
+/**
+ * What the player is spending breath on. Named rather than a second boolean,
+ * because "thrusting and hovering at once" is not a state the game has, and a
+ * boolean pair would let callers express it.
+ */
+export type BreathEffort = 'idle' | 'thrust' | 'hover'
+
+function drainRateFor(effort: BreathEffort, grounded: boolean, c: FlightConfig): number {
+  if (effort === 'thrust') return -c.breathDrainPerSecond
+  if (effort === 'hover') return -c.hoverBreathPerSecond
+  return c.breathRegenPerSecond * (grounded ? c.breathRegenGroundedMultiplier : 1)
+}
+
+/** Drain while bending, otherwise recover — faster with feet on the ground. */
 export function stepBreath(
   s: BreathState,
-  thrusting: boolean,
+  effort: BreathEffort,
   grounded: boolean,
   dt: number,
   c: FlightConfig,
 ): BreathState {
-  const rate = thrusting
-    ? -c.breathDrainPerSecond
-    : c.breathRegenPerSecond * (grounded ? c.breathRegenGroundedMultiplier : 1)
+  const rate = drainRateFor(effort, grounded, c)
   return { ...s, breath: MathUtils.clamp(s.breath + rate * dt, 0, s.maxBreath) }
 }
 
-export function canThrust(s: BreathState): boolean {
+/** Any airbending needs breath left, whether that is thrust or hover. */
+export function canBend(s: BreathState): boolean {
   return s.breath > 0
 }
 

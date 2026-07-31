@@ -73,6 +73,17 @@ export interface FlightConfig {
   bankTurnRate: number
   /** Breath consumed per second of thrust. */
   breathDrainPerSecond: number
+  /**
+   * Breath consumed per second of hovering. Higher than thrust: holding station
+   * means bending air downward hard enough to carry the glider's whole weight,
+   * where thrust only has to add to a wing that is already flying.
+   */
+  hoverBreathPerSecond: number
+  /**
+   * How hard hovering bleeds airspeed, per second. This is what lets the glider
+   * stop dead in the air rather than merely stop sinking.
+   */
+  hoverDamping: number
   /** Touching ground at or below this speed lands cleanly. */
   landingSpeed: number
   /** Starting maximum breath, before any shrines. */

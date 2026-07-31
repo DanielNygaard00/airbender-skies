@@ -4,7 +4,7 @@ import type {
 } from '../core/types'
 import { flightStep } from './flight'
 import { steerToward } from './steering'
-import { stepBreath, canThrust } from './breath'
+import { stepBreath, canBend } from './breath'
 import { groundStep } from './ground-move'
 import { canAirJump } from './jump'
 
@@ -109,7 +109,10 @@ export function controllerStep(
     }
   } else {
     const speed = state.velocity.length()
-    const thrusting = input.forward > 0 && canThrust(state)
+    const thrusting = input.forward > 0 && canBend(state)
+    // Thrust wins when both are held. They are opposite intentions, and going
+    // faster is the one a player is more likely to want mid-manoeuvre.
+    const hovering = !thrusting && input.sprint && canBend(state)
     const forward = steerToward(
       state.forward, input.lookDirection, speed, input.strafe, dt, deps.flight,
     )
@@ -118,8 +121,10 @@ export function controllerStep(
       thrust: thrusting,
       flare: input.forward < 0,
       bank: input.strafe * 0.6,
+      hover: hovering,
     }, dt, deps.flight)
-    const breath = stepBreath(state, thrusting, false, dt, deps.flight)
+    const effort = thrusting ? 'thrust' : hovering ? 'hover' : 'idle'
+    const breath = stepBreath(state, effort, false, dt, deps.flight)
 
     next = {
       ...state, forward,
@@ -147,7 +152,7 @@ export function controllerStep(
 
   // Breath recovers on foot. Flight handles its own drain above.
   if (state.mode === 'ground' && next.mode === 'ground') {
-    next = { ...next, breath: stepBreath(next, false, next.grounded, dt, deps.flight).breath }
+    next = { ...next, breath: stepBreath(next, 'idle', next.grounded, dt, deps.flight).breath }
   }
 
   return isFinitePlayer(next) ? next : safeRespawn(state, deps)

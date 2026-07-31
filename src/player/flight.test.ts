@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { kiteUp, angleOfAttack } from './flight'
+import { kiteUp, angleOfAttack, hoverAccel, flightStep } from './flight'
+import { DEFAULT_FLIGHT_CONFIG as C } from '../core/config'
 
 const FWD_LEVEL = new Vector3(0, 0, -1)
 
@@ -65,5 +66,42 @@ describe('angleOfAttack', () => {
   it('reaches ninety degrees when moving straight down while pointing level', () => {
     const aoa = angleOfAttack(FWD_LEVEL, new Vector3(0, -10, 0), kiteUp(FWD_LEVEL, 0))
     expect(aoa).toBeCloseTo(Math.PI / 2, 4)
+  })
+})
+
+describe('hoverAccel', () => {
+  it('cancels gravity exactly', () => {
+    // The point of hovering is holding altitude with no updraft, which means
+    // producing precisely the acceleration gravity is taking away.
+    const accel = hoverAccel(new Vector3(), C)
+    expect(accel.y).toBeCloseTo(C.gravity, 6)
+  })
+
+  it('bleeds airspeed so the glider can stop dead', () => {
+    // A plain glider must keep moving to keep flying. Bending lets it stop.
+    const accel = hoverAccel(new Vector3(30, 0, 0), C)
+    expect(accel.x).toBeLessThan(0)
+  })
+
+  it('opposes a climb as well as a dive, so a hover settles', () => {
+    // Only ever fighting descent would let a hover balloon upward instead of
+    // holding station.
+    expect(hoverAccel(new Vector3(0, 12, 0), C).y).toBeLessThan(C.gravity)
+  })
+
+  it('holds altitude against gravity over time', () => {
+    let velocity = new Vector3(18, 0, 0)
+    let position = new Vector3(0, 100, 0)
+    for (let t = 0; t < 3; t += 1 / 60) {
+      const step = flightStep(position, velocity, {
+        forward: new Vector3(1, 0, 0), thrust: false, flare: false, bank: 0, hover: true,
+      }, 1 / 60, C)
+      position = step.position
+      velocity = step.velocity
+    }
+    // Without hover this would have fallen roughly 90 units in three seconds.
+    expect(position.y).toBeGreaterThan(95)
+    // And it should have shed most of its speed rather than cruising on.
+    expect(velocity.length()).toBeLessThan(9)
   })
 })

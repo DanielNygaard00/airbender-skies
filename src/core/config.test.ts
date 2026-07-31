@@ -23,3 +23,18 @@ describe('flight config', () => {
     expect(liftCoeff / dragCoeff).toBeLessThan(25)
   })
 })
+
+describe('hover cost invariant', () => {
+  it('rejects a hover that is cheaper than thrust', () => {
+    // If hovering were the cheaper option it would dominate thrust outright, and
+    // the glider would have no reason to ever fly forward under power.
+    expect(() => validateFlightConfig({
+      ...DEFAULT_FLIGHT_CONFIG,
+      hoverBreathPerSecond: DEFAULT_FLIGHT_CONFIG.breathDrainPerSecond - 1,
+    })).toThrow(/hoverBreathPerSecond/)
+  })
+
+  it('accepts the shipped config', () => {
+    expect(() => validateFlightConfig(DEFAULT_FLIGHT_CONFIG)).not.toThrow()
+  })
+})
