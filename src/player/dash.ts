@@ -58,7 +58,10 @@ export function stepDash(
     return { state: { used: state.used, recovery }, impulse: null }
   }
 
-  if (!pressed || !canDash(state, c)) {
+  // Ground-shed thrust: the doc files this under the ground layer and describes it
+  // as pushing off the ground, so there is nothing to shed against in mid-air. It
+  // also keeps the move from doubling as a second air jump.
+  if (!pressed || !grounded || !canDash(state, c)) {
     return { state: { ...state, recovery: Math.max(0, state.recovery - dt) }, impulse: null }
   }
 

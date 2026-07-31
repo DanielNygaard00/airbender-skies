@@ -84,3 +84,15 @@ describe('the dash impulse', () => {
     expect(dashDecay(C.dashDurationSeconds * 10, C)).toBe(0)
   })
 })
+
+describe('the dash is ground-shed thrust', () => {
+  it('does not fire in mid-air', () => {
+    // The doc files it under the ground layer: there is nothing to push off up
+    // there, and an air dash would double as a second air jump.
+    expect(stepDash(idleDash(), true, NORTH, false, 1 / 60, C).impulse).toBeNull()
+  })
+
+  it('still fires from the ground', () => {
+    expect(stepDash(idleDash(), true, NORTH, true, 1 / 60, C).impulse).not.toBeNull()
+  })
+})
