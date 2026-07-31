@@ -8,7 +8,7 @@ import type { Shrine } from '../world/shrine'
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({
   mode: 'kite', position: new Vector3(0, 0, 0), velocity: new Vector3(),
   forward: new Vector3(0, 0, -1), breath: 40, maxBreath: 100,
-  grounded: false, lastGroundIslandId: null, ...over,
+  grounded: false, lastGroundIslandId: null, airJumpsUsed: 0, chargeTime: 0, ...over,
 })
 
 const shrine = (id: string, at: Vector3, collected = false): Shrine =>

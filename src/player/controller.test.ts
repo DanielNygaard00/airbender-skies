@@ -33,7 +33,7 @@ const input = (over: Partial<InputState> = {}): InputState => ({
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({
   mode: 'ground', position: new Vector3(0, 0, 0), velocity: new Vector3(),
   forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
-  grounded: true, lastGroundIslandId: 'flat', ...over,
+  grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0, ...over,
 })
 
 describe('mode switching', () => {
@@ -217,5 +217,24 @@ describe('safety nets', () => {
     const negative = respawn(player({ maxBreath: -5 }), deps(voidWorld))
     expect(zero.maxBreath).toBe(DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
     expect(negative.maxBreath).toBe(DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
+  })
+})
+
+describe('jump field resets', () => {
+  it('respawn clears air jumps and charge', () => {
+    const s = respawn(player({ airJumpsUsed: 1, chargeTime: 0.8 }), deps(voidWorld))
+    expect(s.airJumpsUsed).toBe(0)
+    expect(s.chargeTime).toBe(0)
+  })
+
+  it('landing the kite clears air jumps and charge', () => {
+    const slow = player({
+      mode: 'kite', position: new Vector3(0, 1, 0), grounded: false,
+      velocity: new Vector3(0, -2, 0), airJumpsUsed: 1, chargeTime: 0.8,
+    })
+    const s = controllerStep(slow, input(), 1 / 60, deps(flatGround))
+    expect(s.grounded).toBe(true)
+    expect(s.airJumpsUsed).toBe(0)
+    expect(s.chargeTime).toBe(0)
   })
 })
