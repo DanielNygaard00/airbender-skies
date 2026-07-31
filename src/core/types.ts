@@ -71,6 +71,14 @@ export interface FlightConfig {
   turnRateSpeedRef: number
   /** Extra roll rate contributed by bank input, radians/s. */
   bankTurnRate: number
+  /**
+   * Yaw a full weight shift produces on its own, radians/s.
+   *
+   * This is the primary steering input, the way it is on a real hang glider.
+   * baseTurnRate is deliberately smaller so that looking trims the turn rather
+   * than driving it.
+   */
+  weightShiftTurnRate: number
   /** Breath consumed per second of thrust. */
   breathDrainPerSecond: number
   /**

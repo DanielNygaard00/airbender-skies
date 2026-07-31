@@ -9,9 +9,9 @@ air kite.
 
 | Input | Ground | Kite |
 | --- | --- | --- |
-| Mouse | Look | Steer — the kite turns toward where you look |
+| Mouse | Look | Trim — nudges the nose toward where you look |
 | `W` / `S` | Walk forward / back | Airbending thrust / flare |
-| `A` / `D` | Strafe | Bank into the turn |
+| `A` / `D` | Strafe | Shift your weight — this is how you steer |
 | `Shift` | Sprint | Hover — hold position in mid-air |
 | `Space` | Jump | Deploy or stow the kite |
 

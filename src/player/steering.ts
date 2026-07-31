@@ -12,8 +12,54 @@ export function turnRateFor(speed: number, bankInput: number, c: FlightConfig): 
   return c.baseTurnRate * speedFactor + Math.abs(bankInput) * c.bankTurnRate
 }
 
-/** Rotate `current` toward `target` by at most this step's allowed turn. */
+/**
+ * Yaw produced by shifting weight, independent of where the player is looking.
+ *
+ * This is what a hang glider actually steers with, and it was missing. Bank only
+ * scaled how fast the glider chased the look direction, so holding a roll while
+ * keeping the mouse still turned the glider not at all. Rolling now turns you on
+ * its own, and looking trims the result.
+ *
+ * The rotation is about world up rather than the glider's own up, so a banked
+ * glider carves a flat turn instead of corkscrewing.
+ */
+export function weightShiftYaw(
+  forward: Vector3,
+  bankInput: number,
+  dt: number,
+  c: FlightConfig,
+): Vector3 {
+  const normalized = forward.clone().normalize()
+  if (Math.abs(bankInput) < 1e-6) return normalized
+  // Negated so banking right turns right: a positive rotation about world up is
+  // anticlockwise seen from above, which would send a right bank left.
+  const angle = -bankInput * c.weightShiftTurnRate * dt
+  return normalized.applyAxisAngle(WORLD_UP, angle).normalize()
+}
+
+/**
+ * Turn the glider: the look assist pulls the nose towards where the player is
+ * looking, and then their weight shift turns it further.
+ *
+ * The order matters, and getting it wrong cancels the feature. Shifting first and
+ * chasing afterwards means the chase snaps the nose straight back onto the look
+ * direction — the deviation the shift just produced is exactly what the chase
+ * removes, so with a still mouse the glider never turns at all. Shifting last
+ * leaves the weight shift as the input that actually commands the heading.
+ */
 export function steerToward(
+  current: Vector3,
+  target: Vector3,
+  speed: number,
+  bankInput: number,
+  dt: number,
+  c: FlightConfig,
+): Vector3 {
+  return weightShiftYaw(chaseLook(current, target, speed, bankInput, dt, c), bankInput, dt, c)
+}
+
+/** Rotate `current` toward `target` by at most this step's allowed turn. */
+function chaseLook(
   current: Vector3,
   target: Vector3,
   speed: number,

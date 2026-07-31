@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { steerToward, turnRateFor } from './steering'
+import { steerToward, turnRateFor, weightShiftYaw } from './steering'
 import { DEFAULT_FLIGHT_CONFIG as C } from '../core/config'
 
 const FWD = new Vector3(0, 0, -1)
@@ -62,5 +62,39 @@ describe('steerToward', () => {
       return n
     }
     expect(turns(55)).toBeGreaterThan(turns(12))
+  })
+})
+
+describe('weight shift steering', () => {
+  const LEVEL = new Vector3(0, 0, -1)
+
+  it('turns the glider with the mouse held still', () => {
+    // REGRESSION: bank used to scale only how fast the glider chased the look
+    // direction, so rolling while looking straight ahead turned it not at all.
+    // Steering a hang glider is the weight shift, so this is the core behaviour.
+    const turned = steerToward(LEVEL, LEVEL, 30, 1, 1 / 60, C)
+    expect(turned.angleTo(LEVEL)).toBeGreaterThan(0.005)
+  })
+
+  it('does not drift when no weight is shifted', () => {
+    const straight = steerToward(LEVEL, LEVEL, 30, 0, 1 / 60, C)
+    expect(straight.angleTo(LEVEL)).toBeCloseTo(0, 9)
+  })
+
+  it('banks right to turn right and left to turn left', () => {
+    // Facing -Z, turning right heads towards +X.
+    expect(weightShiftYaw(LEVEL, 1, 1 / 60, C).x).toBeGreaterThan(0)
+    expect(weightShiftYaw(LEVEL, -1, 1 / 60, C).x).toBeLessThan(0)
+  })
+
+  it('carves a flat turn rather than corkscrewing', () => {
+    // Rotating about the glider's own up would pitch the nose as it banked.
+    const turned = weightShiftYaw(LEVEL, 1, 0.5, C)
+    expect(turned.y).toBeCloseTo(0, 9)
+  })
+
+  it('leads the look assist rather than following it', () => {
+    // The hybrid only reads as weight shift if the shift is the stronger input.
+    expect(C.weightShiftTurnRate).toBeGreaterThan(C.baseTurnRate)
   })
 })

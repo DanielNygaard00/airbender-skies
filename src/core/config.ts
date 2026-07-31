@@ -10,9 +10,12 @@ export const DEFAULT_FLIGHT_CONFIG: FlightConfig = {
   thrustAccel: 22,
   flareAoaBoost: 0.35,
   rigAoa: 0.09,
-  baseTurnRate: 2.2,
+  // Weight shift leads and look assists: baseTurnRate came down from 2.2 so that
+  // pointing the mouse trims a turn instead of commanding it outright.
+  baseTurnRate: 0.9,
   turnRateSpeedRef: 40,
   bankTurnRate: 1.5,
+  weightShiftTurnRate: 1.7,
   breathDrainPerSecond: 18,
   // Hovering costs about 1.7x thrust, so holding station is a deliberate spend
   // rather than a free way to wait out a bad approach.
@@ -32,6 +35,7 @@ export function validateFlightConfig(c: FlightConfig): void {
     'breathDrainPerSecond', 'landingSpeed', 'baseMaxBreath',
     'breathRegenPerSecond', 'breathRegenGroundedMultiplier',
     'shrineBreathBonusFraction', 'hoverBreathPerSecond', 'hoverDamping',
+    'weightShiftTurnRate',
   ]
   for (const key of positive) {
     if (!(c[key] > 0)) throw new Error(`FlightConfig.${key} must be > 0, got ${c[key]}`)
