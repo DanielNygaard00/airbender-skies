@@ -1,14 +1,10 @@
-import { Group, Mesh, MeshLambertMaterial, Color, type BufferGeometry } from 'three'
+import { Group, Mesh, MeshLambertMaterial, type BufferGeometry } from 'three'
 import type { TerrainQuery } from '../core/types'
-import { createIslandGeometry, type Biome } from './island'
+import { createIslandGeometry } from './island'
+import { paintIsland } from './island-paint'
+import { buildProps } from './props'
 import { createTerrainQuery, type IslandMesh } from './terrain-query'
 import { validateLevel, type Level } from './level'
-
-const BIOME_COLOURS: Record<Biome, number> = {
-  grass: 0x7fa85c,
-  rock: 0x8a8579,
-  temple: 0xb9a67f,
-}
 
 export interface World {
   islands: IslandMesh[]
@@ -25,7 +21,8 @@ export function buildWorld(level: Level): World {
 
   for (const def of level.islands) {
     const geometry: BufferGeometry = createIslandGeometry(def)
-    const material = new MeshLambertMaterial({ color: new Color(BIOME_COLOURS[def.biome]) })
+    paintIsland(geometry, def.biome, def.noiseSeed)
+    const material = new MeshLambertMaterial({ vertexColors: true })
     const mesh = new Mesh(geometry, material)
     mesh.position.copy(def.position)
     mesh.updateMatrixWorld(true)
@@ -33,5 +30,15 @@ export function buildWorld(level: Level): World {
     islands.push({ id: def.id, mesh })
   }
 
-  return { islands, terrain: createTerrainQuery(islands), group }
+  const terrain = createTerrainQuery(islands)
+
+  for (const def of level.islands) {
+    const offsets = level.shrines
+      .filter((s) => s.islandId === def.id)
+      .map((s) => s.offset)
+    const props = buildProps(def, terrain, offsets)
+    if (props) group.add(props)
+  }
+
+  return { islands, terrain, group }
 }

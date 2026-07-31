@@ -30,9 +30,16 @@ describe('buildWorld', () => {
     }
   })
 
-  it('adds every mesh to the returned group', () => {
+  it('adds every island mesh to the returned group', () => {
     const world = buildWorld(ARCHIPELAGO)
-    expect(world.group.children).toHaveLength(ARCHIPELAGO.islands.length)
+    for (const island of world.islands) {
+      expect(world.group.children).toContain(island.mesh)
+    }
+  })
+
+  it('adds prop meshes beyond the island meshes', () => {
+    const world = buildWorld(ARCHIPELAGO)
+    expect(world.group.children.length).toBeGreaterThan(ARCHIPELAGO.islands.length)
   })
 
   it('exposes a terrain query that finds an island away from the origin', () => {

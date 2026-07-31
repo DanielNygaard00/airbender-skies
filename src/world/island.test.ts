@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { createIslandGeometry, type IslandDef } from './island'
+import { createIslandGeometry, type IslandDef, MAX_DEPTH_MULTIPLIER } from './island'
 
 const def = (over: Partial<IslandDef> = {}): IslandDef => ({
   id: 'test',
@@ -34,7 +34,8 @@ describe('createIslandGeometry', () => {
     const box = createIslandGeometry(def({ radius: 40 })).boundingBox!
     const horizontal = Math.max(box.max.x, -box.min.x, box.max.z, -box.min.z)
     expect(horizontal).toBeGreaterThan(40 * 0.6)
-    expect(horizontal).toBeLessThan(40 * 1.4)
+    // Summed noise amplitude is 0.42, so the silhouette can reach 1.42×radius.
+    expect(horizontal).toBeLessThan(40 * 1.45)
   })
 
   it('scales with radius', () => {
@@ -58,5 +59,22 @@ describe('createIslandGeometry', () => {
 
   it('contains no non-finite coordinates', () => {
     for (const n of positions(def())) expect(Number.isFinite(n)).toBe(true)
+  })
+
+  it('is non-indexed, so every face has its own vertices for flat shading', () => {
+    expect(createIslandGeometry(def()).index).toBeNull()
+  })
+
+  it('keeps the walkable crown gentler than the full noise amplitude', () => {
+    const d = def()
+    const box = createIslandGeometry(d).boundingBox!
+    // At the top pole only (1 - 0.55) = 45% of the 0.42 amplitude applies, and
+    // u·(1 + 0.42·(1 - 0.55u)) is maximised at u = 1, so the crown can never
+    // rise above TOP_FLATTEN · height · 1.189.
+    expect(box.max.y).toBeLessThan(d.height * 0.35 * (1 + 0.42 * 0.45) + 1e-6)
+  })
+
+  it('derives MAX_DEPTH_MULTIPLIER from the summed octave amplitude', () => {
+    expect(MAX_DEPTH_MULTIPLIER).toBeCloseTo(1.9 * 1.42, 6)
   })
 })
