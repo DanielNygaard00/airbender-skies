@@ -80,6 +80,10 @@ export function createAvatar() {
   let mixer: AnimationMixer | null = null
   let clips = new Map<AnimationName, { clip: AnimationClip; freeze: boolean }>()
   let current: AnimationName | null = null
+  // HAZARD for whoever wires up the charge-jump squash: it must scale
+  // modelRoot, not object — the glider is object's sibling, not modelRoot's
+  // child, and object.scale.y would squash the glider along with the character.
+  let modelRoot: Object3D | null = null
 
   return {
     object,
@@ -91,8 +95,14 @@ export function createAvatar() {
       // silently orphaning it from the scene graph.
       object.remove(placeholder)
 
+      // A second call would otherwise leave the previous model's wrapper parented
+      // (object.remove(placeholder) is a no-op the second time around) and drop
+      // its mixer without stopping its actions.
+      if (modelRoot) object.remove(modelRoot)
+      mixer?.stopAllAction()
+
       // The model gets its own wrapper so scaling it cannot touch the glider.
-      const modelRoot = new Group()
+      modelRoot = new Group()
       modelRoot.add(gltf.scene)
       fitToPlaceholder(modelRoot, gltf.scene)
       modelRoot.rotation.y = MODEL_YAW
@@ -117,11 +127,28 @@ export function createAvatar() {
         return
       }
       const next = mixer.clipAction(entry.clip)
-      if (current) {
-        const previous = clips.get(current)
+      const previous = current ? clips.get(current) : undefined
+      if (previous && previous.clip === entry.clip) {
+        // Two states can share one clip (fall and glide both borrow Jump when no
+        // glide clip exists), and mixer.clipAction(clip) returns the same
+        // AnimationAction for the same clip — so this is not a transition
+        // between two actions but the same action continuing under a new name.
+        // Fading it out and back in would fade it against itself: reset()
+        // calls stopFading(), cancelling the fadeOut before it does anything,
+        // and the weight ramping 0→1 during fadeIn leaves the remainder of the
+        // blend (1 − weight) filled from the bind pose saved by
+        // PropertyMixer.saveOriginalState, snapping the skeleton to bind pose
+        // for a frame before easing back into the held pose. Keep the action's
+        // current weight and time instead of restarting its fade.
+        next.stopFading()
+        next.setEffectiveWeight(1)
+        next.paused = false
+        next.enabled = true
+        next.play()
+      } else {
         if (previous) mixer.clipAction(previous.clip).fadeOut(FADE_SECONDS)
+        next.reset().fadeIn(FADE_SECONDS).play()
       }
-      next.reset().fadeIn(FADE_SECONDS).play()
       // A frozen state has no clip of its own — it holds one frame of a borrowed
       // one. timeScale = 0 stops playback while leaving the fade's weight
       // blending to run, where `paused` would stall that too. Restoring 1 is not
