@@ -12,11 +12,19 @@ export interface IslandDef {
   noiseSeed: number
 }
 
-/** How strongly noise displaces the silhouette, and how the shape is squashed. */
-export const ROUGHNESS = 0.28
-const NOISE_FREQUENCY = 1.6
+/** Noise octaves: large silhouette, ledge masses, small rock detail. */
+const OCTAVES = [
+  { frequency: 1.6, amplitude: 0.28 },
+  { frequency: 3.5, amplitude: 0.1 },
+  { frequency: 8.0, amplitude: 0.04 },
+] as const
+
+/** Summed octave amplitude: how strongly noise can displace the silhouette. */
+export const ROUGHNESS = OCTAVES.reduce((sum, o) => sum + o.amplitude, 0)
 const TOP_FLATTEN = 0.35
 export const BOTTOM_STRETCH = 1.9
+/** How much of the roughness is removed at the top pole, keeping the crown walkable. */
+const TOP_DAMPENING = 0.55
 const DETAIL = 4
 
 /**
@@ -25,8 +33,9 @@ const DETAIL = 4
  * Derived rather than measured or guessed, because level validation depends on
  * it and a hardcoded number would drift away from the geometry the moment the
  * shaping constants change. Noise displaces a vertex before the vertical squash
- * applies, so the lowest a unit-sphere vertex can go is (1 + ROUGHNESS) and the
- * stretch then scales that by BOTTOM_STRETCH.
+ * applies, dampening never applies below the equator, so the lowest a
+ * unit-sphere vertex can go is (1 + ROUGHNESS) and the stretch then scales
+ * that by BOTTOM_STRETCH.
  */
 export const MAX_DEPTH_MULTIPLIER = BOTTOM_STRETCH * (1 + ROUGHNESS)
 
@@ -36,29 +45,36 @@ export const MAX_DEPTH_MULTIPLIER = BOTTOM_STRETCH * (1 + ROUGHNESS)
  * Deterministic — the same noiseSeed always produces identical geometry.
  *
  * An icosphere is used rather than a heightmap because a heightmap cannot
- * express the underside and overhangs a floating island needs.
+ * express the underside and overhangs a floating island needs. The geometry
+ * is non-indexed (IcosahedronGeometry ships that way), so each face has its
+ * own vertices: computeVertexNormals then gives per-face flat normals, and
+ * the painter can give each face its own color.
  */
 export function createIslandGeometry(def: IslandDef): BufferGeometry {
-  const geometry = new IcosahedronGeometry(1, DETAIL)
-  const position = geometry.attributes.position
+  const sphere = new IcosahedronGeometry(1, DETAIL)
+  const position = sphere.attributes.position
   if (!position) throw new Error('IcosahedronGeometry produced no position attribute')
   const noise = seededNoise2D(def.noiseSeed)
   const v = new Vector3()
 
   for (let i = 0; i < position.count; i++) {
     v.fromBufferAttribute(position, i)
-    const displacement = 1 + noise(v.x * NOISE_FREQUENCY, v.z * NOISE_FREQUENCY) * ROUGHNESS
-    v.multiplyScalar(displacement)
+    let n = 0
+    for (const { frequency, amplitude } of OCTAVES) {
+      n += noise(v.x * frequency, v.z * frequency) * amplitude
+    }
+    // The walkable crown keeps less roughness than the ragged underside.
+    const dampening = 1 - TOP_DAMPENING * Math.max(v.y, 0)
+    v.multiplyScalar(1 + n * dampening)
     v.y *= v.y > 0 ? TOP_FLATTEN : BOTTOM_STRETCH
     v.x *= def.radius
     v.z *= def.radius
     v.y *= def.height
     position.setXYZ(i, v.x, v.y, v.z)
   }
-
   position.needsUpdate = true
-  geometry.computeVertexNormals()
-  geometry.computeBoundingBox()
-  geometry.computeBoundingSphere()
-  return geometry
+  sphere.computeVertexNormals()
+  sphere.computeBoundingBox()
+  sphere.computeBoundingSphere()
+  return sphere
 }

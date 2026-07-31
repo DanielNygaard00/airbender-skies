@@ -160,7 +160,7 @@ describe('worldFloorY depth bound', () => {
 
   it('still accepts a floor below the real geometry', () => {
     const l = base()
-    l.worldFloorY = -50
+    l.worldFloorY = -55
     expect(() => validateLevel(l)).not.toThrow()
   })
 })
