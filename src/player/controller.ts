@@ -89,12 +89,16 @@ export function controllerStep(
       // Deploy the glider mid-fall — but only once the air jump is spent.
       // Grounded presses charge or jump; airborne presses with reserve
       // double-jump. Both are handled by groundStep.
+      // The wings snapping open adds a kick rather than only preserving momentum,
+      // so a well-timed deploy out of a jump is rewarded.
+      const launched = state.velocity.clone()
+      launched.y += deps.flight.deployKick
       next = {
         ...state,
         mode: 'glider',
         forward: input.lookDirection.clone().normalize(),
         position: state.position.clone(),
-        velocity: state.velocity.clone(),
+        velocity: launched,
         grounded: false,
       }
     } else {
@@ -121,7 +125,7 @@ export function controllerStep(
       thrust: thrusting,
       flare: input.forward < 0,
       bank: input.strafe * 0.6,
-      hover: hovering,
+      hover: hovering, tuck: input.tuck,
     }, dt, deps.flight)
     const effort = thrusting ? 'thrust' : hovering ? 'hover' : 'idle'
     const breath = stepBreath(state, effort, false, dt, deps.flight)

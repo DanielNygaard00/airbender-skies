@@ -21,6 +21,9 @@ export const DEFAULT_FLIGHT_CONFIG: FlightConfig = {
   // rather than a free way to wait out a bad approach.
   hoverBreathPerSecond: 30,
   hoverDamping: 1.6,
+  tuckLiftFactor: 0.1,
+  tuckDragFactor: 0.55,
+  deployKick: 3,
   landingSpeed: 14,
   baseMaxBreath: 100,
   breathRegenPerSecond: 12,
@@ -35,10 +38,16 @@ export function validateFlightConfig(c: FlightConfig): void {
     'breathDrainPerSecond', 'landingSpeed', 'baseMaxBreath',
     'breathRegenPerSecond', 'breathRegenGroundedMultiplier',
     'shrineBreathBonusFraction', 'hoverBreathPerSecond', 'hoverDamping',
-    'weightShiftTurnRate',
+    'weightShiftTurnRate', 'tuckLiftFactor', 'tuckDragFactor', 'deployKick',
   ]
   for (const key of positive) {
     if (!(c[key] > 0)) throw new Error(`FlightConfig.${key} must be > 0, got ${c[key]}`)
+  }
+  if (!(c.tuckLiftFactor < 1) || !(c.tuckDragFactor < 1)) {
+    throw new Error(
+      'FlightConfig tuck factors must be below 1: a tuck folds the wings away, it ' +
+      `does not add lift or drag (got ${c.tuckLiftFactor}, ${c.tuckDragFactor})`,
+    )
   }
   if (c.hoverBreathPerSecond <= c.breathDrainPerSecond) {
     throw new Error(
@@ -65,6 +74,7 @@ export const DEFAULT_GROUND_CONFIG: GroundConfig = {
   eyeProbeHeight: 2,
   maxAirJumps: 1,
   airJumpSpeed: 9,
+  airJumpRisingBonus: 0.6,
   chargeThresholdSeconds: 0.2,
   chargeMaxSeconds: 1.5,
   chargedJumpSpeed: 20,

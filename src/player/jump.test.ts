@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { stepJump, canAirJump, isCharging } from './jump'
+import { stepJump, canAirJump, isCharging, airJumpSpeed } from './jump'
 import { DEFAULT_GROUND_CONFIG as G } from '../core/config'
 import type { InputState, PlayerState } from '../core/types'
 
 const input = (over: Partial<InputState> = {}): InputState => ({
   lookDirection: new Vector3(0, 0, -1), forward: 0, strafe: 0,
-  sprint: false, actionPressed: false, actionHeld: false, actionReleased: false,
+  sprint: false, tuck: false, actionPressed: false, actionHeld: false, actionReleased: false,
   ...over,
 })
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({
@@ -129,5 +129,27 @@ describe('isCharging', () => {
   it('is true only at or past the threshold', () => {
     expect(isCharging(0, G)).toBe(false)
     expect(isCharging(G.chargeThresholdSeconds, G)).toBe(true)
+  })
+})
+
+describe('airJumpSpeed', () => {
+  it('gains more height the faster the player is already rising', () => {
+    // The second jump is a downward air push, so it bites hardest against air that
+    // is already moving.
+    const slow = airJumpSpeed(2, G)
+    const fast = airJumpSpeed(12, G)
+    expect(fast).toBeGreaterThan(slow)
+  })
+
+  it('gives the plain speed when falling, rather than a penalty', () => {
+    // A recovery jump out of a fall must still be worth taking.
+    expect(airJumpSpeed(-20, G)).toBe(G.airJumpSpeed)
+  })
+
+  it('never returns less than the plain air jump', () => {
+    for (const vy of [-50, -1, 0, 1, 50]) {
+      expect(airJumpSpeed(vy, G))
+        .toBeGreaterThanOrEqual(G.airJumpSpeed)
+    }
   })
 })

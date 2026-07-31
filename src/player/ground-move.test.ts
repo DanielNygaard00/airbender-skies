@@ -16,7 +16,7 @@ const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycastDown: () =>
 
 const input = (over: Partial<InputState> = {}): InputState => ({
   lookDirection: new Vector3(0, 0, -1), forward: 0, strafe: 0,
-  sprint: false, actionPressed: false, actionHeld: false, actionReleased: false,
+  sprint: false, tuck: false, actionPressed: false, actionHeld: false, actionReleased: false,
   ...over,
 })
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({

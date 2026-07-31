@@ -25,6 +25,18 @@ function releaseSpeed(chargeTime: number, c: GroundConfig): number {
   return c.jumpSpeed + (c.chargedJumpSpeed - c.jumpSpeed) * t
 }
 
+/**
+ * Speed an air jump sets, given how fast the player is already moving vertically.
+ *
+ * The second jump is a downward air push rather than a leg push, so it bites
+ * hardest against air that is already moving: rising fast gains more height than
+ * jumping from a standstill. Descending gains nothing extra rather than being
+ * penalised, so a recovery jump out of a fall is still worth taking.
+ */
+export function airJumpSpeed(verticalSpeed: number, c: GroundConfig): number {
+  return c.airJumpSpeed + Math.max(0, verticalSpeed) * c.airJumpRisingBonus
+}
+
 export function stepJump(
   state: PlayerState,
   input: InputState,
@@ -37,7 +49,7 @@ export function stepJump(
       return {
         chargeTime: 0,
         airJumpsUsed: state.airJumpsUsed + 1,
-        jumpVelocityY: c.airJumpSpeed,
+        jumpVelocityY: airJumpSpeed(state.velocity.y, c),
         walkFactor: 1,
       }
     }

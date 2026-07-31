@@ -12,6 +12,8 @@ export interface InputState {
   strafe: number
   /** Shift held. */
   sprint: boolean
+  /** Ctrl held: fold the wings into a dive. */
+  tuck: boolean
   /** Space, edge-triggered: jump, deploy, or stow. */
   actionPressed: boolean
   /** Space currently held down. Drives jump charging. */
@@ -92,6 +94,19 @@ export interface FlightConfig {
    * stop dead in the air rather than merely stop sinking.
    */
   hoverDamping: number
+  /**
+   * Lift and drag retained while tucked. Folding the wings costs nearly all the
+   * lift and some of the drag, which is what turns a dive into a speed gain
+   * rather than just a descent.
+   */
+  tuckLiftFactor: number
+  tuckDragFactor: number
+  /**
+   * Upward kick given when the glider snaps open mid-jump. Deploying should feel
+   * like a reward for good timing, so the transition adds energy instead of merely
+   * preserving it.
+   */
+  deployKick: number
   /** Touching ground at or below this speed lands cleanly. */
   landingSpeed: number
   /** Starting maximum breath, before any shrines. */
@@ -117,6 +132,14 @@ export interface GroundConfig {
   maxAirJumps: number
   /** Vertical speed set by an air jump. */
   airJumpSpeed: number
+  /**
+   * Fraction of existing upward speed the air jump adds on top of airJumpSpeed.
+   *
+   * The second jump is a downward air push, so it bites hardest against air that
+   * is already moving: rising fast gains more height than jumping from a hover,
+   * and falling gains nothing extra.
+   */
+  airJumpRisingBonus: number
   /** Holds shorter than this are taps: a normal jump. */
   chargeThresholdSeconds: number
   /** Hold time at which the charge is full. */

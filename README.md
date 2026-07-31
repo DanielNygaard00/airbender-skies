@@ -14,13 +14,18 @@ back down to a walking stick.
 | `W` / `S` | Walk forward / back | Airbending thrust / flare |
 | `A` / `D` | Strafe | Shift your weight — this is how you steer |
 | `Shift` | Sprint | Hover — hold position in mid-air |
-| `Space` | Jump | Deploy or stow the glider |
+| `Ctrl` | — | Tuck — fold the wings for a fast dive |
+| `Space` | Jump — twice, the second gains more height the faster you are rising | Deploy or stow the glider |
 
 Gliding on its own can only trade altitude for distance, and it costs nothing. Airbending is
 what makes the difference: thrust is the only way to gain net altitude, and hovering holds you
 still in the air with no updraft to ride. Both spend breath, and hovering spends it fastest,
 because holding station carries the glider's whole weight rather than just adding to a wing that
 is already flying. Collect air shrines to raise your maximum breath.
+
+Transitions are free and meant to be chained: deploying the wings mid-jump keeps every bit of
+horizontal momentum and adds an upward kick, so a well-timed deploy out of a rising double jump
+climbs higher than either move alone.
 
 ## Development
 

@@ -94,7 +94,7 @@ describe('hoverAccel', () => {
     let position = new Vector3(0, 100, 0)
     for (let t = 0; t < 3; t += 1 / 60) {
       const step = flightStep(position, velocity, {
-        forward: new Vector3(1, 0, 0), thrust: false, flare: false, bank: 0, hover: true,
+        forward: new Vector3(1, 0, 0), thrust: false, flare: false, bank: 0, hover: true, tuck: false,
       }, 1 / 60, C)
       position = step.position
       velocity = step.velocity
@@ -103,5 +103,45 @@ describe('hoverAccel', () => {
     expect(position.y).toBeGreaterThan(95)
     // And it should have shed most of its speed rather than cruising on.
     expect(velocity.length()).toBeLessThan(9)
+  })
+})
+
+describe('tucking folds the wings away', () => {
+  function dive(tuck: boolean) {
+    let velocity = new Vector3(0, -2, -20)
+    let position = new Vector3(0, 400, 0)
+    const forward = new Vector3(0, -0.45, -0.89).normalize()
+    for (let t = 0; t < 2.5; t += 1 / 60) {
+      const step = flightStep(position, velocity, {
+        forward, thrust: false, flare: false, bank: 0, hover: false, tuck,
+      }, 1 / 60, C)
+      position = step.position
+      velocity = step.velocity
+    }
+    return { position, velocity }
+  }
+
+  it('gains materially more speed in a dive than the same dive with wings out', () => {
+    // "Fast dive, big speed gain, no lift". The margin matters: a bare
+    // greater-than passes on a fraction of a percent, so it would still hold with
+    // the fold factors neutralised and prove nothing about the tuck.
+    const tucked = dive(true).velocity.length()
+    const winged = dive(false).velocity.length()
+    expect(tucked).toBeGreaterThan(winged * 1.15)
+  })
+
+  it('loses materially more altitude, because there is no lift holding it up', () => {
+    const droppedTucked = 400 - dive(true).position.y
+    const droppedWinged = 400 - dive(false).position.y
+    expect(droppedTucked).toBeGreaterThan(droppedWinged * 1.15)
+  })
+
+  it('leaves the untucked flight model untouched', () => {
+    // Both fold factors are 1 when not tucked, so gliding must be bit-identical.
+    const args = {
+      forward: new Vector3(0, 0, -1), thrust: false, flare: false, bank: 0, hover: false,
+    }
+    const withFlag = flightStep(new Vector3(), new Vector3(0, 0, -20), { ...args, tuck: false }, 1 / 60, C)
+    expect(withFlag.velocity.length()).toBeGreaterThan(0)
   })
 })

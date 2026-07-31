@@ -27,7 +27,7 @@ const deps = (
 
 const input = (over: Partial<InputState> = {}): InputState => ({
   lookDirection: new Vector3(0, 0, -1), forward: 0, strafe: 0,
-  sprint: false, actionPressed: false, actionHeld: false, actionReleased: false,
+  sprint: false, tuck: false, actionPressed: false, actionHeld: false, actionReleased: false,
   ...over,
 })
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({
@@ -263,5 +263,37 @@ describe('jump field resets', () => {
     expect(s.grounded).toBe(true)
     expect(s.airJumpsUsed).toBe(0)
     expect(s.chargeTime).toBe(0)
+  })
+})
+
+describe('deploying the glider adds a kick', () => {
+  it('gains upward speed rather than only preserving momentum', () => {
+    // The wings snapping open should reward a well-timed deploy, per the design's
+    // transition layer: transitions carry no cost and this one adds energy.
+    const falling = player({
+      grounded: false, airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps,
+      position: new Vector3(0, 200, 0), velocity: new Vector3(10, -4, 0),
+    })
+
+    const deployed = controllerStep(falling, input({ actionPressed: true }), 1 / 60, deps(voidWorld))
+
+    expect(deployed.mode).toBe('glider')
+    // Strictly faster upward than it arrived. Comparing against
+    // "-4 + deployKick" alone would be a tautology: with a kick of zero the
+    // expectation collapses to the incoming velocity and the test passes.
+    expect(deployed.velocity.y).toBeGreaterThan(falling.velocity.y)
+    expect(deployed.velocity.y).toBeCloseTo(-4 + DEFAULT_FLIGHT_CONFIG.deployKick, 5)
+  })
+
+  it('keeps horizontal momentum through the transition', () => {
+    const falling = player({
+      grounded: false, airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps,
+      position: new Vector3(0, 200, 0), velocity: new Vector3(10, -4, -6),
+    })
+
+    const deployed = controllerStep(falling, input({ actionPressed: true }), 1 / 60, deps(voidWorld))
+
+    expect(deployed.velocity.x).toBeCloseTo(10, 5)
+    expect(deployed.velocity.z).toBeCloseTo(-6, 5)
   })
 })

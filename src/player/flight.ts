@@ -43,6 +43,8 @@ export interface FlightInput {
   bank: number
   /** Bending air downward to hold station, rather than only to go faster. */
   hover: boolean
+  /** Wings folded: trades lift away for a fast, clean dive. */
+  tuck: boolean
 }
 
 /**
@@ -100,9 +102,14 @@ export function flightStep(
   // ill-conditioned at exactly 90 degrees. This is a bound on the formula's
   // domain, not a tuning value.
   const clampedAoa = MathUtils.clamp(effectiveAoa, -Math.PI / 2, Math.PI / 2)
-  const liftMag = c.liftCoeff * speed * speed * Math.sin(2 * clampedAoa) * stallFactor
+  // Folding the wings throws away nearly all the lift and sheds drag with it, so a
+  // tuck is a fast clean dive rather than just a nose-down glide. Both factors are
+  // 1 when not tucked, so the untucked flight model is untouched.
+  const liftFold = input.tuck ? c.tuckLiftFactor : 1
+  const dragFold = input.tuck ? c.tuckDragFactor : 1
+  const liftMag = c.liftCoeff * speed * speed * Math.sin(2 * clampedAoa) * stallFactor * liftFold
   const dragMag =
-    c.dragCoeff * speed * speed * (1 + c.inducedDragFactor * Math.sin(effectiveAoa) ** 2)
+    c.dragCoeff * speed * speed * (1 + c.inducedDragFactor * Math.sin(effectiveAoa) ** 2) * dragFold
 
   // Lift acts perpendicular to velocity, in the plane containing the glider's up axis.
   let liftDir = up.clone().addScaledVector(vdir, -up.dot(vdir))

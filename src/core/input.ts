@@ -26,6 +26,7 @@ export function toInputState(
     forward: axis('KeyW', 'KeyS'),
     strafe: axis('KeyD', 'KeyA'),
     sprint: held.has('ShiftLeft') || held.has('ShiftRight'),
+    tuck: held.has('ControlLeft') || held.has('ControlRight'),
     actionPressed,
     actionHeld: held.has('Space'),
     actionReleased,
