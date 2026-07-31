@@ -43,16 +43,20 @@ describe('mode switching', () => {
     expect(s.velocity.y).toBeGreaterThan(0)
   })
 
-  it('pressing action mid-fall deploys the kite', () => {
+  it('pressing action mid-fall with the air jump spent deploys the kite', () => {
     const falling = player({
-      position: new Vector3(0, 200, 0), grounded: false, velocity: new Vector3(0, -12, 0),
+      position: new Vector3(0, 200, 0), grounded: false,
+      velocity: new Vector3(0, -12, 0), airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps,
     })
     expect(controllerStep(falling, input({ actionPressed: true }), 1 / 60, deps(voidWorld)).mode)
       .toBe('kite')
   })
 
   it('deploying points the kite where the player is looking', () => {
-    const falling = player({ position: new Vector3(0, 200, 0), grounded: false })
+    const falling = player({
+      position: new Vector3(0, 200, 0), grounded: false,
+      airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps,
+    })
     const s = controllerStep(
       falling, input({ actionPressed: true, lookDirection: new Vector3(1, 0, 0) }),
       1 / 60, deps(voidWorld),
@@ -67,6 +71,29 @@ describe('mode switching', () => {
     })
     expect(controllerStep(flying, input({ actionPressed: true }), 1 / 60, deps(voidWorld)).mode)
       .toBe('ground')
+  })
+
+  describe('the space escalation chain', () => {
+    it('the first airborne press double jumps instead of deploying', () => {
+      const falling = player({
+        position: new Vector3(0, 200, 0), grounded: false, velocity: new Vector3(0, -12, 0),
+      })
+      const s = controllerStep(falling, input({ actionPressed: true }), 1 / 60, deps(voidWorld))
+      expect(s.mode).toBe('ground')
+      expect(s.velocity.y).toBe(DEFAULT_GROUND_CONFIG.airJumpSpeed)
+      expect(s.airJumpsUsed).toBe(1)
+    })
+
+    it('the second airborne press deploys the kite', () => {
+      const falling = player({
+        position: new Vector3(0, 200, 0), grounded: false, velocity: new Vector3(0, -12, 0),
+      })
+      const afterDouble = controllerStep(
+        falling, input({ actionPressed: true }), 1 / 60, deps(voidWorld),
+      )
+      const s = controllerStep(afterDouble, input({ actionPressed: true }), 1 / 60, deps(voidWorld))
+      expect(s.mode).toBe('kite')
+    })
   })
 })
 
