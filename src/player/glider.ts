@@ -61,7 +61,14 @@ const STOWED_ROTATION = new Vector3(0.1, 0, 1.05)
 // z is 1.1, not the mirrored 0.4, because the fan's own local shape is asymmetric:
 // fully open, it sweeps from local z -1.04 to +0.15, not centred on the pivot. 0.4
 // left most of the wing (min.z -0.64) still behind the rider; 1.1 clears zero.
-const DEPLOYED_POSITION = new Vector3(0, 2.0, 1.1)
+//
+// y was 2.0 while the rider stood upright beneath the wing. Now that gliding lays
+// the body flat at about y 0.95, that left the wing floating a metre clear of the
+// rider, reading as two unrelated objects. 1.55 closes the gap while keeping the
+// staff about 0.69 from both the head and the leading hand, so nothing clips: the
+// fan sweeps backwards *and upwards* in its own plane, putting its trailing edge
+// near y 1.74 rather than down in the rider's back.
+const DEPLOYED_POSITION = new Vector3(0, 1.55, 1.1)
 /**
  * Nose-up tilt of the deployed wing, in radians. Exported because the rider's
  * glide pose lies parallel to the wing, and the two must not drift apart: retune

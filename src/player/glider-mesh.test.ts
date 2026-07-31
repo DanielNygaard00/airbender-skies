@@ -88,9 +88,13 @@ describe('createGlider assembly', () => {
   })
 
   it('sits overhead when deployed', () => {
+    // The old threshold of max.y above 2 was written when the rider stood upright
+    // beneath the wing. Gliding now lays the body flat, topping out near y 1.1, so
+    // "overhead" is measured against that instead — and against the whole wing
+    // rather than just its highest corner: no part of it may reach the rider.
     const glider = createGlider()
     settle(glider, true)
-    expect(span(glider).box.max.y).toBeGreaterThan(2)
+    expect(span(glider).box.min.y).toBeGreaterThan(1.2)
   })
 
   it('returns to its stowed shape after stowing', () => {
