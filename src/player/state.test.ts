@@ -70,4 +70,10 @@ describe('createPlayerState', () => {
     expect(state.maxBreath).toBe(higher)
     expect(state.breath).toBe(higher)
   })
+
+  it('spawns with no air jumps used and no charge', () => {
+    const state = createPlayerState(level, terrain(0), save(0), DEFAULT_FLIGHT_CONFIG)
+    expect(state.airJumpsUsed).toBe(0)
+    expect(state.chargeTime).toBe(0)
+  })
 })

@@ -14,6 +14,10 @@ export interface InputState {
   sprint: boolean
   /** Space, edge-triggered: jump, deploy, or stow. */
   actionPressed: boolean
+  /** Space currently held down. Drives jump charging. */
+  actionHeld: boolean
+  /** Space, edge-triggered on key-up: releases a charged jump. */
+  actionReleased: boolean
 }
 
 export interface PlayerState {
@@ -26,6 +30,10 @@ export interface PlayerState {
   maxBreath: number
   grounded: boolean
   lastGroundIslandId: string | null
+  /** Air jumps spent since last standing on ground. */
+  airJumpsUsed: number
+  /** Seconds space has been held toward a charged jump. 0 = not charging. */
+  chargeTime: number
 }
 
 export interface TerrainHit {
@@ -86,4 +94,16 @@ export interface GroundConfig {
   snapDistance: number
   /** How far above the feet the ground probe starts. */
   eyeProbeHeight: number
+  /** Extra jumps available while airborne. */
+  maxAirJumps: number
+  /** Vertical speed set by an air jump. */
+  airJumpSpeed: number
+  /** Holds shorter than this are taps: a normal jump. */
+  chargeThresholdSeconds: number
+  /** Hold time at which the charge is full. */
+  chargeMaxSeconds: number
+  /** Vertical speed at full charge. */
+  chargedJumpSpeed: number
+  /** Movement speed multiplier while charging. */
+  chargeWalkFactor: number
 }

@@ -27,31 +27,36 @@ const deps = (
 
 const input = (over: Partial<InputState> = {}): InputState => ({
   lookDirection: new Vector3(0, 0, -1), forward: 0, strafe: 0,
-  sprint: false, actionPressed: false, ...over,
+  sprint: false, actionPressed: false, actionHeld: false, actionReleased: false,
+  ...over,
 })
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({
   mode: 'ground', position: new Vector3(0, 0, 0), velocity: new Vector3(),
   forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
-  grounded: true, lastGroundIslandId: 'flat', ...over,
+  grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0, ...over,
 })
 
 describe('mode switching', () => {
   it('pressing action while grounded jumps rather than deploying', () => {
-    const s = controllerStep(player(), input({ actionPressed: true }), 1 / 60, deps(flatGround))
+    const s = controllerStep(player(), input({ actionPressed: true, actionReleased: true }), 1 / 60, deps(flatGround))
     expect(s.mode).toBe('ground')
     expect(s.velocity.y).toBeGreaterThan(0)
   })
 
-  it('pressing action mid-fall deploys the kite', () => {
+  it('pressing action mid-fall with the air jump spent deploys the kite', () => {
     const falling = player({
-      position: new Vector3(0, 200, 0), grounded: false, velocity: new Vector3(0, -12, 0),
+      position: new Vector3(0, 200, 0), grounded: false,
+      velocity: new Vector3(0, -12, 0), airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps,
     })
     expect(controllerStep(falling, input({ actionPressed: true }), 1 / 60, deps(voidWorld)).mode)
       .toBe('kite')
   })
 
   it('deploying points the kite where the player is looking', () => {
-    const falling = player({ position: new Vector3(0, 200, 0), grounded: false })
+    const falling = player({
+      position: new Vector3(0, 200, 0), grounded: false,
+      airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps,
+    })
     const s = controllerStep(
       falling, input({ actionPressed: true, lookDirection: new Vector3(1, 0, 0) }),
       1 / 60, deps(voidWorld),
@@ -66,6 +71,29 @@ describe('mode switching', () => {
     })
     expect(controllerStep(flying, input({ actionPressed: true }), 1 / 60, deps(voidWorld)).mode)
       .toBe('ground')
+  })
+
+  describe('the space escalation chain', () => {
+    it('the first airborne press double jumps instead of deploying', () => {
+      const falling = player({
+        position: new Vector3(0, 200, 0), grounded: false, velocity: new Vector3(0, -12, 0),
+      })
+      const s = controllerStep(falling, input({ actionPressed: true }), 1 / 60, deps(voidWorld))
+      expect(s.mode).toBe('ground')
+      expect(s.velocity.y).toBe(DEFAULT_GROUND_CONFIG.airJumpSpeed)
+      expect(s.airJumpsUsed).toBe(1)
+    })
+
+    it('the second airborne press deploys the kite', () => {
+      const falling = player({
+        position: new Vector3(0, 200, 0), grounded: false, velocity: new Vector3(0, -12, 0),
+      })
+      const afterDouble = controllerStep(
+        falling, input({ actionPressed: true }), 1 / 60, deps(voidWorld),
+      )
+      const s = controllerStep(afterDouble, input({ actionPressed: true }), 1 / 60, deps(voidWorld))
+      expect(s.mode).toBe('kite')
+    })
   })
 })
 
@@ -216,5 +244,24 @@ describe('safety nets', () => {
     const negative = respawn(player({ maxBreath: -5 }), deps(voidWorld))
     expect(zero.maxBreath).toBe(DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
     expect(negative.maxBreath).toBe(DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
+  })
+})
+
+describe('jump field resets', () => {
+  it('respawn clears air jumps and charge', () => {
+    const s = respawn(player({ airJumpsUsed: 1, chargeTime: 0.8 }), deps(voidWorld))
+    expect(s.airJumpsUsed).toBe(0)
+    expect(s.chargeTime).toBe(0)
+  })
+
+  it('landing the kite clears air jumps and charge', () => {
+    const slow = player({
+      mode: 'kite', position: new Vector3(0, 1, 0), grounded: false,
+      velocity: new Vector3(0, -2, 0), airJumpsUsed: 1, chargeTime: 0.8,
+    })
+    const s = controllerStep(slow, input(), 1 / 60, deps(flatGround))
+    expect(s.grounded).toBe(true)
+    expect(s.airJumpsUsed).toBe(0)
+    expect(s.chargeTime).toBe(0)
   })
 })

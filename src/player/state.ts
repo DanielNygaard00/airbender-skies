@@ -37,5 +37,7 @@ export function createPlayerState(
     maxBreath,
     grounded: true,
     lastGroundIslandId: level.spawn.islandId,
+    airJumpsUsed: 0,
+    chargeTime: 0,
   }
 }

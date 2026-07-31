@@ -48,4 +48,10 @@ export const DEFAULT_GROUND_CONFIG: GroundConfig = {
   gravity: 20,
   snapDistance: 1.2,
   eyeProbeHeight: 2,
+  maxAirJumps: 1,
+  airJumpSpeed: 9,
+  chargeThresholdSeconds: 0.2,
+  chargeMaxSeconds: 1.5,
+  chargedJumpSpeed: 20,
+  chargeWalkFactor: 0.4,
 }

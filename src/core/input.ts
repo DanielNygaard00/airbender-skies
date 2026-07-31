@@ -18,6 +18,7 @@ export function toInputState(
   held: ReadonlySet<string>,
   lookDirection: Vector3,
   actionPressed: boolean,
+  actionReleased = false,
 ): InputState {
   const axis = (pos: string, neg: string) => (held.has(pos) ? 1 : 0) - (held.has(neg) ? 1 : 0)
   return {
@@ -26,6 +27,8 @@ export function toInputState(
     strafe: axis('KeyD', 'KeyA'),
     sprint: held.has('ShiftLeft') || held.has('ShiftRight'),
     actionPressed,
+    actionHeld: held.has('Space'),
+    actionReleased,
   }
 }
 
@@ -36,6 +39,7 @@ export class InputTracker {
   private yaw = 0
   private pitch = 0
   private actionPressed = false
+  private actionReleased = false
   private readonly listeners: (() => void)[] = []
 
   constructor(target: EventTarget, canvas: HTMLCanvasElement) {
@@ -48,11 +52,15 @@ export class InputTracker {
     on<KeyboardEvent>('keydown', (e) => {
       this.held.add(e.code)
       if (e.code === 'Space') {
-        this.actionPressed = true
+        // Auto-repeat must not re-fire the press edge — it would reset a charge.
+        if (!e.repeat) this.actionPressed = true
         e.preventDefault()
       }
     })
-    on<KeyboardEvent>('keyup', (e) => this.held.delete(e.code))
+    on<KeyboardEvent>('keyup', (e) => {
+      this.held.delete(e.code)
+      if (e.code === 'Space') this.actionReleased = true
+    })
     // Held keys would otherwise stick when the window loses focus.
     on('blur', () => this.held.clear())
 
@@ -73,8 +81,10 @@ export class InputTracker {
       this.held,
       lookDirectionFrom(this.yaw, this.pitch),
       this.actionPressed,
+      this.actionReleased,
     )
     this.actionPressed = false
+    this.actionReleased = false
     return state
   }
 

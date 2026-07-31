@@ -6,6 +6,7 @@ import { flightStep } from './flight'
 import { steerToward } from './steering'
 import { stepBreath, canThrust } from './breath'
 import { groundStep } from './ground-move'
+import { canAirJump } from './jump'
 
 export interface ControllerDeps {
   terrain: TerrainQuery
@@ -24,7 +25,7 @@ const STAGGER_RETENTION = 0.3
 function isFinitePlayer(s: PlayerState): boolean {
   const nums = [
     ...s.position.toArray(), ...s.velocity.toArray(), ...s.forward.toArray(),
-    s.breath, s.maxBreath,
+    s.breath, s.maxBreath, s.airJumpsUsed, s.chargeTime,
   ]
   return nums.every(Number.isFinite)
 }
@@ -44,6 +45,8 @@ export function respawn(state: PlayerState, deps: ControllerDeps): PlayerState {
     grounded: true,
     breath: maxBreath,
     maxBreath,
+    airJumpsUsed: 0,
+    chargeTime: 0,
   }
 }
 
@@ -65,6 +68,8 @@ function safeRespawn(state: PlayerState, deps: ControllerDeps): PlayerState {
     maxBreath: deps.flight.baseMaxBreath,
     grounded: false,
     lastGroundIslandId: null,
+    airJumpsUsed: 0,
+    chargeTime: 0,
   }
 }
 
@@ -80,8 +85,10 @@ export function controllerStep(
   let next: PlayerState
 
   if (state.mode === 'ground') {
-    if (input.actionPressed && !state.grounded) {
-      // Deploy the kite mid-fall. Grounded presses are jumps, handled by groundStep.
+    if (input.actionPressed && !state.grounded && !canAirJump(state, deps.ground)) {
+      // Deploy the kite mid-fall — but only once the air jump is spent.
+      // Grounded presses charge or jump; airborne presses with reserve
+      // double-jump. Both are handled by groundStep.
       next = {
         ...state,
         mode: 'kite',
@@ -132,6 +139,8 @@ export function controllerStep(
               next.velocity.x * STAGGER_RETENTION, 0, next.velocity.z * STAGGER_RETENTION,
             ),
         lastGroundIslandId: hit.islandId,
+        airJumpsUsed: 0,
+        chargeTime: 0,
       }
     }
   }
