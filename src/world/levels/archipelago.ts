@@ -8,13 +8,26 @@ const island = (
 ) => ({ id, position: new Vector3(x, y, z), radius, height, biome, noiseSeed })
 
 /**
- * Eight islands sequenced to teach the flight model:
+ * Thirteen islands sequenced to teach the flight model:
  *  - home:    large and flat. Learn walking, jumping, deploying the kite.
  *  - ring-*:  below and outward. Reachable by gliding alone, which teaches that
  *             altitude converts to distance.
  *  - climb-*: above home. Need sustained thrust, which introduces breath as a cost.
  *  - rest:    a mid-height waypoint for recovering breath on a long crossing.
  *  - spire:   highest. Needs a dive, a zoom climb, and thrust together.
+ *
+ * Then a second arc that teaches hovering. A glider can only trade altitude for
+ * distance, so every target above is big enough to be reached at speed. These are
+ * not: they are small enough that arriving fast means overshooting, which is what
+ * makes stopping in mid-air the answer rather than a luxury.
+ *  - perch-east: a first tiny target, close in and slightly below home, so the
+ *                lesson costs a short glide rather than a long one to retry.
+ *  - gate-*:     two stumps 60 apart at the same height. Too close together to
+ *                pick one at cruise speed; hover between them and choose.
+ *  - needle:     small and high. Reaching it needs thrust, landing on it needs the
+ *                hover, so it is the first place both abilities are required.
+ *  - beacon:     directly above the spire and smaller again. The full sequence:
+ *                dive, zoom, thrust up the last stretch, then stop dead to land.
  */
 export const ARCHIPELAGO: Level = {
   id: 'archipelago',
@@ -29,6 +42,15 @@ export const ARCHIPELAGO: Level = {
     island('climb-far', 380, 190, -300, 34, 18, 'rock', 1006),
     island('rest', -300, 40, 320, 30, 16, 'grass', 1007),
     island('spire', 60, 420, 60, 26, 44, 'temple', 1008),
+    // The hover arc. Radii here are a fraction of the islands above: 14 down to 11,
+    // against home's 70.
+    island('perch-east', 170, -20, 20, 14, 12, 'rock', 1009),
+    island('gate-north', -140, 60, 180, 18, 14, 'rock', 1010),
+    island('gate-south', -140, 60, 240, 18, 14, 'rock', 1011),
+    island('needle', 150, 240, -160, 12, 30, 'rock', 1012),
+    // Stacked directly over the spire. Allowed because the 140 vertical gap clears
+    // the (44 + 12) * 2 the overlap rule requires of islands sharing a footprint.
+    island('beacon', 60, 560, 60, 11, 12, 'temple', 1013),
   ],
   shrines: [
     { islandId: 'home', offset: new Vector3(20, 0, -14) },
@@ -39,6 +61,13 @@ export const ARCHIPELAGO: Level = {
     { islandId: 'climb-far', offset: new Vector3(0, 0, 0) },
     { islandId: 'rest', offset: new Vector3(0, 0, 0) },
     { islandId: 'spire', offset: new Vector3(0, 0, 0) },
+    // Centred on the hover islands: they are too small for a meaningful offset, and
+    // the reward for landing on one belongs where the player actually touches down.
+    { islandId: 'perch-east', offset: new Vector3(0, 0, 0) },
+    { islandId: 'gate-north', offset: new Vector3(0, 0, 0) },
+    { islandId: 'gate-south', offset: new Vector3(0, 0, 0) },
+    { islandId: 'needle', offset: new Vector3(0, 0, 0) },
+    { islandId: 'beacon', offset: new Vector3(0, 0, 0) },
   ],
   waterfalls: [
     { islandId: 'home', angle: 2.1, width: 10, length: 90 },

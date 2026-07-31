@@ -88,13 +88,32 @@ describe('ARCHIPELAGO', () => {
     expect(() => validateLevel(ARCHIPELAGO)).not.toThrow()
   })
 
-  it('has exactly eight islands', () => {
-    expect(ARCHIPELAGO.islands).toHaveLength(8)
+  it('has thirteen islands: eight teaching flight, five teaching the hover', () => {
+    expect(ARCHIPELAGO.islands).toHaveLength(13)
   })
 
-  it('has one shrine per island', () => {
-    expect(ARCHIPELAGO.shrines).toHaveLength(ARCHIPELAGO.islands.length)
-    expect(new Set(ARCHIPELAGO.shrines.map((s) => s.islandId)).size).toBe(8)
+  it('has exactly one shrine per island, and none for an island that is not there', () => {
+    // Derived from the island list rather than repeating a literal count, so adding
+    // an island without its shrine fails here instead of drifting silently.
+    const islandIds = ARCHIPELAGO.islands.map((island) => island.id).sort()
+    const shrineIds = ARCHIPELAGO.shrines.map((shrine) => shrine.islandId).sort()
+    expect(shrineIds).toEqual(islandIds)
+  })
+
+  it('keeps the hover islands small enough that arriving fast overshoots', () => {
+    // The whole point of the second arc: these have to be too small to hit at
+    // cruise speed, or the hover is a luxury rather than the answer.
+    const hoverArc = ['perch-east', 'gate-north', 'gate-south', 'needle', 'beacon']
+    const smallestTeachingIsland = Math.min(
+      ...ARCHIPELAGO.islands
+        .filter((island) => !hoverArc.includes(island.id))
+        .map((island) => island.radius),
+    )
+    for (const id of hoverArc) {
+      const island = ARCHIPELAGO.islands.find((candidate) => candidate.id === id)
+      expect(island, `missing island ${id}`).toBeDefined()
+      expect(island!.radius).toBeLessThan(smallestTeachingIsland)
+    }
   })
 
   it('has no overlapping islands', () => {
