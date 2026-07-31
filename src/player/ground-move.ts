@@ -35,13 +35,15 @@ export function groundStep(
   const velocity = new Vector3(horizontal.x, velocityY, horizontal.z)
   const position = state.position.clone().addScaledVector(velocity, dt)
 
-  // Snap only while descending, otherwise a jump is cancelled on its first frame.
+  // Walking keeps a distance snap so slopes and small drops stick underfoot.
+  // An airborne body must not be grabbed from a distance — that cancelled the
+  // top of every jump — so it lands only when its feet actually reach ground.
   let grounded = false
   let lastGroundIslandId = state.lastGroundIslandId
   if (velocity.y <= 0) {
     const probe = position.clone().setY(position.y + c.eyeProbeHeight)
     const hit = terrain.raycastDown(probe, c.eyeProbeHeight + c.snapDistance)
-    if (hit) {
+    if (hit && (state.grounded || position.y <= hit.point.y)) {
       position.y = hit.point.y
       velocity.y = 0
       grounded = true
