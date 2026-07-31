@@ -51,6 +51,12 @@ does today and does **not** fire the release edge — the jump module treats
 a focus loss can neither leave a charge stuck on nor launch a jump while the
 window is unfocused.
 
+OS key auto-repeat is ignored for the press edge: the `keydown` handler only
+sets `actionPressed` when `e.repeat` is false. A repeated keydown from a held
+key is not a fresh press — letting it through would reset an in-progress
+charge roughly thirty times per second and could spend the air jump
+uncommanded.
+
 ## 3. State and config (`src/core/types.ts`, `src/core/config.ts`)
 
 `PlayerState` gains:

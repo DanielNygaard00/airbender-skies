@@ -52,7 +52,8 @@ export class InputTracker {
     on<KeyboardEvent>('keydown', (e) => {
       this.held.add(e.code)
       if (e.code === 'Space') {
-        this.actionPressed = true
+        // Auto-repeat must not re-fire the press edge — it would reset a charge.
+        if (!e.repeat) this.actionPressed = true
         e.preventDefault()
       }
     })

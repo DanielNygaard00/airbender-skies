@@ -121,7 +121,7 @@ function start(): void {
       avatar.object.lookAt(player.position.clone().add(facing))
     }
     avatar.setAnimation(animationFor(player))
-    avatar.object.scale.y = chargeSquashScale(player, DEFAULT_GROUND_CONFIG)
+    avatar.object.scale.y = chargeSquashScale(player, deps.ground)
     avatar.update(dt)
     glider.update(dt, player.mode === 'kite')
 
