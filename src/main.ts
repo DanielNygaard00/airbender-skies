@@ -4,6 +4,7 @@ import { createStepper } from './core/loop'
 import { InputTracker } from './core/input'
 import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG } from './core/config'
 import { loadSave, writeSave } from './core/save'
+import { loadGLTF } from './core/assets'
 import { buildWorld, type World } from './world/world'
 import { ARCHIPELAGO } from './world/levels/archipelago'
 import { placeShrines } from './world/shrine'
@@ -78,6 +79,15 @@ function start(): void {
   const glider = createGlider()
   // A child of the avatar, so it inherits the character's position and facing.
   avatar.object.add(glider.object)
+
+  // BASE_URL, not a bare absolute path: vite.config.ts sets base to
+  // '/airbender-skies/' for GitHub Pages, so "/models/..." would resolve in dev
+  // and 404 only on the deployed site. Fire-and-forget on purpose — loadGLTF
+  // resolves null instead of rejecting, so a missing file leaves the placeholder
+  // standing and the game still starts.
+  void loadGLTF(`${import.meta.env.BASE_URL}models/character.glb`).then((gltf) => {
+    if (gltf) avatar.attachModel(gltf)
+  })
 
   const input = new InputTracker(window, canvas)
   const hud = createHud(document.body)
