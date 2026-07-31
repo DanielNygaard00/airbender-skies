@@ -12,6 +12,7 @@ import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
 import { controllerStep, type ControllerDeps } from './player/controller'
 import { collectStep } from './player/shrine-collect'
+import { enableShadows } from './core/sun'
 import { createAvatar } from './player/avatar'
 import { createGlider } from './player/glider'
 import { animationFor, chargeSquashScale } from './player/avatar-anim'
@@ -35,8 +36,9 @@ function start(): void {
     return showFallback(`The level failed to load: ${(error as Error).message}`)
   }
 
-  const { renderer, scene, camera } = createRenderer(canvas)
+  const { renderer, scene, camera, followSun } = createRenderer(canvas)
   scene.add(world.group)
+  enableShadows(world.group)
 
   const save = loadSave(localStorage, DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
   let player = createPlayerState(ARCHIPELAGO, world.terrain, save, DEFAULT_FLIGHT_CONFIG)
@@ -86,7 +88,10 @@ function start(): void {
   // resolves null instead of rejecting, so a missing file leaves the placeholder
   // standing and the game still starts.
   void loadGLTF(`${import.meta.env.BASE_URL}models/character.glb`).then((gltf) => {
-    if (gltf) avatar.attachModel(gltf)
+    if (!gltf) return
+    avatar.attachModel(gltf)
+    // The model's meshes arrive after the first frame, so they miss the initial pass.
+    enableShadows(avatar.object)
   })
 
   const input = new InputTracker(window, canvas)
@@ -132,6 +137,7 @@ function start(): void {
     }
     avatar.setAnimation(animationFor(player))
     avatar.setSquash(chargeSquashScale(player, deps.ground))
+    followSun(player.position)
     avatar.update(dt)
     glider.update(dt, player.mode === 'kite')
 

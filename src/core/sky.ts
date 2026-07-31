@@ -69,5 +69,8 @@ export function createSkyDome(): Mesh {
   dome.renderOrder = -1
   // It encloses the camera, so the usual bounding-sphere test only wastes work.
   dome.frustumCulled = false
+  // It also encloses the whole scene, so casting shadows from it would put
+  // everything in shade.
+  dome.userData.excludeFromShadows = true
   return dome
 }

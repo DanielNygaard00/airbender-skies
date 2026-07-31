@@ -1,9 +1,10 @@
 import {
-  WebGLRenderer, Scene, PerspectiveCamera, Color, Fog,
-  HemisphereLight, DirectionalLight, ACESFilmicToneMapping,
+  WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, Vector3,
+  HemisphereLight, ACESFilmicToneMapping, PCFSoftShadowMap,
 } from 'three'
 import { BASE_FOV } from '../fx/mapping'
 import { createSkyDome, SKY_HORIZON } from './sky'
+import { aimSun, createSun } from './sun'
 
 export const WEBGL_MESSAGE =
   'This game needs WebGL, which your browser has disabled or does not support. ' +
@@ -46,6 +47,10 @@ export function createRenderer(canvas: HTMLCanvasElement) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.toneMapping = ACESFilmicToneMapping
   renderer.toneMappingExposure = EXPOSURE
+  renderer.shadowMap.enabled = true
+  // Soft edges suit the stylised look; hard shadow edges make the low-poly terrain
+  // read as jagged rather than faceted.
+  renderer.shadowMap.type = PCFSoftShadowMap
 
   const scene = new Scene()
   // A fallback for anything the dome does not cover, and the colour the fog fades
@@ -56,9 +61,11 @@ export function createRenderer(canvas: HTMLCanvasElement) {
   scene.add(createSkyDome())
 
   scene.add(new HemisphereLight(SKY_HORIZON, 0x4a5a3a, 1.5))
-  const sun = new DirectionalLight(0xfff2d8, 1.8)
-  sun.position.set(200, 400, 150)
+  const sun = createSun()
   scene.add(sun)
+  // The light aims at its target object, which has to be in the graph to be found.
+  scene.add(sun.target)
+  aimSun(sun, new Vector3())
 
   const camera = new PerspectiveCamera(BASE_FOV, 1, 0.5, FOG_FAR)
 
@@ -72,5 +79,13 @@ export function createRenderer(canvas: HTMLCanvasElement) {
   resize()
   window.addEventListener('resize', resize)
 
-  return { renderer, scene, camera, resize }
+  /**
+   * Keep the shadow frustum over the player. One map cannot cover the whole
+   * archipelago at a useful resolution, so it follows them instead.
+   */
+  function followSun(target: Vector3): void {
+    aimSun(sun, target)
+  }
+
+  return { renderer, scene, camera, resize, followSun }
 }
