@@ -322,3 +322,65 @@ describe('createAvatar with the real committed model', () => {
     expect([...plan.keys()].sort()).toEqual(['fall', 'glide', 'idle', 'run', 'walk'])
   })
 })
+
+describe('createAvatar charge squash', () => {
+  /** World-space Y scale, which is what a squash on any ancestor would change. */
+  function worldScaleY(object: Object3D): number {
+    object.updateMatrixWorld(true)
+    return object.matrixWorld.elements[5]
+  }
+
+  it('squashes the character without squashing the glider', () => {
+    // REGRESSION: the charge-jump squash used to scale avatar.object, but the
+    // glider is a child of that object rather than of the model wrapper, so a
+    // charging jump compressed the staff along with the character.
+    const avatar = createAvatar()
+    const glider = new Object3D()
+    avatar.object.add(glider)
+    avatar.attachModel(fakeGltf(['Idle'], { height: 5.2594 }))
+
+    avatar.setSquash(0.6)
+
+    expect(spanOf(avatar.object).height).toBeCloseTo(1.8 * 0.6, 3)
+    expect(worldScaleY(glider)).toBeCloseTo(1, 6)
+  })
+
+  it('squashes the placeholder before a model has loaded', () => {
+    const avatar = createAvatar()
+    const glider = new Object3D()
+    avatar.object.add(glider)
+
+    avatar.setSquash(0.5)
+
+    expect(spanOf(avatar.object).height).toBeCloseTo(1.8 * 0.5, 3)
+    expect(worldScaleY(glider)).toBeCloseTo(1, 6)
+  })
+
+  it('keeps a squash that was set before the model loaded', () => {
+    const avatar = createAvatar()
+    avatar.setSquash(0.6)
+
+    avatar.attachModel(fakeGltf(['Idle'], { height: 5.2594 }))
+
+    expect(spanOf(avatar.object).height).toBeCloseTo(1.8 * 0.6, 3)
+  })
+
+  it('restores full height when the squash is released', () => {
+    const avatar = createAvatar()
+    avatar.attachModel(fakeGltf(['Idle'], { height: 5.2594 }))
+
+    avatar.setSquash(0.6)
+    avatar.setSquash(1)
+
+    expect(spanOf(avatar.object).height).toBeCloseTo(1.8, 3)
+  })
+
+  it('keeps the feet on the ground while squashed', () => {
+    const avatar = createAvatar()
+    avatar.attachModel(fakeGltf(['Idle'], { height: 5.2594, liftFeet: 0.5 }))
+
+    avatar.setSquash(0.6)
+
+    expect(spanOf(avatar.object).min.y).toBeCloseTo(0, 5)
+  })
+})

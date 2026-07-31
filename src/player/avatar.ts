@@ -61,15 +61,23 @@ function createPlaceholder(): Group {
  * the built scene graph rather than assumed, which also means a replacement
  * model needs no retuning. The transform lands on the wrapper, never on the
  * avatar root, because the glider is a child of that root.
+ *
+ * Returns the transform it applied, so the squash can compose with it rather
+ * than overwrite it.
  */
-function fitToPlaceholder(wrapper: Object3D, model: Object3D): void {
+function fitToPlaceholder(
+  wrapper: Object3D,
+  model: Object3D,
+): { scale: number; offsetY: number } {
   const box = new Box3().setFromObject(model)
   const height = box.max.y - box.min.y
-  if (!Number.isFinite(height) || height <= 0) return
+  if (!Number.isFinite(height) || height <= 0) return { scale: 1, offsetY: 0 }
 
   const scale = TARGET_HEIGHT / height
+  const offsetY = -box.min.y * scale
   wrapper.scale.setScalar(scale)
-  wrapper.position.y = -box.min.y * scale
+  wrapper.position.y = offsetY
+  return { scale, offsetY }
 }
 
 export function createAvatar() {
@@ -80,10 +88,30 @@ export function createAvatar() {
   let mixer: AnimationMixer | null = null
   let clips = new Map<AnimationName, { clip: AnimationClip; freeze: boolean }>()
   let current: AnimationName | null = null
-  // HAZARD for whoever wires up the charge-jump squash: it must scale
-  // modelRoot, not object — the glider is object's sibling, not modelRoot's
-  // child, and object.scale.y would squash the glider along with the character.
   let modelRoot: Object3D | null = null
+  // The fit transform the squash multiplies into, so squashing never discards it.
+  let fitScale = 1
+  let fitOffsetY = 0
+  let squash = 1
+
+  /**
+   * Apply the squash to whichever visual currently stands in for the character.
+   * It targets that wrapper rather than `object`, because the glider is a child
+   * of `object` and scaling there would compress the staff too.
+   *
+   * The model's vertical offset scales alongside its height. That offset exists
+   * to lift a model whose lowest vertex sits above its own origin, so leaving it
+   * fixed while shrinking the model drops the feet through the ground — a crouch
+   * has to compress towards the feet, not around them.
+   */
+  function applySquash(): void {
+    if (modelRoot) {
+      modelRoot.scale.y = fitScale * squash
+      modelRoot.position.y = fitOffsetY * squash
+    } else {
+      placeholder.scale.y = squash
+    }
+  }
 
   return {
     object,
@@ -104,9 +132,12 @@ export function createAvatar() {
       // The model gets its own wrapper so scaling it cannot touch the glider.
       modelRoot = new Group()
       modelRoot.add(gltf.scene)
-      fitToPlaceholder(modelRoot, gltf.scene)
+      ;({ scale: fitScale, offsetY: fitOffsetY } = fitToPlaceholder(modelRoot, gltf.scene))
       modelRoot.rotation.y = MODEL_YAW
       object.add(modelRoot)
+      // A squash already in progress must carry over to the new model, or a jump
+      // charged while the model was still loading would pop back to full height.
+      applySquash()
 
       mixer = new AnimationMixer(gltf.scene)
       const byName = new Map(gltf.animations.map((clip) => [clip.name, clip]))
@@ -157,6 +188,16 @@ export function createAvatar() {
       next.timeScale = entry.freeze ? 0 : 1
       if (entry.freeze) next.time = FREEZE_TIME
       current = name
+    },
+
+    /**
+     * Vertically compress the character, for the charge-jump crouch. 1 is
+     * unsquashed. This deliberately does not touch `object`: the glider hangs
+     * off `object`, so squashing there would compress the staff too.
+     */
+    setSquash(scaleY: number): void {
+      squash = scaleY
+      applySquash()
     },
 
     update(dt: number): void {
