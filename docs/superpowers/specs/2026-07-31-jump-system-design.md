@@ -140,8 +140,10 @@ Vitest, colocated `.test.ts` files per repo convention:
   stick while walking is preserved.
 - `controller.test.ts` additions: airborne press #1 performs a double jump and
   press #2 deploys the glider; glider landing resets `airJumpsUsed`.
-- `input.test.ts` additions: `actionHeld` and `actionReleased` edges behave
-  correctly; blur clears held keys without firing the release edge.
+- `input.test.ts` additions: `actionHeld` and `actionReleased` pass through
+  `toInputState` correctly. (`InputTracker`'s DOM handlers are not unit-tested
+  — vitest runs in the `node` environment; the blur invariant is instead
+  covered by the jump module's silent-cancel test.)
 
 ## Out of scope
 
