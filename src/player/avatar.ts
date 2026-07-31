@@ -1,11 +1,28 @@
 import {
-  Object3D, Group, Mesh, CapsuleGeometry, ConeGeometry,
+  Object3D, Group, Mesh, CapsuleGeometry, ConeGeometry, Box3,
   MeshLambertMaterial, AnimationMixer, type AnimationClip,
 } from 'three'
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import type { AnimationName } from './avatar-anim'
+import { planClips } from './clip-map'
 
 const FADE_SECONDS = 0.18
+
+/** Matches the placeholder capsule: CapsuleGeometry(0.4, 1.0) is 1.8 tall. */
+const TARGET_HEIGHT = 1.8
+
+/**
+ * Yaw correction for a model that does not face its direction of travel.
+ * Forward here is +Z, because main.ts calls avatar.object.lookAt(...) on a plain
+ * Group and Object3D.lookAt aligns local +Z. Set to Math.PI for a -Z model.
+ */
+const MODEL_YAW = 0
+
+/**
+ * Where in a borrowed clip a frozen pose sits. The jump clip is 1.000s long, so
+ * halfway through is its airborne portion rather than the crouch or the landing.
+ */
+const FREEZE_TIME = 0.5
 
 /** Primitive stand-in used until a real model loads, and if none ever does. */
 function createPlaceholder(): Group {
@@ -35,14 +52,38 @@ function createPlaceholder(): Group {
   return group
 }
 
+/**
+ * Size a loaded model to the placeholder and seat its feet at y = 0.
+ *
+ * Model authors pick their own units, and the numbers are not guessable: this
+ * character exports 5.2594 units tall, with a scale of 100 on its armature node
+ * and raw vertex bounds spanning only 0.08. So the height is measured through
+ * the built scene graph rather than assumed, which also means a replacement
+ * model needs no retuning. The transform lands on the wrapper, never on the
+ * avatar root, because the glider is a child of that root.
+ */
+function fitToPlaceholder(wrapper: Object3D, model: Object3D): void {
+  const box = new Box3().setFromObject(model)
+  const height = box.max.y - box.min.y
+  if (!Number.isFinite(height) || height <= 0) return
+
+  const scale = TARGET_HEIGHT / height
+  wrapper.scale.setScalar(scale)
+  wrapper.position.y = -box.min.y * scale
+}
+
 export function createAvatar() {
   const object: Object3D = new Group()
   const placeholder = createPlaceholder()
   object.add(placeholder)
 
   let mixer: AnimationMixer | null = null
-  let clips = new Map<AnimationName, AnimationClip>()
+  let clips = new Map<AnimationName, { clip: AnimationClip; freeze: boolean }>()
   let current: AnimationName | null = null
+  // HAZARD for whoever wires up the charge-jump squash: it must scale
+  // modelRoot, not object — the glider is object's sibling, not modelRoot's
+  // child, and object.scale.y would squash the glider along with the character.
+  let modelRoot: Object3D | null = null
 
   return {
     object,
@@ -53,30 +94,68 @@ export function createAvatar() {
       // the glider under this object, and object.clear() would delete it too,
       // silently orphaning it from the scene graph.
       object.remove(placeholder)
-      object.add(gltf.scene)
+
+      // A second call would otherwise leave the previous model's wrapper parented
+      // (object.remove(placeholder) is a no-op the second time around) and drop
+      // its mixer without stopping its actions.
+      if (modelRoot) object.remove(modelRoot)
+      mixer?.stopAllAction()
+
+      // The model gets its own wrapper so scaling it cannot touch the glider.
+      modelRoot = new Group()
+      modelRoot.add(gltf.scene)
+      fitToPlaceholder(modelRoot, gltf.scene)
+      modelRoot.rotation.y = MODEL_YAW
+      object.add(modelRoot)
+
       mixer = new AnimationMixer(gltf.scene)
+      const byName = new Map(gltf.animations.map((clip) => [clip.name, clip]))
       clips = new Map()
-      for (const clip of gltf.animations) {
-        const name = clip.name.toLowerCase() as AnimationName
-        clips.set(name, clip)
+      for (const [state, plan] of planClips(gltf.animations.map((c) => c.name))) {
+        const clip = byName.get(plan.source)
+        if (clip) clips.set(state, { clip, freeze: plan.freeze })
       }
       current = null
     },
 
     setAnimation(name: AnimationName): void {
       if (name === current) return
-      const clip = clips.get(name)
-      if (!mixer || !clip) {
+      const entry = clips.get(name)
+      if (!mixer || !entry) {
         // No model or no matching clip: the placeholder simply does not animate.
         current = name
         return
       }
-      const next = mixer.clipAction(clip)
-      if (current) {
-        const previous = clips.get(current)
-        if (previous) mixer.clipAction(previous).fadeOut(FADE_SECONDS)
+      const next = mixer.clipAction(entry.clip)
+      const previous = current ? clips.get(current) : undefined
+      if (previous && previous.clip === entry.clip) {
+        // Two states can share one clip (fall and glide both borrow Jump when no
+        // glide clip exists), and mixer.clipAction(clip) returns the same
+        // AnimationAction for the same clip — so this is not a transition
+        // between two actions but the same action continuing under a new name.
+        // Fading it out and back in would fade it against itself: reset()
+        // calls stopFading(), cancelling the fadeOut before it does anything,
+        // and the weight ramping 0→1 during fadeIn leaves the remainder of the
+        // blend (1 − weight) filled from the bind pose saved by
+        // PropertyMixer.saveOriginalState, snapping the skeleton to bind pose
+        // for a frame before easing back into the held pose. Keep the action's
+        // current weight and time instead of restarting its fade.
+        next.stopFading()
+        next.setEffectiveWeight(1)
+        next.paused = false
+        next.enabled = true
+        next.play()
+      } else {
+        if (previous) mixer.clipAction(previous.clip).fadeOut(FADE_SECONDS)
+        next.reset().fadeIn(FADE_SECONDS).play()
       }
-      next.reset().fadeIn(FADE_SECONDS).play()
+      // A frozen state has no clip of its own — it holds one frame of a borrowed
+      // one. timeScale = 0 stops playback while leaving the fade's weight
+      // blending to run, where `paused` would stall that too. Restoring 1 is not
+      // optional: fall and glide share the jump clip, and therefore share one
+      // action, so a glide that left timeScale at 0 would freeze falling as well.
+      next.timeScale = entry.freeze ? 0 : 1
+      if (entry.freeze) next.time = FREEZE_TIME
       current = name
     },
 
