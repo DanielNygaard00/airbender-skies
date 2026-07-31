@@ -27,7 +27,8 @@ const deps = (
 
 const input = (over: Partial<InputState> = {}): InputState => ({
   lookDirection: new Vector3(0, 0, -1), forward: 0, strafe: 0,
-  sprint: false, actionPressed: false, ...over,
+  sprint: false, actionPressed: false, actionHeld: false, actionReleased: false,
+  ...over,
 })
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({
   mode: 'ground', position: new Vector3(0, 0, 0), velocity: new Vector3(),

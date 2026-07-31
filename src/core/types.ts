@@ -14,6 +14,10 @@ export interface InputState {
   sprint: boolean
   /** Space, edge-triggered: jump, deploy, or stow. */
   actionPressed: boolean
+  /** Space currently held down. Drives jump charging. */
+  actionHeld: boolean
+  /** Space, edge-triggered on key-up: releases a charged jump. */
+  actionReleased: boolean
 }
 
 export interface PlayerState {

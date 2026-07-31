@@ -92,3 +92,15 @@ describe('toInputState', () => {
     expect(s.sprint).toBe(false)
   })
 })
+
+describe('action hold and release', () => {
+  it('reports the space key as held', () => {
+    expect(toInputState(new Set(['Space']), LOOK, false).actionHeld).toBe(true)
+    expect(toInputState(new Set(), LOOK, false).actionHeld).toBe(false)
+  })
+
+  it('passes the release edge through and defaults it to false', () => {
+    expect(toInputState(new Set(), LOOK, false, true).actionReleased).toBe(true)
+    expect(toInputState(new Set(), LOOK, false).actionReleased).toBe(false)
+  })
+})
