@@ -38,7 +38,7 @@ const player = (over: Partial<PlayerState> = {}): PlayerState => ({
 
 describe('mode switching', () => {
   it('pressing action while grounded jumps rather than deploying', () => {
-    const s = controllerStep(player(), input({ actionPressed: true }), 1 / 60, deps(flatGround))
+    const s = controllerStep(player(), input({ actionPressed: true, actionReleased: true }), 1 / 60, deps(flatGround))
     expect(s.mode).toBe('ground')
     expect(s.velocity.y).toBeGreaterThan(0)
   })

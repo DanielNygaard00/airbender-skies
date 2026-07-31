@@ -1,5 +1,6 @@
 import { Vector3 } from 'three'
 import type { GroundConfig, InputState, PlayerState, TerrainQuery } from '../core/types'
+import { stepJump } from './jump'
 
 const WORLD_UP = new Vector3(0, 1, 0)
 
@@ -26,11 +27,11 @@ export function groundStep(
   terrain: TerrainQuery,
   c: GroundConfig,
 ): PlayerState {
-  const horizontal = desiredVelocity(input, c)
-  let velocityY = state.velocity.y
-
-  if (state.grounded && input.actionPressed) velocityY = c.jumpSpeed
-  else velocityY -= c.gravity * dt
+  const jump = stepJump(state, input, dt, c)
+  const horizontal = desiredVelocity(input, c).multiplyScalar(jump.walkFactor)
+  const velocityY = jump.jumpVelocityY !== null
+    ? jump.jumpVelocityY
+    : state.velocity.y - c.gravity * dt
 
   const velocity = new Vector3(horizontal.x, velocityY, horizontal.z)
   const position = state.position.clone().addScaledVector(velocity, dt)
@@ -54,5 +55,7 @@ export function groundStep(
   return {
     ...state, position, velocity,
     forward: state.forward.clone(), grounded, lastGroundIslandId,
+    chargeTime: jump.chargeTime,
+    airJumpsUsed: grounded ? 0 : jump.airJumpsUsed,
   }
 }

@@ -75,13 +75,17 @@ describe('groundStep', () => {
     expect(s.position.y).toBeCloseTo(0, 6)
   })
 
-  it('jumps when the action is pressed while grounded', () => {
-    expect(groundStep(player(), input({ actionPressed: true }), 1 / 60, flatGround, G).velocity.y)
-      .toBeGreaterThan(0)
+  it('jumps on release of a quick tap', () => {
+    const tapped = groundStep(
+      player(), input({ actionPressed: true, actionReleased: true }), 1 / 60, flatGround, G,
+    )
+    expect(tapped.velocity.y).toBe(G.jumpSpeed)
   })
 
-  it('cannot jump while airborne', () => {
-    const airborne = player({ position: new Vector3(0, 50, 0), grounded: false })
+  it('cannot jump while airborne once air jumps are spent', () => {
+    const airborne = player({
+      position: new Vector3(0, 50, 0), grounded: false, airJumpsUsed: G.maxAirJumps,
+    })
     expect(groundStep(airborne, input({ actionPressed: true }), 1 / 60, voidWorld, G).velocity.y)
       .toBeLessThan(0)
   })
@@ -108,7 +112,9 @@ describe('groundStep', () => {
   })
 
   it('a jump rises then returns to the ground', () => {
-    let s = groundStep(player(), input({ actionPressed: true }), 1 / 60, flatGround, G)
+    let s = groundStep(
+      player(), input({ actionPressed: true, actionReleased: true }), 1 / 60, flatGround, G,
+    )
     expect(s.velocity.y).toBeGreaterThan(0)
     let peak = s.position.y
     for (let i = 0; i < 200; i++) {
@@ -123,7 +129,9 @@ describe('groundStep', () => {
   it('a jump reaches its full ballistic apex with no early snap', () => {
     // Apex should be jumpSpeed^2 / (2*gravity) ≈ 2.0 m. The old snap-from-a-
     // distance behavior capped the visible arc roughly at apex - snapDistance.
-    let s = groundStep(player(), input({ actionPressed: true }), 1 / 60, flatGround, G)
+    let s = groundStep(
+      player(), input({ actionPressed: true, actionReleased: true }), 1 / 60, flatGround, G,
+    )
     let peak = 0
     for (let i = 0; i < 200; i++) {
       s = groundStep(s, input(), 1 / 60, flatGround, G)
@@ -132,6 +140,40 @@ describe('groundStep', () => {
     const expectedApex = (G.jumpSpeed * G.jumpSpeed) / (2 * G.gravity)
     expect(peak).toBeGreaterThan(expectedApex * 0.9)
     expect(s.grounded).toBe(true)
+  })
+
+  it('an airborne press with reserve fires a double jump', () => {
+    const falling = player({
+      position: new Vector3(0, 50, 0), grounded: false, velocity: new Vector3(0, -10, 0),
+    })
+    const s = groundStep(falling, input({ actionPressed: true }), 1 / 60, voidWorld, G)
+    expect(s.velocity.y).toBe(G.airJumpSpeed)
+    expect(s.airJumpsUsed).toBe(1)
+  })
+
+  it('a charged release jumps higher than a tap', () => {
+    const charged = player({ chargeTime: G.chargeMaxSeconds })
+    const s = groundStep(charged, input({ actionReleased: true }), 1 / 60, flatGround, G)
+    expect(s.velocity.y).toBeGreaterThan(G.jumpSpeed)
+  })
+
+  it('walking is slowed while charging', () => {
+    const charging = player({ chargeTime: G.chargeThresholdSeconds + 0.1 })
+    const s = groundStep(
+      charging, input({ forward: 1, actionHeld: true }), 1 / 60, flatGround, G,
+    )
+    const speed = Math.hypot(s.velocity.x, s.velocity.z)
+    expect(speed).toBeCloseTo(G.walkSpeed * G.chargeWalkFactor, 5)
+  })
+
+  it('landing resets the air jump reserve', () => {
+    const aboutToLand = player({
+      position: new Vector3(0, 0.05, 0), grounded: false,
+      velocity: new Vector3(0, -10, 0), airJumpsUsed: 1,
+    })
+    const s = groundStep(aboutToLand, input(), 1 / 60, flatGround, G)
+    expect(s.grounded).toBe(true)
+    expect(s.airJumpsUsed).toBe(0)
   })
 
   it('does not snap to the ground while descending mid-jump', () => {
