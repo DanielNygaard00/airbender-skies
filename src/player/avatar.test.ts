@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  Box3, Group, Mesh, Object3D, BoxGeometry, AnimationClip, VectorKeyframeTrack,
+  Box3, Group, Mesh, Object3D, BoxGeometry, CapsuleGeometry, AnimationClip, VectorKeyframeTrack,
 } from 'three'
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import { createAvatar } from './avatar'
@@ -99,10 +99,19 @@ describe('createAvatar attachModel', () => {
   })
 
   it('removes the placeholder capsule', () => {
+    // Asserting structure, not measured height: a correctly fitted model spans
+    // the same [0, 1.8] range as the placeholder, so a height-only assertion
+    // would pass identically whether or not the placeholder was actually removed.
     const avatar = createAvatar()
     avatar.attachModel(fakeGltf(['Idle'], { height: 5.2594 }))
-    // Only the model wrapper is left, so the total height is the model's alone.
-    expect(spanOf(avatar.object).height).toBeCloseTo(1.8, 3)
+
+    expect(avatar.object.children).toHaveLength(1) // only the model wrapper
+
+    let hasCapsule = false
+    avatar.object.traverse((child) => {
+      if (child instanceof Mesh && child.geometry instanceof CapsuleGeometry) hasCapsule = true
+    })
+    expect(hasCapsule).toBe(false)
   })
 
   it('refuses to divide by a degenerate model height', () => {
