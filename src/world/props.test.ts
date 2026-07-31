@@ -56,6 +56,12 @@ describe('propPlacements', () => {
     }
   })
 
+  it('keeps clear of the island center, where respawns land', () => {
+    for (const p of propPlacements(def(), flat(), [])) {
+      expect(Math.hypot(p.position.x, p.position.z)).toBeGreaterThanOrEqual(8)
+    }
+  })
+
   it('stays within the placement disc', () => {
     const d = def({ radius: 60 })
     for (const p of propPlacements(d, flat(), [])) {

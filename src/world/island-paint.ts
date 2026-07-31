@@ -1,4 +1,4 @@
-import { BufferAttribute, Color, Vector3, type BufferGeometry } from 'three'
+import { BufferAttribute, Vector3, type BufferGeometry } from 'three'
 import { mulberry32 } from '../core/rng'
 import type { Biome } from './island'
 
@@ -41,7 +41,6 @@ export function paintIsland(geometry: BufferGeometry, biome: Biome, seed: number
   const c = new Vector3()
   const edge1 = new Vector3()
   const edge2 = new Vector3()
-  const color = new Color()
 
   for (let f = 0; f < position.count / 3; f++) {
     a.fromBufferAttribute(position, f * 3)

@@ -150,7 +150,7 @@ describe('worldFloorY depth bound', () => {
   })
 
   it('rejects a floor that clears height * 2 but not the real geometry', () => {
-    // An island of height 20 at y=0 reaches about -48.6, not -40. A floor at
+    // An island of height 20 at y=0 reaches about -53.96, not -40. A floor at
     // -45 sits inside the island's lower spike: validation used to accept it,
     // and the player would fall through the spike into the void.
     const l = base()

@@ -18,8 +18,8 @@ export interface PropPlacement {
 
 /** Props scatter inside this fraction of the island radius. */
 const DISC_FRACTION = 0.75
-/** No prop closer than this (in xz) to a shrine. */
-const SHRINE_CLEARANCE = 8
+/** No prop closer than this (in xz) to a shrine or the island center (where respawns land). */
+const CLEARANCE = 8
 /** Ground steeper than this (by normal y) rejects a prop. */
 const MIN_GROUND_NORMAL_Y = 0.7
 /** Rejection sampling gives up after this many tries per wanted prop. */
@@ -41,7 +41,8 @@ export function propPlacements(
 ): PropPlacement[] {
   // +1 keeps the prop stream independent of the geometry noise stream.
   const rng = mulberry32(def.noiseSeed + 1)
-  const shrines = shrineOffsets.map((o) => new Vector3().addVectors(def.position, o))
+  // Respawns land at the island center, so it gets the same clearance as shrines.
+  const clearancePoints = [def.position.clone(), ...shrineOffsets.map((o) => new Vector3().addVectors(def.position, o))]
   const placements: PropPlacement[] = []
 
   const groundAt = (x: number, z: number): TerrainHit | null => {
@@ -51,8 +52,8 @@ export function propPlacements(
     return hit
   }
 
-  const nearShrine = (x: number, z: number): boolean =>
-    shrines.some((s) => Math.hypot(s.x - x, s.z - z) < SHRINE_CLEARANCE)
+  const nearClearancePoint = (x: number, z: number): boolean =>
+    clearancePoints.some((c) => Math.hypot(c.x - x, c.z - z) < CLEARANCE)
 
   const scatter = (kind: PropPlacement['kind'], wanted: number): void => {
     let placed = 0
@@ -67,7 +68,7 @@ export function propPlacements(
       const x = def.position.x + Math.cos(angle) * r
       const z = def.position.z + Math.sin(angle) * r
       const hit = groundAt(x, z)
-      if (!hit || nearShrine(x, z)) continue
+      if (!hit || nearClearancePoint(x, z)) continue
       placements.push({ kind, position: hit.point.clone(), scale, rotationY })
       placed++
     }
@@ -82,7 +83,7 @@ export function propPlacements(
       const x = def.position.x + Math.cos(angle) * PILLAR_RING_RADIUS
       const z = def.position.z + Math.sin(angle) * PILLAR_RING_RADIUS
       const hit = groundAt(x, z)
-      if (!hit || nearShrine(x, z)) continue
+      if (!hit || nearClearancePoint(x, z)) continue
       placements.push({
         kind: 'pillar', position: hit.point.clone(), scale: 1,
         rotationY: angle + Math.PI / 2,
@@ -91,7 +92,7 @@ export function propPlacements(
     const x = def.position.x + ARCH_DISTANCE
     const z = def.position.z
     const hit = groundAt(x, z)
-    if (hit && !nearShrine(x, z)) {
+    if (hit && !nearClearancePoint(x, z)) {
       placements.push({
         kind: 'arch', position: hit.point.clone(), scale: 1, rotationY: Math.PI / 2,
       })

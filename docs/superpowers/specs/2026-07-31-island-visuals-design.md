@@ -109,9 +109,10 @@ propPlacements(
   disc of `radius * 0.75` around the island center.
 - A candidate is rejected when `terrain.groundHeightAt` returns null, when
   the surface there is too steep (downward raycast normal `y < 0.7`), or when
-  it lies within 8 m (xz distance) of any shrine's world position — shrine
-  offsets are island-local, so each is compared as
-  `def.position + offset` to match the world-space candidate points.
+  it lies within 8 m (xz distance) of any shrine's world position or of the
+  island center (respawns land there) — shrine offsets are island-local, so
+  each is compared as `def.position + offset` to match the world-space
+  candidate points.
 - Counts scale with island size: trees `round(radius / 6)` on grass islands
   only; boulders `round(radius / 9)` on every biome. The temple biome gets no
   trees; instead a fixed ring of 5 pillars at radius 10 m around the island
