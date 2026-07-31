@@ -318,10 +318,17 @@ describe('createAvatar attachModel', () => {
   })
 
   it('removes the placeholder capsule', () => {
+    // Assert structure, not measured height: a fitted model is also 1.8 tall, so
+    // a height assertion passes whether or not the placeholder was removed.
     const avatar = createAvatar()
     avatar.attachModel(fakeGltf(['Idle'], { height: 5.2594 }))
-    // Only the model wrapper is left, so the total height is the model's alone.
-    expect(spanOf(avatar.object).height).toBeCloseTo(1.8, 3)
+
+    expect(avatar.object.children).toHaveLength(1)
+    avatar.object.traverse((child) => {
+      if (child instanceof Mesh) {
+        expect(child.geometry).not.toBeInstanceOf(CapsuleGeometry)
+      }
+    })
   })
 
   it('refuses to divide by a degenerate model height', () => {
@@ -490,9 +497,18 @@ describe('createAvatar frozen poses', () => {
     'Human Armature|Jump',
   ]
 
-  /** Run the mixer past the cross-fade, then report the animated value. */
+  /**
+   * Run the mixer past the cross-fade, then report the animated value.
+   *
+   * The frame count must not advance the action by a whole multiple of the
+   * clip's duration. The fixture's clips are exactly 1.000s long, so 60 frames
+   * of 1/60 would land every sample back on the same phase, making a looping
+   * action indistinguishable from a frozen one. 25 frames advances 5/12 of a
+   * cycle, so consecutive samples sit at distinct phases (0.417, 0.833, 0.250)
+   * while the first call still clears the 0.18s cross-fade.
+   */
   function settle(avatar: ReturnType<typeof createAvatar>): number {
-    for (let i = 0; i < 60; i++) avatar.update(1 / 60)
+    for (let i = 0; i < 25; i++) avatar.update(1 / 60)
     const body = avatar.object.getObjectByName('Body')
     if (!body) throw new Error('fixture mesh missing')
     return body.position.y
