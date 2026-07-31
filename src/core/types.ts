@@ -20,6 +20,10 @@ export interface InputState {
   actionHeld: boolean
   /** Space, edge-triggered on key-up: releases a charged jump. */
   actionReleased: boolean
+  /** Shift, edge-triggered: toggles the air scooter on the ground. */
+  scooterPressed: boolean
+  /** Q, edge-triggered: an air blast dash. */
+  dashPressed: boolean
 }
 
 export interface PlayerState {
@@ -36,6 +40,14 @@ export interface PlayerState {
   airJumpsUsed: number
   /** Seconds space has been held toward a charged jump. 0 = not charging. */
   chargeTime: number
+  /** Riding the air scooter. */
+  scooterActive: boolean
+  /** The scooter's hidden speed accumulator, 0 to 1. */
+  scooterCharge: number
+  /** Dashes spent in the current chain. */
+  dashesUsed: number
+  /** Seconds of dash recovery still owed. */
+  dashRecovery: number
 }
 
 export interface TerrainHit {
@@ -148,4 +160,31 @@ export interface GroundConfig {
   chargedJumpSpeed: number
   /** Movement speed multiplier while charging. */
   chargeWalkFactor: number
+  /**
+   * How sharply ground speed chases the stick, per second. Low values give the
+   * doc's soft acceleration and slide-on-stop instead of snapping to a stop.
+   */
+  groundResponse: number
+  /** Speed multiplier for riding the scooter at zero charge. */
+  scooterSpeedFactor: number
+  /** Extra speed multiplier at full charge. */
+  scooterChargeSpeedBonus: number
+  /** Steering authority kept while riding, before charge tightens it further. */
+  scooterTurnFactor: number
+  /** Authority given up at full charge. */
+  scooterChargeTurnPenalty: number
+  /** Charge gained per second on a clean line. */
+  scooterChargeGain: number
+  /** Charge lost per second while turning hard. */
+  scooterChargeLoss: number
+  /** Charge lost outright on contact — a tier, not a trickle. */
+  scooterTierDrop: number
+  /** Dashes available before a recovery is owed. */
+  maxDashChain: number
+  /** Speed added by one dash. */
+  dashSpeed: number
+  /** How long a dash impulse takes to decay away. */
+  dashDurationSeconds: number
+  /** Recovery owed once the chain is spent. */
+  dashRecoverySeconds: number
 }

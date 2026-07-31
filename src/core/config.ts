@@ -79,4 +79,18 @@ export const DEFAULT_GROUND_CONFIG: GroundConfig = {
   chargeMaxSeconds: 1.5,
   chargedJumpSpeed: 20,
   chargeWalkFactor: 0.4,
+  // Soft enough to lean into turns and slide on stops, per the doc's air-assisted
+  // run, without feeling like ice.
+  groundResponse: 7,
+  scooterSpeedFactor: 2,
+  scooterChargeSpeedBonus: 0.6,
+  scooterTurnFactor: 0.5,
+  scooterChargeTurnPenalty: 0.25,
+  scooterChargeGain: 0.35,
+  scooterChargeLoss: 0.8,
+  scooterTierDrop: 0.34,
+  maxDashChain: 3,
+  dashSpeed: 26,
+  dashDurationSeconds: 0.22,
+  dashRecoverySeconds: 0.7,
 }

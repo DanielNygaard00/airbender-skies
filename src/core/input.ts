@@ -19,6 +19,8 @@ export function toInputState(
   lookDirection: Vector3,
   actionPressed: boolean,
   actionReleased = false,
+  scooterPressed = false,
+  dashPressed = false,
 ): InputState {
   const axis = (pos: string, neg: string) => (held.has(pos) ? 1 : 0) - (held.has(neg) ? 1 : 0)
   return {
@@ -30,6 +32,8 @@ export function toInputState(
     actionPressed,
     actionHeld: held.has('Space'),
     actionReleased,
+    scooterPressed,
+    dashPressed,
   }
 }
 
@@ -40,6 +44,8 @@ export class InputTracker {
   private yaw = 0
   private pitch = 0
   private actionPressed = false
+  private scooterPressed = false
+  private dashPressed = false
   private actionReleased = false
   private readonly listeners: (() => void)[] = []
 
@@ -57,6 +63,12 @@ export class InputTracker {
         if (!e.repeat) this.actionPressed = true
         e.preventDefault()
       }
+      // Both are toggles or one-shots, so auto-repeat must not re-fire them either:
+      // a held Shift would otherwise flip the scooter on and off every frame.
+      if (!e.repeat && (e.code === 'ShiftLeft' || e.code === 'ShiftRight')) {
+        this.scooterPressed = true
+      }
+      if (!e.repeat && e.code === 'KeyQ') this.dashPressed = true
     })
     on<KeyboardEvent>('keyup', (e) => {
       this.held.delete(e.code)
@@ -83,9 +95,13 @@ export class InputTracker {
       lookDirectionFrom(this.yaw, this.pitch),
       this.actionPressed,
       this.actionReleased,
+      this.scooterPressed,
+      this.dashPressed,
     )
     this.actionPressed = false
     this.actionReleased = false
+    this.scooterPressed = false
+    this.dashPressed = false
     return state
   }
 

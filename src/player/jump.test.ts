@@ -6,13 +6,13 @@ import type { InputState, PlayerState } from '../core/types'
 
 const input = (over: Partial<InputState> = {}): InputState => ({
   lookDirection: new Vector3(0, 0, -1), forward: 0, strafe: 0,
-  sprint: false, tuck: false, actionPressed: false, actionHeld: false, actionReleased: false,
+  sprint: false, tuck: false, actionPressed: false, actionHeld: false, actionReleased: false, scooterPressed: false, dashPressed: false,
   ...over,
 })
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({
   mode: 'ground', position: new Vector3(0, 0, 0), velocity: new Vector3(),
   forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
-  grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0,
+  grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
   ...over,
 })
 const DT = 1 / 60

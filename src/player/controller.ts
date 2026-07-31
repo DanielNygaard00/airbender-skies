@@ -27,6 +27,14 @@ export interface ControllerDeps {
 const LANDING_PROBE = 2.5
 /** Fraction of horizontal speed kept after a too-fast landing. */
 const STAGGER_RETENTION = 0.3
+/**
+ * Fraction kept after a clean landing.
+ *
+ * Not zero: the design doc is explicit that landing at speed never hard-stops the
+ * character — he rolls, skims or scoots out of it — and a dead stop was the one
+ * place the ground layer threw away all the momentum the player had built.
+ */
+const LANDING_RETENTION = 0.85
 
 function isFinitePlayer(s: PlayerState): boolean {
   const nums = [
@@ -52,7 +60,7 @@ export function respawn(state: PlayerState, deps: ControllerDeps): PlayerState {
     breath: maxBreath,
     maxBreath,
     airJumpsUsed: 0,
-    chargeTime: 0,
+    chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
   }
 }
 
@@ -75,7 +83,7 @@ function safeRespawn(state: PlayerState, deps: ControllerDeps): PlayerState {
     grounded: false,
     lastGroundIslandId: null,
     airJumpsUsed: 0,
-    chargeTime: 0,
+    chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
   }
 }
 
@@ -149,14 +157,15 @@ export function controllerStep(
       next = {
         ...next, mode: 'ground', grounded: true,
         position: hit.point.clone(),
-        velocity: landingSpeed <= deps.flight.landingSpeed
-          ? new Vector3()
-          : new Vector3(
-              next.velocity.x * STAGGER_RETENTION, 0, next.velocity.z * STAGGER_RETENTION,
-            ),
+        velocity: (() => {
+          const kept = landingSpeed <= deps.flight.landingSpeed
+            ? LANDING_RETENTION
+            : STAGGER_RETENTION
+          return new Vector3(next.velocity.x * kept, 0, next.velocity.z * kept)
+        })(),
         lastGroundIslandId: hit.islandId,
         airJumpsUsed: 0,
-        chargeTime: 0,
+        chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
       }
     }
   }

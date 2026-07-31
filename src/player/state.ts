@@ -38,6 +38,6 @@ export function createPlayerState(
     grounded: true,
     lastGroundIslandId: level.spawn.islandId,
     airJumpsUsed: 0,
-    chargeTime: 0,
+    chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
   }
 }

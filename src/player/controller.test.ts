@@ -27,13 +27,13 @@ const deps = (
 
 const input = (over: Partial<InputState> = {}): InputState => ({
   lookDirection: new Vector3(0, 0, -1), forward: 0, strafe: 0,
-  sprint: false, tuck: false, actionPressed: false, actionHeld: false, actionReleased: false,
+  sprint: false, tuck: false, actionPressed: false, actionHeld: false, actionReleased: false, scooterPressed: false, dashPressed: false,
   ...over,
 })
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({
   mode: 'ground', position: new Vector3(0, 0, 0), velocity: new Vector3(),
   forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
-  grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0, ...over,
+  grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0, ...over,
 })
 
 describe('mode switching', () => {
@@ -137,7 +137,11 @@ describe('flying', () => {
 })
 
 describe('landing', () => {
-  it('a slow touchdown lands cleanly and stops', () => {
+  it('a slow touchdown lands cleanly and skims out of it', () => {
+    // Changed deliberately: this used to assert the landing stopped dead. The
+    // character design doc is explicit that landing never hard-stops — he rolls,
+    // skims or scoots out of it — and a dead stop was the one place the ground
+    // layer threw away all the momentum the player had built.
     const slow = player({
       mode: 'glider', position: new Vector3(0, 1, 0), grounded: false,
       velocity: new Vector3(0, -2, -4),
@@ -145,7 +149,10 @@ describe('landing', () => {
     const s = controllerStep(slow, input(), 1 / 60, deps(flatGround))
     expect(s.mode).toBe('ground')
     expect(s.grounded).toBe(true)
-    expect(s.velocity.length()).toBe(0)
+    // Vertical motion is absorbed, horizontal motion carries through.
+    expect(s.velocity.y).toBe(0)
+    expect(Math.abs(s.velocity.z)).toBeGreaterThan(0)
+    expect(Math.abs(s.velocity.z)).toBeLessThan(4)
   })
 
   it('a fast touchdown keeps some momentum as a stagger', () => {

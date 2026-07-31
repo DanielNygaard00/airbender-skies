@@ -13,7 +13,8 @@ back down to a walking stick.
 | Mouse | Look | Trim — nudges the nose toward where you look |
 | `W` / `S` | Walk forward / back | Airbending thrust / flare |
 | `A` / `D` | Strafe | Shift your weight — this is how you steer |
-| `Shift` | Sprint | Hover — hold position in mid-air |
+| `Shift` | Air scooter — tap to ride, tap to step off | Hover — hold position in mid-air |
+| `Q` | Air blast dash — three in a chain, then a short recovery | — |
 | `Ctrl` | — | Tuck — fold the wings for a fast dive |
 | `Space` | Jump — twice, the second gains more height the faster you are rising | Deploy or stow the glider |
 
@@ -22,6 +23,11 @@ what makes the difference: thrust is the only way to gain net altitude, and hove
 still in the air with no updraft to ride. Both spend breath, and hovering spends it fastest,
 because holding station carries the glider's whole weight rather than just adding to a wing that
 is already flying. Collect air shrines to raise your maximum breath.
+
+On the ground, momentum is the resource. The run accelerates softly and slides on stops rather
+than snapping, the scooter doubles your speed while halving your steering, and holding a clean
+line on it builds a hidden accumulator that makes the ball tighter and faster — carve hard and you
+give it back. Landing never stops you dead; you skim out of it.
 
 Transitions are free and meant to be chained: deploying the wings mid-jump keeps every bit of
 horizontal momentum and adds an upward kick, so a well-timed deploy out of a rising double jump

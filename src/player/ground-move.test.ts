@@ -16,13 +16,13 @@ const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycastDown: () =>
 
 const input = (over: Partial<InputState> = {}): InputState => ({
   lookDirection: new Vector3(0, 0, -1), forward: 0, strafe: 0,
-  sprint: false, tuck: false, actionPressed: false, actionHeld: false, actionReleased: false,
+  sprint: false, tuck: false, actionPressed: false, actionHeld: false, actionReleased: false, scooterPressed: false, dashPressed: false,
   ...over,
 })
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({
   mode: 'ground', position: new Vector3(0, 0, 0), velocity: new Vector3(),
   forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
-  grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0, ...over,
+  grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0, ...over,
 })
 
 describe('horizontalForward', () => {
@@ -158,12 +158,22 @@ describe('groundStep', () => {
   })
 
   it('walking is slowed while charging', () => {
-    const charging = player({ chargeTime: G.chargeThresholdSeconds + 0.1 })
-    const s = groundStep(
-      charging, input({ forward: 1, actionHeld: true }), 1 / 60, flatGround, G,
+    // Measured after the ease settles rather than on the first frame: ground speed
+    // now chases the stick instead of snapping to it, so a single frame only ever
+    // shows a fraction of the target.
+    const settle = (over: Partial<InputState>, state = player()) => {
+      let s = state
+      for (let t = 0; t < 1.5; t += 1 / 60) {
+        s = groundStep(s, input({ forward: 1, ...over }), 1 / 60, flatGround, G)
+      }
+      return Math.hypot(s.velocity.x, s.velocity.z)
+    }
+
+    const charging = settle(
+      { actionHeld: true }, player({ chargeTime: G.chargeThresholdSeconds + 0.1 }),
     )
-    const speed = Math.hypot(s.velocity.x, s.velocity.z)
-    expect(speed).toBeCloseTo(G.walkSpeed * G.chargeWalkFactor, 5)
+    expect(charging).toBeLessThan(settle({}))
+    expect(charging).toBeCloseTo(G.walkSpeed * G.chargeWalkFactor, 1)
   })
 
   it('landing resets the air jump reserve', () => {
@@ -209,5 +219,85 @@ describe('groundStep', () => {
     expect(s.grounded).toBe(true)
     expect(s.position.y).toBeCloseTo(0, 6)
     expect(s.velocity.y).toBe(0)
+  })
+})
+
+describe('the air scooter on the ground', () => {
+  const settle = (over: Partial<InputState>, seconds = 2, from = player()) => {
+    let s = from
+    for (let t = 0; t < seconds; t += 1 / 60) {
+      s = groundStep(s, input({ forward: 1, ...over }), 1 / 60, flatGround, G)
+    }
+    return s
+  }
+
+  /** Toggle the scooter on exactly once, then hold a line. */
+  const mount = () =>
+    groundStep(player(), input({ forward: 1, scooterPressed: true }), 1 / 60, flatGround, G)
+
+  it('rides substantially faster than running once toggled on', () => {
+    // A bare greater-than passed here even with both speed factors neutralised,
+    // because easing leaves the two runs differing by a hair. The scooter is meant
+    // to double speed, so the margin is the assertion.
+    const running = settle({ sprint: true })
+    const riding = settle({ sprint: true }, 2, mount())
+    const ran = Math.hypot(running.velocity.x, running.velocity.z)
+    const rode = Math.hypot(riding.velocity.x, riding.velocity.z)
+    expect(rode).toBeGreaterThan(ran * 1.8)
+  })
+
+  it('stays on after the key is released, because it is a toggle', () => {
+    // Pressing every frame would flip it on and off continuously.
+    expect(settle({}, 1, mount()).scooterActive).toBe(true)
+  })
+
+  it('builds its accumulator on a clean line', () => {
+    const later = settle({}, 3, mount())
+    expect(later.scooterCharge).toBeGreaterThan(0)
+    expect(later.scooterActive).toBe(true)
+  })
+
+  it('bleeds the accumulator while carving hard', () => {
+    const clean = settle({}, 3, mount())
+    const carving = settle({ strafe: 1 }, 2, clean)
+    expect(carving.scooterCharge).toBeLessThan(clean.scooterCharge)
+  })
+})
+
+describe('the air blast dash', () => {
+  it('bursts the character along its heading', () => {
+    const still = player()
+    const dashed = groundStep(still, input({ dashPressed: true }), 1 / 60, flatGround, G)
+    expect(Math.hypot(dashed.velocity.x, dashed.velocity.z)).toBeGreaterThan(G.runSpeed)
+  })
+
+  it('stops chaining after three and then recovers', () => {
+    let s = player()
+    let bursts = 0
+    for (let i = 0; i < 6; i++) {
+      const before = Math.hypot(s.velocity.x, s.velocity.z)
+      s = groundStep(s, input({ dashPressed: true }), 1 / 60, flatGround, G)
+      if (Math.hypot(s.velocity.x, s.velocity.z) > before + G.dashSpeed / 2) bursts++
+    }
+    // The literal three, not G.maxDashChain: comparing against the config the code
+    // reads is a tautology that passes for any chain length.
+    expect(bursts).toBe(3)
+    expect(bursts).toBeLessThan(6)
+  })
+})
+
+describe('the air-assisted run', () => {
+  it('accelerates softly rather than snapping to speed', () => {
+    const first = groundStep(player(), input({ forward: 1 }), 1 / 60, flatGround, G)
+    expect(Math.hypot(first.velocity.x, first.velocity.z)).toBeLessThan(G.walkSpeed * 0.5)
+  })
+
+  it('slides on stops instead of halting dead', () => {
+    let s = player()
+    for (let t = 0; t < 2; t += 1 / 60) {
+      s = groundStep(s, input({ forward: 1 }), 1 / 60, flatGround, G)
+    }
+    const released = groundStep(s, input({ forward: 0 }), 1 / 60, flatGround, G)
+    expect(Math.hypot(released.velocity.x, released.velocity.z)).toBeGreaterThan(0)
   })
 })
