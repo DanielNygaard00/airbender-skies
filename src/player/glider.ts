@@ -50,6 +50,17 @@ const PIVOT_OFFSET = 0.16
 const PANEL_LENGTH = 1.05
 const PANEL_HALF_WIDTH = 0.15
 
+/**
+ * The tail fin. The show's glider is two wings plus a fin, and without it the
+ * silhouette from behind reads as a fan rather than an aircraft.
+ *
+ * It stands in the y-z plane at the centre line, so it never widens the span and
+ * cannot break the wing's symmetry. Kept shorter than the fan's own rearward sweep
+ * of 1.04, so it adds no new rearmost point.
+ */
+const FIN_LENGTH = 0.82
+const FIN_HEIGHT = 0.34
+
 // Avatar-local +Z is forward: Object3D.lookAt aligns local +Z with its target (only
 // Camera and Light use -Z), and avatar.object in main.ts is a plain Group. So the
 // stowed staff sits behind the rider (-Z) and the deployed wing sits ahead (+Z).
@@ -103,6 +114,19 @@ function createPanelGeometry(): BufferGeometry {
   return geometry
 }
 
+/** The tail fin: a vertical triangle running back from the grip and rising aft. */
+function createFinGeometry(): BufferGeometry {
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([
+    0, 0, 0,
+    0, 0, -FIN_LENGTH,
+    0, FIN_HEIGHT, -FIN_LENGTH,
+  ]), 3))
+  geometry.computeVertexNormals()
+  geometry.computeBoundingBox()
+  return geometry
+}
+
 export function createGlider(): {
   object: Object3D
   update(dt: number, deployed: boolean): void
@@ -138,6 +162,10 @@ export function createGlider(): {
     }
   }
 
+  const fin = new Mesh(createFinGeometry(), fabricMaterial)
+  fin.name = 'tail-fin'
+  object.add(fin)
+
   let openness = 0
 
   function apply(): void {
@@ -153,6 +181,8 @@ export function createGlider(): {
       // leaf sits at zero and they stack into a stick along the staff.
       pivot.rotation.y = panelAngle(index, PANELS_PER_SIDE, openness, FAN_SPREAD) * side
     }
+    // The fin unfurls with the wings rather than standing proud of a folded staff.
+    fin.scale.setScalar(eased)
   }
   apply()
 

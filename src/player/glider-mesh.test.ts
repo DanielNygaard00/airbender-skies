@@ -26,8 +26,14 @@ describe('createGlider assembly', () => {
     expect(createGlider().openness()).toBe(0)
   })
 
-  it('has a staff plus one fan root per side', () => {
-    expect(createGlider().object.children).toHaveLength(3)
+  it('has a staff, a tail fin, and one fan root per side', () => {
+    // Counted by what each child is rather than by a bare total, so adding a part
+    // cannot quietly satisfy this while a fan root has gone missing.
+    const { children } = createGlider().object
+    const fanRoots = children.filter((child) => child.children.length === PANELS_PER_SIDE)
+    expect(fanRoots).toHaveLength(2)
+    expect(children.filter((child) => child.name === 'tail-fin')).toHaveLength(1)
+    expect(children).toHaveLength(4)
   })
 
   it('fans every leaf on a side from one shared pivot', () => {
@@ -144,5 +150,46 @@ describe('createGlider assembly', () => {
         expect(Number.isFinite(value)).toBe(true)
       }
     }
+  })
+})
+
+describe('the tail fin', () => {
+  function fin(glider: ReturnType<typeof createGlider>) {
+    const found = glider.object.children.find((child) => child.name === 'tail-fin')
+    if (!found) throw new Error('tail fin missing')
+    return found
+  }
+
+  it('unfurls with the wings instead of standing proud of a folded staff', () => {
+    const stowed = createGlider()
+    expect(fin(stowed).scale.y).toBe(0)
+
+    const deployed = createGlider()
+    settle(deployed, true)
+    expect(fin(deployed).scale.y).toBeCloseTo(1, 3)
+  })
+
+  it('sits on the centre line so it cannot skew the span', () => {
+    const glider = createGlider()
+    settle(glider, true)
+    const box = new Box3().setFromObject(fin(glider))
+    expect(box.min.x).toBeCloseTo(box.max.x, 6)
+  })
+
+  it('adds no new rearmost point', () => {
+    // The fan already sweeps back 1.04; a fin reaching past that would poke out
+    // behind the wing and break the silhouette.
+    const glider = createGlider()
+    settle(glider, true)
+    const wholeWing = span(glider).box
+    const finBox = new Box3().setFromObject(fin(glider))
+    expect(finBox.min.z).toBeGreaterThan(wholeWing.min.z)
+  })
+
+  it('rises above the staff when deployed', () => {
+    const glider = createGlider()
+    settle(glider, true)
+    const finBox = new Box3().setFromObject(fin(glider))
+    expect(finBox.max.y - finBox.min.y).toBeGreaterThan(0.2)
   })
 })
