@@ -5,6 +5,7 @@ import {
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import type { AnimationName } from './avatar-anim'
 import { planClips } from './clip-map'
+import { buildGlideClip } from './glide-pose'
 
 const FADE_SECONDS = 0.18
 
@@ -139,12 +140,28 @@ export function createAvatar() {
       // charged while the model was still loading would pop back to full height.
       applySquash()
 
+      const plan = planClips(gltf.animations.map((c) => c.name))
+
+      // Built before the mixer, because sampling poses drives its own throwaway
+      // mixers over these same bones. A frozen jump frame is the fallback the
+      // plan hands us, and it reads as crouching in mid-air, so prefer a pose
+      // composed for the purpose whenever one can be built.
+      const composed = plan.get('glide')?.freeze
+        ? buildGlideClip(gltf.scene, gltf.animations)
+        : null
+
       mixer = new AnimationMixer(gltf.scene)
       const byName = new Map(gltf.animations.map((clip) => [clip.name, clip]))
       clips = new Map()
-      for (const [state, plan] of planClips(gltf.animations.map((c) => c.name))) {
-        const clip = byName.get(plan.source)
-        if (clip) clips.set(state, { clip, freeze: plan.freeze })
+      for (const [state, entry] of plan) {
+        if (state === 'glide' && composed) {
+          // A real clip of its own, so it cross-fades normally and no longer
+          // shares an action with `fall`.
+          clips.set(state, { clip: composed, freeze: false })
+          continue
+        }
+        const clip = byName.get(entry.source)
+        if (clip) clips.set(state, { clip, freeze: entry.freeze })
       }
       current = null
     },

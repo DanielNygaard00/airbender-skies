@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import {
   Box3, Group, Mesh, Object3D, BoxGeometry, CapsuleGeometry, AnimationClip, VectorKeyframeTrack,
-  QuaternionKeyframeTrack, Quaternion, Euler,
+  QuaternionKeyframeTrack, Quaternion, Euler, Vector3,
 } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
@@ -320,6 +320,45 @@ describe('createAvatar with the real committed model', () => {
 
     const plan = planClips(gltf.animations.map((clip) => clip.name))
     expect([...plan.keys()].sort()).toEqual(['fall', 'glide', 'idle', 'run', 'walk'])
+  })
+
+  it('glides with its legs extended rather than crouched', async () => {
+    // END TO END: the composed glide pose has to actually reach the character.
+    // Freezing the borrowed jump clip left one knee bent to 69 degrees, which
+    // reads as sitting down in mid-air.
+    const modelPath = fileURLToPath(
+      new URL('../../public/models/character.glb', import.meta.url),
+    )
+    const buffer = readFileSync(modelPath)
+    const arrayBuffer = buffer.buffer.slice(
+      buffer.byteOffset,
+      buffer.byteOffset + buffer.byteLength,
+    ) as ArrayBuffer
+
+    const gltf = await new Promise<GLTF>((resolve, reject) => {
+      new GLTFLoader().parse(arrayBuffer, '', resolve, reject)
+    })
+
+    const avatar = createAvatar()
+    avatar.attachModel(gltf)
+    avatar.setAnimation('glide')
+    for (let i = 0; i < 30; i++) avatar.update(1 / 60)
+    avatar.object.updateMatrixWorld(true)
+
+    const at = (name: string) => {
+      const bone = avatar.object.getObjectByName(name)
+      if (!bone) throw new Error(`missing bone ${name}`)
+      return bone.getWorldPosition(new Vector3())
+    }
+    const knee = (hip: string, mid: string, foot: string) => {
+      const a = at(hip).sub(at(mid)).normalize()
+      const b = at(foot).sub(at(mid)).normalize()
+      return (Math.acos(Math.max(-1, Math.min(1, a.dot(b)))) * 180) / Math.PI
+    }
+
+    expect(knee('LeftUpLeg', 'LeftLeg', 'LeftFoot')).toBeGreaterThan(120)
+    expect(knee('RightUpLeg', 'RightLeg', 'RightFoot')).toBeGreaterThan(120)
+    expect(at('LeftHand').y).toBeGreaterThan(at('LeftShoulder').y)
   })
 })
 
