@@ -11,16 +11,16 @@ const p = (over: Partial<PlayerState> = {}): PlayerState => ({
 })
 
 describe('animationFor', () => {
-  it('glides whenever the kite is out', () => {
-    expect(animationFor(p({ mode: 'kite', grounded: false }))).toBe('glide')
+  it('glides whenever the glider is out', () => {
+    expect(animationFor(p({ mode: 'glider', grounded: false }))).toBe('glide')
   })
 
-  it('glides even when the kite is barely moving', () => {
-    expect(animationFor(p({ mode: 'kite', grounded: false, velocity: new Vector3() })))
+  it('glides even when the glider is barely moving', () => {
+    expect(animationFor(p({ mode: 'glider', grounded: false, velocity: new Vector3() })))
       .toBe('glide')
   })
 
-  it('falls when airborne without the kite', () => {
+  it('falls when airborne without the glider', () => {
     expect(animationFor(p({ grounded: false }))).toBe('fall')
   })
 

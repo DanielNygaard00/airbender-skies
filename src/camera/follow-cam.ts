@@ -11,14 +11,14 @@ export interface CamProfile {
 /** On foot the character leads and the camera trails. */
 export const GROUND_PROFILE: CamProfile = { distance: 7, height: 2.6, smoothing: 9 }
 /**
- * In flight the camera leads: the kite steers toward it. Smoothing must stay
- * tight here or steering feels laggy — the kite's weight comes from the
+ * In flight the camera leads: the glider steers toward it. Smoothing must stay
+ * tight here or steering feels laggy — the glider's weight comes from the
  * airspeed-limited turn rate, not from a sluggish camera.
  */
-export const KITE_PROFILE: CamProfile = { distance: 12, height: 3.2, smoothing: 16 }
+export const GLIDER_PROFILE: CamProfile = { distance: 12, height: 3.2, smoothing: 16 }
 
 export function profileFor(mode: PlayerState['mode']): CamProfile {
-  return mode === 'kite' ? KITE_PROFILE : GROUND_PROFILE
+  return mode === 'glider' ? GLIDER_PROFILE : GROUND_PROFILE
 }
 
 /** Where the camera wants to sit, before smoothing or terrain collision. */

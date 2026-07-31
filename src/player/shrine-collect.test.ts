@@ -6,7 +6,7 @@ import type { PlayerState } from '../core/types'
 import type { Shrine } from '../world/shrine'
 
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({
-  mode: 'kite', position: new Vector3(0, 0, 0), velocity: new Vector3(),
+  mode: 'glider', position: new Vector3(0, 0, 0), velocity: new Vector3(),
   forward: new Vector3(0, 0, -1), breath: 40, maxBreath: 100,
   grounded: false, lastGroundIslandId: null, airJumpsUsed: 0, chargeTime: 0, ...over,
 })
@@ -86,9 +86,9 @@ describe('collectStep', () => {
   })
 
   it('carries the rest of the player state through untouched', () => {
-    const p = player({ mode: 'kite', velocity: new Vector3(0, -3, 0) })
+    const p = player({ mode: 'glider', velocity: new Vector3(0, -3, 0) })
     const r = collectStep(p, [shrine('home', new Vector3(0, 0, 0))], C)
-    expect(r.player.mode).toBe('kite')
+    expect(r.player.mode).toBe('glider')
     expect(r.player.velocity.toArray()).toEqual([0, -3, 0])
     expect(r.player.position).toBe(p.position)
   })

@@ -10,7 +10,7 @@ function simulate(opts: {
   thrust?: boolean
   flare?: boolean
   startSpeed?: number
-  /** Velocity direction, if it should differ from where the kite points. */
+  /** Velocity direction, if it should differ from where the glider points. */
   velPitchDeg?: number
   /** Roll about the forward axis, radians. */
   bank?: number
@@ -69,7 +69,7 @@ describe('flightStep', () => {
     expect(r.speed).toBeLessThan(46)
   })
 
-  it('a fast kite pulling up converts speed into altitude', () => {
+  it('a fast glider pulling up converts speed into altitude', () => {
     const r = simulate({ pitchDeg: 30, seconds: 2, startSpeed: 55 })
     expect(r.altitude).toBeGreaterThan(500)
     expect(r.speed).toBeLessThan(55)
@@ -81,7 +81,7 @@ describe('flightStep', () => {
     expect(r.altitude - 500).toBeLessThan(45)
   })
 
-  it('a slow kite pointing up cannot climb', () => {
+  it('a slow glider pointing up cannot climb', () => {
     const r = simulate({ pitchDeg: 30, seconds: 2, startSpeed: 12 })
     expect(r.altitude).toBeLessThan(500)
   })
@@ -110,13 +110,13 @@ describe('flightStep', () => {
     expect(powered.altitude).toBeGreaterThan(500)
   })
 
-  it('flaring slows the kite more than not flaring', () => {
+  it('flaring slows the glider more than not flaring', () => {
     const flared = simulate({ pitchDeg: 0, seconds: 2, startSpeed: 40, flare: true })
     const clean = simulate({ pitchDeg: 0, seconds: 2, startSpeed: 40, flare: false })
     expect(flared.speed).toBeLessThan(clean.speed)
   })
 
-  it('stalls: a very slow kite at high angle of attack loses lift and falls', () => {
+  it('stalls: a very slow glider at high angle of attack loses lift and falls', () => {
     const r = simulate({ pitchDeg: 60, seconds: 1.5, startSpeed: 4, velPitchDeg: 0 })
     expect(r.altitude).toBeLessThan(500)
   })
@@ -135,7 +135,7 @@ describe('flightStep', () => {
   })
 
   it('an unpowered glide still loses energy with a non-zero bank', () => {
-    // Covers the ordinary banked path, where liftDir is the projection of kiteUp
+    // Covers the ordinary banked path, where liftDir is the projection of gliderUp
     // off the velocity direction and is perpendicular by construction. It does
     // NOT reach the degenerate fallback branch, which needs the angle of attack
     // within 0.0057 degrees of 90; that branch is covered by the vertical-fall
@@ -166,7 +166,7 @@ describe('flightStep', () => {
 })
 
 /**
- * Fly from an explicit velocity rather than one derived from the kite's pitch,
+ * Fly from an explicit velocity rather than one derived from the glider's pitch,
  * which is what lets these tests set up an exactly vertical fall.
  */
 function simulateFrom(opts: {
@@ -194,7 +194,7 @@ function simulateFrom(opts: {
     /**
      * Metres travelled across the ground along the heading. Negative means
      * going backwards. Deliberately measured against the *horizontal* heading
-     * rather than against `forward` itself: a nose-up kite falling straight
+     * rather than against `forward` itself: a nose-up glider falling straight
      * down has a negative projection onto its own pitched forward axis while
      * not travelling backwards at all.
      */
@@ -208,7 +208,7 @@ function simulateFrom(opts: {
 }
 
 /**
- * Deploying the kite out of a coast is the most common deployment: groundStep
+ * Deploying the glider out of a coast is the most common deployment: groundStep
  * writes horizontal velocity with no inertia, so releasing WASD mid-fall zeroes
  * x and z exactly, and pressing the action key then hands flightStep a velocity
  * of exactly (0, vy, 0) with up dot vdir of exactly -1. That is a 90 degree
@@ -217,7 +217,7 @@ function simulateFrom(opts: {
 describe('flightStep deploying from a vertical fall', () => {
   const straightDown = () => new Vector3(0, -20, 0)
   /**
-   * The correct answer for a broadside kite is zero horizontal travel, which
+   * The correct answer for a broadside glider is zero horizontal travel, which
    * accumulates float noise on the order of 1e-14 over hundreds of steps. This
    * tolerance admits that noise and nothing else: the bug being pinned moved
    * the player tens to hundreds of metres.
@@ -244,7 +244,7 @@ describe('flightStep deploying from a vertical fall', () => {
         velocity: straightDown(), forward: new Vector3(0, 0, -1), seconds: 4, bank,
       })
       expect(r.alongHeading).toBeGreaterThan(BACKWARDS_EPSILON)
-      // Broadside to the airflow the kite generates no lift, so it simply falls.
+      // Broadside to the airflow the glider generates no lift, so it simply falls.
       expect(r.horizontal).toBeLessThan(1)
     }
   })

@@ -31,7 +31,7 @@ export function hudModelFor(state: PlayerState): HudModel {
     airspeed: formatAirspeed(state.velocity.length()),
     breath,
     // Keep the screen clean when the meter has nothing to say.
-    showBreath: state.mode === 'kite' || breath < 1,
+    showBreath: state.mode === 'glider' || breath < 1,
   }
 }
 

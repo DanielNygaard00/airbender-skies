@@ -4,8 +4,8 @@ import type { FlightConfig } from '../core/types'
 const WORLD_UP = new Vector3(0, 1, 0)
 
 /**
- * Angular speed the kite can turn at. Slow flight turns tight, fast flight
- * turns wide, which is where the sense of the kite having weight comes from.
+ * Angular speed the glider can turn at. Slow flight turns tight, fast flight
+ * turns wide, which is where the sense of the glider having weight comes from.
  */
 export function turnRateFor(speed: number, bankInput: number, c: FlightConfig): number {
   const speedFactor = MathUtils.clamp(c.turnRateSpeedRef / Math.max(speed, 1), 0.25, 1.5)

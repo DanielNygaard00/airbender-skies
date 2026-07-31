@@ -17,7 +17,7 @@ export interface ControllerDeps {
   spawnPointFor(islandId: string | null): Vector3
 }
 
-/** Distance below the kite at which touching down counts as landing. */
+/** Distance below the glider at which touching down counts as landing. */
 const LANDING_PROBE = 2.5
 /** Fraction of horizontal speed kept after a too-fast landing. */
 const STAGGER_RETENTION = 0.3
@@ -86,12 +86,12 @@ export function controllerStep(
 
   if (state.mode === 'ground') {
     if (input.actionPressed && !state.grounded && !canAirJump(state, deps.ground)) {
-      // Deploy the kite mid-fall — but only once the air jump is spent.
+      // Deploy the glider mid-fall — but only once the air jump is spent.
       // Grounded presses charge or jump; airborne presses with reserve
       // double-jump. Both are handled by groundStep.
       next = {
         ...state,
-        mode: 'kite',
+        mode: 'glider',
         forward: input.lookDirection.clone().normalize(),
         position: state.position.clone(),
         velocity: state.velocity.clone(),

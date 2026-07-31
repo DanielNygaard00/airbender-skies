@@ -1,14 +1,14 @@
 import type { Vector3 } from 'three'
 
-export type PlayerMode = 'ground' | 'kite'
+export type PlayerMode = 'ground' | 'glider'
 
 /** Player intent for one frame. Produced by input, consumed by movement. */
 export interface InputState {
   /** Normalised camera forward direction. */
   lookDirection: Vector3
-  /** W = +1, S = -1. Thrust in kite mode, walk in ground mode. */
+  /** W = +1, S = -1. Thrust in glider mode, walk in ground mode. */
   forward: number
-  /** D = +1, A = -1. Bank in kite mode, strafe in ground mode. */
+  /** D = +1, A = -1. Bank in glider mode, strafe in ground mode. */
   strafe: number
   /** Shift held. */
   sprint: boolean
@@ -24,7 +24,7 @@ export interface PlayerState {
   mode: PlayerMode
   position: Vector3
   velocity: Vector3
-  /** Where the character or kite points. Always normalised. */
+  /** Where the character or glider points. Always normalised. */
   forward: Vector3
   breath: number
   maxBreath: number
@@ -63,7 +63,7 @@ export interface FlightConfig {
   thrustAccel: number
   /** Extra angle of attack added while flaring, radians. */
   flareAoaBoost: number
-  /** Built-in trim angle of the kite, radians. Gives a natural cruise speed. */
+  /** Built-in trim angle of the glider, radians. Gives a natural cruise speed. */
   rigAoa: number
   /** Turn rate at or below turnRateSpeedRef, radians/s. */
   baseTurnRate: number

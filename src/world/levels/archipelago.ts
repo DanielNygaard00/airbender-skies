@@ -9,7 +9,7 @@ const island = (
 
 /**
  * Thirteen islands sequenced to teach the flight model:
- *  - home:    large and flat. Learn walking, jumping, deploying the kite.
+ *  - home:    large and flat. Learn walking, jumping, deploying the glider.
  *  - ring-*:  below and outward. Reachable by gliding alone, which teaches that
  *             altitude converts to distance.
  *  - climb-*: above home. Need sustained thrust, which introduces breath as a cost.

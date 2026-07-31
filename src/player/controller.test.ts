@@ -43,16 +43,16 @@ describe('mode switching', () => {
     expect(s.velocity.y).toBeGreaterThan(0)
   })
 
-  it('pressing action mid-fall with the air jump spent deploys the kite', () => {
+  it('pressing action mid-fall with the air jump spent deploys the glider', () => {
     const falling = player({
       position: new Vector3(0, 200, 0), grounded: false,
       velocity: new Vector3(0, -12, 0), airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps,
     })
     expect(controllerStep(falling, input({ actionPressed: true }), 1 / 60, deps(voidWorld)).mode)
-      .toBe('kite')
+      .toBe('glider')
   })
 
-  it('deploying points the kite where the player is looking', () => {
+  it('deploying points the glider where the player is looking', () => {
     const falling = player({
       position: new Vector3(0, 200, 0), grounded: false,
       airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps,
@@ -64,9 +64,9 @@ describe('mode switching', () => {
     expect(s.forward.x).toBeCloseTo(1, 5)
   })
 
-  it('pressing action in the air while flying stows the kite', () => {
+  it('pressing action in the air while flying stows the glider', () => {
     const flying = player({
-      mode: 'kite', position: new Vector3(0, 200, 0), grounded: false,
+      mode: 'glider', position: new Vector3(0, 200, 0), grounded: false,
       velocity: new Vector3(0, 0, -20),
     })
     expect(controllerStep(flying, input({ actionPressed: true }), 1 / 60, deps(voidWorld)).mode)
@@ -84,7 +84,7 @@ describe('mode switching', () => {
       expect(s.airJumpsUsed).toBe(1)
     })
 
-    it('the second airborne press deploys the kite', () => {
+    it('the second airborne press deploys the glider', () => {
       const falling = player({
         position: new Vector3(0, 200, 0), grounded: false, velocity: new Vector3(0, -12, 0),
       })
@@ -92,14 +92,14 @@ describe('mode switching', () => {
         falling, input({ actionPressed: true }), 1 / 60, deps(voidWorld),
       )
       const s = controllerStep(afterDouble, input({ actionPressed: true }), 1 / 60, deps(voidWorld))
-      expect(s.mode).toBe('kite')
+      expect(s.mode).toBe('glider')
     })
   })
 })
 
 describe('flying', () => {
   const flying = (over: Partial<PlayerState> = {}) => player({
-    mode: 'kite', position: new Vector3(0, 300, 0), grounded: false,
+    mode: 'glider', position: new Vector3(0, 300, 0), grounded: false,
     velocity: new Vector3(0, 0, -24), ...over,
   })
 
@@ -119,7 +119,7 @@ describe('flying', () => {
     expect(thrust.velocity.length()).toBeCloseTo(glide.velocity.length(), 5)
   })
 
-  it('steers the kite toward the look direction over time', () => {
+  it('steers the glider toward the look direction over time', () => {
     let s = flying()
     const look = new Vector3(1, 0, 0)
     for (let i = 0; i < 120; i++) {
@@ -139,7 +139,7 @@ describe('flying', () => {
 describe('landing', () => {
   it('a slow touchdown lands cleanly and stops', () => {
     const slow = player({
-      mode: 'kite', position: new Vector3(0, 1, 0), grounded: false,
+      mode: 'glider', position: new Vector3(0, 1, 0), grounded: false,
       velocity: new Vector3(0, -2, -4),
     })
     const s = controllerStep(slow, input(), 1 / 60, deps(flatGround))
@@ -150,7 +150,7 @@ describe('landing', () => {
 
   it('a fast touchdown keeps some momentum as a stagger', () => {
     const fast = player({
-      mode: 'kite', position: new Vector3(0, 1, 0), grounded: false,
+      mode: 'glider', position: new Vector3(0, 1, 0), grounded: false,
       velocity: new Vector3(0, -5, -50),
     })
     const s = controllerStep(fast, input(), 1 / 60, deps(flatGround))
@@ -160,7 +160,7 @@ describe('landing', () => {
 
   it('records the island landed on', () => {
     const slow = player({
-      mode: 'kite', position: new Vector3(0, 1, 0), grounded: false,
+      mode: 'glider', position: new Vector3(0, 1, 0), grounded: false,
       velocity: new Vector3(0, -2, 0), lastGroundIslandId: null,
     })
     expect(controllerStep(slow, input(), 1 / 60, deps(flatGround)).lastGroundIslandId).toBe('flat')
@@ -169,7 +169,7 @@ describe('landing', () => {
 
 describe('safety nets', () => {
   it('respawns after falling past the world floor', () => {
-    const lost = player({ mode: 'kite', position: new Vector3(0, -900, 0), grounded: false })
+    const lost = player({ mode: 'glider', position: new Vector3(0, -900, 0), grounded: false })
     const s = controllerStep(lost, input(), 1 / 60, deps(voidWorld))
     expect(s.mode).toBe('ground')
     expect(s.position.toArray()).toEqual([0, 0, 0])
@@ -254,9 +254,9 @@ describe('jump field resets', () => {
     expect(s.chargeTime).toBe(0)
   })
 
-  it('landing the kite clears air jumps and charge', () => {
+  it('landing the glider clears air jumps and charge', () => {
     const slow = player({
-      mode: 'kite', position: new Vector3(0, 1, 0), grounded: false,
+      mode: 'glider', position: new Vector3(0, 1, 0), grounded: false,
       velocity: new Vector3(0, -2, 0), airJumpsUsed: 1, chargeTime: 0.8,
     })
     const s = controllerStep(slow, input(), 1 / 60, deps(flatGround))

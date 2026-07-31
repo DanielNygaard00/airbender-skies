@@ -12,7 +12,7 @@ const FULL_CHARGE_SQUASH = 0.7
  * a Three.js AnimationMixer.
  */
 export function animationFor(state: PlayerState): AnimationName {
-  if (state.mode === 'kite') return 'glide'
+  if (state.mode === 'glider') return 'glide'
   if (!state.grounded) return 'fall'
   const horizontal = Math.hypot(state.velocity.x, state.velocity.z)
   if (horizontal < WALK_THRESHOLD) return 'idle'

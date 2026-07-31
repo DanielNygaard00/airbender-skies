@@ -127,8 +127,8 @@ function start(): void {
       })
     }
 
-    // Face the character along the kite forward, or along travel on foot.
-    const facing = player.mode === 'kite'
+    // Face the character along the glider forward, or along travel on foot.
+    const facing = player.mode === 'glider'
       ? player.forward
       : new Vector3(player.velocity.x, 0, player.velocity.z)
     avatar.object.position.copy(player.position)
@@ -139,7 +139,7 @@ function start(): void {
     avatar.setSquash(chargeSquashScale(player, deps.ground))
     followSun(player.position)
     avatar.update(dt)
-    glider.update(dt, player.mode === 'kite')
+    glider.update(dt, player.mode === 'glider')
 
     const profile = profileFor(player.mode)
     const desired = pullInForTerrain(
@@ -152,13 +152,13 @@ function start(): void {
     const airspeed = player.velocity.length()
     camera.position.copy(cameraPosition)
     camera.lookAt(player.position)
-    camera.fov = player.mode === 'kite' ? fovForSpeed(airspeed) : fovForSpeed(0)
+    camera.fov = player.mode === 'glider' ? fovForSpeed(airspeed) : fovForSpeed(0)
     camera.updateProjectionMatrix()
 
     for (const marker of markers.values()) marker.rotation.y += dt * 1.5
     for (const waterfall of waterfalls) waterfall.advance(dt)
 
-    wind.update(player.mode === 'kite' ? airspeed : 0)
+    wind.update(player.mode === 'glider' ? airspeed : 0)
     hud.update(hudModelFor(player))
   }
 

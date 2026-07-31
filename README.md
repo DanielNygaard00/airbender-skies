@@ -1,19 +1,20 @@
 # Airbender Skies
 
-A third-person browser game: explore an archipelago of floating islands while flying on an
-air kite.
+A third-person browser game: explore an archipelago of floating islands on an Air Nomad glider
+staff — a collapsible wooden staff whose fabric wings snap open into a hang glider, and fold
+back down to a walking stick.
 
 **Play:** https://danielnygaard00.github.io/airbender-skies/
 
 ## Controls
 
-| Input | Ground | Kite |
+| Input | Ground | Glider |
 | --- | --- | --- |
 | Mouse | Look | Trim — nudges the nose toward where you look |
 | `W` / `S` | Walk forward / back | Airbending thrust / flare |
 | `A` / `D` | Strafe | Shift your weight — this is how you steer |
 | `Shift` | Sprint | Hover — hold position in mid-air |
-| `Space` | Jump | Deploy or stow the kite |
+| `Space` | Jump | Deploy or stow the glider |
 
 Gliding on its own can only trade altitude for distance, and it costs nothing. Airbending is
 what makes the difference: thrust is the only way to gain net altitude, and hovering holds you

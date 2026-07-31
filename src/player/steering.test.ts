@@ -50,7 +50,7 @@ describe('steerToward', () => {
     expect(out.length()).toBeCloseTo(1, 6)
   })
 
-  it('a fast kite takes more steps to reverse than a slow one', () => {
+  it('a fast glider takes more steps to reverse than a slow one', () => {
     const turns = (speed: number) => {
       let f = FWD.clone()
       const target = new Vector3(0, 0, 1)

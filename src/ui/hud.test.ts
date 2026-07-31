@@ -73,7 +73,7 @@ describe('hudModelFor', () => {
   })
 
   it('shows the breath meter while flying', () => {
-    expect(hudModelFor(p({ mode: 'kite', grounded: false })).showBreath).toBe(true)
+    expect(hudModelFor(p({ mode: 'glider', grounded: false })).showBreath).toBe(true)
   })
 
   it('shows the breath meter when it is not full, even on the ground', () => {

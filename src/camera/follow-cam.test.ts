@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
   profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain,
-  GROUND_PROFILE, KITE_PROFILE,
+  GROUND_PROFILE, GLIDER_PROFILE,
 } from './follow-cam'
 import type { TerrainQuery } from '../core/types'
 
@@ -19,16 +19,16 @@ describe('profileFor', () => {
     expect(profileFor('ground')).toBe(GROUND_PROFILE)
   })
 
-  it('uses the kite profile in flight', () => {
-    expect(profileFor('kite')).toBe(KITE_PROFILE)
+  it('uses the glider profile in flight', () => {
+    expect(profileFor('glider')).toBe(GLIDER_PROFILE)
   })
 
   it('pulls further back in flight to sell speed', () => {
-    expect(KITE_PROFILE.distance).toBeGreaterThan(GROUND_PROFILE.distance)
+    expect(GLIDER_PROFILE.distance).toBeGreaterThan(GROUND_PROFILE.distance)
   })
 
   it('smooths tighter in flight, because the camera is the steering device', () => {
-    expect(KITE_PROFILE.smoothing).toBeGreaterThan(GROUND_PROFILE.smoothing)
+    expect(GLIDER_PROFILE.smoothing).toBeGreaterThan(GROUND_PROFILE.smoothing)
   })
 })
 
