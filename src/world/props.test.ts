@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { Vector3 } from 'three'
-import { propPlacements } from './props'
+import { Vector3, Mesh } from 'three'
+import { propPlacements, buildProps } from './props'
 import type { IslandDef } from './island'
 import type { TerrainQuery } from '../core/types'
 
@@ -88,6 +88,37 @@ describe('propPlacements', () => {
     for (const p of propPlacements(def(), flat(), [])) {
       expect(p.scale).toBeGreaterThanOrEqual(0.8)
       expect(p.scale).toBeLessThanOrEqual(1.4)
+    }
+  })
+})
+
+describe('buildProps', () => {
+  it('merges all props into a single mesh with vertex colors', () => {
+    const mesh = buildProps(def(), flat(), [])
+    expect(mesh).toBeInstanceOf(Mesh)
+    expect(mesh!.geometry.attributes.color).toBeDefined()
+    expect(mesh!.geometry.attributes.position!.count).toBeGreaterThan(0)
+    expect(mesh!.geometry.boundingSphere!.radius).toBeGreaterThan(0)
+  })
+
+  it('returns null when nothing can be placed', () => {
+    expect(buildProps(def(), voidTerrain, [])).toBeNull()
+  })
+
+  it('is deterministic', () => {
+    const a = buildProps(def(), flat(), [])!.geometry.attributes.position!.array
+    const b = buildProps(def(), flat(), [])!.geometry.attributes.position!.array
+    expect(Array.from(a)).toEqual(Array.from(b))
+  })
+
+  it('builds props near the ground height', () => {
+    const mesh = buildProps(def(), flat(), [])!
+    // Flat ground sits at y=5; every prop part lives on or above it, and no
+    // prop is taller than ~12 m at max scale.
+    const pos = mesh.geometry.attributes.position!
+    for (let i = 0; i < pos.count; i++) {
+      expect(pos.getY(i)).toBeGreaterThan(4)
+      expect(pos.getY(i)).toBeLessThan(5 + 14)
     }
   })
 })

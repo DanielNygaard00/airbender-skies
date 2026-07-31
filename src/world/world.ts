@@ -2,6 +2,7 @@ import { Group, Mesh, MeshLambertMaterial, type BufferGeometry } from 'three'
 import type { TerrainQuery } from '../core/types'
 import { createIslandGeometry } from './island'
 import { paintIsland } from './island-paint'
+import { buildProps } from './props'
 import { createTerrainQuery, type IslandMesh } from './terrain-query'
 import { validateLevel, type Level } from './level'
 
@@ -29,5 +30,15 @@ export function buildWorld(level: Level): World {
     islands.push({ id: def.id, mesh })
   }
 
-  return { islands, terrain: createTerrainQuery(islands), group }
+  const terrain = createTerrainQuery(islands)
+
+  for (const def of level.islands) {
+    const offsets = level.shrines
+      .filter((s) => s.islandId === def.id)
+      .map((s) => s.offset)
+    const props = buildProps(def, terrain, offsets)
+    if (props) group.add(props)
+  }
+
+  return { islands, terrain, group }
 }
