@@ -297,3 +297,32 @@ describe('deploying the glider adds a kick', () => {
     expect(deployed.velocity.z).toBeCloseTo(-6, 5)
   })
 })
+
+describe('the controller flies through the level\'s wind', () => {
+  const gliding = () => player({
+    mode: 'glider', grounded: false, position: new Vector3(0, 300, 0),
+    velocity: new Vector3(0, 0, -24), forward: new Vector3(0, 0, -1),
+  })
+
+  it('applies a thermal it is sitting in', () => {
+    const still = { ...deps(voidWorld) }
+    const lifting = {
+      ...deps(voidWorld),
+      windAt: () => ({ accel: new Vector3(0, 25, 0), liftScale: 1 }),
+    }
+
+    const plain = controllerStep(gliding(), input(), 1 / 60, still)
+    const lifted = controllerStep(gliding(), input(), 1 / 60, lifting)
+
+    expect(lifted.velocity.y).toBeGreaterThan(plain.velocity.y)
+  })
+
+  it('flies as if in still air when the level defines no wind', () => {
+    // windAt is optional, so a level without wind must behave exactly as before.
+    const before = controllerStep(gliding(), input(), 1 / 60, deps(voidWorld))
+    const explicit = controllerStep(gliding(), input(), 1 / 60, {
+      ...deps(voidWorld), windAt: () => ({ accel: new Vector3(), liftScale: 1 }),
+    })
+    expect(before.velocity.y).toBeCloseTo(explicit.velocity.y, 9)
+  })
+})

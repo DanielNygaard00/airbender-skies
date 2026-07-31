@@ -1,6 +1,12 @@
 import { Vector3 } from 'three'
 import type { Level } from '../level'
 import type { Biome } from '../island'
+import type { WindDef } from '../wind'
+
+const thermal = (x: number, y: number, z: number, radius: number, height: number,
+  strength: number): WindDef => ({
+  kind: 'thermal', position: new Vector3(x, y, z), radius, height, strength,
+})
 
 const island = (
   id: string, x: number, y: number, z: number, radius: number, height: number,
@@ -68,6 +74,49 @@ export const ARCHIPELAGO: Level = {
     { islandId: 'gate-south', offset: new Vector3(0, 0, 0) },
     { islandId: 'needle', offset: new Vector3(0, 0, 0) },
     { islandId: 'beacon', offset: new Vector3(0, 0, 0) },
+  ],
+  /**
+   * The air as terrain. Placed so that every one of them serves a route the player
+   * already wants: lift where the climb is otherwise expensive, a conveyor along
+   * the longest crossing, and dead air where the game wants a fight kept low.
+   *
+   * The artist rule from the design doc applies — a wind feature the player cannot
+   * see is a bug — so each of these gets a visible tell in the world build.
+   */
+  winds: [
+    // Over home, so the very first climb can be made for free once the player
+    // notices the dust spiralling up off the plateau.
+    thermal(0, 120, 0, 55, 240, 9),
+    // Under the two climb islands, which previously cost breath to reach at all.
+    thermal(40, 150, -330, 45, 260, 11),
+    thermal(380, 200, -300, 40, 240, 11),
+    // A column up the spire, so the highest island rewards reading the air rather
+    // than holding thrust.
+    thermal(60, 320, 60, 38, 420, 13),
+    // Ridge lift along the west island's cliff face: free height for anyone who
+    // flies the wall instead of at it.
+    {
+      kind: 'ridge', position: new Vector3(-350, 20, -80), radius: 90, height: 160,
+      strength: 8, axis: new Vector3(0, 0, 1),
+    },
+    // The long south-west crossing is the emptiest stretch on the map, so it gets
+    // the conveyor.
+    {
+      kind: 'river', position: new Vector3(-180, 60, 240), radius: 70, height: 150,
+      strength: 26, axis: new Vector3(-0.6, 0, 0.8).normalize(),
+    },
+    // A downdraft as a soft boundary past the east rim: it pushes you home rather
+    // than walling you in.
+    {
+      kind: 'downdraft', position: new Vector3(520, 40, 120), radius: 110, height: 320,
+      strength: 10,
+    },
+    // Dead air in the low gap between the ring islands. No lift at all, so crossing
+    // the bottom of the map is breath-only flying.
+    {
+      kind: 'dead', position: new Vector3(-60, -150, 340), radius: 80, height: 200,
+      strength: 0,
+    },
   ],
   waterfalls: [
     { islandId: 'home', angle: 2.1, width: 10, length: 90 },

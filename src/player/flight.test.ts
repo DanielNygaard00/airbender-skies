@@ -145,3 +145,61 @@ describe('tucking folds the wings away', () => {
     expect(withFlag.velocity.length()).toBeGreaterThan(0)
   })
 })
+
+describe('wind acts on the glider', () => {
+  const args = {
+    forward: new Vector3(0, 0, -1), thrust: false, flare: false,
+    bank: 0, hover: false, tuck: false,
+  }
+
+  function fly(wind?: { accel: Vector3; liftScale: number }) {
+    let velocity = new Vector3(0, 0, -24)
+    let position = new Vector3(0, 300, 0)
+    for (let t = 0; t < 2; t += 1 / 60) {
+      const step = wind
+        ? flightStep(position, velocity, args, 1 / 60, C, wind)
+        : flightStep(position, velocity, args, 1 / 60, C)
+      position = step.position
+      velocity = step.velocity
+    }
+    return { position, velocity }
+  }
+
+  it('lets a strong thermal climb a glider that would otherwise sink', () => {
+    // Lift the player did not pay breath for is the whole point of the air being
+    // terrain. The thermal has to out-pull gravity to climb rather than merely
+    // sink slower, so this uses a core-strength column.
+    const lifted = fly({ accel: new Vector3(0, 25, 0), liftScale: 1 })
+    // Above the height it started at, which still air cannot manage: left alone the
+    // same glider sinks. That is the assertion carrying the weight here — a bare
+    // "higher than still air" would also pass on a thermal far too weak to climb.
+    expect(lifted.position.y).toBeGreaterThan(300)
+    expect(lifted.position.y).toBeGreaterThan(fly().position.y)
+  })
+
+  it('lets a weaker thermal slow the sink without reversing it', () => {
+    // Not every column is a lift; a modest one buys time, which is what makes
+    // reading their strength worth doing.
+    const eased = fly({ accel: new Vector3(0, 12, 0), liftScale: 1 })
+    expect(eased.position.y).toBeGreaterThan(fly().position.y)
+    expect(eased.position.y).toBeLessThan(300)
+  })
+
+  it('makes dead air sink the glider faster than still air', () => {
+    // "No lift at all. Breath-only flying."
+    const dead = fly({ accel: new Vector3(), liftScale: 0 })
+    expect(dead.position.y).toBeLessThan(fly().position.y)
+  })
+
+  it('carries the glider sideways in a river without it steering there', () => {
+    const carried = fly({ accel: new Vector3(20, 0, 0), liftScale: 1 })
+    expect(carried.position.x).toBeGreaterThan(fly().position.x + 5)
+  })
+
+  it('leaves flight unchanged when the argument is omitted', () => {
+    // The wind parameter defaults to still air, so every existing caller and the
+    // whole pre-existing flight model are untouched.
+    const explicit = fly({ accel: new Vector3(), liftScale: 1 })
+    expect(explicit.position.y).toBeCloseTo(fly().position.y, 9)
+  })
+})

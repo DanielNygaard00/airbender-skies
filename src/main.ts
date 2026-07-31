@@ -8,6 +8,8 @@ import { loadGLTF } from './core/assets'
 import { buildWorld, type World } from './world/world'
 import { ARCHIPELAGO } from './world/levels/archipelago'
 import { placeShrines } from './world/shrine'
+import { windSampler } from './world/wind'
+import { createWindTell } from './world/wind-tell'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
 import { controllerStep, type ControllerDeps } from './player/controller'
@@ -75,6 +77,13 @@ function start(): void {
     waterfalls.push(waterfall)
   }
 
+  // A wind feature the player cannot see is a bug, so each one is given its tell.
+  const windTells = (ARCHIPELAGO.winds ?? []).map((def) => {
+    const tell = createWindTell(def)
+    scene.add(tell.object)
+    return tell
+  })
+
   const avatar = createAvatar()
   scene.add(avatar.object)
 
@@ -105,6 +114,7 @@ function start(): void {
     ground: DEFAULT_GROUND_CONFIG,
     worldFloorY: ARCHIPELAGO.worldFloorY,
     spawnPointFor: spawnPointFor(ARCHIPELAGO, world.terrain),
+    windAt: windSampler(ARCHIPELAGO.winds ?? []),
   }
 
   let cameraPosition = camera.position.clone()
@@ -157,6 +167,7 @@ function start(): void {
 
     for (const marker of markers.values()) marker.rotation.y += dt * 1.5
     for (const waterfall of waterfalls) waterfall.advance(dt)
+    for (const tell of windTells) tell.advance(dt)
 
     wind.update(player.mode === 'glider' ? airspeed : 0)
     hud.update(hudModelFor(player))

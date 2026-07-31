@@ -1,5 +1,6 @@
 import { Vector3, MathUtils } from 'three'
 import type { FlightConfig } from '../core/types'
+import { stillAir, type WindSample } from '../world/wind'
 
 const WORLD_UP = new Vector3(0, 1, 0)
 const FALLBACK_RIGHT = new Vector3(1, 0, 0)
@@ -85,6 +86,7 @@ export function flightStep(
   input: FlightInput,
   dt: number,
   c: FlightConfig,
+  wind: WindSample = stillAir(),
 ): FlightResult {
   const speed = velocity.length()
   const vdir = speed > 0.01 ? velocity.clone().normalize() : input.forward.clone()
@@ -107,7 +109,10 @@ export function flightStep(
   // 1 when not tucked, so the untucked flight model is untouched.
   const liftFold = input.tuck ? c.tuckLiftFactor : 1
   const dragFold = input.tuck ? c.tuckDragFactor : 1
-  const liftMag = c.liftCoeff * speed * speed * Math.sin(2 * clampedAoa) * stallFactor * liftFold
+  // Dead air drives wind.liftScale to zero, which is what forces breath-only
+  // flying rather than merely making the wing less efficient.
+  const liftMag =
+    c.liftCoeff * speed * speed * Math.sin(2 * clampedAoa) * stallFactor * liftFold * wind.liftScale
   const dragMag =
     c.dragCoeff * speed * speed * (1 + c.inducedDragFactor * Math.sin(effectiveAoa) ** 2) * dragFold
 
@@ -134,6 +139,8 @@ export function flightStep(
   accel.addScaledVector(vdir, -dragMag)
   if (input.thrust) accel.addScaledVector(input.forward, c.thrustAccel)
   if (input.hover) accel.add(hoverAccel(velocity, c))
+  // The air itself: thermals, ridge lift, rivers and downdrafts.
+  accel.add(wind.accel)
 
   const nextVelocity = velocity.clone().addScaledVector(accel, dt)
   const nextPosition = position.clone().addScaledVector(nextVelocity, dt)

@@ -7,6 +7,7 @@ import { steerToward } from './steering'
 import { stepBreath, canBend } from './breath'
 import { groundStep } from './ground-move'
 import { canAirJump } from './jump'
+import { stillAir, type WindSample } from '../world/wind'
 
 export interface ControllerDeps {
   terrain: TerrainQuery
@@ -15,6 +16,11 @@ export interface ControllerDeps {
   worldFloorY: number
   /** Where to respawn for the given island, or the level spawn when null. */
   spawnPointFor(islandId: string | null): Vector3
+  /**
+   * What the air is doing where the glider is. Injected rather than read from the
+   * level so movement stays testable against a made-up sky.
+   */
+  windAt?(position: Vector3, forward: Vector3): WindSample
 }
 
 /** Distance below the glider at which touching down counts as landing. */
@@ -120,13 +126,14 @@ export function controllerStep(
     const forward = steerToward(
       state.forward, input.lookDirection, speed, input.strafe, dt, deps.flight,
     )
+    const wind = deps.windAt ? deps.windAt(state.position, forward) : stillAir()
     const moved = flightStep(state.position, state.velocity, {
       forward,
       thrust: thrusting,
       flare: input.forward < 0,
       bank: input.strafe * 0.6,
       hover: hovering, tuck: input.tuck,
-    }, dt, deps.flight)
+    }, dt, deps.flight, wind)
     const effort = thrusting ? 'thrust' : hovering ? 'hover' : 'idle'
     const breath = stepBreath(state, effort, false, dt, deps.flight)
 

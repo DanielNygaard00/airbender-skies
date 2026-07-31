@@ -1,6 +1,7 @@
 import type { Vector3 } from 'three'
 import { MAX_DEPTH_MULTIPLIER, type IslandDef } from './island'
 import type { WaterfallDef } from './waterfall'
+import type { WindDef } from './wind'
 
 export interface ShrineDef {
   islandId: string
@@ -15,6 +16,8 @@ export interface Level {
   islands: IslandDef[]
   shrines: ShrineDef[]
   waterfalls: WaterfallDef[]
+  /** Thermals, ridge lift, rivers, downdrafts and dead air. Optional. */
+  winds?: WindDef[]
 }
 
 /** Throws on any structural error, with a message that names the offender. */
