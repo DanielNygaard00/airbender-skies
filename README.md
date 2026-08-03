@@ -17,7 +17,7 @@ back down to a walking stick.
 | `Q` | Air blast dash — three in a chain, then a short recovery | — |
 | `F` | Gust — a wide sweep of air that knocks enemies back | — |
 | `E` | Avatar State — once the pip under your Focus bar is full | Avatar State |
-| `Ctrl` | — | Tuck — fold the wings for a fast dive |
+| `Ctrl` | Hold through a landing to slam | Tuck — fold the wings for a fast dive, and hold it through the landing to slam |
 | `Space` | Jump — twice, the second gains more height the faster you are rising | Deploy or stow the glider |
 
 Gliding on its own can only trade altitude for distance, and it costs nothing. Airbending is
@@ -35,6 +35,16 @@ A patrol of spear infantry holds the east side of the home island. They pressure
 they close, they telegraph, and standing still costs health. Gust knocks them back and interrupts a
 strike, but it barely hurts them — enemies are downed, never killed, and a downed soldier stays
 lying where the air put them.
+
+Height is a weapon. Hold `Ctrl` through a landing and the fall becomes a Pressure Wave — a
+ring of air that goes out in every direction, with no facing to aim and nobody safe behind
+you. How hard it hits scales with how fast you were falling: a short drop is a gust with no
+aim, while a committed dive downs a soldier outright and clears the space around them. It
+costs nothing but the commitment, and it pays Focus for landing it.
+
+The slam also throws you back into the air with your second jump available, so the dive is
+not the end of the move. Tuck into a dive, slam, then hit `Space` twice on the way back
+up — once for the double jump, once to snap the wings back open — and you're flying again.
 
 Focus is the reward for playing well rather than merely surviving. It builds while you hold a clean
 line — gliding above stall speed, and about twice as fast riding a thermal or a wind river — and

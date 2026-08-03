@@ -36,6 +36,34 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     knockback: 26,
     cooldownSeconds: 0.45,
   },
+  /**
+   * Pressure Wave.
+   *
+   * The floor sits above a normal jump's landing speed (about 9 m/s from jumpSpeed 9)
+   * so that hopping is not an attack. A charged jump at 20 m/s does clear it, at
+   * strength 0.24 — deliberate: charge, hop, slam is a legitimate small ground combo.
+   * Full strength needs a real tucked dive.
+   *
+   * The damage ceiling of 2.2 is past a soldier's 1.5 health, so a committed dive
+   * downs one outright. That cliff lands around 30.6 m/s of descent and is the whole
+   * feel of the move.
+   *
+   * Every value here is an argued guess. None of it has been played.
+   */
+  pressureWave: {
+    minImpactSpeed: 12,
+    fullImpactSpeed: 45,
+    minRadius: 4,
+    // Close to the gust's 12 range, so a full slam is a crowd move.
+    maxRadius: 11,
+    minDamage: 0.6,
+    maxDamage: 2.2,
+    minKnockback: 12,
+    // Above the gust's 26, and radial, so it clears space in every direction.
+    maxKnockback: 30,
+    // A 45 m/s dive returns about 20 m/s, roughly 10 m of climb: enough to re-deploy.
+    bounceFactor: 0.45,
+  },
 }
 
 /**

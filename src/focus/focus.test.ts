@@ -18,6 +18,7 @@ const C: FocusConfig = {
   chainRampMax: 2,
   gustConnectGain: 5,
   downGain: 10,
+  slamGainAtFullImpact: 20,
   damageDrain: 30,
   crashDrain: 50,
 }
@@ -155,5 +156,43 @@ describe('stepFocus', () => {
   it('never leaves the meter outside its range', () => {
     expect(stepFocus(focusAt(95), input({ ratePerSecond: 2 }), 60, C).value).toBe(100)
     expect(stepFocus(focusAt(5), input({ events: { fellOutOfWorld: true } }), 1, C).value).toBe(0)
+  })
+})
+
+describe('stepFocus slams', () => {
+  it('pays for a full-strength slam', () => {
+    const next = stepFocus(focusAt(0), input({ events: { slamStrength: 1 } }), 1 / 60, C)
+    expect(next.value).toBeCloseTo(20)
+  })
+
+  it('pays in proportion to the impact', () => {
+    const next = stepFocus(focusAt(0), input({ events: { slamStrength: 0.25 } }), 1 / 60, C)
+    expect(next.value).toBeCloseTo(5)
+  })
+
+  it('pays nothing when there was no slam', () => {
+    const next = stepFocus(focusAt(0), input({ events: { slamStrength: 0 } }), 1 / 60, C)
+    expect(next.value).toBeCloseTo(0)
+  })
+
+  it('pays more for a slam landed during a long clean run', () => {
+    const cold = stepFocus(focusAt(0, 0), input({ events: { slamStrength: 1 } }), 1 / 60, C)
+    const hot = stepFocus(focusAt(0, 30), input({ events: { slamStrength: 1 } }), 1 / 60, C)
+    // The ramp is worth exactly 2x with this fixture.
+    expect(cold.value).toBeCloseTo(20)
+    expect(hot.value).toBeCloseTo(40)
+  })
+
+  it('pays nothing for a slam on a frame that also broke the chain', () => {
+    // Not zero Focus overall — the drain applies — but the slam's own grant is
+    // unramped, exactly like a down on a broken frame.
+    const next = stepFocus(
+      focusAt(80, 30),
+      input({ events: { slamStrength: 1, playerHit: true } }),
+      1 / 60,
+      C,
+    )
+    // 80 - 30 damage + 20 unramped slam.
+    expect(next.value).toBeCloseTo(70)
   })
 })

@@ -4,6 +4,9 @@ import {
 } from './health'
 import { hitEnemy, spawnEnemy, stepEnemy, type Enemy, type EnemyConfig } from './enemy'
 import { gustImpulse, gustTargets, type GustConfig } from './gust'
+import {
+  waveDamage, waveImpulse, waveTargets, type PressureWaveConfig,
+} from './pressure-wave'
 
 /**
  * One fight: the enemies, the player's health, and the cooldown on their bending.
@@ -24,6 +27,7 @@ export interface CombatConfig {
   player: HealthConfig
   enemy: EnemyConfig
   gust: GustConfig
+  pressureWave: PressureWaveConfig
 }
 
 export interface EnemySpawn {
@@ -44,6 +48,8 @@ export interface EncounterInput {
   playerForward: Vector3
   /** Edge-triggered: the player asked to gust this frame. */
   gustPressed: boolean
+  /** A Pressure Wave landed at the player's feet this frame, or null. */
+  slam: { strength: number } | null
 }
 
 export interface EncounterStep {
@@ -52,6 +58,10 @@ export interface EncounterStep {
   downedThisFrame: string[]
   /** Enemies a gust connected with this frame, for feedback and for Focus. */
   hitThisFrame: string[]
+  /** Enemies a Pressure Wave connected with this frame. Kept apart from hitThisFrame:
+   *  that one feeds a per-enemy Focus grant, and a slam is already paid for by its
+   *  own strength, so folding them together would pay twice for one slam. */
+  slamHitThisFrame: string[]
   /** Whether the player was hit this frame, for feedback. */
   playerHit: boolean
 }
@@ -64,9 +74,11 @@ export function canGust(encounter: Encounter): boolean {
 /**
  * Advance the whole fight one frame.
  *
- * Order matters. The gust resolves before the enemies act, so a gust fired during a
- * wind-up interrupts that strike instead of trading with it — which is the entire
- * point of the move having high knockback and almost no damage.
+ * Order matters: the gust resolves, then the wave, then the enemies act. Both the
+ * gust and the wave interrupt a wind-up rather than trading with it, which requires
+ * both to land before enemies are stepped. Gust-then-wave is arbitrary between the
+ * two moves but deterministic, and it means the wave sees the gust's knockback
+ * already applied.
  */
 export function stepEncounter(
   encounter: Encounter,
@@ -104,6 +116,29 @@ export function stepEncounter(
     gustCooldown = c.gust.cooldownSeconds
   }
 
+  let slamHitThisFrame: string[] = []
+
+  if (input.slam) {
+    const { strength } = input.slam
+    const caught = new Set(
+      waveTargets(input.playerPosition, enemies, strength, c.pressureWave)
+        .map((enemy) => enemy.id),
+    )
+    // Read before the hits land, so a connect means a live enemy took it.
+    slamHitThisFrame = enemies
+      .filter((enemy) => caught.has(enemy.id) && !isDowned(enemy.health))
+      .map((enemy) => enemy.id)
+    const damage = waveDamage(strength, c.pressureWave)
+    enemies = enemies.map((enemy) =>
+      caught.has(enemy.id) && !isDowned(enemy.health)
+        ? hitEnemy(
+            enemy,
+            damage,
+            waveImpulse(input.playerPosition, enemy.position, strength, c.pressureWave),
+          )
+        : enemy)
+  }
+
   let damageToPlayer = 0
   enemies = enemies.map((enemy) => {
     const step = stepEnemy(enemy, input.playerPosition, dt, c.enemy)
@@ -124,6 +159,7 @@ export function stepEncounter(
     encounter: { enemies, playerHealth, gustCooldown },
     downedThisFrame,
     hitThisFrame,
+    slamHitThisFrame,
     playerHit: damageToPlayer > 0,
   }
 }

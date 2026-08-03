@@ -17,10 +17,13 @@ import { emptyFocus, stepFocus, type FocusEvents } from './focus/focus'
 import { traversalRatePerSecond, fellOutOfWorld } from './focus/sources'
 import { restingAvatarState, stepAvatarState, armFraction } from './focus/avatar-state'
 import { boostedCombatConfig, surgeWind, refillBreath } from './focus/effects'
+import { waveRadius } from './combat/pressure-wave'
+import { detectSlam, applyBounce } from './player/slam'
+import { createShockwave, type Shockwave } from './fx/shockwave'
 import { createEnemyView } from './combat/enemy-mesh'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
-import { controllerStep, type ControllerDeps } from './player/controller'
+import { controllerStep, willRespawn, type ControllerDeps } from './player/controller'
 import { collectStep } from './player/shrine-collect'
 import { enableShadows } from './core/sun'
 import { createAvatar } from './player/avatar'
@@ -65,6 +68,8 @@ function start(): void {
   let avatarActive = false
   /** The unsurged sample from the last windAt call, so the surge cannot feed itself. */
   let lastWind: WindSample = stillAir()
+  /** Live shockwave rings, culled as they finish. One is created per slam. */
+  const shockwaves: Shockwave[] = []
 
   // Shrine markers: a spinning octahedron each, hidden once collected.
   const shrineGroup = new Group()
@@ -184,8 +189,32 @@ function start(): void {
 
     // Cleared each frame; windAt overwrites it when the glider asks about the air.
     lastWind = stillAir()
+    // Held across the step so the impact speed survives the landing that zeroes it.
+    const beforeStep = player
     player = controllerStep(player, state, dt, deps)
     if (avatarActive) player = refillBreath(player)
+
+    // Deliberately not `crashed` here, even though both flag a respawn. `crashed`
+    // (fellOutOfWorld) only covers falling past the world floor, which is all the
+    // Focus crash-drain below is meant to react to — draining Focus for a
+    // corruption respawn too would be a behaviour change nobody asked for. The slam
+    // guard needs the wider net: `willRespawn` also covers a non-finite state, which
+    // respawns grounded from whatever fall speed corrupted it, and that must not
+    // read as a slam either. Do not collapse these into one flag.
+    const slam = detectSlam(
+      beforeStep, player, state.tuck, willRespawn(beforeStep, ARCHIPELAGO.worldFloorY),
+      DEFAULT_COMBAT_CONFIG.pressureWave,
+    )
+    if (slam) {
+      // The ring is placed at the point of contact, before the bounce moves the player.
+      const ring = createShockwave(
+        waveRadius(slam.strength, DEFAULT_COMBAT_CONFIG.pressureWave), slam.strength,
+      )
+      ring.object.position.copy(player.position)
+      scene.add(ring.object)
+      shockwaves.push(ring)
+      player = applyBounce(player, slam, DEFAULT_COMBAT_CONFIG.pressureWave)
+    }
 
     const collection = collectStep(player, shrines, DEFAULT_FLIGHT_CONFIG)
     if (collection.collected.length > 0) {
@@ -233,10 +262,19 @@ function start(): void {
     for (const waterfall of waterfalls) waterfall.advance(dt)
     for (const tell of windTells) tell.advance(dt * (avatarActive ? WIND_TELL_SURGE : 1))
 
+    for (let i = shockwaves.length - 1; i >= 0; i--) {
+      const ring = shockwaves[i]
+      if (!ring || ring.advance(dt)) continue
+      scene.remove(ring.object)
+      ring.dispose()
+      shockwaves.splice(i, 1)
+    }
+
     const fight = stepEncounter(encounter, {
       playerPosition: player.position,
       playerForward: player.forward,
       gustPressed: state.gustPressed,
+      slam: slam ? { strength: slam.strength } : null,
     }, dt, boostedCombatConfig(DEFAULT_COMBAT_CONFIG, avatarActive, DEFAULT_AVATAR_STATE_CONFIG))
     encounter = fight.encounter
     for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy)
@@ -244,6 +282,7 @@ function start(): void {
     const events: FocusEvents = {
       gustConnects: fight.hitThisFrame.length,
       downs: fight.downedThisFrame.length,
+      slamStrength: slam?.strength ?? 0,
       playerHit: fight.playerHit,
       fellOutOfWorld: crashed,
     }
