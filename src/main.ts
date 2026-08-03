@@ -237,6 +237,8 @@ function start(): void {
       playerPosition: player.position,
       playerForward: player.forward,
       gustPressed: state.gustPressed,
+      // Pressure Wave is not wired into the game loop yet; a later task supplies this.
+      slam: null,
     }, dt, boostedCombatConfig(DEFAULT_COMBAT_CONFIG, avatarActive, DEFAULT_AVATAR_STATE_CONFIG))
     encounter = fight.encounter
     for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy)
