@@ -2,6 +2,7 @@ import type { GroundConfig, PlayerState } from '../../core/types'
 import type { PressureWaveConfig } from '../../combat/pressure-wave'
 import { canDash } from '../../player/dash'
 import { canAirJump } from '../../player/jump'
+import { canBend } from '../../player/breath'
 
 /**
  * Every action the player can perform, and whether they can perform it now.
@@ -51,7 +52,7 @@ const inGlider = (ctx: ActionContext): boolean => ctx.player.mode === 'glider'
 const standing = (ctx: ActionContext): boolean => onGround(ctx) && ctx.player.grounded
 const airborne = (ctx: ActionContext): boolean => onGround(ctx) && !ctx.player.grounded
 /** Gliding with breath left: both thrust and hover spend it, and neither works empty. */
-const hasBreath = (ctx: ActionContext): boolean => inGlider(ctx) && ctx.player.breath > 0
+const hasBreath = (ctx: ActionContext): boolean => inGlider(ctx) && canBend(ctx.player)
 
 export const ACTIONS: readonly GameAction[] = [
   {
@@ -90,8 +91,8 @@ export const ACTIONS: readonly GameAction[] = [
   {
     key: 'Q', name: 'Air blast dash', mode: 'ground',
     detail: 'Three in a chain, then a short recovery. Ground only.',
-    // canDash covers the chain and the recovery; controllerStep separately requires
-    // grounded. See src/player/controller.ts for that half of the gate.
+    // canDash covers the chain and the recovery; stepDash separately requires
+    // grounded. See src/player/dash.ts for that half of the gate.
     available: (ctx) => standing(ctx)
       && canDash({ used: ctx.player.dashesUsed, recovery: ctx.player.dashRecovery }, ctx.ground),
   },
