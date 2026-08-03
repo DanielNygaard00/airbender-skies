@@ -597,7 +597,7 @@ export const COMBOS: readonly Combo[] = [
   },
   {
     name: 'Ride the air rather than fight it',
-    keys: ['W', 'A / D'],
+    keys: ['W', 'A', 'D'],
     detail: 'Thrust costs breath; a thermal does not. Steering into a mote cloud and ' +
       'circling inside it climbs for free, and it builds Focus about twice as fast.',
   },

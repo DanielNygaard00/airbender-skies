@@ -82,7 +82,13 @@ export const ACTIONS: readonly GameAction[] = [
   {
     key: 'Shift', press: 'tap', name: 'Air scooter', mode: 'ground', available: standing,
     detail: 'Tap to ride, tap to step off. Doubles your speed and halves your steering; ' +
-      'holding a clean line builds a hidden charge that makes it faster still.',
+      'holding a clean line builds a hidden charge that makes it faster still. Leaving ' +
+      'the ground — a jump, a fall off a ledge, or stepping off — stows it and loses the charge.',
+  },
+  {
+    key: 'Shift', press: 'hold', name: 'Sprint', mode: 'ground', available: onGround,
+    detail: 'Hold to run instead of walk, nearly doubling your base speed. It stacks with ' +
+      'the air scooter too — riding with Shift held is faster than riding without it.',
   },
   {
     key: 'Shift', press: 'hold', name: 'Hover', mode: 'glider', available: hasBreath,
@@ -111,8 +117,11 @@ export const ACTIONS: readonly GameAction[] = [
   },
   {
     key: 'Ctrl', press: 'hold through a landing', name: 'Pressure Wave', mode: 'both',
-    detail: 'Turn a fall into a ground slam. The harder the landing, the wider and heavier ' +
-      'the blast — a committed dive downs a soldier outright, and it throws you back up.',
+    detail: 'Land fast enough while holding this and the fall becomes a ground slam. What ' +
+      'matters is your speed at touchdown, not your speed right now — a fall that is still ' +
+      'accelerating can clear the threshold before it lands. The harder the landing, the ' +
+      'wider and heavier the blast: a committed dive downs a soldier outright, and throws ' +
+      'you back up.',
     // The fall-speed threshold lives inside detectSlam, which needs a landing to test,
     // so it is restated here. See src/player/slam.ts.
     available: (ctx) => !ctx.player.grounded

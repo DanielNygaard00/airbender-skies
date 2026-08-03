@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { guideModelFor } from './panel'
+import { guideModelFor, escape, rowHtml, columnHtml, notesHtml, type GuideRow } from './panel'
 import type { ActionContext } from './actions'
 import { DEFAULT_GROUND_CONFIG } from '../../core/config'
 import { DEFAULT_COMBAT_CONFIG } from '../../combat/config'
@@ -73,7 +73,61 @@ describe('guideModelFor', () => {
   it('carries the press qualifier through, so two actions on one key are told apart', () => {
     const rows = guideModelFor(ctx()).ground.filter((r) => r.key === 'Space')
     // Jump, charged jump, double jump and deploy all live on Space.
-    expect(rows.length).toBeGreaterThan(2)
+    expect(rows.length).toBe(4)
     for (const row of rows) expect(row.press?.length ?? 0).toBeGreaterThan(0)
+  })
+})
+
+describe('escape', () => {
+  it('escapes ampersands, less-than and greater-than', () => {
+    expect(escape('&')).toBe('&amp;')
+    expect(escape('<')).toBe('&lt;')
+    expect(escape('>')).toBe('&gt;')
+  })
+
+  it('leaves ordinary text alone', () => {
+    expect(escape('tap to ride, tap to step off')).toBe('tap to ride, tap to step off')
+  })
+
+  it('renders a script tag inert', () => {
+    const escaped = escape('<script>alert(1)</script>')
+    expect(escaped).not.toContain('<script>')
+    expect(escaped).toBe('&lt;script&gt;alert(1)&lt;/script&gt;')
+  })
+})
+
+describe('HTML builders', () => {
+  const row = (over: Partial<GuideRow> = {}) => ({
+    key: 'Space', name: 'Jump', detail: 'A short hop.', available: true, ...over,
+  })
+
+  it('keeps a row whose name carries a script tag inert', () => {
+    const html = rowHtml(row({ name: '<script>alert(1)</script>' }))
+    expect(html).not.toContain('<script>alert(1)</script>')
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+  })
+
+  it('keeps a row whose detail carries a script tag inert', () => {
+    const html = rowHtml(row({ detail: '<script>alert(1)</script>' }))
+    expect(html).not.toContain('<script>alert(1)</script>')
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+  })
+
+  it('builds a column heading for the given mode', () => {
+    const html = columnHtml('ground', [row()], 'ground')
+    expect(html).toContain('On foot')
+    expect(html).not.toContain('is-dim')
+  })
+
+  it('dims a column that is not the current mode', () => {
+    const html = columnHtml('glider', [row()], 'ground')
+    expect(html).toContain('is-dim')
+  })
+
+  it('builds a notes section and escapes each note', () => {
+    const html = notesHtml('Wind', [{ name: '<script>x</script>', detail: 'ok' }])
+    expect(html).toContain('Wind')
+    expect(html).not.toContain('<script>x</script>')
+    expect(html).toContain('&lt;script&gt;x&lt;/script&gt;')
   })
 })

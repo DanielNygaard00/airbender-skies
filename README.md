@@ -13,9 +13,9 @@ back down to a walking stick.
 | Mouse | Look | Trim — nudges the nose toward where you look |
 | `W` / `S` | Walk forward / back | Airbending thrust / flare |
 | `A` / `D` | Strafe | Shift your weight — this is how you steer |
-| `Shift` | Air scooter — tap to ride, tap to step off | Hover — hold position in mid-air |
+| `Shift` | Air scooter (tap to ride, tap to step off) — or hold to sprint instead, which also raises the scooter's speed | Hover — hold position in mid-air |
 | `Q` | Air blast dash — three in a chain, then a short recovery | — |
-| `F` | Gust — a wide sweep of air that knocks enemies back | — |
+| `F` | Gust — a wide sweep of air that knocks enemies back | Gust |
 | `E` | Avatar State — once the pip under your Focus bar is full | Avatar State |
 | `Ctrl` | Hold through a landing to slam | Tuck — fold the wings for a fast dive, and hold it through the landing to slam |
 | `Space` | Jump — twice, the second gains more height the faster you are rising | Deploy or stow the glider |
