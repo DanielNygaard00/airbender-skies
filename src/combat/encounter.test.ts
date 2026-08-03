@@ -115,4 +115,41 @@ describe('gusting', () => {
     if (!isDowned(encounter.enemies[0]!.health)) return
     expect(encounter.enemies[0]!.stance).toBe('downed')
   })
+
+  it('reports the enemies a gust connected with', () => {
+    const encounter = startEncounter([
+      { id: 'a', position: new Vector3(0, 0, -2) },
+      { id: 'b', position: new Vector3(0, 0, -40) },
+    ], C)
+    const step = stepEncounter(encounter, {
+      playerPosition: ORIGIN, playerForward: NORTH, gustPressed: true,
+    }, 1 / 60, C)
+
+    // 'a' is inside the 12 unit range; 'b' at 40 is well outside it.
+    expect(step.hitThisFrame).toEqual(['a'])
+  })
+
+  it('reports nothing on a frame with no gust', () => {
+    const step = stepEncounter(near(), {
+      playerPosition: ORIGIN, playerForward: NORTH, gustPressed: false,
+    }, 1 / 60, C)
+    expect(step.hitThisFrame).toEqual([])
+  })
+
+  it('does not report a gust that swept an already-downed enemy', () => {
+    // A connect has to mean a live enemy took it, or Focus would pay the player for
+    // blowing a body around the island.
+    const base = near()
+    const alreadyDowned = {
+      ...base,
+      enemies: base.enemies.map((enemy) => ({
+        ...enemy, health: { ...enemy.health, current: 0 },
+      })),
+    }
+    const step = stepEncounter(alreadyDowned, {
+      playerPosition: ORIGIN, playerForward: NORTH, gustPressed: true,
+    }, 1 / 60, C)
+
+    expect(step.hitThisFrame).toEqual([])
+  })
 })
