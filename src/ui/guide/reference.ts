@@ -66,8 +66,9 @@ export const METERS: readonly MeterNote[] = [
   {
     name: 'Focus',
     detail: 'The gold bar. Builds while you hold a clean line — gliding above stall, and ' +
-      'about twice as fast riding a wind feature — and much faster in a fight. Standing ' +
-      'still drains it, and a hit takes nearly a third. The longer you go unbroken the ' +
+      'about twice as fast riding a wind feature — and much faster in a fight. On foot it ' +
+      'drains unless you are riding the scooter — walking costs it exactly as fast as ' +
+      'standing still. A hit takes nearly a third. The longer you go unbroken the ' +
       'better everything pays. Hold it at full and the thin pip beneath it fills; once ' +
       'that is full, E spends the lot on the Avatar State.',
   },
