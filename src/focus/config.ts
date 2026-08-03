@@ -25,6 +25,9 @@ export const DEFAULT_FOCUS_CONFIG: FocusConfig = {
   chainRampMax: 1.8,
   gustConnectGain: 6,
   downGain: 14,
+  // A shade more than a down: a slam is harder to execute, and rewarding it is how
+  // the traversal layer feeds the meter.
+  slamGainAtFullImpact: 18,
   damageDrain: 30,
   crashDrain: 50,
 }

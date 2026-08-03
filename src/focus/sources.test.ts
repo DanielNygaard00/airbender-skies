@@ -15,6 +15,7 @@ const C: FocusConfig = {
   chainRampMax: 2,
   gustConnectGain: 5,
   downGain: 10,
+  slamGainAtFullImpact: 20,
   damageDrain: 30,
   crashDrain: 50,
 }

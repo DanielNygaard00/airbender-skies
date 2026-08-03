@@ -36,6 +36,8 @@ export interface FocusConfig {
   gustConnectGain: number
   /** Focus for downing an enemy. */
   downGain: number
+  /** Focus for a full-strength Pressure Wave. */
+  slamGainAtFullImpact: number
   /** Focus lost to a single hit. */
   damageDrain: number
   /** Focus lost to falling out of the world. */
@@ -48,6 +50,8 @@ export interface FocusEvents {
   gustConnects: number
   /** Enemies downed. */
   downs: number
+  /** Strength of a Pressure Wave landed this frame, 0 to 1. Zero when there was none. */
+  slamStrength: number
   playerHit: boolean
   fellOutOfWorld: boolean
 }
@@ -63,7 +67,7 @@ export interface FocusInput {
 }
 
 export function noFocusEvents(): FocusEvents {
-  return { gustConnects: 0, downs: 0, playerHit: false, fellOutOfWorld: false }
+  return { gustConnects: 0, downs: 0, slamStrength: 0, playerHit: false, fellOutOfWorld: false }
 }
 
 export function emptyFocus(c: FocusConfig): Focus {
@@ -114,7 +118,9 @@ export function stepFocus(
   // The ramp scales the drain as well as the gain: a long clean run bleeds away
   // faster once it stops, so idling costs more the better the run was.
   value += input.ratePerSecond * ramp * dt
-  value += (events.gustConnects * c.gustConnectGain + events.downs * c.downGain) * ramp
+  value += (events.gustConnects * c.gustConnectGain
+    + events.downs * c.downGain
+    + events.slamStrength * c.slamGainAtFullImpact) * ramp
 
   return { value: MathUtils.clamp(value, 0, focus.max), max: focus.max, chainTime }
 }

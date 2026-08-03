@@ -244,6 +244,8 @@ function start(): void {
     const events: FocusEvents = {
       gustConnects: fight.hitThisFrame.length,
       downs: fight.downedThisFrame.length,
+      // Pressure Wave is not wired into the game loop yet; a later task supplies this.
+      slamStrength: 0,
       playerHit: fight.playerHit,
       fellOutOfWorld: crashed,
     }
