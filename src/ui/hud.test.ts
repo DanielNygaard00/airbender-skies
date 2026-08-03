@@ -80,3 +80,53 @@ describe('hudModelFor', () => {
     expect(hudModelFor(p({ breath: 60 })).showBreath).toBe(true)
   })
 })
+
+describe('hudModelFor focus', () => {
+  it('hides the meter before the player has built anything', () => {
+    const model = hudModelFor(p(), undefined, {
+      focus: 0, avatarCharge: 0, avatarActive: false,
+    })
+    expect(model.showFocus).toBe(false)
+  })
+
+  it('shows the meter once there is something in it', () => {
+    const model = hudModelFor(p(), undefined, {
+      focus: 0.02, avatarCharge: 0, avatarActive: false,
+    })
+    expect(model.showFocus).toBe(true)
+  })
+
+  it('shows the meter during the Avatar State even at zero', () => {
+    // The state freezes Focus, but an empty bar vanishing mid-state would read as
+    // the HUD breaking at the loudest moment in the game.
+    const model = hudModelFor(p(), undefined, {
+      focus: 0, avatarCharge: 0, avatarActive: true,
+    })
+    expect(model.showFocus).toBe(true)
+  })
+
+  it('clamps a fraction that arrives out of range', () => {
+    const model = hudModelFor(p(), undefined, {
+      focus: 1.4, avatarCharge: -0.2, avatarActive: false,
+    })
+    expect(model.focus).toBe(1)
+    expect(model.avatarCharge).toBe(0)
+  })
+
+  it('never shows a non-finite fraction', () => {
+    // These arrive from a division, so a zero maximum upstream must not reach the DOM
+    // as a NaN transform.
+    const model = hudModelFor(p(), undefined, {
+      focus: NaN, avatarCharge: NaN, avatarActive: false,
+    })
+    expect(model.focus).toBe(0)
+    expect(model.avatarCharge).toBe(0)
+  })
+
+  it('works with no focus readout at all, for anywhere Focus is not running', () => {
+    const model = hudModelFor(p())
+    expect(model.focus).toBe(0)
+    expect(model.showFocus).toBe(false)
+    expect(model.avatarActive).toBe(false)
+  })
+})
