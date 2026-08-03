@@ -145,10 +145,11 @@ describe('waveTargets', () => {
     expect(ids.length).toBe(4)
   })
 
-  it('ignores height, so an enemy on a ledge overhead is not caught by luck', () => {
+  it('measures reach by horizontal distance alone, so height does not shelter anyone', () => {
     const overhead = spawnEnemy('up', new Vector3(0, 40, 0), DEFAULT_COMBAT_CONFIG.enemy)
-    // Horizontal distance is zero, so it IS caught — pinning that this is the chosen
-    // behaviour rather than an accident, matching how the gust measures reach.
+    // Caught, because the horizontal distance is zero. Pinned deliberately: it matches
+    // how the gust measures reach, and every enemy in the game stands on the ground, so
+    // a vertical test would be untested complexity. Revisit when a flying enemy exists.
     expect(waveTargets(ORIGIN, [overhead], 1, C).length).toBe(1)
   })
 })
