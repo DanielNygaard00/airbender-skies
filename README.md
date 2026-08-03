@@ -16,6 +16,7 @@ back down to a walking stick.
 | `Shift` | Air scooter — tap to ride, tap to step off | Hover — hold position in mid-air |
 | `Q` | Air blast dash — three in a chain, then a short recovery | — |
 | `F` | Gust — a wide sweep of air that knocks enemies back | — |
+| `E` | Avatar State — once the pip under your Focus bar is full | Avatar State |
 | `Ctrl` | — | Tuck — fold the wings for a fast dive |
 | `Space` | Jump — twice, the second gains more height the faster you are rising | Deploy or stow the glider |
 
@@ -34,6 +35,18 @@ A patrol of spear infantry holds the east side of the home island. They pressure
 they close, they telegraph, and standing still costs health. Gust knocks them back and interrupts a
 strike, but it barely hurts them — enemies are downed, never killed, and a downed soldier stays
 lying where the air put them.
+
+Focus is the reward for playing well rather than merely surviving. It builds while you hold a clean
+line — gliding above stall speed, and about twice as fast riding a thermal or a wind river — and
+much faster in a fight, on every gust that connects and every soldier you put down. Standing still
+drains it, and a spear hit takes nearly a third of the bar. The longer you go unbroken the better
+everything pays, so a long run is worth more than the sum of its parts, and losing it costs more too.
+From a standing start, a clean glide fills the bar in around half a minute.
+
+Hold Focus at maximum and a thin pip fills beneath the bar. Once it is full, `E` spends the whole
+meter on the Avatar State: eight seconds of free breath, a gust that downs a soldier outright, and
+every wind feature in the archipelago turning to your side — thermals surge, downdrafts relent, dead
+air comes back to life. The pip only holds while Focus stays at maximum, so one hit takes both.
 
 Transitions are free and meant to be chained: deploying the wings mid-jump keeps every bit of
 horizontal momentum and adds an upward kick, so a well-timed deploy out of a rising double jump

@@ -40,12 +40,15 @@ export function createWindAudio() {
       }
     },
 
-    update(airspeed: number): void {
+    /** `swell` from 0 to 1 lifts the wind for the Avatar State. */
+    update(airspeed: number, swell = 0): void {
       if (!context || !gain || !filter) return
       const now = context.currentTime
       // Ramps rather than direct assignment, otherwise the audio clicks.
-      gain.gain.setTargetAtTime(windVolumeForSpeed(airspeed) * 0.35, now, 0.1)
-      filter.frequency.setTargetAtTime(400 + 900 * windPitchForSpeed(airspeed), now, 0.1)
+      gain.gain.setTargetAtTime(windVolumeForSpeed(airspeed) * 0.35 + swell * 0.25, now, 0.1)
+      filter.frequency.setTargetAtTime(
+        400 + 900 * windPitchForSpeed(airspeed) + 700 * swell, now, 0.1,
+      )
     },
 
     dispose(): void {
