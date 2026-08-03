@@ -43,11 +43,14 @@ export function detectSlam(
 }
 
 /**
- * The bounce out of a slam, which is what makes §4.3's dive → wave → re-deploy possible.
+ * The bounce out of a slam.
  *
- * Clearing `grounded` while the player is standing on the surface is safe: `groundStep`
- * snaps only a player who was already grounded or who is descending onto the surface,
- * and a bouncing player is neither.
+ * `airJumpsUsed: 0` here is belt-and-braces, not the reason the re-deploy stays
+ * reachable: landing already zeroed it, in both `groundStep` and the glider-landing
+ * branch of `controllerStep`. What actually keeps §4.3's combo alive is `grounded:
+ * false` — clearing it while the player is standing on the surface is safe, because
+ * `groundStep` snaps only a player who was already grounded or who is descending onto
+ * the surface, and a bouncing player is neither.
  */
 export function applyBounce(
   player: PlayerState,

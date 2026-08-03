@@ -79,8 +79,10 @@ mention of it. Spec at
 test at all — and `src/player/slam.ts` detects a committed landing by comparing the
 player either side of `controllerStep`, so no movement code knows combat exists. Damage,
 radius, knockback and the Focus grant all scale with downward impact speed, and a full
-dive downs a spear soldier outright. The slam bounces the player back up with their air
-jump restored, which is what makes §4.3's dive → wave → re-deploy possible. Spec at
+dive downs a spear soldier outright. The slam bounces the player back up, airborne with
+their air jump available — that's where the extra height for the return trip comes
+from — so §4.3's flagship combo is three beats on Space: dive, slam, double jump,
+deploy. Spec at
 [`docs/superpowers/specs/2026-08-03-pressure-wave-design.md`](superpowers/specs/2026-08-03-pressure-wave-design.md).
 
 ## What has NOT been built

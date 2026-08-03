@@ -42,8 +42,9 @@ you. How hard it hits scales with how fast you were falling: a short drop is a g
 aim, while a committed dive downs a soldier outright and clears the space around them. It
 costs nothing but the commitment, and it pays Focus for landing it.
 
-The slam also throws you back into the air with your second jump restored, so the dive is
-not the end of the move. Tuck into a dive, slam, and deploy the wings on the way back up.
+The slam also throws you back into the air with your second jump available, so the dive is
+not the end of the move. Tuck into a dive, slam, then hit `Space` twice on the way back
+up — once for the double jump, once to snap the wings back open — and you're flying again.
 
 Focus is the reward for playing well rather than merely surviving. It builds while you hold a clean
 line — gliding above stall speed, and about twice as fast riding a thermal or a wind river — and

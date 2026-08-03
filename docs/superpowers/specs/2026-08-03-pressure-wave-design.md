@@ -138,7 +138,15 @@ export function applyBounce(
 
 Setting `grounded: false` while standing on the surface is safe: `ground-move.ts` snaps
 only when the player was already grounded or is descending onto the surface, and a
-bouncing player is neither. The refreshed air jump is what makes the re-deploy reachable.
+bouncing player is neither. `airJumpsUsed: 0` is redundant here — both landing paths
+already zero it before `applyBounce` runs — and it does not make the re-deploy any more
+reachable: `controllerStep`'s deploy branch requires the air jump to already be *spent*,
+so an available air jump is what the *next* press consumes, not what deploys the
+glider. What actually keeps the combo alive is `grounded: false`, which leaves the
+player airborne in `mode: 'ground'` for the eventual double jump and, on the press after
+that, the deploy. Playtesting (Task 6) confirmed this: re-deploying after the bounce
+takes two presses of Space, not one — the first spends the air jump, the second
+deploys — so the flagship combo is dive, slam, double jump, deploy.
 
 ## 3. The visual (`src/fx/shockwave.ts`)
 

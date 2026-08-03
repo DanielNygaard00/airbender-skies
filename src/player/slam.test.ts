@@ -92,7 +92,7 @@ describe('applyBounce', () => {
     expect(applyBounce(landed(), { impactSpeed: 40, strength: 0.75 }, C).grounded).toBe(false)
   })
 
-  it('refreshes the air jump, which is what makes the re-deploy reachable', () => {
+  it('resets the air jump count to zero', () => {
     const before = p({ grounded: true, airJumpsUsed: 1 })
     expect(applyBounce(before, { impactSpeed: 40, strength: 0.75 }, C).airJumpsUsed).toBe(0)
   })
