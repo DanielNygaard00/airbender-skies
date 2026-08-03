@@ -14,7 +14,7 @@ const C: CombatConfig = {
   pressureWave: {
     minImpactSpeed: 10, fullImpactSpeed: 50, minRadius: 4, maxRadius: 12,
     minDamage: 0.5, maxDamage: 2.5, minKnockback: 10, maxKnockback: 30,
-    bounceFactor: 0.5, focusAtFullImpact: 20,
+    bounceFactor: 0.5,
   },
 }
 
@@ -60,9 +60,18 @@ describe('gusting', () => {
 
   it('interrupts a strike instead of trading with it', () => {
     // Gusting resolves before the enemies act, which is the whole point of a move
-    // with high knockback and almost no damage.
-    const winding = run(C.enemy.windUpSeconds - 0.1).encounter
-    expect(winding.enemies[0]!.stance).toBe('wind-up')
+    // with high knockback and almost no damage. Built directly rather than derived
+    // through run(), so the margin to windUpSeconds is exact: a dt short of the
+    // threshold means this very frame's enemy step would land the strike, if the
+    // gust did not get to the enemy first. (Same rule the slam ordering test below
+    // pins down.)
+    const base = near()
+    const winding = {
+      ...base,
+      enemies: base.enemies.map((enemy) => ({
+        ...enemy, stance: 'wind-up' as const, stanceTime: C.enemy.windUpSeconds - (1 / 60) / 2,
+      })),
+    }
     const gusted = stepEncounter(winding, {
       playerPosition: ORIGIN, playerForward: NORTH, gustPressed: true, slam: null,
     }, 1 / 60, C)

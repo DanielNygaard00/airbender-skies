@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { detectSlam, applyBounce } from './slam'
+import { willRespawn } from './controller'
 import type { PressureWaveConfig } from '../combat/pressure-wave'
 import type { PlayerState } from '../core/types'
+
+/** Arbitrary; only needs to sit below every fixture's position.y. */
+const WORLD_FLOOR_Y = -500
 
 const C: PressureWaveConfig = {
   minImpactSpeed: 10,
@@ -14,7 +18,6 @@ const C: PressureWaveConfig = {
   minKnockback: 10,
   maxKnockback: 30,
   bounceFactor: 0.5,
-  focusAtFullImpact: 20,
 }
 
 const p = (over: Partial<PlayerState> = {}): PlayerState => ({
@@ -57,6 +60,28 @@ describe('detectSlam', () => {
     // the fall speed is enormous, so without this a death would be the biggest slam
     // in the game.
     expect(detectSlam(falling(400), landed(), true, true, C)).toBeNull()
+  })
+
+  it('reports nothing for a non-finite-triggered respawn, not just a floor-triggered one', () => {
+    // Regression guard: `willRespawn` covers two independent respawn triggers —
+    // falling past the world floor, and any tracked field going non-finite — and
+    // both land the player grounded from whatever fall speed was in flight. A guard
+    // fed only `fellOutOfWorld` would miss the second trigger and let a corruption
+    // respawn read as a full-strength slam at the spawn point.
+    const corrupted = falling(50)
+    corrupted.chargeTime = NaN
+    expect(corrupted.position.y).toBeGreaterThan(WORLD_FLOOR_Y) // not floor-triggered
+    expect(willRespawn(corrupted, WORLD_FLOOR_Y)).toBe(true)
+    const respawned = willRespawn(corrupted, WORLD_FLOOR_Y)
+    expect(detectSlam(corrupted, landed(), true, respawned, C)).toBeNull()
+  })
+
+  it('reports nothing for a NaN vertical velocity, rather than failing open', () => {
+    // `impactSpeed < c.minImpactSpeed` is false for NaN, which would let a NaN
+    // impact speed through into `strength` and poison `focus.value` with NaN for the
+    // rest of the session. The guard reads the negated form instead.
+    const nanFalling = p({ grounded: false, velocity: new Vector3(3, NaN, 0) })
+    expect(detectSlam(nanFalling, landed(), true, false, C)).toBeNull()
   })
 
   it('reports nothing while staying airborne', () => {

@@ -37,7 +37,12 @@ export function detectSlam(
   // Read from `before`: landing zeroes the vertical velocity, so `after` no longer
   // knows how hard the contact was.
   const impactSpeed = -before.velocity.y
-  if (impactSpeed < c.minImpactSpeed) return null
+  // Written as the negated form on purpose: `impactSpeed < c.minImpactSpeed` fails
+  // open on NaN, since every `<` comparison with NaN is false. A NaN impact speed
+  // would then flow into `strength`, into `stepFocus`, and leave `focus.value` NaN
+  // for the rest of the session — `isFull` never returns true again, so the Avatar
+  // State can never arm and never fires the reset that would clear it.
+  if (!(impactSpeed >= c.minImpactSpeed)) return null
 
   return { impactSpeed, strength: slamStrength(impactSpeed, c) }
 }

@@ -36,12 +36,26 @@ const STAGGER_RETENTION = 0.3
  */
 const LANDING_RETENTION = 0.85
 
-function isFinitePlayer(s: PlayerState): boolean {
+export function isFinitePlayer(s: PlayerState): boolean {
   const nums = [
     ...s.position.toArray(), ...s.velocity.toArray(), ...s.forward.toArray(),
     s.breath, s.maxBreath, s.airJumpsUsed, s.chargeTime,
   ]
   return nums.every(Number.isFinite)
+}
+
+/**
+ * Whether `controllerStep` will respawn this state this frame.
+ *
+ * Two independent triggers both land in the same respawn: falling past the world
+ * floor, and any tracked field going non-finite. Both set `grounded: true` (via
+ * `respawn()` below), so a caller that only checked the floor would still see a
+ * non-finite-triggered respawn as an ordinary landing. Exported so that fact lives
+ * in one place rather than being re-derived, and possibly re-derived wrong, at each
+ * call site.
+ */
+export function willRespawn(state: PlayerState, worldFloorY: number): boolean {
+  return !isFinitePlayer(state) || state.position.y < worldFloorY
 }
 
 export function respawn(state: PlayerState, deps: ControllerDeps): PlayerState {
@@ -93,8 +107,7 @@ export function controllerStep(
   dt: number,
   deps: ControllerDeps,
 ): PlayerState {
-  if (!isFinitePlayer(state)) return safeRespawn(state, deps)
-  if (state.position.y < deps.worldFloorY) return safeRespawn(state, deps)
+  if (willRespawn(state, deps.worldFloorY)) return safeRespawn(state, deps)
 
   let next: PlayerState
 

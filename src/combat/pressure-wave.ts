@@ -26,8 +26,6 @@ export interface PressureWaveConfig {
   maxKnockback: number
   /** Upward bounce as a fraction of the impact speed. */
   bounceFactor: number
-  /** Focus granted by a full-strength slam. */
-  focusAtFullImpact: number
 }
 
 /** 0 at the minimum impact, 1 at full. Clamped at both ends. */

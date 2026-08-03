@@ -23,7 +23,7 @@ import { createShockwave, type Shockwave } from './fx/shockwave'
 import { createEnemyView } from './combat/enemy-mesh'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
-import { controllerStep, type ControllerDeps } from './player/controller'
+import { controllerStep, willRespawn, type ControllerDeps } from './player/controller'
 import { collectStep } from './player/shrine-collect'
 import { enableShadows } from './core/sun'
 import { createAvatar } from './player/avatar'
@@ -194,8 +194,16 @@ function start(): void {
     player = controllerStep(player, state, dt, deps)
     if (avatarActive) player = refillBreath(player)
 
+    // Deliberately not `crashed` here, even though both flag a respawn. `crashed`
+    // (fellOutOfWorld) only covers falling past the world floor, which is all the
+    // Focus crash-drain below is meant to react to — draining Focus for a
+    // corruption respawn too would be a behaviour change nobody asked for. The slam
+    // guard needs the wider net: `willRespawn` also covers a non-finite state, which
+    // respawns grounded from whatever fall speed corrupted it, and that must not
+    // read as a slam either. Do not collapse these into one flag.
     const slam = detectSlam(
-      beforeStep, player, state.tuck, crashed, DEFAULT_COMBAT_CONFIG.pressureWave,
+      beforeStep, player, state.tuck, willRespawn(beforeStep, ARCHIPELAGO.worldFloorY),
+      DEFAULT_COMBAT_CONFIG.pressureWave,
     )
     if (slam) {
       // The ring is placed at the point of contact, before the bounce moves the player.

@@ -45,7 +45,7 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
    * Full strength needs a real tucked dive.
    *
    * The damage ceiling of 2.2 is past a soldier's 1.5 health, so a committed dive
-   * downs one outright. That cliff lands around 33 m/s of descent and is the whole
+   * downs one outright. That cliff lands around 30.6 m/s of descent and is the whole
    * feel of the move.
    *
    * Every value here is an argued guess. None of it has been played.
@@ -63,8 +63,6 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     maxKnockback: 30,
     // A 45 m/s dive returns about 20 m/s, roughly 10 m of climb: enough to re-deploy.
     bounceFactor: 0.45,
-    // A shade more than a down, because the slam is harder to execute.
-    focusAtFullImpact: 18,
   },
 }
 

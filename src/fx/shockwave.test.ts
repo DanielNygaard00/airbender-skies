@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { Mesh, MeshBasicMaterial } from 'three'
 import { createShockwave } from './shockwave'
 
@@ -73,8 +73,20 @@ describe('createShockwave', () => {
     expect(meshOf(createShockwave(10, 1)).userData.excludeFromShadows).toBe(true)
   })
 
-  it('can be disposed without throwing', () => {
+  it('disposes both the geometry and the material', () => {
+    // The sole guard on the leak this module exists to prevent. An empty dispose()
+    // body — or a refactor that drops one of the two dispose() calls — must fail
+    // this test; a bare "does not throw" would pass either way.
     const wave = createShockwave(10, 1)
-    expect(() => wave.dispose()).not.toThrow()
+    const mesh = meshOf(wave)
+    const material = mesh.material
+    if (!(material instanceof MeshBasicMaterial)) throw new Error('expected a basic material')
+    const geometrySpy = vi.spyOn(mesh.geometry, 'dispose')
+    const materialSpy = vi.spyOn(material, 'dispose')
+
+    wave.dispose()
+
+    expect(geometrySpy).toHaveBeenCalledTimes(1)
+    expect(materialSpy).toHaveBeenCalledTimes(1)
   })
 })

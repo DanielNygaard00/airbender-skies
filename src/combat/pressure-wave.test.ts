@@ -18,7 +18,6 @@ const C: PressureWaveConfig = {
   minKnockback: 10,
   maxKnockback: 30,
   bounceFactor: 0.5,
-  focusAtFullImpact: 20,
 }
 
 const ORIGIN = new Vector3(0, 0, 0)
