@@ -194,7 +194,11 @@ Three pure transforms. None of them mutate their input.
 
 ```ts
 /** Gust with the Avatar State's damage, knockback and no cooldown. */
-export function boostedCombatConfig(c: CombatConfig, active: boolean): CombatConfig
+export function boostedCombatConfig(
+  c: CombatConfig,
+  active: boolean,
+  a: AvatarStateConfig,
+): CombatConfig
 
 /** The air taking Aang's side. `t` is 0 to 1. */
 export function surgeWind(sample: WindSample, t: number, c: AvatarStateConfig): WindSample
