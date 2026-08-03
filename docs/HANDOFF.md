@@ -75,11 +75,19 @@ samples (`src/focus/effects.ts`), so the flight, combat and wind models contain 
 mention of it. Spec at
 [`docs/superpowers/specs/2026-08-03-focus-meter-design.md`](superpowers/specs/2026-08-03-focus-meter-design.md).
 
+**Pressure Wave.** `src/combat/pressure-wave.ts` is the blast — radial, with no facing
+test at all — and `src/player/slam.ts` detects a committed landing by comparing the
+player either side of `controllerStep`, so no movement code knows combat exists. Damage,
+radius, knockback and the Focus grant all scale with downward impact speed, and a full
+dive downs a spear soldier outright. The slam bounces the player back up with their air
+jump restored, which is what makes §4.3's dive → wave → re-deploy possible. Spec at
+[`docs/superpowers/specs/2026-08-03-pressure-wave-design.md`](superpowers/specs/2026-08-03-pressure-wave-design.md).
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
 
-- **Most of §4 combat.** Vortex, Air Wall, Slipstream, Pressure Wave, staff melee
+- **Most of §4 combat.** Vortex, Air Wall, Slipstream, staff melee
   combos, and the three borrowed elements (water, earth, fire) with their radial switch.
   Five of the six enemy types in the enemy contract. Aerial combat as a distinct posture.
 - **§4.5's elemental Focus sink.** Focus and the Avatar State exist, but the document
@@ -110,7 +118,10 @@ is a considered guess, verified by unit tests and isolated renders but never by 
 human playing the game. The most suspect are `hoverDamping`, `weightShiftTurnRate`,
 `baseTurnRate` (dropped from 2.2 to 0.9, which materially changed how the mouse
 feels), `groundResponse`, `dashSpeed`, the scooter accumulator rates, every wind
-strength, and every value in `src/focus/config.ts`. Treat them as a starting point.
+strength, every value in `src/focus/config.ts`, and the pressureWave block in
+`src/combat/config.ts`. Treat them as a starting point. Of that last block, the
+damage cliff — where the slam starts downing a soldier in one hit, around 33 m/s of
+descent — is the value most worth feeling out by hand.
 
 Focus is the one exception, and only partly. Its build-arm-trigger-end cycle was
 exercised in the running game (see the visibility note below): a clean glide fills the
