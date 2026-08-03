@@ -19,6 +19,7 @@ back down to a walking stick.
 | `E` | Avatar State — once the pip under your Focus bar is full | Avatar State |
 | `Ctrl` | Hold through a landing to slam | Tuck — fold the wings for a fast dive, and hold it through the landing to slam |
 | `Space` | Jump — twice, the second gains more height the faster you are rising | Deploy or stow the glider |
+| `H` | Guide — every action, and whether you can use it right now | Guide |
 
 Gliding on its own can only trade altitude for distance, and it costs nothing. Airbending is
 what makes the difference: thrust is the only way to gain net altitude, and hovering holds you
