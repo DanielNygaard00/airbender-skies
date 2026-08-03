@@ -87,6 +87,15 @@ way back up: one for the double jump, one to deploy. Four beats, only two of the
 Space. Spec at
 [`docs/superpowers/specs/2026-08-03-pressure-wave-design.md`](superpowers/specs/2026-08-03-pressure-wave-design.md).
 
+**The action guide.** `H` opens a paused panel listing every action, grouped by stance,
+with each one dimmed and struck through when it is unavailable right now —
+`src/ui/guide/`. Availability calls the game's own predicates (`canDash`, `canAirJump`,
+`isArmed`) rather than restating them, and a test binds the catalogue to the README's
+controls table in both directions so the two cannot drift. It also carries the combo
+list, an explanation of the three HUD meters, and a legend for the five wind clouds.
+Spec at
+[`docs/superpowers/specs/2026-08-03-action-guide-design.md`](superpowers/specs/2026-08-03-action-guide-design.md).
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
