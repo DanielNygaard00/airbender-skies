@@ -31,6 +31,9 @@ import { createGlider } from './player/glider'
 import { animationFor, chargeSquashScale } from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
 import { createHud, hudModelFor } from './ui/hud'
+import { createGuide, guideModelFor } from './ui/guide/panel'
+import { canGust } from './combat/encounter'
+import { isArmed } from './focus/avatar-state'
 import { createWindAudio } from './fx/audio'
 import { fovForSpeed } from './fx/mapping'
 
@@ -148,6 +151,19 @@ function start(): void {
 
   const input = new InputTracker(window, canvas)
   const hud = createHud(document.body)
+  // Rebuilt on open rather than per frame: the simulation is paused while the guide is
+  // up, so there is nothing to refresh. `canGust` and `isArmed` are asked here rather
+  // than inside the guide, so a fight object and an Avatar State never reach the UI.
+  const guide = createGuide(document.body, () => {
+    if (!guide.isOpen()) return
+    guide.update(guideModelFor({
+      player,
+      ground: DEFAULT_GROUND_CONFIG,
+      wave: DEFAULT_COMBAT_CONFIG.pressureWave,
+      gustReady: canGust(encounter),
+      avatarStateReady: isArmed(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
+    }))
+  })
   const wind = createWindAudio()
   canvas.addEventListener('click', () => wind.start(), { once: true })
 
@@ -311,8 +327,17 @@ function start(): void {
 
   let last = performance.now()
   function frame(now: number): void {
-    stepper.advance((now - last) / 1000)
-    last = now
+    if (guide.isOpen()) {
+      // Drain the input edges so a jump pressed just before opening does not fire on
+      // close, and hold `last` at now so no time accumulates to lurch through when it
+      // does. The scene still renders, so the world stays visible behind the panel.
+      input.sample()
+      last = now
+      renderer.render(scene, camera)
+    } else {
+      stepper.advance((now - last) / 1000)
+      last = now
+    }
     requestAnimationFrame(frame)
   }
   requestAnimationFrame(frame)

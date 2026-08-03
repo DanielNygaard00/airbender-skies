@@ -1,0 +1,53 @@
+import { describe, it, expect } from 'vitest'
+import { COMBOS, METERS, WIND_LEGEND } from './reference'
+import { actionKeys } from './actions'
+import { ARCHIPELAGO } from '../../world/levels/archipelago'
+
+describe('COMBOS', () => {
+  it('only names keys the game actually has', () => {
+    // A combo citing a key that does not exist is a lie a tester would chase.
+    const known = actionKeys()
+    for (const combo of COMBOS) {
+      for (const key of combo.keys) {
+        expect(known, `combo "${combo.name}" names unknown key "${key}"`).toContain(key)
+      }
+    }
+  })
+
+  it('gives every combo a name, keys and a detail', () => {
+    expect(COMBOS.length).toBeGreaterThan(0)
+    for (const combo of COMBOS) {
+      expect(combo.name.length).toBeGreaterThan(0)
+      expect(combo.keys.length).toBeGreaterThan(0)
+      expect(combo.detail.length).toBeGreaterThan(0)
+    }
+  })
+})
+
+describe('METERS', () => {
+  it('explains all three bars on the HUD', () => {
+    // The HUD draws three unlabelled bars; leaving one unexplained is the gap this
+    // section exists to close.
+    expect(METERS.map((m) => m.name)).toEqual(['Breath', 'Focus', 'Health'])
+  })
+
+  it('gives every meter a detail', () => {
+    for (const meter of METERS) expect(meter.detail.length).toBeGreaterThan(0)
+  })
+})
+
+describe('WIND_LEGEND', () => {
+  it('labels every wind kind the level actually places', () => {
+    // Type-level exhaustiveness already forces an entry per WindKind. This checks the
+    // other direction: that the kinds the archipelago really uses are all described.
+    for (const def of ARCHIPELAGO.winds ?? []) {
+      expect(WIND_LEGEND[def.kind]?.length ?? 0).toBeGreaterThan(0)
+    }
+  })
+
+  it('describes which way each kind pushes', () => {
+    for (const [kind, text] of Object.entries(WIND_LEGEND)) {
+      expect(text.length, `${kind} has no description`).toBeGreaterThan(0)
+    }
+  })
+})

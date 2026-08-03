@@ -114,6 +114,7 @@ const STYLE = `
 .hud-vignette { position: fixed; inset: 0; pointer-events: none; opacity: 0;
   transition: opacity .35s; box-shadow: inset 0 0 180px 40px rgba(255,214,102,.55); }
 .hud-vignette.is-on { opacity: 1; }
+.hud-hint { margin-top: 8px; font-size: 12px; opacity: .45; }
 `
 
 export function createHud(parent: HTMLElement) {
@@ -132,6 +133,7 @@ export function createHud(parent: HTMLElement) {
     <div class="hud-arm"><div class="hud-arm-fill"></div></div>
     <div class="hud-health"><div class="hud-health-fill"></div></div>
     <div class="hud-breath"><div class="hud-breath-fill"></div></div>
+    <div class="hud-hint">H — guide</div>
     <div class="hud-vignette"></div>
   `
   parent.append(root)
