@@ -52,12 +52,11 @@ export interface PressureWaveConfig {
   /** Damage at minimum and full strength. */
   minDamage: number
   maxDamage: number
-  /** Outward knockback at full strength. */
-  knockback: number
+  /** Outward knockback at minimum and full strength. */
+  minKnockback: number
+  maxKnockback: number
   /** Upward bounce as a fraction of the impact speed. */
   bounceFactor: number
-  /** Focus granted by a full-strength slam. */
-  focusAtFullImpact: number
 }
 
 /** 0 at the minimum impact, 1 at full. Clamped. */
@@ -126,12 +125,17 @@ export function applyBounce(
   glider landing too, because `controllerStep` sets `mode: 'ground'` and
   `grounded: true` together on touchdown.
 - `tuckHeld` — the player committed.
-- `!respawned` — **the guard that matters.** Respawning after falling out of the world
-  also sets `grounded` true, and the fall velocity is enormous, so without this a death
-  plunge would read as the biggest slam in the game. `main.ts` already computes this
-  flag for Focus; it is passed in rather than recomputed.
+- `!respawned` — **the guard that matters.** Respawning also sets `grounded` true, and
+  the fall velocity is enormous, so without this a respawn would read as the biggest
+  slam in the game. `main.ts` passes `willRespawn(before, worldFloorY)` from
+  `src/player/controller.ts`, which is wider than the `fellOutOfWorld` flag Focus's
+  crash-drain uses: it also covers the non-finite-state respawn trigger, which also
+  lands the player grounded from an arbitrary fall speed.
 - `-before.velocity.y >= c.minImpactSpeed` — read from **`before`**, because landing
   zeroes the vertical velocity, so `after` no longer knows how hard the contact was.
+  The implementation guards with the negated form, `!(impactSpeed >= c.minImpactSpeed)`,
+  rather than the equivalent-looking `impactSpeed < c.minImpactSpeed`: the latter is
+  false for a NaN `impactSpeed`, which would fail open and let a NaN strength through.
 
 `applyBounce` returns the player with `velocity.y` set to
 `slam.impactSpeed * c.bounceFactor`, `grounded: false`, and `airJumpsUsed: 0`.
@@ -158,6 +162,8 @@ export interface Shockwave {
   object: Object3D
   /** Advance the ring. Returns false once it has finished and can be removed. */
   advance(dt: number): boolean
+  /** Release the geometry and material. One ring is created per slam. */
+  dispose(): void
 }
 
 export function createShockwave(radius: number, strength: number): Shockwave
@@ -171,9 +177,10 @@ damage does. `userData.excludeFromShadows` is set, since a
 transparent effect ring has no business casting one, and `enableShadows` in
 `src/core/sun.ts` honours that flag.
 
-`main.ts` keeps a small array of live shockwaves, advances them each frame, and disposes
-geometry and material when `advance` returns false. Disposal matters — these are created
-per slam, and an undisposed ring per landing is a leak over a long session.
+`main.ts` keeps a small array of live shockwaves, advances them each frame, and calls
+`dispose()` on the geometry and material when `advance` returns false. Disposal
+matters — these are created per slam, and an undisposed ring per landing is a leak
+over a long session.
 
 ## 4. Focus (`src/focus/focus.ts`, `src/focus/config.ts`)
 
@@ -234,9 +241,9 @@ pressureWave: {
   maxRadius: 11,
   minDamage: 0.6,
   maxDamage: 2.2,
-  knockback: 30,
+  minKnockback: 12,
+  maxKnockback: 30,
   bounceFactor: 0.45,
-  focusAtFullImpact: 18,
 }
 ```
 
@@ -246,10 +253,9 @@ pressureWave: {
 | `fullImpactSpeed` 45 | Reachable by a tucked dive but not by falling off a ledge, so full strength is earned. |
 | `minRadius` 4 / `maxRadius` 11 | The minimum catches whoever is on top of you; the maximum is close to the gust's 12 range, so a full slam is a crowd move. |
 | `minDamage` 0.6 | Above a gust's 0.5 but well below a soldier's 1.5 health: a weak slam is a gust with no aim. |
-| `maxDamage` 2.2 | Past 1.5, so a committed dive downs a soldier outright. This is the payoff. |
-| `knockback` 30 | Slightly above the gust's 26, and radial, so it clears space in every direction. |
+| `maxDamage` 2.2 | Past 1.5, so a committed dive downs a soldier outright. This is the payoff — and the cliff where a slam starts downing a soldier in one hit lands around 30.6 m/s of descent. |
+| `minKnockback` 12 / `maxKnockback` 30 | A single `knockback` "at full strength" would give a minimum-strength slam zero knockback while still dealing 0.6 damage — a slam that hurts but does not move anyone, which contradicts the crowd-control identity. Paired with a minimum instead, mirroring radius and damage; the maximum sits slightly above the gust's 26, and radial, so it clears space in every direction. |
 | `bounceFactor` 0.45 | A 45 m/s dive returns about 20 m/s, roughly 10 m of climb — enough to re-deploy the glider without a second jump. |
-| `focusAtFullImpact` 18 | A shade more than a down (14), because the slam is harder to execute. |
 
 Every value here is an argued guess. None of it has been played.
 
@@ -258,17 +264,21 @@ Every value here is an argued guess. None of it has been played.
 The frame order, with the new lines in place:
 
 1. `input.sample()`.
-2. `crashed = fellOutOfWorld(player, worldFloorY)` — unchanged, still before the step.
+2. `crashed = fellOutOfWorld(player, worldFloorY)` — unchanged, still before the step,
+   and still only for the Focus crash-drain.
 3. `stepAvatarState(...)` — unchanged.
 4. `const before = player`, then `controllerStep`, then `refillBreath` when the Avatar
    State is active.
-5. `const slam = detectSlam(before, player, state.tuck, crashed, ...)`.
+5. `const slam = detectSlam(before, player, state.tuck, willRespawn(before, worldFloorY), ...)`.
+   Not `crashed`: `willRespawn` also covers the non-finite-state respawn trigger, which
+   `crashed` (`fellOutOfWorld`) does not, and a slam guard fed the narrower flag would
+   read a corruption respawn as a full-strength slam.
 6. `if (slam) player = applyBounce(player, slam, ...)`, and push a
    `createShockwave(waveRadius(slam.strength, ...), slam.strength)` at the player's
    feet.
-7. `stepEncounter(..., { ..., slam })`.
-8. Focus events gain `slamStrength: slam?.strength ?? 0`.
-9. Advance and cull the live shockwaves.
+7. Advance and cull the live shockwaves.
+8. `stepEncounter(..., { ..., slam })`.
+9. Focus events gain `slamStrength: slam?.strength ?? 0`.
 
 Note the bounce is applied to `player` *after* the slam is detected from `before`, and
 the encounter is given the slam in the same frame, so the wave lands at the point of

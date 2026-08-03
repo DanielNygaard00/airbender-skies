@@ -79,10 +79,12 @@ mention of it. Spec at
 test at all — and `src/player/slam.ts` detects a committed landing by comparing the
 player either side of `controllerStep`, so no movement code knows combat exists. Damage,
 radius, knockback and the Focus grant all scale with downward impact speed, and a full
-dive downs a spear soldier outright. The slam bounces the player back up, airborne with
-their air jump available — that's where the extra height for the return trip comes
-from — so §4.3's flagship combo is three beats on Space: dive, slam, double jump,
-deploy. Spec at
+dive downs a spear soldier outright. The slam bounces the player back up under the
+impact's own velocity — a 45 m/s dive returns about 20 m/s, roughly 10 m of climb — with
+the air jump available again because landing already zeroed it, so §4.3's flagship
+combo is dive (Ctrl), slam (hold Ctrl through the landing), then two taps of Space on the
+way back up: one for the double jump, one to deploy. Four beats, only two of them on
+Space. Spec at
 [`docs/superpowers/specs/2026-08-03-pressure-wave-design.md`](superpowers/specs/2026-08-03-pressure-wave-design.md).
 
 ## What has NOT been built
@@ -122,7 +124,7 @@ human playing the game. The most suspect are `hoverDamping`, `weightShiftTurnRat
 feels), `groundResponse`, `dashSpeed`, the scooter accumulator rates, every wind
 strength, every value in `src/focus/config.ts`, and the pressureWave block in
 `src/combat/config.ts`. Treat them as a starting point. Of that last block, the
-damage cliff — where the slam starts downing a soldier in one hit, around 33 m/s of
+damage cliff — where the slam starts downing a soldier in one hit, around 30.6 m/s of
 descent — is the value most worth feeling out by hand.
 
 Focus is the one exception, and only partly. Its build-arm-trigger-end cycle was
@@ -227,9 +229,12 @@ In the order I would take them:
 1. **Play it.** Nothing here has been played. An hour with the live build will find
    more than the next feature will add, and will tell you which of the tuning values
    above are wrong.
-2. **Give Focus something to spend on besides the Avatar State.** Pressure Wave (§4.2)
-   is the high-value move: its damage scales with fall height, which pays the traversal
-   layer off directly, and it gives Focus a repeatable cost rather than one big one.
+2. **Build §4.6's non-lethality scoring.** Downing an enemy already grants Focus, but
+   nothing yet grants *more* for a non-lethal removal than for an environmental
+   accident, because enemies have no fall physics — every down is already a gust.
+   Pressure Wave's knockback is now strong enough to blow a soldier off a ledge, so the
+   missing piece is giving enemies fall physics and paying that removal more than an
+   in-place knockdown.
 3. **Add a second enemy type.** Archers pressure altitude, which is the axis the whole
    flight model is about, and they would make the existing hover and dodge meaningful.
 4. **Then either** the terrain API change that unblocks wall-riding, **or** a second
