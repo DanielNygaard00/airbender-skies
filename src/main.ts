@@ -8,10 +8,15 @@ import { loadGLTF } from './core/assets'
 import { buildWorld, type World } from './world/world'
 import { ARCHIPELAGO } from './world/levels/archipelago'
 import { placeShrines } from './world/shrine'
-import { windSampler } from './world/wind'
+import { windSampler, stillAir, type WindSample } from './world/wind'
 import { createWindTell } from './world/wind-tell'
 import { startEncounter, stepEncounter } from './combat/encounter'
 import { DEFAULT_COMBAT_CONFIG, HOME_PATROL } from './combat/config'
+import { DEFAULT_FOCUS_CONFIG, DEFAULT_AVATAR_STATE_CONFIG } from './focus/config'
+import { emptyFocus, stepFocus, type FocusEvents } from './focus/focus'
+import { traversalRatePerSecond, fellOutOfWorld } from './focus/sources'
+import { restingAvatarState, stepAvatarState, armFraction } from './focus/avatar-state'
+import { boostedCombatConfig, surgeWind, refillBreath } from './focus/effects'
 import { createEnemyView } from './combat/enemy-mesh'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
@@ -25,6 +30,11 @@ import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } fr
 import { createHud, hudModelFor } from './ui/hud'
 import { createWindAudio } from './fx/audio'
 import { fovForSpeed } from './fx/mapping'
+
+/** How much faster the mote clouds drift while the Avatar State runs. */
+const WIND_TELL_SURGE = 2.5
+/** Wind audio lift while the Avatar State runs. */
+const AUDIO_SWELL = 0.45
 
 function start(): void {
   if (!hasWebGL()) return showFallback(WEBGL_MESSAGE)
@@ -48,6 +58,13 @@ function start(): void {
   const save = loadSave(localStorage, DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
   let player = createPlayerState(ARCHIPELAGO, world.terrain, save, DEFAULT_FLIGHT_CONFIG)
   let shrines = placeShrines(ARCHIPELAGO, world.terrain, save.collectedShrines)
+
+  // Focus is a live meter and is deliberately not saved.
+  let focus = emptyFocus(DEFAULT_FOCUS_CONFIG)
+  let avatarState = restingAvatarState()
+  let avatarActive = false
+  /** The unsurged sample from the last windAt call, so the surge cannot feed itself. */
+  let lastWind: WindSample = stillAir()
 
   // Shrine markers: a spinning octahedron each, hidden once collected.
   const shrineGroup = new Group()
@@ -129,20 +146,46 @@ function start(): void {
   const wind = createWindAudio()
   canvas.addEventListener('click', () => wind.start(), { once: true })
 
+  const baseWindAt = windSampler(ARCHIPELAGO.winds ?? [])
+
   const deps: ControllerDeps = {
     terrain: world.terrain,
     flight: DEFAULT_FLIGHT_CONFIG,
     ground: DEFAULT_GROUND_CONFIG,
     worldFloorY: ARCHIPELAGO.worldFloorY,
     spawnPointFor: spawnPointFor(ARCHIPELAGO, world.terrain),
-    windAt: windSampler(ARCHIPELAGO.winds ?? []),
+    // Surged for the Avatar State on the way out, and the unsurged sample kept so the
+    // Focus rate reads the real air. Otherwise the surge feeds itself: the state boosts
+    // the wind, and the boosted wind pays more Focus.
+    windAt: (position, forward) => {
+      lastWind = baseWindAt(position, forward)
+      return surgeWind(lastWind, avatarActive ? 1 : 0, DEFAULT_AVATAR_STATE_CONFIG)
+    },
   }
 
   let cameraPosition = camera.position.clone()
 
   function update(dt: number): void {
     const state = input.sample()
+
+    // Read before controllerStep: it resolves a fall internally and hands back an
+    // already-respawned state, so there is nothing left to observe afterwards.
+    const crashed = fellOutOfWorld(player, ARCHIPELAGO.worldFloorY)
+
+    // Steps first, off last frame's Focus, so the effects apply from the frame the
+    // player pressed rather than the one after. The cost is a frame of latency on
+    // arming, which nobody can feel; the benefit is that no system here needs a value
+    // that depends on itself.
+    const asStep = stepAvatarState(
+      avatarState, focus, state.avatarStatePressed, dt, DEFAULT_AVATAR_STATE_CONFIG,
+    )
+    avatarState = asStep.state
+    avatarActive = asStep.active
+
+    // Cleared each frame; windAt overwrites it when the glider asks about the air.
+    lastWind = stillAir()
     player = controllerStep(player, state, dt, deps)
+    if (avatarActive) player = refillBreath(player)
 
     const collection = collectStep(player, shrines, DEFAULT_FLIGHT_CONFIG)
     if (collection.collected.length > 0) {
@@ -188,18 +231,41 @@ function start(): void {
 
     for (const marker of markers.values()) marker.rotation.y += dt * 1.5
     for (const waterfall of waterfalls) waterfall.advance(dt)
-    for (const tell of windTells) tell.advance(dt)
+    for (const tell of windTells) tell.advance(dt * (avatarActive ? WIND_TELL_SURGE : 1))
 
     const fight = stepEncounter(encounter, {
       playerPosition: player.position,
       playerForward: player.forward,
       gustPressed: state.gustPressed,
-    }, dt, DEFAULT_COMBAT_CONFIG)
+    }, dt, boostedCombatConfig(DEFAULT_COMBAT_CONFIG, avatarActive, DEFAULT_AVATAR_STATE_CONFIG))
     encounter = fight.encounter
     for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy)
 
-    wind.update(player.mode === 'glider' ? airspeed : 0)
-    hud.update(hudModelFor(player, encounter.playerHealth))
+    const events: FocusEvents = {
+      gustConnects: fight.hitThisFrame.length,
+      downs: fight.downedThisFrame.length,
+      playerHit: fight.playerHit,
+      fellOutOfWorld: crashed,
+    }
+    const inWind = lastWind.accel.lengthSq() > 1e-6 || lastWind.liftScale !== 1
+    focus = stepFocus(focus, {
+      ratePerSecond: traversalRatePerSecond(
+        player, inWind, DEFAULT_FLIGHT_CONFIG, DEFAULT_FOCUS_CONFIG,
+      ),
+      events,
+      frozen: avatarActive,
+      reset: asStep.justEnded,
+    }, dt, DEFAULT_FOCUS_CONFIG)
+
+    wind.update(
+      player.mode === 'glider' ? airspeed : 0,
+      avatarActive ? AUDIO_SWELL : 0,
+    )
+    hud.update(hudModelFor(player, encounter.playerHealth, {
+      focus: focus.max > 0 ? focus.value / focus.max : 0,
+      avatarCharge: armFraction(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
+      avatarActive,
+    }))
   }
 
   const stepper = createStepper({ update, render: () => renderer.render(scene, camera) })

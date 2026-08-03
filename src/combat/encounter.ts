@@ -50,6 +50,8 @@ export interface EncounterStep {
   encounter: Encounter
   /** Enemies knocked down this frame, for feedback and for scoring later. */
   downedThisFrame: string[]
+  /** Enemies a gust connected with this frame, for feedback and for Focus. */
+  hitThisFrame: string[]
   /** Whether the player was hit this frame, for feedback. */
   playerHit: boolean
 }
@@ -79,11 +81,18 @@ export function stepEncounter(
   let enemies = encounter.enemies
   let gustCooldown = Math.max(0, encounter.gustCooldown - dt)
 
+  let hitThisFrame: string[] = []
+
   if (input.gustPressed && canGust(encounter)) {
     const caught = new Set(
       gustTargets(input.playerPosition, input.playerForward, enemies, c.gust)
         .map((enemy) => enemy.id),
     )
+    // Read before the hits land, so "connected" means a live enemy took it rather
+    // than a body being blown around the island.
+    hitThisFrame = enemies
+      .filter((enemy) => caught.has(enemy.id) && !isDowned(enemy.health))
+      .map((enemy) => enemy.id)
     enemies = enemies.map((enemy) =>
       caught.has(enemy.id) && !isDowned(enemy.health)
         ? hitEnemy(
@@ -114,6 +123,7 @@ export function stepEncounter(
   return {
     encounter: { enemies, playerHealth, gustCooldown },
     downedThisFrame,
+    hitThisFrame,
     playerHit: damageToPlayer > 0,
   }
 }
