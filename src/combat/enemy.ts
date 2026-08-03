@@ -27,6 +27,15 @@ export interface Enemy {
 export interface EnemyConfig extends HealthConfig {
   /** Closing speed on foot. Slower than the player, who should out-run it. */
   moveSpeed: number
+  /**
+   * How far away it will notice and pursue.
+   *
+   * Without this an enemy walks towards the player forever from anywhere on the
+   * map, so a patrol on the home island would eventually trail the player across
+   * the whole archipelago. A leash also makes disengaging a real option, which
+   * matters for a character whose defence is positional.
+   */
+  aggroRange: number
   /** Reach of the spear. Inside this it commits to a strike. */
   strikeRange: number
   /** Telegraph before the hit lands, so the strike is dodgeable. */
@@ -99,7 +108,10 @@ export function stepEnemy(
   let time = stanceTime
 
   if (enemy.stance === 'advance') {
-    if (distance <= c.strikeRange) {
+    if (distance > c.aggroRange) {
+      // Out of notice range: hold station rather than trailing the player home.
+      position = pushed
+    } else if (distance <= c.strikeRange) {
       stance = 'wind-up'
       time = 0
     } else {

@@ -10,6 +10,9 @@ import { ARCHIPELAGO } from './world/levels/archipelago'
 import { placeShrines } from './world/shrine'
 import { windSampler } from './world/wind'
 import { createWindTell } from './world/wind-tell'
+import { startEncounter, stepEncounter } from './combat/encounter'
+import { DEFAULT_COMBAT_CONFIG, HOME_PATROL } from './combat/config'
+import { createEnemyView } from './combat/enemy-mesh'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
 import { controllerStep, type ControllerDeps } from './player/controller'
@@ -83,6 +86,24 @@ function start(): void {
     scene.add(tell.object)
     return tell
   })
+
+  // The one encounter: spear infantry on the home island.
+  let encounter = startEncounter(
+    HOME_PATROL.map((spawn) => ({
+      ...spawn,
+      // Dropped onto the ground rather than trusting the authored y.
+      position: spawn.position.clone().setY(
+        world.terrain.groundHeightAt(spawn.position.x, spawn.position.z) ?? spawn.position.y,
+      ),
+    })),
+    DEFAULT_COMBAT_CONFIG,
+  )
+  const enemyViews = new Map(encounter.enemies.map((enemy) => {
+    const view = createEnemyView()
+    scene.add(view.object)
+    enableShadows(view.object)
+    return [enemy.id, view] as const
+  }))
 
   const avatar = createAvatar()
   scene.add(avatar.object)
@@ -169,8 +190,16 @@ function start(): void {
     for (const waterfall of waterfalls) waterfall.advance(dt)
     for (const tell of windTells) tell.advance(dt)
 
+    const fight = stepEncounter(encounter, {
+      playerPosition: player.position,
+      playerForward: player.forward,
+      gustPressed: state.gustPressed,
+    }, dt, DEFAULT_COMBAT_CONFIG)
+    encounter = fight.encounter
+    for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy)
+
     wind.update(player.mode === 'glider' ? airspeed : 0)
-    hud.update(hudModelFor(player))
+    hud.update(hudModelFor(player, encounter.playerHealth))
   }
 
   const stepper = createStepper({ update, render: () => renderer.render(scene, camera) })

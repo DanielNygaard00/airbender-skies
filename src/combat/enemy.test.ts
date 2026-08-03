@@ -5,7 +5,7 @@ import { isDowned } from './health'
 
 const C: EnemyConfig = {
   maxHealth: 3, outOfCombatSeconds: 4, regenPerSecond: 0.4,
-  moveSpeed: 4, strikeRange: 3, windUpSeconds: 0.5, recoverSeconds: 0.6,
+  moveSpeed: 4, strikeRange: 3, aggroRange: 30, windUpSeconds: 0.5, recoverSeconds: 0.6,
   strikeDamage: 1, knockbackDamping: 3,
 }
 
@@ -111,5 +111,26 @@ describe('taking a hit', () => {
     expect(moved.position.z).toBeGreaterThan(20)
     const settled = fight(3, AT(0, 0), moved).enemy
     expect(settled.knockback.length()).toBeLessThan(0.5)
+  })
+})
+
+describe('the aggro leash', () => {
+  it('ignores a player beyond its notice range', () => {
+    // Without a leash a patrol trails the player across the whole archipelago.
+    const distant = spawnEnemy('a', AT(0, C.aggroRange + 20), C)
+    const after = fight(3, AT(0, 0), distant).enemy
+    expect(horizontalDistance(after.position, AT(0, C.aggroRange + 20))).toBeLessThan(0.5)
+  })
+
+  it('closes once the player comes inside it', () => {
+    const inside = spawnEnemy('a', AT(0, C.aggroRange - 5), C)
+    const after = fight(1, AT(0, 0), inside).enemy
+    expect(horizontalDistance(after.position, AT(0, 0)))
+      .toBeLessThan(C.aggroRange - 5)
+  })
+
+  it('still faces a player it is ignoring, so the leash is not blindness', () => {
+    const distant = spawnEnemy('a', AT(0, C.aggroRange + 20), C)
+    expect(fight(0.5, AT(0, 0), distant).enemy.facing.z).toBeLessThan(0)
   })
 })

@@ -24,6 +24,8 @@ export interface InputState {
   scooterPressed: boolean
   /** Q, edge-triggered: an air blast dash. */
   dashPressed: boolean
+  /** F, edge-triggered: a gust of air. */
+  gustPressed: boolean
 }
 
 export interface PlayerState {

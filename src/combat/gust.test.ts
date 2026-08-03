@@ -8,7 +8,7 @@ const G: GustConfig = {
 }
 const E: EnemyConfig = {
   maxHealth: 3, outOfCombatSeconds: 4, regenPerSecond: 0.4, moveSpeed: 4,
-  strikeRange: 3, windUpSeconds: 0.5, recoverSeconds: 0.6, strikeDamage: 1,
+  strikeRange: 3, aggroRange: 30, windUpSeconds: 0.5, recoverSeconds: 0.6, strikeDamage: 1,
   knockbackDamping: 3,
 }
 

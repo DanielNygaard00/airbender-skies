@@ -15,6 +15,7 @@ back down to a walking stick.
 | `A` / `D` | Strafe | Shift your weight — this is how you steer |
 | `Shift` | Air scooter — tap to ride, tap to step off | Hover — hold position in mid-air |
 | `Q` | Air blast dash — three in a chain, then a short recovery | — |
+| `F` | Gust — a wide sweep of air that knocks enemies back | — |
 | `Ctrl` | — | Tuck — fold the wings for a fast dive |
 | `Space` | Jump — twice, the second gains more height the faster you are rising | Deploy or stow the glider |
 
@@ -28,6 +29,11 @@ On the ground, momentum is the resource. The run accelerates softly and slides o
 than snapping, the scooter doubles your speed while halving your steering, and holding a clean
 line on it builds a hidden accumulator that makes the ball tighter and faster — carve hard and you
 give it back. Landing never stops you dead; you skim out of it.
+
+A patrol of spear infantry holds the east side of the home island. They pressure your spacing:
+they close, they telegraph, and standing still costs health. Gust knocks them back and interrupts a
+strike, but it barely hurts them — enemies are downed, never killed, and a downed soldier stays
+lying where the air put them.
 
 Transitions are free and meant to be chained: deploying the wings mid-jump keeps every bit of
 horizontal momentum and adds an upward kick, so a well-timed deploy out of a rising double jump
