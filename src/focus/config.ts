@@ -1,3 +1,4 @@
+import type { AvatarStateConfig } from './avatar-state'
 import type { FocusConfig } from './focus'
 
 /**
@@ -26,4 +27,25 @@ export const DEFAULT_FOCUS_CONFIG: FocusConfig = {
   downGain: 14,
   damageDrain: 30,
   crashDrain: 50,
+}
+
+/**
+ * Avatar State tuning.
+ *
+ * Short and loud, per the design document. The gust multiplier is set so a single
+ * gust downs a spear soldier outright — 0.5 damage times 3 reaches their 1.5 health —
+ * which turns the whole patrol over in a few seconds and is the point of the state.
+ *
+ * Every value here is an argued guess. None of it has been played.
+ */
+export const DEFAULT_AVATAR_STATE_CONFIG: AvatarStateConfig = {
+  // Long enough that arriving at maximum Focus is not instantly a trigger.
+  armSeconds: 4,
+  durationSeconds: 8,
+  gustDamageMultiplier: 3,
+  // Loud, without launching enemies clean out of the level.
+  gustKnockbackMultiplier: 1.5,
+  surgeAccelMultiplier: 1.8,
+  // Downdrafts nearly stop rather than inverting into lift.
+  relentFactor: 0.15,
 }
