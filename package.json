@@ -13,7 +13,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json"
   },
   "keywords": [],
   "author": "",
@@ -23,6 +23,7 @@
     "three": "0.185.1"
   },
   "devDependencies": {
+    "@types/node": "26.1.2",
     "@types/three": "0.185.1",
     "typescript": "7.0.2",
     "vite": "8.1.5",

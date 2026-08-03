@@ -1,0 +1,11 @@
+{
+  // Tests only. Node's ambient types are added here rather than in tsconfig.json
+  // so the app build keeps seeing a browser-only global scope: a stray
+  // `process.env` or `Buffer` in src/ still fails the main typecheck.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["vite/client", "node"]
+  },
+  "include": ["src/**/*.test.ts"],
+  "exclude": []
+}

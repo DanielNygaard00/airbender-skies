@@ -1,11 +1,5 @@
 import { describe, it, expect } from 'vitest'
-// This project deliberately scopes tsconfig's "types" to "vite/client" only,
-// so @types/node is not installed and Node's own ambient types are
-// unavailable to the type checker. These two imports run fine under vitest's
-// `environment: 'node'`; only the type declarations are missing.
-// @ts-expect-error -- no @types/node in this project (see comment above)
 import { readFileSync } from 'node:fs'
-// @ts-expect-error -- no @types/node in this project (see comment above)
 import { fileURLToPath } from 'node:url'
 import {
   Box3, Group, Mesh, Object3D, BoxGeometry, CapsuleGeometry, AnimationClip, VectorKeyframeTrack,
