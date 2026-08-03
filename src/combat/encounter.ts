@@ -4,6 +4,7 @@ import {
 } from './health'
 import { hitEnemy, spawnEnemy, stepEnemy, type Enemy, type EnemyConfig } from './enemy'
 import { gustImpulse, gustTargets, type GustConfig } from './gust'
+import type { PressureWaveConfig } from './pressure-wave'
 
 /**
  * One fight: the enemies, the player's health, and the cooldown on their bending.
@@ -24,6 +25,7 @@ export interface CombatConfig {
   player: HealthConfig
   enemy: EnemyConfig
   gust: GustConfig
+  pressureWave: PressureWaveConfig
 }
 
 export interface EnemySpawn {

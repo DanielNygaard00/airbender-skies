@@ -11,6 +11,11 @@ const C: CombatConfig = {
     strikeDamage: 1, knockbackDamping: 3,
   },
   gust: { range: 12, halfAngle: Math.PI / 3, damage: 0.5, knockback: 26, cooldownSeconds: 0.5 },
+  pressureWave: {
+    minImpactSpeed: 10, fullImpactSpeed: 50, minRadius: 4, maxRadius: 12,
+    minDamage: 0.5, maxDamage: 2.5, minKnockback: 10, maxKnockback: 30,
+    bounceFactor: 0.5, focusAtFullImpact: 20,
+  },
 }
 
 const ORIGIN = new Vector3(0, 0, 0)
