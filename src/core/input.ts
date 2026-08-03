@@ -22,6 +22,7 @@ export function toInputState(
   scooterPressed = false,
   dashPressed = false,
   gustPressed = false,
+  avatarStatePressed = false,
 ): InputState {
   const axis = (pos: string, neg: string) => (held.has(pos) ? 1 : 0) - (held.has(neg) ? 1 : 0)
   return {
@@ -36,6 +37,7 @@ export function toInputState(
     scooterPressed,
     dashPressed,
     gustPressed,
+    avatarStatePressed,
   }
 }
 
@@ -49,6 +51,7 @@ export class InputTracker {
   private scooterPressed = false
   private dashPressed = false
   private gustPressed = false
+  private avatarStatePressed = false
   private actionReleased = false
   private readonly listeners: (() => void)[] = []
 
@@ -73,6 +76,7 @@ export class InputTracker {
       }
       if (!e.repeat && e.code === 'KeyQ') this.dashPressed = true
       if (!e.repeat && e.code === 'KeyF') this.gustPressed = true
+      if (!e.repeat && e.code === 'KeyE') this.avatarStatePressed = true
     })
     on<KeyboardEvent>('keyup', (e) => {
       this.held.delete(e.code)
@@ -102,12 +106,14 @@ export class InputTracker {
       this.scooterPressed,
       this.dashPressed,
       this.gustPressed,
+      this.avatarStatePressed,
     )
     this.actionPressed = false
     this.actionReleased = false
     this.scooterPressed = false
     this.dashPressed = false
     this.gustPressed = false
+    this.avatarStatePressed = false
     return state
   }
 

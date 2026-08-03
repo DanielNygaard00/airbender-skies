@@ -104,3 +104,22 @@ describe('action hold and release', () => {
     expect(toInputState(new Set(), LOOK, false).actionReleased).toBe(false)
   })
 })
+
+describe('the Avatar State trigger', () => {
+  it('passes the trigger edge through', () => {
+    const state = toInputState(new Set(), LOOK, false, false, false, false, false, true)
+    expect(state.avatarStatePressed).toBe(true)
+  })
+
+  it('defaults the trigger to unpressed', () => {
+    expect(toInputState(new Set(), LOOK, false).avatarStatePressed).toBe(false)
+  })
+
+  it('does not confuse the trigger with the gust edge', () => {
+    // Both are edge-triggered booleans at the end of a run of positional parameters,
+    // so an off-by-one in the argument list is a real risk worth pinning.
+    const gusting = toInputState(new Set(), LOOK, false, false, false, false, true, false)
+    expect(gusting.gustPressed).toBe(true)
+    expect(gusting.avatarStatePressed).toBe(false)
+  })
+})

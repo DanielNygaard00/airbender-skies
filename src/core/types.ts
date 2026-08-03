@@ -26,6 +26,8 @@ export interface InputState {
   dashPressed: boolean
   /** F, edge-triggered: a gust of air. */
   gustPressed: boolean
+  /** E, edge-triggered: enter the Avatar State when it is armed. */
+  avatarStatePressed: boolean
 }
 
 export interface PlayerState {
