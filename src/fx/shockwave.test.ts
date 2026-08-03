@@ -57,9 +57,11 @@ describe('createShockwave', () => {
     expect(opacityOf(createShockwave(10, 0))).toBeLessThan(opacityOf(createShockwave(10, 1)))
   })
 
-  it('is visible from the first frame', () => {
-    // A ring that starts transparent and fades would never be seen at all.
-    expect(opacityOf(createShockwave(10, 1))).toBeGreaterThan(0)
+  it('sets initial opacity based on strength', () => {
+    // Initial opacity must reflect strength computed at construction, not default to fully opaque.
+    // A weak slam (strength=0) should have computed opacity (FAINTEST=0.25), distinguishing
+    // from the material's default opacity (1.0), proving apply() runs before returning.
+    expect(opacityOf(createShockwave(10, 0))).toBeCloseTo(0.25, 1)
   })
 
   it('lies flat on the ground rather than standing up facing the camera', () => {
