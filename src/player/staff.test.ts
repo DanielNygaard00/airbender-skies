@@ -121,6 +121,35 @@ describe('staffBusy', () => {
     expect(staffBusy(press().state)).toBe(true)
     expect(staffBusy(wait(chain(S.maxChain).state, S.swingSeconds))).toBe(true)
   })
+
+  it('stays busy with no gap from the first swing through the end of recovery', () => {
+    // A single swing (not a full combo), sampled once inside each of the three phases
+    // the commitment is supposed to span, plus once after it lets go. Every offset is
+    // derived from DEFAULT_STAFF_CONFIG rather than hardcoded, so this walks whatever
+    // timings the config actually has.
+    const started = press().state
+
+    // Mid-swing.
+    expect(staffBusy(wait(started, S.swingSeconds / 2))).toBe(true)
+
+    const afterSwing = wait(started, S.swingSeconds)
+    expect(isSwinging(afterSwing)).toBe(false) // swing just ended, window now open
+
+    // Inside the continue window. This is the sample that used to be wrong:
+    // `isSwinging(s) || s.recovery > 0` is false here — `elapsed` is null and nothing
+    // is owed yet — so the old expression reported the staff free in the middle of a
+    // live combo.
+    expect(staffBusy(wait(afterSwing, S.continueSeconds / 2))).toBe(true)
+
+    const afterWindowLapses = wait(afterSwing, S.continueSeconds + 0.01)
+    expect(isSwinging(afterWindowLapses)).toBe(false)
+
+    // During recovery, after the window has lapsed.
+    expect(staffBusy(wait(afterWindowLapses, S.recoverySeconds / 2))).toBe(true)
+
+    // Free once recovery has fully decayed.
+    expect(staffBusy(wait(afterWindowLapses, S.recoverySeconds + 0.01))).toBe(false)
+  })
 })
 
 describe('staffOf', () => {

@@ -61,9 +61,23 @@ export function isSwinging(s: StaffState): boolean {
   return s.elapsed !== null
 }
 
-/** Swinging or still recovering: the staff is not available as a wing. */
+/**
+ * Swinging, inside the continue window, or still recovering: the staff is not available
+ * as a wing.
+ *
+ * `isSwinging(s) || s.recovery > 0` looks right but has a hole: during the continue
+ * window `elapsed` is null and `recovery` is still 0 (nothing is owed until the combo
+ * ends), so neither disjunct holds and the staff reports itself free for the width of
+ * that window. `s.chain > 0` closes exactly that gap: in every state `stepStaff` can
+ * reach, `chain` is set the instant a swing starts, held across the window by the
+ * non-finisher branch, and only zeroed by `spent` once recovery is owed — so it is > 0
+ * for precisely "mid-swing or mid-window" and 0 otherwise. `isSwinging` stays in the
+ * expression too, even though it is redundant over reachable states, because it is the
+ * cheaper, more direct fact for the mid-swing case and callers are entitled to rely on
+ * "mid-flight blocks the staff" without that also depending on `chain` staying in sync.
+ */
 export function staffBusy(s: StaffState): boolean {
-  return isSwinging(s) || s.recovery > 0
+  return isSwinging(s) || s.chain > 0 || s.recovery > 0
 }
 
 /**
