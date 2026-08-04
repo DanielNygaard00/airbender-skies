@@ -172,6 +172,23 @@ export function stepEnemy(
   dt: number,
   c: EnemyConfig,
 ): EnemyStep {
+  // Already downed and below the floor: parked. Downing a body does not stop it falling,
+  // and the downed branch below keeps integrating, so without this a corpse in empty air
+  // accelerates without bound — measured at 36km down and still gaining 1.2km/s a minute
+  // in. Nothing can see it again, so it stops rather than running the physics forever.
+  if (isDowned(enemy.health) && enemy.position.y < worldFloorY) {
+    return {
+      enemy: {
+        ...enemy,
+        verticalVelocity: 0,
+        knockback: new Vector3(),
+        stance: 'downed',
+        stanceTime: enemy.stanceTime + dt,
+      },
+      damageToPlayer: 0,
+    }
+  }
+
   const moved = fall(enemy, ground, dt, c)
 
   // Off the island and below the floor: downed, per section 4.6's list of ways an

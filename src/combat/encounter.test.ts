@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  startEncounter, stepEncounter, canGust, type CombatConfig, type EncounterInput,
+  startEncounter, stepEncounter, canGust, canVortex, type CombatConfig, type EncounterInput,
   type EnemySpawn,
 } from './encounter'
 import { isDowned } from './health'
@@ -375,6 +375,18 @@ describe('a vortex', () => {
     )
     const held = stepEncounter(
       fired.encounter, { ...defaults, vortexHeld: true }, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
+    )
+    expect(held.encounter.vortexHeldSeconds).toBe(0)
+  })
+
+  it('does not start charging on the frame the cooldown runs out', () => {
+    // `canVortex` reads the stored cooldown, and the action guide asks it for availability,
+    // so the fight must not bank charge a frame before the guide admits it can. Gating on a
+    // locally decremented copy let it start exactly one frame early.
+    const lastFrame = { ...startEncounter([], DEFAULT_COMBAT_CONFIG), vortexCooldown: 1 / 60 }
+    expect(canVortex(lastFrame)).toBe(false)
+    const held = stepEncounter(
+      lastFrame, { ...defaults, vortexHeld: true }, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
     )
     expect(held.encounter.vortexHeldSeconds).toBe(0)
   })

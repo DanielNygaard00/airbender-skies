@@ -246,10 +246,26 @@ describe('enemy gravity', () => {
   })
 
   it('downs an enemy that falls out of the world', () => {
-    // Section 4.6 counts being blown off a ledge as a down. Without this, adding
-    // gravity would make an enemy off the island fall forever.
+    // Section 4.6 counts being blown off a ledge as a down.
     const pushed = settle(spawnEnemy('a', AT(0, 0), C), 6, emptyAir)
     expect(isDowned(pushed.health)).toBe(true)
+  })
+
+  it('parks a body that fell out of the world instead of falling forever', () => {
+    // Downing it is not enough on its own: the downed branch kept integrating, so a body
+    // in empty air accelerated without bound. Measured before this guard — 36km down and
+    // still gaining 1.2km/s a minute in. Nothing can ever see it again, so it stops.
+    let enemy = spawnEnemy('a', AT(0, 0), C)
+    const far = AT(0, 500)
+    const run = (frames: number) => {
+      for (let i = 0; i < frames; i++) enemy = stepEnemy(enemy, far, emptyAir, FLOOR, 1 / 60, C).enemy
+    }
+    run(600)
+    expect(isDowned(enemy.health)).toBe(true)
+    const parked = enemy.position.y
+    run(600)
+    expect(enemy.position.y).toBe(parked)
+    expect(enemy.verticalVelocity).toBe(0)
   })
 
   it('still decays a horizontal push', () => {

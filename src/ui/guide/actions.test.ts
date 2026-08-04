@@ -171,6 +171,22 @@ describe('actions owned by other systems', () => {
     expect(can('Avatar State', { avatarStateReady: false })).toBe(false)
   })
 
+  it('follows the vortex readiness it is handed', () => {
+    // Every other flag is held true in the false case, so a row that read the wrong one —
+    // `ctx.gustReady` copied onto the Vortex entry, say — is caught rather than passing.
+    expect(can('Vortex', { vortexReady: true })).toBe(true)
+    expect(can('Vortex', {
+      vortexReady: false, gustReady: true, slipstreamReady: true, avatarStateReady: true,
+    })).toBe(false)
+  })
+
+  it('follows the slipstream readiness it is handed', () => {
+    expect(can('Slipstream', { slipstreamReady: true })).toBe(true)
+    expect(can('Slipstream', {
+      slipstreamReady: false, gustReady: true, vortexReady: true, avatarStateReady: true,
+    })).toBe(false)
+  })
+
   it('always offers this guide', () => {
     expect(can('This guide')).toBe(true)
     expect(can('This guide', { player: p({ mode: 'glider', grounded: false }) })).toBe(true)

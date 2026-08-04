@@ -359,6 +359,33 @@ describe('slipstream', () => {
     expect(dodged.velocity.length()).toBeGreaterThan(flying.velocity.length())
   })
 
+  it('lets the flight model absorb a sideways glider dodge', () => {
+    // A glider dodge is deliberately perpendicular to the heading, so every one of them
+    // adds pure cross-flow velocity that flightStep's speed-squared drag has to eat. The
+    // property worth guarding is that the sideways burst decays rather than persisting or
+    // amplifying — measured as the component of velocity across the heading, so a normal
+    // gliding dive (which legitimately gains speed) cannot mask it.
+    const across = (state: PlayerState): number => {
+      const heading = new Vector3(state.forward.x, 0, state.forward.z).normalize()
+      const flat = new Vector3(state.velocity.x, 0, state.velocity.z)
+      return flat.clone().sub(heading.multiplyScalar(flat.dot(heading))).length()
+    }
+
+    let s = player({
+      mode: 'glider', position: new Vector3(0, 400, 0), grounded: false,
+      velocity: new Vector3(0, 0, -20),
+    })
+    s = controllerStep(s, input({ slipstreamPressed: true, strafe: 1 }), 1 / 60, deps(voidWorld))
+    const burst = across(s)
+    expect(burst).toBeGreaterThan(DEFAULT_SLIPSTREAM_CONFIG.speed / 2)
+
+    for (let t = 0; t < 2; t += 1 / 60) {
+      s = controllerStep(s, input(), 1 / 60, deps(voidWorld))
+    }
+    expect(Number.isFinite(s.velocity.length())).toBe(true)
+    expect(across(s)).toBeLessThan(burst / 2)
+  })
+
   it('respects the cooldown', () => {
     let s = controllerStep(player(), input({ slipstreamPressed: true }), 1 / 60, deps(flatGround))
     const firstSpeed = s.velocity.length()
