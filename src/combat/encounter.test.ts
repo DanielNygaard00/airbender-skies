@@ -262,6 +262,11 @@ describe('slamming', () => {
     const step = stepEncounter(near(), slamAt(1), 1 / 60, C, DEPS)
     // 'a' starts at z -2, so it is pushed further negative.
     expect(step.encounter.enemies[0]!.knockback.z).toBeLessThan(0)
-    expect(step.encounter.enemies[0]!.knockback.y).toBeGreaterThan(0)
+    // Lift and horizontal push are different physics now — a decaying horizontal
+    // push and a ballistic arc — so damping a fall would make a body float down.
+    // That split means the slam's upward component lands in verticalVelocity, and
+    // knockback.y stays zero; pin both halves of the contract, not just one.
+    expect(step.encounter.enemies[0]!.verticalVelocity).toBeGreaterThan(0)
+    expect(step.encounter.enemies[0]!.knockback.y).toBe(0)
   })
 })
