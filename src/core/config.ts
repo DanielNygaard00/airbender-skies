@@ -94,3 +94,18 @@ export const DEFAULT_GROUND_CONFIG: GroundConfig = {
   dashDurationSeconds: 0.22,
   dashRecoverySeconds: 0.7,
 }
+
+import type { SlipstreamConfig } from '../player/slipstream'
+
+/**
+ * Slipstream. The window is 0.11s inside an enemy telegraph of 0.55s
+ * (`windUpSeconds`), so beating a strike takes real timing rather than a mash.
+ */
+export const DEFAULT_SLIPSTREAM_CONFIG: SlipstreamConfig = {
+  // A shade faster than the blast dash's 26: this one is bought with a cooldown
+  // rather than being the everyday traversal tool.
+  speed: 30,
+  durationSeconds: 0.2,
+  invulnerableSeconds: 0.11,
+  cooldownSeconds: 1.5,
+}
