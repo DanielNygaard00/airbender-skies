@@ -5,7 +5,7 @@ for whoever picks the project up next, including a future session with no memory
 work below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 823 tests across 58 files,
+**Repo state:** 826 tests across 58 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -106,20 +106,25 @@ sampling points and comparing the drawn sector against `inGust` — a different 
 from the one the code uses. Spec at
 [`docs/superpowers/specs/2026-08-03-combat-visuals-design.md`](superpowers/specs/2026-08-03-combat-visuals-design.md).
 
-**The gust cone is not visually confirmed, and this is the first thing to check.** Its
-geometry is verified in the running game — a two-mesh Group at `outerRadius` 12 spanning
-120 degrees, positioned a metre above the player, culled after 20 frames — and all three
-dash streaks fire. But nobody has actually *seen* the cone on screen. Two defects were
-found and fixed along the way: terrain occlusion (a flat sector near the ground is buried
-by slopes, fixed by drawing the attack effects over the world with `depthTest: false`, and
-proven both ways in-game), and low contrast (pale blue at 0.16 opacity is invisible against
-pale green terrain, raised to 0.34 and cooled toward cyan). The occlusion fix is confirmed;
-the contrast change is **not** — repeated attempts to catch the cone in a screenshot after
-it failed, and the cause was not established. Start here: open the live build, press `F`,
-and see whether anything appears. If not, the remaining suspects are the effect never
-reaching the render (frustum culling on a sector geometry with a non-zero `thetaStart`) or
-the opacity still being too low. Do not trust the geometry tests to tell you — they passed
-through every version of this defect.
+**The gust cone is confirmed visible.** This entry previously warned that nobody had seen
+it; it has now been seen both by a human on the live build and in the preview pane. Two
+defects were found and fixed to get there: terrain occlusion (a flat sector near the ground
+is buried by slopes, fixed by drawing the attack effects over the world with
+`depthTest: false`, proven both ways in-game) and low contrast (pale blue at 0.16 opacity
+is invisible against pale green terrain, raised to 0.34 and cooled toward cyan).
+
+**Seeing the cone immediately exposed a combat bug that the tests could not.** On foot the
+gust fired in a fixed world direction — the spawn heading, or whatever heading the glider
+last landed on — regardless of where the player was facing. The cause was that
+`PlayerState.forward` was a glider-only field: `groundStep` explicitly carried the old
+value forward and never recomputed it, while `desiredVelocity` steered from
+`horizontalForward(input.lookDirection)` instead. Since `inGust` aims the *hit test* with
+`player.forward` too, the blast itself was wrong, not just its drawing — the cone was
+honestly picturing a broken gust, which is the payoff of having drawn the true hit volume
+rather than a tidy puff. On foot `forward` now follows the flattened look direction, and
+the character model faces `forward` in both modes rather than facing its direction of
+travel on foot: travel is zero at exactly the moment a player stops to aim, so a standing
+turn used to move the blast and not the character.
 
 ## What has NOT been built
 

@@ -104,7 +104,8 @@ export const ACTIONS: readonly GameAction[] = [
   },
   {
     key: 'F', name: 'Gust', mode: 'both', available: (ctx) => ctx.gustReady,
-    detail: 'A wide sweep of air. Knocks enemies back and interrupts a strike; barely hurts them.',
+    detail: 'A wide sweep of air, thrown where you are looking. Knocks enemies back and '
+      + 'interrupts a strike; barely hurts them.',
   },
   {
     key: 'E', name: 'Avatar State', mode: 'both', available: (ctx) => ctx.avatarStateReady,

@@ -119,7 +119,13 @@ export function groundStep(
 
   return {
     ...state, position, velocity,
-    forward: state.forward.clone(), grounded, lastGroundIslandId,
+    // On foot the aim follows the camera, flattened — the same basis this module already
+    // uses to steer with (`desiredVelocity`) and to point a standing dash. Carrying the
+    // old heading instead left `forward` frozen at spawn, or at whatever heading the
+    // glider last landed on, and the gust's cone is tested against `forward`: every blast
+    // on foot went in that stale direction regardless of where the player was facing.
+    // Velocity cannot serve here, because a player who stops to aim has none.
+    forward: horizontalForward(input.lookDirection), grounded, lastGroundIslandId,
     chargeTime: jump.chargeTime,
     airJumpsUsed: grounded ? 0 : jump.airJumpsUsed,
     scooterActive: scooter.active,

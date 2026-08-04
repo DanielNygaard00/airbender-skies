@@ -111,6 +111,34 @@ describe('groundStep', () => {
     expect(s.grounded).toBe(false)
   })
 
+  it('aims where the player is looking', () => {
+    const s = groundStep(
+      player(), input({ forward: 1, lookDirection: new Vector3(1, 0, 0) }), 1 / 60, flatGround, G,
+    )
+    expect(s.forward.x).toBeCloseTo(1, 5)
+  })
+
+  it('aims while standing still, because that is when a gust is thrown', () => {
+    // The gust's cone is tested against player.forward, so a player who turns on the spot
+    // and blasts must blast where they turned to. Velocity cannot supply this: it is zero
+    // at exactly the moment the aim matters most.
+    const s = groundStep(player(), input({ lookDirection: new Vector3(-1, 0, 0) }), 1 / 60, flatGround, G)
+    expect(s.velocity.lengthSq()).toBeLessThan(1e-8)
+    expect(s.forward.x).toBeCloseTo(-1, 5)
+  })
+
+  it('does not tilt the aim when the player looks up', () => {
+    // inGust flattens the heading before testing it, so a tilted forward would draw and
+    // resolve a cone that disagrees with the flat one the fight actually uses.
+    // Started tilted on purpose: with a level starting forward this assertion holds whether
+    // or not the aim is recomputed, which would make it prove nothing.
+    const s = groundStep(
+      player({ forward: new Vector3(0, 0.5, -1).normalize() }),
+      input({ lookDirection: new Vector3(0, 1, -1).normalize() }), 1 / 60, flatGround, G,
+    )
+    expect(s.forward.y).toBe(0)
+  })
+
   it('a jump rises then returns to the ground', () => {
     let s = groundStep(
       player(), input({ actionPressed: true, actionReleased: true }), 1 / 60, flatGround, G,
