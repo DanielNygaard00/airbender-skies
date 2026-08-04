@@ -97,7 +97,7 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
    */
   staffArc: {
     opener: { range: 3.6, halfAngle: Math.PI / 2.2 },      // about 164 degrees swept
-    finisher: { range: 4.2, halfAngle: Math.PI / 1.9 },    // about 190: nearly all round
+    finisher: { range: 4.2, halfAngle: Math.PI / 1.9 },    // about 190 degrees swept: front hemisphere plus a few degrees past each flank, not reaching behind
     openerDamage: 0.7,
     finisherDamage: 1.2,
     // Low on the openers so the combo keeps its targets in reach; the finisher clears space.

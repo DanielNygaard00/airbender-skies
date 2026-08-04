@@ -71,6 +71,13 @@ describe('staffImpulse', () => {
   })
 
   it('stays finite for an enemy standing on the player', () => {
-    expect(Number.isFinite(staffImpulse(ORIGIN, ORIGIN.clone(), false, A).x)).toBe(true)
+    // A target coincident with the caster still receives the configured shove, not zero.
+    // Without the fallback, normalize() on a zero vector returns (0,0,0), not NaN, so the
+    // impulse becomes zero and the guard against that silently vanishes. Magnitude assertion
+    // catches it: zero-length impulse has magnitude 0, not the configured knockback.
+    expect(staffImpulse(ORIGIN, ORIGIN.clone(), false, A).length())
+      .toBeCloseTo(A.openerKnockback, 5)
+    expect(staffImpulse(ORIGIN, ORIGIN.clone(), true, A).length())
+      .toBeCloseTo(A.finisherKnockback, 5)
   })
 })
