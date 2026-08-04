@@ -15,6 +15,10 @@ import { healthFraction, isDowned, type Health } from './health'
  */
 export interface HealthBar {
   object: Object3D
+  /**
+   * Camera rotation is copied as a LOCAL rotation. The bar must be parented to something
+   * unrotated; a rotating parent composes with it and the bar stops facing the camera.
+   */
   update(health: Health, cameraQuaternion: Quaternion): void
   dispose(): void
 }
@@ -55,8 +59,10 @@ export function createHealthBar(): HealthBar {
   object.position.y = HEIGHT_ABOVE_FEET
 
   const trackGeometry = new PlaneGeometry(WIDTH, HEIGHT)
+  // Terrain hides a bar drawn over a hill, preventing the player from finding an enemy
+  // by its health bar alone. Unlike src/fx/, where every effect hides behind terrain.
   const trackMaterial = new MeshBasicMaterial({
-    color: TRACK_COLOR, transparent: true, opacity: TRACK_OPACITY, depthWrite: false,
+    color: TRACK_COLOR, transparent: true, opacity: TRACK_OPACITY, depthWrite: false, depthTest: true,
   })
   const track = new Mesh(trackGeometry, trackMaterial)
   track.name = 'track'
@@ -65,7 +71,7 @@ export function createHealthBar(): HealthBar {
   // The fill's origin is moved to its left edge, so scaling x empties it from the right
   // rather than shrinking it toward its middle from both sides.
   const fillGeometry = new PlaneGeometry(WIDTH, HEIGHT).translate(WIDTH / 2, 0, 0)
-  const fillMaterial = new MeshBasicMaterial({ color: FILL_COLOR })
+  const fillMaterial = new MeshBasicMaterial({ color: FILL_COLOR, depthTest: true })
   const fill = new Mesh(fillGeometry, fillMaterial)
   fill.name = 'fill'
   fill.position.set(-WIDTH / 2, 0, FILL_OFFSET)
