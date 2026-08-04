@@ -3,6 +3,7 @@ import type { PressureWaveConfig } from '../../combat/pressure-wave'
 import { canDash } from '../../player/dash'
 import { canAirJump } from '../../player/jump'
 import { canBend } from '../../player/breath'
+import { staffBusy, staffOf } from '../../player/staff'
 
 /**
  * Every action the player can perform, and whether they can perform it now.
@@ -62,6 +63,18 @@ export const ACTIONS: readonly GameAction[] = [
   {
     key: 'Mouse', name: 'Look / trim', mode: 'both', available: always,
     detail: 'Look around on foot. In the glider it trims — the nose drifts toward where you look.',
+  },
+  {
+    key: 'Mouse left', name: 'Staff combo', mode: 'ground',
+    // staffBusy is the same predicate the controller gates the glider on, so the panel
+    // cannot claim the staff is free while the fight disagrees.
+    available: (ctx) => ctx.player.mode === 'ground' && !staffBusy(staffOf(ctx.player)),
+    detail: 'Up to three swings, each a wide horizontal arc that hits everyone in front of '
+      + 'you rather than one enemy hard. The third sweeps wider and shoves much harder. Keep '
+      + 'swinging inside the window to continue the combo, or it restarts. While the staff is '
+      + 'busy — swinging, or recovering once the combo ends — it is not a glider, so you '
+      + 'cannot deploy until it is free: the glider IS the staff. Ground only; in the glider '
+      + 'a click does nothing.',
   },
   {
     key: 'W / S', name: 'Walk forward / back', mode: 'ground', available: onGround,
@@ -168,7 +181,10 @@ export const ACTIONS: readonly GameAction[] = [
     mode: 'ground',
     detail: 'The wings snap open and keep your momentum, plus an upward kick. Space ' +
       'escalates: jump, then double jump, then deploy.',
-    available: (ctx) => airborne(ctx) && !canAirJump(ctx.player, ctx.ground),
+    // The staff IS the glider folded up, so mid-combo or still recovering, there is no
+    // wing to snap open — the panel has to dim this exactly when the controller refuses it.
+    available: (ctx) => airborne(ctx) && !canAirJump(ctx.player, ctx.ground)
+      && !staffBusy(staffOf(ctx.player)),
   },
   {
     key: 'Space', name: 'Stow the glider', mode: 'glider', available: inGlider,
