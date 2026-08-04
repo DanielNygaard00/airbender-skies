@@ -8,6 +8,7 @@ import { stepBreath, canBend } from './breath'
 import { groundStep } from './ground-move'
 import { canAirJump } from './jump'
 import { stillAir, type WindSample } from '../world/wind'
+import { stepSlipstream, slipstreamHeading, type SlipstreamConfig } from './slipstream'
 
 export interface ControllerDeps {
   terrain: TerrainQuery
@@ -21,6 +22,7 @@ export interface ControllerDeps {
    * level so movement stays testable against a made-up sky.
    */
   windAt?(position: Vector3, forward: Vector3): WindSample
+  slipstream: SlipstreamConfig
 }
 
 /** Distance below the glider at which touching down counts as landing. */
@@ -75,6 +77,7 @@ export function respawn(state: PlayerState, deps: ControllerDeps): PlayerState {
     maxBreath,
     airJumpsUsed: 0,
     chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+    slipstreamElapsed: null, slipstreamCooldown: 0,
   }
 }
 
@@ -98,6 +101,7 @@ function safeRespawn(state: PlayerState, deps: ControllerDeps): PlayerState {
     lastGroundIslandId: null,
     airJumpsUsed: 0,
     chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+    slipstreamElapsed: null, slipstreamCooldown: 0,
   }
 }
 
@@ -186,6 +190,22 @@ export function controllerStep(
   // Breath recovers on foot. Flight handles its own drain above.
   if (state.mode === 'ground' && next.mode === 'ground') {
     next = { ...next, breath: stepBreath(next, 'idle', next.grounded, dt, deps.flight).breath }
+  }
+
+  // Applied after the posture branches, because a dodge is available in both and the
+  // impulse is the same in each: a burst added to whatever velocity movement produced.
+  const slip = stepSlipstream(
+    { elapsed: next.slipstreamElapsed, cooldown: next.slipstreamCooldown },
+    input.slipstreamPressed,
+    slipstreamHeading(input.lookDirection, input.forward, input.strafe),
+    dt,
+    deps.slipstream,
+  )
+  next = {
+    ...next,
+    slipstreamElapsed: slip.state.elapsed,
+    slipstreamCooldown: slip.state.cooldown,
+    velocity: slip.impulse ? next.velocity.clone().add(slip.impulse) : next.velocity,
   }
 
   return isFinitePlayer(next) ? next : safeRespawn(state, deps)

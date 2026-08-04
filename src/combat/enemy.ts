@@ -11,6 +11,17 @@ import { applyDamage, isDowned, type Health, type HealthConfig } from './health'
  */
 export type Stance = 'advance' | 'wind-up' | 'recover' | 'downed'
 
+/**
+ * Just the ground height, and nothing else.
+ *
+ * `TerrainQuery` also carries `raycastDown`, which stepping an enemy has no use for.
+ * Asking for the narrower thing keeps the combat model independent of the parts of
+ * terrain it does not need, and makes a test fixture one line instead of six.
+ */
+export interface GroundHeightQuery {
+  groundHeightAt(x: number, z: number): number | null
+}
+
 export interface Enemy {
   id: string
   position: Vector3
@@ -20,8 +31,17 @@ export interface Enemy {
   /** Seconds spent in the current stance. */
   stanceTime: number
   health: Health
-  /** Decaying push from a gust or a slam. */
+  /** Decaying horizontal push from a gust, a slam or a vortex. Horizontal only. */
   knockback: Vector3
+  /** Ballistic vertical speed. Gravity acts on this; the ground snap ends it. */
+  verticalVelocity: number
+  /**
+   * Set by the ground snap, and the authority on "airborne".
+   *
+   * Stored rather than derived because every consumer would otherwise re-test y
+   * against the ground with its own epsilon and drift from the snap that decides it.
+   */
+  grounded: boolean
 }
 
 export interface EnemyConfig extends HealthConfig {
@@ -46,6 +66,19 @@ export interface EnemyConfig extends HealthConfig {
   strikeDamage: number
   /** How fast knockback bleeds away, per second. */
   knockbackDamping: number
+  /** Matches the world's own gravity in DEFAULT_GROUND_CONFIG. */
+  gravity: number
+  /**
+   * Step-down tolerance for the ground snap, in metres.
+   *
+   * Walking downhill, an enemy's horizontal step lands it above the lower ground
+   * ahead of it for one frame — `position.y > height` — before gravity pulls it down
+   * onto the snap on the next frame. Without a tolerance that alternation reads as
+   * airborne every other frame, which halves its effective walk speed and, because an
+   * airborne enemy is inert, halves its ability to attack too. This tolerance lets a
+   * body that was already on the ground stick to a slope or small drop underfoot.
+   */
+  snapDistance: number
 }
 
 export function spawnEnemy(id: string, position: Vector3, c: EnemyConfig): Enemy {
@@ -57,6 +90,8 @@ export function spawnEnemy(id: string, position: Vector3, c: EnemyConfig): Enemy
     stanceTime: 0,
     health: { current: c.maxHealth, max: c.maxHealth, sinceHit: c.outOfCombatSeconds },
     knockback: new Vector3(),
+    verticalVelocity: 0,
+    grounded: true,
   }
 }
 
@@ -75,6 +110,52 @@ export function horizontalDistance(a: Vector3, b: Vector3): number {
   return Math.hypot(a.x - b.x, a.z - b.z)
 }
 
+interface Fallen {
+  position: Vector3
+  verticalVelocity: number
+  grounded: boolean
+  knockback: Vector3
+}
+
+/** One frame of ballistics: decaying horizontal push, gravity, then a ground snap. */
+function fall(
+  enemy: Enemy, ground: GroundHeightQuery, dt: number, c: EnemyConfig,
+): Fallen {
+  const knockback = enemy.knockback.clone()
+    .multiplyScalar(Math.max(0, 1 - c.knockbackDamping * dt))
+  let verticalVelocity = enemy.verticalVelocity - c.gravity * dt
+  const position = enemy.position.clone()
+  position.x += knockback.x * dt
+  position.z += knockback.z * dt
+  position.y += verticalVelocity * dt
+
+  let grounded = false
+  const height = ground.groundHeightAt(position.x, position.z)
+  // Only a descending enemy lands, so a lift is not cancelled on its first frame.
+  //
+  // The second half of the OR is a step-down tolerance, matching the player's own
+  // snapDistance in groundStep (src/player/ground-move.ts): walking downhill, the
+  // horizontal step lands an enemy above the lower ground ahead of it for one
+  // frame, and without this it reads as airborne every other frame -- half its
+  // walk speed, and since an airborne enemy is inert, half its ability to attack.
+  //
+  // That tolerance is gated on `enemy.grounded` (last frame's state, not this
+  // one's) for the same reason the player's is gated on `state.grounded`: a body
+  // that was not already on the ground must actually reach it. A Vortex lifts an
+  // enemy several metres up, and an ungated tolerance would snap it onto the
+  // ground up to snapDistance before it truly landed -- a visible pop for a lift
+  // that size.
+  if (
+    height !== null && verticalVelocity <= 0 &&
+    (position.y <= height || (enemy.grounded && position.y - height <= c.snapDistance))
+  ) {
+    position.y = height
+    verticalVelocity = 0
+    grounded = true
+  }
+  return { position, verticalVelocity, grounded, knockback }
+}
+
 /**
  * Advance one enemy.
  *
@@ -86,37 +167,67 @@ export function horizontalDistance(a: Vector3, b: Vector3): number {
 export function stepEnemy(
   enemy: Enemy,
   playerPosition: Vector3,
+  ground: GroundHeightQuery,
+  worldFloorY: number,
   dt: number,
   c: EnemyConfig,
 ): EnemyStep {
-  const knockback = enemy.knockback.clone().multiplyScalar(Math.max(0, 1 - c.knockbackDamping * dt))
-  const pushed = enemy.position.clone().addScaledVector(knockback, dt)
+  const moved = fall(enemy, ground, dt, c)
 
-  if (isDowned(enemy.health)) {
+  // Off the island and below the floor: downed, per section 4.6's list of ways an
+  // enemy goes down. Without this, gravity would mean falling forever.
+  if (moved.position.y < worldFloorY && !isDowned(enemy.health)) {
     return {
-      enemy: { ...enemy, stance: 'downed', stanceTime: enemy.stanceTime + dt, position: pushed, knockback },
+      enemy: {
+        ...enemy, ...moved,
+        health: applyDamage(enemy.health, enemy.health.current),
+        stance: 'downed', stanceTime: 0,
+      },
       damageToPlayer: 0,
     }
   }
 
-  const toPlayer = horizontalTo(pushed, playerPosition)
-  const distance = horizontalDistance(pushed, playerPosition)
+  if (isDowned(enemy.health)) {
+    // Down, not gone: the body stays in the world — but it still falls, and settles.
+    return {
+      enemy: { ...enemy, ...moved, stance: 'downed', stanceTime: enemy.stanceTime + dt },
+      damageToPlayer: 0,
+    }
+  }
+
+  // Airborne: inert. This is what makes a Vortex setup rather than damage — the payoff
+  // for lifting a group is that the group stops acting. A wind-up in progress is
+  // dropped, consistent with hitEnemy already treating a hit as an interruption.
+  if (!moved.grounded) {
+    const winding = enemy.stance === 'wind-up'
+    return {
+      enemy: {
+        ...enemy, ...moved,
+        stance: winding ? 'recover' : enemy.stance,
+        stanceTime: winding ? 0 : enemy.stanceTime + dt,
+      },
+      damageToPlayer: 0,
+    }
+  }
+
+  const toPlayer = horizontalTo(moved.position, playerPosition)
+  const distance = horizontalDistance(moved.position, playerPosition)
   const stanceTime = enemy.stanceTime + dt
   let damageToPlayer = 0
   let stance: Stance = enemy.stance
-  let position = pushed
+  let position = moved.position
   let time = stanceTime
 
   if (enemy.stance === 'advance') {
     if (distance > c.aggroRange) {
       // Out of notice range: hold station rather than trailing the player home.
-      position = pushed
+      position = moved.position
     } else if (distance <= c.strikeRange) {
       stance = 'wind-up'
       time = 0
     } else {
       // Closes only horizontally: it is infantry, it does not chase into the sky.
-      position = pushed.addScaledVector(toPlayer, c.moveSpeed * dt)
+      position = moved.position.clone().addScaledVector(toPlayer, c.moveSpeed * dt)
     }
   } else if (enemy.stance === 'wind-up') {
     if (stanceTime >= c.windUpSeconds) {
@@ -132,7 +243,9 @@ export function stepEnemy(
   }
 
   return {
-    enemy: { ...enemy, position, facing: toPlayer, stance, stanceTime: time, knockback },
+    enemy: {
+      ...enemy, ...moved, position, facing: toPlayer, stance, stanceTime: time,
+    },
     damageToPlayer,
   }
 }
@@ -143,7 +256,12 @@ export function hitEnemy(enemy: Enemy, damage: number, impulse: Vector3): Enemy 
   return {
     ...enemy,
     health,
-    knockback: enemy.knockback.clone().add(impulse),
+    // Horizontal push and ballistic lift are different physics: damping a fall would
+    // make a body float down, which is why they are separate fields now.
+    knockback: enemy.knockback.clone().add(new Vector3(impulse.x, 0, impulse.z)),
+    verticalVelocity: enemy.verticalVelocity + impulse.y,
+    // grounded is deliberately not set here: the physics step below recomputes it from
+    // the snap, and two places deciding it is how they drift apart.
     // Being hit interrupts: a wind-up in progress is cancelled, which is how a
     // gust "interrupts, staggers, opens gaps" rather than merely chipping health.
     stance: isDowned(health) ? 'downed' : 'recover',

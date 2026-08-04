@@ -2,11 +2,14 @@ import { Vector3 } from 'three'
 import {
   applyDamage, fullHealth, isDowned, stepHealth, type Health, type HealthConfig,
 } from './health'
-import { hitEnemy, spawnEnemy, stepEnemy, type Enemy, type EnemyConfig } from './enemy'
+import {
+  hitEnemy, spawnEnemy, stepEnemy, type Enemy, type EnemyConfig, type GroundHeightQuery,
+} from './enemy'
 import { gustImpulse, gustTargets, type GustConfig } from './gust'
 import {
   waveDamage, waveImpulse, waveTargets, type PressureWaveConfig,
 } from './pressure-wave'
+import { vortexCharge, vortexImpulse, vortexTargets, type VortexConfig } from './vortex'
 
 /**
  * One fight: the enemies, the player's health, and the cooldown on their bending.
@@ -21,6 +24,9 @@ export interface Encounter {
   playerHealth: Health
   /** Seconds until the next gust is available. */
   gustCooldown: number
+  /** Seconds the player has held a charge, or 0. Not the 0-to-1 fraction. */
+  vortexHeldSeconds: number
+  vortexCooldown: number
 }
 
 export interface CombatConfig {
@@ -28,6 +34,7 @@ export interface CombatConfig {
   enemy: EnemyConfig
   gust: GustConfig
   pressureWave: PressureWaveConfig
+  vortex: VortexConfig
 }
 
 export interface EnemySpawn {
@@ -35,11 +42,24 @@ export interface EnemySpawn {
   position: Vector3
 }
 
+/**
+ * What the fight needs from the world, separate from the per-frame input.
+ *
+ * Mirrors how `ControllerDeps` sits beside `InputState` in the player controller:
+ * a terrain query is a dependency, not something the player did this frame.
+ */
+export interface EncounterDeps {
+  ground: GroundHeightQuery
+  worldFloorY: number
+}
+
 export function startEncounter(spawns: readonly EnemySpawn[], c: CombatConfig): Encounter {
   return {
     enemies: spawns.map((spawn) => spawnEnemy(spawn.id, spawn.position, c.enemy)),
     playerHealth: fullHealth(c.player),
     gustCooldown: 0,
+    vortexHeldSeconds: 0,
+    vortexCooldown: 0,
   }
 }
 
@@ -50,6 +70,12 @@ export interface EncounterInput {
   gustPressed: boolean
   /** A Pressure Wave landed at the player's feet this frame, or null. */
   slam: { strength: number } | null
+  /** R held: a vortex is charging. */
+  vortexHeld: boolean
+  /** R released this frame. */
+  vortexReleased: boolean
+  /** The player is inside a slipstream's invulnerable window. */
+  playerInvulnerable: boolean
 }
 
 export interface EncounterStep {
@@ -64,11 +90,23 @@ export interface EncounterStep {
   slamHitThisFrame: string[]
   /** Whether the player was hit this frame, for feedback. */
   playerHit: boolean
+  /**
+   * Damage was incoming and was discarded. NOT "the player is invulnerable" — a flag
+   * meaning that would let a player farm Focus by dodging nothing.
+   */
+  damageAvoided: boolean
+  /** The charge a vortex fired at, or null. For the effect that draws it. */
+  vortexFired: number | null
 }
 
 /** Whether a gust can fire: off cooldown only. */
 export function canGust(encounter: Encounter): boolean {
   return encounter.gustCooldown <= 0
+}
+
+/** Whether a vortex can start charging: off cooldown only. */
+export function canVortex(encounter: Encounter): boolean {
+  return encounter.vortexCooldown <= 0
 }
 
 /**
@@ -85,6 +123,7 @@ export function stepEncounter(
   input: EncounterInput,
   dt: number,
   c: CombatConfig,
+  deps: EncounterDeps,
 ): EncounterStep {
   const wasDowned = new Set(
     encounter.enemies.filter((enemy) => isDowned(enemy.health)).map((enemy) => enemy.id),
@@ -116,6 +155,47 @@ export function stepEncounter(
     gustCooldown = c.gust.cooldownSeconds
   }
 
+  let vortexCooldown = Math.max(0, encounter.vortexCooldown - dt)
+  let vortexHeldSeconds = encounter.vortexHeldSeconds
+  let vortexFired: number | null = null
+
+  if (input.vortexHeld && vortexCooldown <= 0) {
+    vortexHeldSeconds = Math.min(
+      vortexHeldSeconds + dt, c.vortex.maxChargeSeconds,
+    )
+  } else if (!input.vortexReleased) {
+    // Neither held nor released: R went away without a key-up edge, which is what
+    // a window blur produces — InputTracker's blur handler clears the held-key set
+    // but never fires keyup, so vortexReleased stays false. Left alone the charge
+    // would freeze rather than clear, so a later tap would resume on top of a
+    // stale total and fire a bigger vortex than that tap earned. The `else` keeps
+    // this from firing on the frame a real release comes through, where
+    // vortexHeld is already false but vortexReleased is true.
+    vortexHeldSeconds = 0
+  }
+
+  if (input.vortexReleased) {
+    if (vortexHeldSeconds >= c.vortex.minChargeSeconds) {
+      const charge = vortexCharge(vortexHeldSeconds, c.vortex)
+      const caught = new Set(
+        vortexTargets(input.playerPosition, enemies, charge, c.vortex).map((e) => e.id),
+      )
+      enemies = enemies.map((enemy) =>
+        caught.has(enemy.id) && !isDowned(enemy.health)
+          // Zero damage: the move is setup. hitEnemy still interrupts, which is
+          // what a control move should do to a wind-up.
+          ? hitEnemy(enemy, 0, vortexImpulse(
+              input.playerPosition, enemy.position, charge, c.vortex,
+            ))
+          : enemy)
+      vortexFired = charge
+      vortexCooldown = c.vortex.cooldownSeconds
+    }
+    // Either way the charge is spent. A release below the minimum costs nothing,
+    // so a mistaken tap is not punished with a 3.5 second cooldown.
+    vortexHeldSeconds = 0
+  }
+
   let slamHitThisFrame: string[] = []
 
   if (input.slam) {
@@ -141,14 +221,16 @@ export function stepEncounter(
 
   let damageToPlayer = 0
   enemies = enemies.map((enemy) => {
-    const step = stepEnemy(enemy, input.playerPosition, dt, c.enemy)
+    const step = stepEnemy(enemy, input.playerPosition, deps.ground, deps.worldFloorY, dt, c.enemy)
     damageToPlayer += step.damageToPlayer
     return step.enemy
   })
 
-  const hurt = damageToPlayer > 0
-    ? applyDamage(encounter.playerHealth, damageToPlayer)
-    : encounter.playerHealth
+  // Avoided only counts when something was actually coming.
+  const avoided = input.playerInvulnerable && damageToPlayer > 0
+  const applied = avoided ? 0 : damageToPlayer
+
+  const hurt = applied > 0 ? applyDamage(encounter.playerHealth, applied) : encounter.playerHealth
   const playerHealth = stepHealth(hurt, dt, c.player)
 
   const downedThisFrame = enemies
@@ -156,10 +238,12 @@ export function stepEncounter(
     .map((enemy) => enemy.id)
 
   return {
-    encounter: { enemies, playerHealth, gustCooldown },
+    encounter: { enemies, playerHealth, gustCooldown, vortexHeldSeconds, vortexCooldown },
     downedThisFrame,
     hitThisFrame,
     slamHitThisFrame,
-    playerHit: damageToPlayer > 0,
+    playerHit: applied > 0,
+    damageAvoided: avoided,
+    vortexFired,
   }
 }

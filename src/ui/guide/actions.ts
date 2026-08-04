@@ -30,6 +30,10 @@ export interface ActionContext {
    */
   gustReady: boolean
   avatarStateReady: boolean
+  /** A vortex is off cooldown. The caller asks `canVortex`. */
+  vortexReady: boolean
+  /** A slipstream is off cooldown and not already running. The caller asks `canSlipstream`. */
+  slipstreamReady: boolean
 }
 
 export interface GameAction {
@@ -111,6 +115,21 @@ export const ACTIONS: readonly GameAction[] = [
     key: 'E', name: 'Avatar State', mode: 'both', available: (ctx) => ctx.avatarStateReady,
     detail: 'Once the pip under your Focus bar is full. Eight seconds of free breath, ' +
       'a gust that downs a soldier outright, and every wind feature turning to your side.',
+  },
+  {
+    key: 'R', press: 'hold, then release', name: 'Vortex', mode: 'both',
+    available: (ctx) => ctx.vortexReady,
+    detail: 'Hold to gather a charge, release to pull everyone near you inward and lift '
+      + 'them off their feet. It does no damage at all — a lifted soldier simply cannot '
+      + 'act, which is the opening. Charging longer widens the reach and throws them higher. '
+      + 'Releasing early cancels for free.',
+  },
+  {
+    key: 'C', name: 'Slipstream', mode: 'both',
+    available: (ctx) => ctx.slipstreamReady,
+    detail: 'A dash that cannot be hit for the first instant of it. The window is shorter '
+      + 'than the dash, so it beats an attack you can see coming rather than everything. '
+      + 'Timed right it also builds Focus.',
   },
   {
     key: 'Ctrl', press: 'hold', name: 'Tuck', mode: 'glider', available: inGlider,

@@ -1,8 +1,9 @@
 import { Vector3, Mesh, OctahedronGeometry, MeshBasicMaterial, Group } from 'three'
 import { createRenderer, hasWebGL, showFallback, WEBGL_MESSAGE } from './core/renderer'
 import { createStepper } from './core/loop'
+import { createInterpolatedVector, type InterpolatedVector } from './core/interpolation'
 import { InputTracker } from './core/input'
-import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG } from './core/config'
+import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG } from './core/config'
 import { loadSave, writeSave } from './core/save'
 import { loadGLTF } from './core/assets'
 import { buildWorld, type World } from './world/world'
@@ -25,9 +26,15 @@ import { createGustCone } from './fx/gust-cone'
 import { createDashTrail } from './fx/dash-trail'
 import { createImpact } from './fx/impact'
 import { createAvatarAura } from './fx/avatar-aura'
+import { createSlipstreamTrail } from './fx/slipstream-trail'
+import { createGuardShell } from './fx/guard-shell'
+import { createVortexRing } from './fx/vortex-ring'
+import { createVortexChargeTell } from './fx/vortex-charge'
+import { vortexRadius } from './combat/vortex'
 import { createEnemyView } from './combat/enemy-mesh'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
+import { canSlipstream, isInvulnerable, slipstreamHeading } from './player/slipstream'
 import { controllerStep, willRespawn, type ControllerDeps } from './player/controller'
 import { collectStep } from './player/shrine-collect'
 import { enableShadows } from './core/sun'
@@ -37,7 +44,7 @@ import { animationFor, chargeSquashScale } from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
 import { createHud, hudModelFor } from './ui/hud'
 import { createGuide, guideModelFor } from './ui/guide/panel'
-import { canGust } from './combat/encounter'
+import { canGust, canVortex } from './combat/encounter'
 import { isArmed } from './focus/avatar-state'
 import { createWindAudio } from './fx/audio'
 import { fovForSpeed } from './fx/mapping'
@@ -147,6 +154,14 @@ function start(): void {
   // an inner wrapper that absorbs the fitting and squash transforms.
   avatar.object.add(aura.object)
 
+  const chargeTell = createVortexChargeTell()
+  // Same attachment pattern as the aura: a child of avatar.object, not the model.
+  avatar.object.add(chargeTell.object)
+
+  const guard = createGuardShell()
+  // Same attachment pattern as the aura: a child of avatar.object, not the model.
+  avatar.object.add(guard.object)
+
   // BASE_URL, not a bare absolute path: vite.config.ts sets base to
   // '/airbender-skies/' for GitHub Pages, so "/models/..." would resolve in dev
   // and 404 only on the deployed site. Fire-and-forget on purpose — loadGLTF
@@ -172,6 +187,11 @@ function start(): void {
       wave: DEFAULT_COMBAT_CONFIG.pressureWave,
       gustReady: canGust(encounter),
       avatarStateReady: isArmed(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
+      vortexReady: canVortex(encounter),
+      slipstreamReady: canSlipstream({
+        elapsed: player.slipstreamElapsed,
+        cooldown: player.slipstreamCooldown,
+      }),
     }))
   })
   const wind = createWindAudio()
@@ -185,6 +205,7 @@ function start(): void {
     ground: DEFAULT_GROUND_CONFIG,
     worldFloorY: ARCHIPELAGO.worldFloorY,
     spawnPointFor: spawnPointFor(ARCHIPELAGO, world.terrain),
+    slipstream: DEFAULT_SLIPSTREAM_CONFIG,
     // Surged for the Avatar State on the way out, and the unsurged sample kept so the
     // Focus rate reads the real air. Otherwise the surge feeds itself: the state boosts
     // the wind, and the boosted wind pays more Focus.
@@ -195,6 +216,21 @@ function start(): void {
   }
 
   let cameraPosition = camera.position.clone()
+
+  // Rendered frames outnumber simulation steps on high-refresh displays. update()
+  // records each step's result into these; syncVisuals() draws between them.
+  const playerPositionLerp = createInterpolatedVector()
+  playerPositionLerp.record(player.position)
+  const playerForwardLerp = createInterpolatedVector()
+  playerForwardLerp.record(player.forward)
+  const enemyPositionLerps = new Map<string, InterpolatedVector>()
+  // The camera reads the look direction per rendered frame, but input is only
+  // sampled per simulation step; this carries the last sample across.
+  const lookDirection = new Vector3(0, 0, -1)
+  // Scratch for sample() so syncVisuals allocates nothing per frame.
+  const sampledPosition = new Vector3()
+  const sampledForward = new Vector3()
+  const sampledEnemy = new Vector3()
 
   function update(dt: number): void {
     const state = input.sample()
@@ -241,6 +277,22 @@ function start(): void {
       ))
     }
 
+    // A Slipstream fired iff its elapsed timer went from null to running this frame,
+    // the same before/after comparison the dash trail above uses. The origin is where
+    // the dodge started; the heading is recomputed with `slipstreamHeading` rather than
+    // read off `player.velocity` — velocity carries whatever momentum the dodge was
+    // added to, so a fast glider dodge would draw a streak pointing where the player
+    // was already going instead of where they actually dodged. `slipstreamHeading` is
+    // deterministic and fed the same inputs the controller used this frame, so it
+    // reproduces the true dodge direction exactly.
+    if (player.slipstreamElapsed !== null && beforeStep.slipstreamElapsed === null) {
+      effects.add(createSlipstreamTrail(
+        beforeStep.position,
+        slipstreamHeading(state.lookDirection, state.forward, state.strafe),
+        DEFAULT_SLIPSTREAM_CONFIG,
+      ))
+    }
+
     if (slam) {
       // The ring is placed at the point of contact, before the bounce moves the player.
       const ring = createShockwave(
@@ -265,34 +317,21 @@ function start(): void {
       })
     }
 
-    // Face the character along its heading, in both modes. On foot this used to face the
-    // direction of travel, which left the model looking one way while a gust blew another:
-    // travel is zero exactly when a player stops to aim, so a standing turn moved the blast
-    // and not the character. One rule now, and what the character faces is what it hits.
-    avatar.object.position.copy(player.position)
-    if (player.forward.lengthSq() > 1e-4) {
-      avatar.object.lookAt(player.position.clone().add(player.forward))
-    }
     avatar.setAnimation(animationFor(player))
     avatar.setSquash(chargeSquashScale(player, deps.ground))
     followSun(player.position)
     avatar.update(dt)
     glider.update(dt, player.mode === 'glider')
     aura.update(dt, avatarActive)
+    // Tracks the invulnerability window exactly, not the whole dash: the window is
+    // the mechanic, so the shell must vanish the instant `isInvulnerable` goes false.
+    guard.update(dt, isInvulnerable(
+      { elapsed: player.slipstreamElapsed, cooldown: player.slipstreamCooldown },
+      DEFAULT_SLIPSTREAM_CONFIG,
+    ))
 
-    const profile = profileFor(player.mode)
-    const desired = pullInForTerrain(
-      player.position,
-      desiredCameraPosition(player.position, state.lookDirection, profile),
-      world.terrain,
-    )
-    cameraPosition = smoothTowards(cameraPosition, desired, profile.smoothing, dt)
-
+    lookDirection.copy(state.lookDirection)
     const airspeed = player.velocity.length()
-    camera.position.copy(cameraPosition)
-    camera.lookAt(player.position)
-    camera.fov = player.mode === 'glider' ? fovForSpeed(airspeed) : fovForSpeed(0)
-    camera.updateProjectionMatrix()
 
     for (const marker of markers.values()) marker.rotation.y += dt * 1.5
     for (const waterfall of waterfalls) waterfall.advance(dt)
@@ -307,6 +346,10 @@ function start(): void {
       DEFAULT_COMBAT_CONFIG, avatarActive, DEFAULT_AVATAR_STATE_CONFIG,
     )
 
+    // fightConfig.vortex, not the unboosted default, so the tell agrees with whatever
+    // the Avatar State is currently doing to the move's reach.
+    chargeTell.update(dt, encounter.vortexHeldSeconds, fightConfig.vortex)
+
     // Asked against the pre-step encounter, so the visual agrees with what stepEncounter
     // will actually do on this same frame rather than a frame late.
     if (state.gustPressed && canGust(encounter)) {
@@ -318,9 +361,23 @@ function start(): void {
       playerForward: player.forward,
       gustPressed: state.gustPressed,
       slam: slam ? { strength: slam.strength } : null,
-    }, dt, fightConfig)
+      vortexHeld: state.vortexHeld,
+      vortexReleased: state.vortexReleased,
+      playerInvulnerable: isInvulnerable(
+        { elapsed: player.slipstreamElapsed, cooldown: player.slipstreamCooldown },
+        DEFAULT_SLIPSTREAM_CONFIG,
+      ),
+    }, dt, fightConfig, { ground: world.terrain, worldFloorY: ARCHIPELAGO.worldFloorY })
     encounter = fight.encounter
     for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy, camera.quaternion)
+
+    // Drawn at the true vortexRadius for the same reason the gust cone is drawn at its
+    // true hit volume — a pull that reaches outside the visible ring reads as a bug.
+    if (fight.vortexFired !== null) {
+      effects.add(createVortexRing(
+        player.position, vortexRadius(fight.vortexFired, fightConfig.vortex),
+      ))
+    }
 
     // A down and a connect both name an enemy that went down this frame, because the two
     // lists are computed at different moments. The down is the louder statement, so it
@@ -343,6 +400,7 @@ function start(): void {
       slamStrength: slam?.strength ?? 0,
       playerHit: fight.playerHit,
       fellOutOfWorld: crashed,
+      damageAvoided: fight.damageAvoided,
     }
     const inWind = lastWind.accel.lengthSq() > 1e-6 || lastWind.liftScale !== 1
     focus = stepFocus(focus, {
@@ -363,9 +421,68 @@ function start(): void {
       avatarCharge: armFraction(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
       avatarActive,
     }))
+
+    playerPositionLerp.record(player.position)
+    playerForwardLerp.record(player.forward)
+    for (const enemy of encounter.enemies) {
+      let lerp = enemyPositionLerps.get(enemy.id)
+      if (!lerp) {
+        lerp = createInterpolatedVector()
+        enemyPositionLerps.set(enemy.id, lerp)
+      }
+      lerp.record(enemy.position)
+    }
   }
 
-  const stepper = createStepper({ update, render: () => renderer.render(scene, camera) })
+  /**
+   * Runs once per rendered frame, not per simulation step. The hard split:
+   * update() writes simulation state and records snapshots; only this function
+   * touches the avatar transform, enemy-view positions, and the camera.
+   */
+  function syncVisuals(alpha: number, frameDt: number): void {
+    playerPositionLerp.sample(alpha, sampledPosition)
+    playerForwardLerp.sample(alpha, sampledForward)
+    // Face the character along its heading, in both modes. On foot this used to face the
+    // direction of travel, which left the model looking one way while a gust blew another:
+    // travel is zero exactly when a player stops to aim, so a standing turn moved the blast
+    // and not the character. One rule now, and what the character faces is what it hits.
+    avatar.object.position.copy(sampledPosition)
+    if (sampledForward.lengthSq() > 1e-4) {
+      avatar.object.lookAt(
+        sampledPosition.x + sampledForward.x,
+        sampledPosition.y + sampledForward.y,
+        sampledPosition.z + sampledForward.z,
+      )
+    }
+
+    for (const enemy of encounter.enemies) {
+      const view = enemyViews.get(enemy.id)
+      const lerp = enemyPositionLerps.get(enemy.id)
+      if (view && lerp) view.object.position.copy(lerp.sample(alpha, sampledEnemy))
+    }
+
+    // smoothTowards is exponential decay, so feeding real frame time instead of
+    // the fixed step changes nothing at 60 Hz and adds samples above it.
+    const profile = profileFor(player.mode)
+    const desired = pullInForTerrain(
+      sampledPosition,
+      desiredCameraPosition(sampledPosition, lookDirection, profile),
+      world.terrain,
+    )
+    cameraPosition = smoothTowards(cameraPosition, desired, profile.smoothing, frameDt)
+    camera.position.copy(cameraPosition)
+    camera.lookAt(sampledPosition)
+    camera.fov = player.mode === 'glider' ? fovForSpeed(player.velocity.length()) : fovForSpeed(0)
+    camera.updateProjectionMatrix()
+  }
+
+  const stepper = createStepper({
+    update,
+    render: (alpha, frameDt) => {
+      syncVisuals(alpha, frameDt)
+      renderer.render(scene, camera)
+    },
+  })
 
   let last = performance.now()
   function frame(now: number): void {

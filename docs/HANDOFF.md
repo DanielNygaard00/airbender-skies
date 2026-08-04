@@ -5,7 +5,7 @@ for whoever picks the project up next, including a future session with no memory
 work below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 854 tests across 60 files,
+**Repo state:** 942 tests across 67 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -156,13 +156,65 @@ catches a flip to `false`, but it would not catch the explicit setting being del
 because `true` is also the three.js default. Terrain occlusion itself has not been seen
 behind a hill.
 
+**Vortex and Slipstream.** The two remaining always-available airbending moves from §4.2.
+`src/combat/vortex.ts` is a charged, radial, facing-free gather: hold `R` to build a charge,
+release to pull everyone within the radius inward and lift them. It deals **no damage and has
+no damage parameter**, so it cannot become a damage tool through config drift — its value is
+that an airborne enemy is inert. Charge widens the radius from 5 to 12 and raises the lift
+from about 0.5s of airtime to about 1.1s. Releasing under 0.2s cancels free, spending no
+cooldown. `src/player/slipstream.ts` is the dodge: `C`, 30 units/sec over 0.2s, invulnerable
+for the first **0.11s only**. The window being shorter than the dash is the design — it beats
+an attack you saw coming, and mistiming it leaves you committed to a direction with no
+protection. A dodge that actually avoids a hit grants Focus, which implements §4.5's fourth
+build source, "damage avoided at close range" — specified since the beginning and never built.
+Spec at
+[`docs/superpowers/specs/2026-08-04-vortex-slipstream-design.md`](superpowers/specs/2026-08-04-vortex-slipstream-design.md).
+
+**Enemies now have gravity, and that fixed a shipped bug.** Before this work, `main.ts`
+dropped each enemy onto the ground once at spawn and never again, while `stepEnemy` integrated
+the y component of `knockback` — which `gustImpulse` and `waveImpulse` both set. So every gust
+and every Pressure Wave *permanently levitated* the soldiers it hit. Measured on the running
+build: a gusted soldier rose from y 11.504 to 13.896 and was still at 13.896 twenty seconds
+later, identical to three decimals. `Enemy` now carries a ballistic `verticalVelocity` and a
+stored `grounded` flag; `knockback` is horizontal-only and a test pins `knockback.y` at zero so
+the contract is enforced rather than merely documented. `stepEnemy` takes a deliberately narrow
+`GroundHeightQuery` (`groundHeightAt` only) rather than the whole `TerrainQuery`. An enemy
+below `worldFloorY` is downed, per §4.6's list of ways an enemy goes down — without that rule,
+adding gravity would mean falling forever.
+
+Two things in here are easy to break by accident. **A lifted enemy must be inert** — no
+advancing, no wind-up, no strike while `grounded` is false — because that inertness *is* what
+Vortex buys; the move has no damage at all. And **the guard shell must not outlive the
+invulnerability window**: an earlier version faded over 0.08s against a 0.11s window, so it
+kept glowing at 58% opacity two frames after protection had ended, telling the player they
+were safe when they were not. The fade is now 0.02s in and 0.03s out, and a test pins the tail
+below `invulnerableSeconds / 3`.
+
+Confirmed in the running game, not just in tests: a gusted soldier now rises and settles back
+(11.458 → 12.183 → 11.461, stable at frames 300 and 900); the charge ring grows 5.49 → 7.82 →
+12 and hides on release; a released Vortex pulls the nearby soldier inward 3.15 → 2.59 and
+lifts it to an apex of 14.19 from 11.81, after which it lands and settles; while airborne it
+produced **0** wind-ups across 60 frames against a control of **46** while grounded, and it
+resumed attacking after landing; and the Slipstream shell holds full opacity for two frames,
+drops to 0.178 at frame 6, and is gone by frame 8 — roughly 0.117s, matching the 0.11s window
+plus a two-frame fade.
+
+Two honest caveats. The **charge ring is thin** at full radius — a 0.06-of-radius band seen at
+a shallow camera angle — so it is legible but faint, and is the first thing to tune if aiming a
+Vortex feels vague. And enemy health bars now billboard against a **one-frame-stale camera
+rotation**: the render-interpolation work moved the camera update into the per-frame
+`syncVisuals`, while enemy `sync` still runs in the fixed step. Visually negligible, but it is
+no longer the same-frame guarantee the health-bar spec documented.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
 
-- **Most of §4 combat.** Vortex, Air Wall, Slipstream, staff melee
-  combos, and the three borrowed elements (water, earth, fire) with their radial switch.
-  Five of the six enemy types in the enemy contract. Aerial combat as a distinct posture.
+- **The rest of §4 combat.** Air Wall, staff melee combos, and the three borrowed elements
+  (water, earth, fire) with their radial switch. Five of the six enemy types in the enemy
+  contract. Aerial combat as a distinct posture. Air Wall is blocked rather than merely
+  unbuilt: its function is deflecting projectiles at an angle to return fire, and nothing in
+  the game shoots yet, so it needs archers first.
 - **§4.5's elemental Focus sink.** Focus and the Avatar State exist, but the document
   also has Focus spend on elemental heavy moves, and those are unbuilt. Two of its listed
   build sources are also missing: redirected projectiles needs archers, and damage

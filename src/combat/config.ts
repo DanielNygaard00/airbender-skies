@@ -27,6 +27,12 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     recoverSeconds: 0.7,
     strikeDamage: 1,
     knockbackDamping: 2.6,
+    // Matches DEFAULT_GROUND_CONFIG's gravity, so a lifted soldier falls at the
+    // same rate the player does.
+    gravity: 20,
+    // Matches DEFAULT_GROUND_CONFIG's own snapDistance, so a soldier sticks to a
+    // slope underfoot the same way the player does.
+    snapDistance: 1.2,
   },
   gust: {
     range: 12,
@@ -63,6 +69,25 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     maxKnockback: 30,
     // A 45 m/s dive returns about 20 m/s, roughly 10 m of climb: enough to re-deploy.
     bounceFactor: 0.45,
+  },
+  /**
+   * Vortex. A setup tool, so the cooldown is long next to the gust's 0.45s — you get
+   * one gather per exchange, not a way to keep a group permanently airborne.
+   */
+  vortex: {
+    maxChargeSeconds: 1.2,
+    minChargeSeconds: 0.2,
+    minRadius: 5,
+    // A full charge reaches as far as a gust, so the two moves cover the same ground
+    // by different rules rather than one outranging the other.
+    maxRadius: 12,
+    minPullSpeed: 10,
+    maxPullSpeed: 18,
+    // Under gravity 20: about 0.5s airborne at the minimum, 1.1s and roughly 3m of
+    // apex at full charge. "Lifts them briefly" is the doc's wording.
+    minLiftSpeed: 5,
+    maxLiftSpeed: 11,
+    cooldownSeconds: 3.5,
   },
 }
 

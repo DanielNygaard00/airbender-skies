@@ -30,6 +30,9 @@ export const DEFAULT_FOCUS_CONFIG: FocusConfig = {
   slamGainAtFullImpact: 18,
   damageDrain: 30,
   crashDrain: 50,
+  // Above gustConnectGain (6) and below downGain (14): avoiding a hit is worth more
+  // than landing one and less than putting someone down.
+  dodgeGain: 8,
 }
 
 /**
