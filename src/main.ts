@@ -1,6 +1,7 @@
 import { Vector3, Mesh, OctahedronGeometry, MeshBasicMaterial, Group } from 'three'
 import { createRenderer, hasWebGL, showFallback, WEBGL_MESSAGE } from './core/renderer'
 import { createStepper } from './core/loop'
+import { createInterpolatedVector, type InterpolatedVector } from './core/interpolation'
 import { InputTracker } from './core/input'
 import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG } from './core/config'
 import { loadSave, writeSave } from './core/save'
@@ -198,6 +199,21 @@ function start(): void {
 
   let cameraPosition = camera.position.clone()
 
+  // Rendered frames outnumber simulation steps on high-refresh displays. update()
+  // records each step's result into these; syncVisuals() draws between them.
+  const playerPositionLerp = createInterpolatedVector()
+  playerPositionLerp.record(player.position)
+  const playerForwardLerp = createInterpolatedVector()
+  playerForwardLerp.record(player.forward)
+  const enemyPositionLerps = new Map<string, InterpolatedVector>()
+  // The camera reads the look direction per rendered frame, but input is only
+  // sampled per simulation step; this carries the last sample across.
+  const lookDirection = new Vector3(0, 0, -1)
+  // Scratch for sample() so syncVisuals allocates nothing per frame.
+  const sampledPosition = new Vector3()
+  const sampledForward = new Vector3()
+  const sampledEnemy = new Vector3()
+
   function update(dt: number): void {
     const state = input.sample()
 
@@ -267,14 +283,6 @@ function start(): void {
       })
     }
 
-    // Face the character along its heading, in both modes. On foot this used to face the
-    // direction of travel, which left the model looking one way while a gust blew another:
-    // travel is zero exactly when a player stops to aim, so a standing turn moved the blast
-    // and not the character. One rule now, and what the character faces is what it hits.
-    avatar.object.position.copy(player.position)
-    if (player.forward.lengthSq() > 1e-4) {
-      avatar.object.lookAt(player.position.clone().add(player.forward))
-    }
     avatar.setAnimation(animationFor(player))
     avatar.setSquash(chargeSquashScale(player, deps.ground))
     followSun(player.position)
@@ -282,19 +290,8 @@ function start(): void {
     glider.update(dt, player.mode === 'glider')
     aura.update(dt, avatarActive)
 
-    const profile = profileFor(player.mode)
-    const desired = pullInForTerrain(
-      player.position,
-      desiredCameraPosition(player.position, state.lookDirection, profile),
-      world.terrain,
-    )
-    cameraPosition = smoothTowards(cameraPosition, desired, profile.smoothing, dt)
-
+    lookDirection.copy(state.lookDirection)
     const airspeed = player.velocity.length()
-    camera.position.copy(cameraPosition)
-    camera.lookAt(player.position)
-    camera.fov = player.mode === 'glider' ? fovForSpeed(airspeed) : fovForSpeed(0)
-    camera.updateProjectionMatrix()
 
     for (const marker of markers.values()) marker.rotation.y += dt * 1.5
     for (const waterfall of waterfalls) waterfall.advance(dt)
@@ -372,9 +369,68 @@ function start(): void {
       avatarCharge: armFraction(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
       avatarActive,
     }))
+
+    playerPositionLerp.record(player.position)
+    playerForwardLerp.record(player.forward)
+    for (const enemy of encounter.enemies) {
+      let lerp = enemyPositionLerps.get(enemy.id)
+      if (!lerp) {
+        lerp = createInterpolatedVector()
+        enemyPositionLerps.set(enemy.id, lerp)
+      }
+      lerp.record(enemy.position)
+    }
   }
 
-  const stepper = createStepper({ update, render: () => renderer.render(scene, camera) })
+  /**
+   * Runs once per rendered frame, not per simulation step. The hard split:
+   * update() writes simulation state and records snapshots; only this function
+   * touches the avatar transform, enemy-view positions, and the camera.
+   */
+  function syncVisuals(alpha: number, frameDt: number): void {
+    playerPositionLerp.sample(alpha, sampledPosition)
+    playerForwardLerp.sample(alpha, sampledForward)
+    // Face the character along its heading, in both modes. On foot this used to face the
+    // direction of travel, which left the model looking one way while a gust blew another:
+    // travel is zero exactly when a player stops to aim, so a standing turn moved the blast
+    // and not the character. One rule now, and what the character faces is what it hits.
+    avatar.object.position.copy(sampledPosition)
+    if (sampledForward.lengthSq() > 1e-4) {
+      avatar.object.lookAt(
+        sampledPosition.x + sampledForward.x,
+        sampledPosition.y + sampledForward.y,
+        sampledPosition.z + sampledForward.z,
+      )
+    }
+
+    for (const enemy of encounter.enemies) {
+      const view = enemyViews.get(enemy.id)
+      const lerp = enemyPositionLerps.get(enemy.id)
+      if (view && lerp) view.object.position.copy(lerp.sample(alpha, sampledEnemy))
+    }
+
+    // smoothTowards is exponential decay, so feeding real frame time instead of
+    // the fixed step changes nothing at 60 Hz and adds samples above it.
+    const profile = profileFor(player.mode)
+    const desired = pullInForTerrain(
+      sampledPosition,
+      desiredCameraPosition(sampledPosition, lookDirection, profile),
+      world.terrain,
+    )
+    cameraPosition = smoothTowards(cameraPosition, desired, profile.smoothing, frameDt)
+    camera.position.copy(cameraPosition)
+    camera.lookAt(sampledPosition)
+    camera.fov = player.mode === 'glider' ? fovForSpeed(player.velocity.length()) : fovForSpeed(0)
+    camera.updateProjectionMatrix()
+  }
+
+  const stepper = createStepper({
+    update,
+    render: (alpha, frameDt) => {
+      syncVisuals(alpha, frameDt)
+      renderer.render(scene, camera)
+    },
+  })
 
   let last = performance.now()
   function frame(now: number): void {

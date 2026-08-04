@@ -4,7 +4,13 @@ export const MAX_STEPS_PER_FRAME = 5
 
 export interface LoopCallbacks {
   update(dt: number): void
-  render(): void
+  /**
+   * alpha is the fraction of the next step already elapsed but not yet
+   * simulated, always in [0, 1); frameDt is the real elapsed seconds this
+   * frame (0 when the delta was invalid). Together they let the renderer
+   * draw between fixed steps instead of snapping to the last one.
+   */
+  render(alpha: number, frameDt: number): void
 }
 
 /**
@@ -17,7 +23,7 @@ export function createStepper(callbacks: LoopCallbacks, fixedDt = FIXED_DT) {
     /** Feed real elapsed seconds. Returns how many simulation steps ran. */
     advance(elapsed: number): number {
       if (!Number.isFinite(elapsed) || elapsed <= 0) {
-        callbacks.render()
+        callbacks.render(accumulator / fixedDt, 0)
         return 0
       }
       // Clamping here is what stops a backgrounded tab from discharging
@@ -29,7 +35,7 @@ export function createStepper(callbacks: LoopCallbacks, fixedDt = FIXED_DT) {
         accumulator -= fixedDt
         steps++
       }
-      callbacks.render()
+      callbacks.render(accumulator / fixedDt, elapsed)
       return steps
     },
     pendingTime: () => accumulator,
