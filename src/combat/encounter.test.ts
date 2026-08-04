@@ -52,7 +52,7 @@ const DEPS = { ground: flatGround, worldFloorY: -50 }
 /** A neutral frame of input: nothing pressed, nothing held. */
 const defaults: EncounterInput = {
   playerPosition: ORIGIN, playerForward: NORTH, gustPressed: false, slam: null,
-  vortexHeld: false, vortexReleased: false, playerInvulnerable: false,
+  vortexHeld: false, vortexReleased: false, playerInvulnerable: false, staffSwing: null,
 }
 
 /** Run the fight with fixed input. */
@@ -460,5 +460,96 @@ describe('invulnerability', () => {
     // A dodge beats the attack; it does not erase it. The enemy commits and recovers.
     const { encounter } = untilStrike(true)
     expect(['recover', 'advance']).toContain(encounter.enemies[0]?.stance)
+  })
+})
+
+describe('a staff swing', () => {
+  const swing = (finisher: boolean, spawns: EnemySpawn[]) => stepEncounter(
+    startEncounter(spawns, DEFAULT_COMBAT_CONFIG),
+    { ...defaults, staffSwing: { index: finisher ? 3 : 1, finisher } },
+    1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
+  )
+
+  it('damages an enemy in the arc and reports the hit', () => {
+    const step = swing(false, [{ id: 'a', position: new Vector3(0, 0, -2) }])
+    const enemy = step.encounter.enemies[0]
+    if (!enemy) throw new Error('expected an enemy')
+    expect(enemy.health.current).toBeCloseTo(
+      DEFAULT_COMBAT_CONFIG.enemy.maxHealth - DEFAULT_COMBAT_CONFIG.staffArc.openerDamage, 5,
+    )
+    expect(step.staffHitThisFrame).toEqual(['a'])
+  })
+
+  it('leaves an enemy outside the arc alone', () => {
+    const step = swing(false, [{ id: 'a', position: new Vector3(0, 0, 20) }])
+    expect(step.staffHitThisFrame).toEqual([])
+  })
+
+  it('hits a whole group with one swing', () => {
+    const step = swing(false, [
+      { id: 'a', position: new Vector3(-1.5, 0, -1.5) },
+      { id: 'b', position: new Vector3(0, 0, -2) },
+      { id: 'c', position: new Vector3(1.5, 0, -1.5) },
+    ])
+    expect(step.staffHitThisFrame.sort()).toEqual(['a', 'b', 'c'])
+  })
+
+  it('hits harder on the finisher', () => {
+    const spawns = [{ id: 'a', position: new Vector3(0, 0, -2) }]
+    const opener = swing(false, spawns).encounter.enemies[0]
+    const finisher = swing(true, spawns).encounter.enemies[0]
+    if (!opener || !finisher) throw new Error('expected enemies')
+    expect(finisher.health.current).toBeLessThan(opener.health.current)
+  })
+
+  it('keeps its hits apart from gust connects and slam hits', () => {
+    // Each of the three feeds a differently tuned Focus grant, so folding them together
+    // would pay the wrong rate.
+    const step = swing(false, [{ id: 'a', position: new Vector3(0, 0, -2) }])
+    expect(step.hitThisFrame).toEqual([])
+    expect(step.slamHitThisFrame).toEqual([])
+  })
+
+  it('interrupts a wind-up', () => {
+    // Stepped into a genuine wind-up first rather than assumed: a fixture that never
+    // reaches one would pass against a swing that interrupts nothing.
+    let encounter = startEncounter(
+      [{ id: 'a', position: new Vector3(0, 0, -2) }], DEFAULT_COMBAT_CONFIG,
+    )
+    for (let t = 0; t < 1; t += 1 / 60) {
+      encounter = stepEncounter(encounter, defaults, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS).encounter
+      if (encounter.enemies[0]?.stance === 'wind-up') break
+    }
+    expect(encounter.enemies[0]?.stance).toBe('wind-up')
+    const struck = stepEncounter(
+      encounter, { ...defaults, staffSwing: { index: 1, finisher: false } },
+      1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
+    )
+    expect(struck.encounter.enemies[0]?.stance).not.toBe('wind-up')
+  })
+
+  it('does not hit a downed enemy', () => {
+    // Hits exactly enough to down the enemy, not a fixed handful: each swing's
+    // knockback compounds with the last (hitEnemy adds impulse onto whatever
+    // knockback is already there), and a few swings past downed fling the corpse
+    // out of the opener's range on their own. That would make the assertion below
+    // pass on distance alone, with the isDowned guard never in the loop.
+    const hitsToDown = Math.ceil(
+      DEFAULT_COMBAT_CONFIG.enemy.maxHealth / DEFAULT_COMBAT_CONFIG.staffArc.finisherDamage,
+    )
+    const spawns = [{ id: 'a', position: new Vector3(0, 0, -2) }]
+    let encounter = startEncounter(spawns, DEFAULT_COMBAT_CONFIG)
+    for (let i = 0; i < hitsToDown; i++) {
+      encounter = stepEncounter(
+        encounter, { ...defaults, staffSwing: { index: 3, finisher: true } },
+        1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
+      ).encounter
+    }
+    expect(isDowned(encounter.enemies[0]?.health ?? { current: 1, max: 1, sinceHit: 0 })).toBe(true)
+    const again = stepEncounter(
+      encounter, { ...defaults, staffSwing: { index: 1, finisher: false } },
+      1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
+    )
+    expect(again.staffHitThisFrame).toEqual([])
   })
 })
