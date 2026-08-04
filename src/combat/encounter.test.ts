@@ -18,6 +18,11 @@ const C: CombatConfig = {
     minDamage: 0.5, maxDamage: 2.5, minKnockback: 10, maxKnockback: 30,
     bounceFactor: 0.5,
   },
+  vortex: {
+    maxChargeSeconds: 1.2, minChargeSeconds: 0.2, minRadius: 5, maxRadius: 12,
+    minPullSpeed: 10, maxPullSpeed: 18, minLiftSpeed: 5, maxLiftSpeed: 11,
+    cooldownSeconds: 3.5,
+  },
 }
 
 const ORIGIN = new Vector3(0, 0, 0)

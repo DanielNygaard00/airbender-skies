@@ -9,6 +9,7 @@ import { gustImpulse, gustTargets, type GustConfig } from './gust'
 import {
   waveDamage, waveImpulse, waveTargets, type PressureWaveConfig,
 } from './pressure-wave'
+import { type VortexConfig } from './vortex'
 
 /**
  * One fight: the enemies, the player's health, and the cooldown on their bending.
@@ -30,6 +31,7 @@ export interface CombatConfig {
   enemy: EnemyConfig
   gust: GustConfig
   pressureWave: PressureWaveConfig
+  vortex: VortexConfig
 }
 
 export interface EnemySpawn {
