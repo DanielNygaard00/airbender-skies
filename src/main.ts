@@ -339,7 +339,21 @@ function start(): void {
     avatar.setSquash(chargeSquashScale(player, deps.ground))
     followSun(player.position)
     avatar.update(dt)
-    glider.update(dt, player.mode === 'glider')
+    // Progress through the active swing, not the frame one started: `staffSwing` above is
+    // only true on the frame a new swing begins, but the glider needs to track the motion
+    // for the whole 0..swingSeconds window that follows. `player.staffElapsed` already
+    // carries that, post-step, so no extra bookkeeping is needed here.
+    const rawStaffProgress = player.staffElapsed === null
+      ? null
+      : Math.min(1, Math.max(0, player.staffElapsed / deps.staff.swingSeconds))
+    // Alternate the sweep direction per swing so a combo doesn't read as the same stroke
+    // repeated. Read off `player.staffChain` (the swing's own 1-based index) rather than a
+    // second counter here — a second counter is a second thing that can drift out of step
+    // with the combo it's supposed to track.
+    const staffProgress = rawStaffProgress === null
+      ? null
+      : (player.staffChain % 2 === 0 ? 1 - rawStaffProgress : rawStaffProgress)
+    glider.update(dt, player.mode === 'glider', staffProgress)
     aura.update(dt, avatarActive)
     // Tracks the invulnerability window exactly, not the whole dash: the window is
     // the mechanic, so the shell must vanish the instant `isInvulnerable` goes false.

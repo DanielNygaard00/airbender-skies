@@ -98,6 +98,9 @@ export const DEPLOYED_PITCH = 0.18
  */
 const DEPLOYED_ROTATION = new Vector3(DEPLOYED_PITCH, 0, 0)
 
+/** How far the staff sweeps through a swing, radians either side of the stowed pose. */
+const SWEEP_ARC = MathUtils.degToRad(150)
+
 /**
  * One fan leaf: a long thin triangle running out along +X from the pivot, widening
  * slightly in Z at its tip so the open fan reads as a membrane rather than spokes.
@@ -129,7 +132,7 @@ function createFinGeometry(): BufferGeometry {
 
 export function createGlider(): {
   object: Object3D
-  update(dt: number, deployed: boolean): void
+  update(dt: number, deployed: boolean, swing?: number | null): void
   openness(): number
 } {
   const object = new Group()
@@ -167,6 +170,7 @@ export function createGlider(): {
   object.add(fin)
 
   let openness = 0
+  let swing: number | null = null
 
   function apply(): void {
     const eased = easeOpenness(openness)
@@ -176,6 +180,12 @@ export function createGlider(): {
       MathUtils.lerp(STOWED_ROTATION.y, DEPLOYED_ROTATION.y, eased),
       MathUtils.lerp(STOWED_ROTATION.z, DEPLOYED_ROTATION.z, eased),
     )
+    // The sweep composes onto the stowed pose rather than replacing it, and only while
+    // stowed: a deployed glider is a wing and has nothing to swing with. `openness` gates
+    // it rather than the `deployed` flag so a glider still folding away does not twitch.
+    if (swing !== null && openness < 1e-3) {
+      object.rotation.y += MathUtils.lerp(-SWEEP_ARC / 2, SWEEP_ARC / 2, swing)
+    }
     for (const { pivot, index, side } of panels) {
       // Rotating about Y sweeps each leaf fore-aft in the wing plane. Closed, every
       // leaf sits at zero and they stack into a stick along the staff.
@@ -188,8 +198,9 @@ export function createGlider(): {
 
   return {
     object,
-    update(dt: number, deployed: boolean): void {
+    update(dt: number, deployed: boolean, swingProgress: number | null = null): void {
       openness = advanceOpenness(openness, deployed, dt, OPEN_SECONDS)
+      swing = swingProgress
       apply()
     },
     openness: () => openness,
