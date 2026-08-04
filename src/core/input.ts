@@ -23,6 +23,7 @@ export function toInputState(
   dashPressed = false,
   gustPressed = false,
   avatarStatePressed = false,
+  vortexReleased = false,
 ): InputState {
   const axis = (pos: string, neg: string) => (held.has(pos) ? 1 : 0) - (held.has(neg) ? 1 : 0)
   return {
@@ -38,6 +39,8 @@ export function toInputState(
     dashPressed,
     gustPressed,
     avatarStatePressed,
+    vortexHeld: held.has('KeyR'),
+    vortexReleased,
   }
 }
 
@@ -53,6 +56,7 @@ export class InputTracker {
   private gustPressed = false
   private avatarStatePressed = false
   private actionReleased = false
+  private vortexReleased = false
   private readonly listeners: (() => void)[] = []
 
   constructor(target: EventTarget, canvas: HTMLCanvasElement) {
@@ -81,6 +85,7 @@ export class InputTracker {
     on<KeyboardEvent>('keyup', (e) => {
       this.held.delete(e.code)
       if (e.code === 'Space') this.actionReleased = true
+      if (e.code === 'KeyR') this.vortexReleased = true
     })
     // Held keys would otherwise stick when the window loses focus.
     on('blur', () => this.held.clear())
@@ -107,6 +112,7 @@ export class InputTracker {
       this.dashPressed,
       this.gustPressed,
       this.avatarStatePressed,
+      this.vortexReleased,
     )
     this.actionPressed = false
     this.actionReleased = false
@@ -114,6 +120,7 @@ export class InputTracker {
     this.dashPressed = false
     this.gustPressed = false
     this.avatarStatePressed = false
+    this.vortexReleased = false
     return state
   }
 

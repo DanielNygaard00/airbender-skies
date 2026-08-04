@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { startEncounter, stepEncounter, canGust, type CombatConfig } from './encounter'
+import {
+  startEncounter, stepEncounter, canGust, type CombatConfig, type EncounterInput,
+  type EnemySpawn,
+} from './encounter'
 import { isDowned } from './health'
+import { DEFAULT_COMBAT_CONFIG } from './config'
 
 const C: CombatConfig = {
   player: { maxHealth: 5, outOfCombatSeconds: 4, regenPerSecond: 0.4 },
@@ -35,15 +39,19 @@ const near = () => startEncounter([{ id: 'a', position: new Vector3(0, 0, -2) }]
 const flatGround = { groundHeightAt: () => 0 }
 const DEPS = { ground: flatGround, worldFloorY: -50 }
 
+/** A neutral frame of input: nothing pressed, nothing held. */
+const defaults: EncounterInput = {
+  playerPosition: ORIGIN, playerForward: NORTH, gustPressed: false, slam: null,
+  vortexHeld: false, vortexReleased: false,
+}
+
 /** Run the fight with fixed input. */
-function run(seconds: number, over: Partial<Parameters<typeof stepEncounter>[1]> = {}, from = near()) {
+function run(seconds: number, over: Partial<EncounterInput> = {}, from = near()) {
   let encounter = from
   let downed: string[] = []
   let hits = 0
   for (let t = 0; t < seconds; t += 1 / 60) {
-    const step = stepEncounter(encounter, {
-      playerPosition: ORIGIN, playerForward: NORTH, gustPressed: false, slam: null, ...over,
-    }, 1 / 60, C, DEPS)
+    const step = stepEncounter(encounter, { ...defaults, ...over }, 1 / 60, C, DEPS)
     encounter = step.encounter
     downed = downed.concat(step.downedThisFrame)
     if (step.playerHit) hits++
@@ -85,33 +93,25 @@ describe('gusting', () => {
         ...enemy, stance: 'wind-up' as const, stanceTime: C.enemy.windUpSeconds - (1 / 60) / 2,
       })),
     }
-    const gusted = stepEncounter(winding, {
-      playerPosition: ORIGIN, playerForward: NORTH, gustPressed: true, slam: null,
-    }, 1 / 60, C, DEPS)
+    const gusted = stepEncounter(winding, { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
     expect(gusted.encounter.enemies[0]!.stance).not.toBe('wind-up')
     expect(gusted.playerHit).toBe(false)
   })
 
   it('goes on cooldown so it cannot be held down', () => {
-    const fired = stepEncounter(near(), {
-      playerPosition: ORIGIN, playerForward: NORTH, gustPressed: true, slam: null,
-    }, 1 / 60, C, DEPS)
+    const fired = stepEncounter(near(), { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
     expect(canGust(fired.encounter)).toBe(false)
   })
 
   it('comes back off cooldown', () => {
-    const fired = stepEncounter(near(), {
-      playerPosition: ORIGIN, playerForward: NORTH, gustPressed: true, slam: null,
-    }, 1 / 60, C, DEPS).encounter
+    const fired = stepEncounter(near(), { ...defaults, gustPressed: true }, 1 / 60, C, DEPS).encounter
     expect(canGust(run(C.gust.cooldownSeconds + 0.2, {}, fired).encounter)).toBe(true)
   })
 
   it('does not down an enemy in one gust, because gust is not a damage move', () => {
     // Health 1.5 against damage 0.5. If a single gust downed an enemy, the move
     // would be a damage move wearing a crowd-control costume.
-    const fired = stepEncounter(near(), {
-      playerPosition: ORIGIN, playerForward: NORTH, gustPressed: true, slam: null,
-    }, 1 / 60, C, DEPS)
+    const fired = stepEncounter(near(), { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
     expect(fired.downedThisFrame).toEqual([])
     expect(isDowned(fired.encounter.enemies[0]!.health)).toBe(false)
   })
@@ -119,9 +119,7 @@ describe('gusting', () => {
   it('blows the enemy out of its own gust range, so it has to be re-engaged', () => {
     // Emergent from the numbers rather than designed in, and worth pinning: a
     // knockback that big means gust cannot be spammed on one target from one spot.
-    const fired = stepEncounter(near(), {
-      playerPosition: ORIGIN, playerForward: NORTH, gustPressed: true, slam: null,
-    }, 1 / 60, C, DEPS)
+    const fired = stepEncounter(near(), { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
     const settled = run(C.gust.cooldownSeconds, {}, fired.encounter).encounter
     const distance = Math.hypot(settled.enemies[0]!.position.x, settled.enemies[0]!.position.z)
     expect(distance).toBeGreaterThan(C.enemy.strikeRange)
@@ -148,18 +146,14 @@ describe('gusting', () => {
       { id: 'a', position: new Vector3(0, 0, -2) },
       { id: 'b', position: new Vector3(0, 0, -40) },
     ], C)
-    const step = stepEncounter(encounter, {
-      playerPosition: ORIGIN, playerForward: NORTH, gustPressed: true, slam: null,
-    }, 1 / 60, C, DEPS)
+    const step = stepEncounter(encounter, { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
 
     // 'a' is inside the 12 unit range; 'b' at 40 is well outside it.
     expect(step.hitThisFrame).toEqual(['a'])
   })
 
   it('reports nothing on a frame with no gust', () => {
-    const step = stepEncounter(near(), {
-      playerPosition: ORIGIN, playerForward: NORTH, gustPressed: false, slam: null,
-    }, 1 / 60, C, DEPS)
+    const step = stepEncounter(near(), defaults, 1 / 60, C, DEPS)
     expect(step.hitThisFrame).toEqual([])
   })
 
@@ -173,18 +167,14 @@ describe('gusting', () => {
         ...enemy, health: { ...enemy.health, current: 0 },
       })),
     }
-    const step = stepEncounter(alreadyDowned, {
-      playerPosition: ORIGIN, playerForward: NORTH, gustPressed: true, slam: null,
-    }, 1 / 60, C, DEPS)
+    const step = stepEncounter(alreadyDowned, { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
 
     expect(step.hitThisFrame).toEqual([])
   })
 })
 
 describe('slamming', () => {
-  const slamAt = (strength: number) => ({
-    playerPosition: ORIGIN, playerForward: NORTH, gustPressed: false, slam: { strength },
-  })
+  const slamAt = (strength: number) => ({ ...defaults, slam: { strength } })
 
   it('damages an enemy inside the blast', () => {
     const before = near().enemies[0]!.health.current
@@ -239,9 +229,7 @@ describe('slamming', () => {
   })
 
   it('changes nothing on a frame with no slam', () => {
-    const step = stepEncounter(near(), {
-      playerPosition: ORIGIN, playerForward: NORTH, gustPressed: false, slam: null,
-    }, 1 / 60, C, DEPS)
+    const step = stepEncounter(near(), defaults, 1 / 60, C, DEPS)
     expect(step.slamHitThisFrame).toEqual([])
     expect(step.encounter.enemies[0]!.health.current).toBeCloseTo(C.enemy.maxHealth)
   })
@@ -273,5 +261,98 @@ describe('slamming', () => {
     // knockback.y stays zero; pin both halves of the contract, not just one.
     expect(step.encounter.enemies[0]!.verticalVelocity).toBeGreaterThan(0)
     expect(step.encounter.enemies[0]!.knockback.y).toBe(0)
+  })
+})
+
+describe('a vortex', () => {
+  /** Hold for `seconds`, then release, and return the resulting step. */
+  const chargeAndRelease = (seconds: number, enemies: EnemySpawn[]) => {
+    let encounter = startEncounter(enemies, DEFAULT_COMBAT_CONFIG)
+    for (let t = 0; t < seconds; t += 1 / 60) {
+      encounter = stepEncounter(
+        encounter, { ...defaults, vortexHeld: true }, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
+      ).encounter
+    }
+    return stepEncounter(
+      encounter, { ...defaults, vortexReleased: true }, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
+    )
+  }
+
+  it('accumulates charge while held', () => {
+    let encounter = startEncounter([], DEFAULT_COMBAT_CONFIG)
+    for (let t = 0; t < 0.5; t += 1 / 60) {
+      encounter = stepEncounter(
+        encounter, { ...defaults, vortexHeld: true }, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
+      ).encounter
+    }
+    expect(encounter.vortexHeldSeconds).toBeGreaterThan(0.4)
+  })
+
+  it('lifts a caught enemy and spends the cooldown', () => {
+    const step = chargeAndRelease(
+      DEFAULT_COMBAT_CONFIG.vortex.maxChargeSeconds, [{ id: 'a', position: new Vector3(3, 0, 0) }],
+    )
+    const enemy = step.encounter.enemies[0]
+    if (!enemy) throw new Error('expected an enemy')
+    expect(enemy.verticalVelocity).toBeGreaterThan(0)
+    expect(step.encounter.vortexCooldown).toBeCloseTo(DEFAULT_COMBAT_CONFIG.vortex.cooldownSeconds, 5)
+    expect(step.vortexFired).not.toBeNull()
+  })
+
+  it('does no damage', () => {
+    // "Setup, not damage" — the enemy must come out of a vortex at full health.
+    const step = chargeAndRelease(
+      DEFAULT_COMBAT_CONFIG.vortex.maxChargeSeconds, [{ id: 'a', position: new Vector3(3, 0, 0) }],
+    )
+    const enemy = step.encounter.enemies[0]
+    if (!enemy) throw new Error('expected an enemy')
+    expect(enemy.health.current).toBeCloseTo(DEFAULT_COMBAT_CONFIG.enemy.maxHealth, 5)
+  })
+
+  it('cancels for free below the minimum charge', () => {
+    const step = chargeAndRelease(
+      DEFAULT_COMBAT_CONFIG.vortex.minChargeSeconds / 2,
+      [{ id: 'a', position: new Vector3(3, 0, 0) }],
+    )
+    const enemy = step.encounter.enemies[0]
+    if (!enemy) throw new Error('expected an enemy')
+    expect(enemy.verticalVelocity).toBe(0)
+    expect(step.encounter.vortexCooldown).toBe(0)
+    expect(step.vortexFired).toBeNull()
+    expect(step.encounter.vortexHeldSeconds).toBe(0)
+  })
+
+  it('interrupts a wind-up', () => {
+    // Derived, not assumed: step until the enemy is genuinely winding up first. An
+    // earlier version of this test in this file used a fixture that never reached
+    // wind-up, so it passed against a move that interrupted nothing.
+    let encounter = startEncounter(
+      [{ id: 'a', position: new Vector3(2, 0, 0) }], DEFAULT_COMBAT_CONFIG,
+    )
+    for (let t = 0; t < 1; t += 1 / 60) {
+      encounter = stepEncounter(encounter, defaults, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS).encounter
+      if (encounter.enemies[0]?.stance === 'wind-up') break
+    }
+    expect(encounter.enemies[0]?.stance).toBe('wind-up')
+
+    for (let t = 0; t < DEFAULT_COMBAT_CONFIG.vortex.minChargeSeconds + 0.1; t += 1 / 60) {
+      encounter = stepEncounter(
+        encounter, { ...defaults, vortexHeld: true }, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
+      ).encounter
+    }
+    const fired = stepEncounter(
+      encounter, { ...defaults, vortexReleased: true }, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
+    )
+    expect(fired.encounter.enemies[0]?.stance).not.toBe('wind-up')
+  })
+
+  it('cannot charge while on cooldown', () => {
+    const fired = chargeAndRelease(
+      DEFAULT_COMBAT_CONFIG.vortex.maxChargeSeconds, [{ id: 'a', position: new Vector3(3, 0, 0) }],
+    )
+    const held = stepEncounter(
+      fired.encounter, { ...defaults, vortexHeld: true }, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
+    )
+    expect(held.encounter.vortexHeldSeconds).toBe(0)
   })
 })

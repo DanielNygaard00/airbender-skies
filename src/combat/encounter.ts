@@ -9,7 +9,7 @@ import { gustImpulse, gustTargets, type GustConfig } from './gust'
 import {
   waveDamage, waveImpulse, waveTargets, type PressureWaveConfig,
 } from './pressure-wave'
-import { type VortexConfig } from './vortex'
+import { vortexCharge, vortexImpulse, vortexTargets, type VortexConfig } from './vortex'
 
 /**
  * One fight: the enemies, the player's health, and the cooldown on their bending.
@@ -24,6 +24,9 @@ export interface Encounter {
   playerHealth: Health
   /** Seconds until the next gust is available. */
   gustCooldown: number
+  /** Seconds the player has held a charge, or 0. Not the 0-to-1 fraction. */
+  vortexHeldSeconds: number
+  vortexCooldown: number
 }
 
 export interface CombatConfig {
@@ -55,6 +58,8 @@ export function startEncounter(spawns: readonly EnemySpawn[], c: CombatConfig): 
     enemies: spawns.map((spawn) => spawnEnemy(spawn.id, spawn.position, c.enemy)),
     playerHealth: fullHealth(c.player),
     gustCooldown: 0,
+    vortexHeldSeconds: 0,
+    vortexCooldown: 0,
   }
 }
 
@@ -65,6 +70,10 @@ export interface EncounterInput {
   gustPressed: boolean
   /** A Pressure Wave landed at the player's feet this frame, or null. */
   slam: { strength: number } | null
+  /** R held: a vortex is charging. */
+  vortexHeld: boolean
+  /** R released this frame. */
+  vortexReleased: boolean
 }
 
 export interface EncounterStep {
@@ -79,11 +88,18 @@ export interface EncounterStep {
   slamHitThisFrame: string[]
   /** Whether the player was hit this frame, for feedback. */
   playerHit: boolean
+  /** The charge a vortex fired at, or null. For the effect that draws it. */
+  vortexFired: number | null
 }
 
 /** Whether a gust can fire: off cooldown only. */
 export function canGust(encounter: Encounter): boolean {
   return encounter.gustCooldown <= 0
+}
+
+/** Whether a vortex can start charging: off cooldown only. */
+export function canVortex(encounter: Encounter): boolean {
+  return encounter.vortexCooldown <= 0
 }
 
 /**
@@ -132,6 +148,38 @@ export function stepEncounter(
     gustCooldown = c.gust.cooldownSeconds
   }
 
+  let vortexCooldown = Math.max(0, encounter.vortexCooldown - dt)
+  let vortexHeldSeconds = encounter.vortexHeldSeconds
+  let vortexFired: number | null = null
+
+  if (input.vortexHeld && vortexCooldown <= 0) {
+    vortexHeldSeconds = Math.min(
+      vortexHeldSeconds + dt, c.vortex.maxChargeSeconds,
+    )
+  }
+
+  if (input.vortexReleased) {
+    if (vortexHeldSeconds >= c.vortex.minChargeSeconds) {
+      const charge = vortexCharge(vortexHeldSeconds, c.vortex)
+      const caught = new Set(
+        vortexTargets(input.playerPosition, enemies, charge, c.vortex).map((e) => e.id),
+      )
+      enemies = enemies.map((enemy) =>
+        caught.has(enemy.id) && !isDowned(enemy.health)
+          // Zero damage: the move is setup. hitEnemy still interrupts, which is
+          // what a control move should do to a wind-up.
+          ? hitEnemy(enemy, 0, vortexImpulse(
+              input.playerPosition, enemy.position, charge, c.vortex,
+            ))
+          : enemy)
+      vortexFired = charge
+      vortexCooldown = c.vortex.cooldownSeconds
+    }
+    // Either way the charge is spent. A release below the minimum costs nothing,
+    // so a mistaken tap is not punished with a 3.5 second cooldown.
+    vortexHeldSeconds = 0
+  }
+
   let slamHitThisFrame: string[] = []
 
   if (input.slam) {
@@ -172,10 +220,11 @@ export function stepEncounter(
     .map((enemy) => enemy.id)
 
   return {
-    encounter: { enemies, playerHealth, gustCooldown },
+    encounter: { enemies, playerHealth, gustCooldown, vortexHeldSeconds, vortexCooldown },
     downedThisFrame,
     hitThisFrame,
     slamHitThisFrame,
     playerHit: damageToPlayer > 0,
+    vortexFired,
   }
 }

@@ -28,6 +28,10 @@ export interface InputState {
   gustPressed: boolean
   /** E, edge-triggered: enter the Avatar State when it is armed. */
   avatarStatePressed: boolean
+  /** R held: charging a vortex. */
+  vortexHeld: boolean
+  /** R, edge-triggered on key-up: release the vortex. */
+  vortexReleased: boolean
 }
 
 export interface PlayerState {
