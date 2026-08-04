@@ -34,7 +34,7 @@ import { vortexRadius } from './combat/vortex'
 import { createEnemyView } from './combat/enemy-mesh'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
-import { isInvulnerable } from './player/slipstream'
+import { isInvulnerable, slipstreamHeading } from './player/slipstream'
 import { controllerStep, willRespawn, type ControllerDeps } from './player/controller'
 import { collectStep } from './player/shrine-collect'
 import { enableShadows } from './core/sun'
@@ -274,10 +274,17 @@ function start(): void {
 
     // A Slipstream fired iff its elapsed timer went from null to running this frame,
     // the same before/after comparison the dash trail above uses. The origin is where
-    // the dodge started; the heading is the velocity it produced.
+    // the dodge started; the heading is recomputed with `slipstreamHeading` rather than
+    // read off `player.velocity` — velocity carries whatever momentum the dodge was
+    // added to, so a fast glider dodge would draw a streak pointing where the player
+    // was already going instead of where they actually dodged. `slipstreamHeading` is
+    // deterministic and fed the same inputs the controller used this frame, so it
+    // reproduces the true dodge direction exactly.
     if (player.slipstreamElapsed !== null && beforeStep.slipstreamElapsed === null) {
       effects.add(createSlipstreamTrail(
-        beforeStep.position, player.velocity, DEFAULT_SLIPSTREAM_CONFIG,
+        beforeStep.position,
+        slipstreamHeading(state.lookDirection, state.forward, state.strafe),
+        DEFAULT_SLIPSTREAM_CONFIG,
       ))
     }
 

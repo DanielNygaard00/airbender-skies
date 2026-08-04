@@ -21,8 +21,13 @@ const RADIUS = 1.15
 const CENTRE_Y = 0.95
 const TINT = 0xd6f6ff
 const PEAK_OPACITY = 0.4
-/** Fast, because the window itself is brief. A slow fade would overstate it. */
-const FADE_SECONDS = 0.08
+/** Short, because the 0.11s window is brief and a slow fade-in eats a chunk of it
+ * before the tell is even readable. */
+const FADE_IN_SECONDS = 0.02
+/** Bounded to a small fraction of `invulnerableSeconds`: this tail must not outlive
+ * the protection, so it decays close enough to instantly that a player never sees a
+ * glow they can no longer act on. */
+const FADE_OUT_SECONDS = 0.03
 
 export function createGuardShell(): GuardShell {
   const object = new Group()
@@ -41,11 +46,11 @@ export function createGuardShell(): GuardShell {
   return {
     object,
     update(dt: number, active: boolean): void {
-      const target = active ? 1 : 0
-      const step = FADE_SECONDS > 0 ? dt / FADE_SECONDS : 1
+      const seconds = active ? FADE_IN_SECONDS : FADE_OUT_SECONDS
+      const step = seconds > 0 ? dt / seconds : 1
       shown = active
-        ? Math.min(target, shown + step)
-        : Math.max(target, shown - step)
+        ? Math.min(1, shown + step)
+        : Math.max(0, shown - step)
       material.opacity = PEAK_OPACITY * MathUtils.clamp(shown, 0, 1)
       object.visible = shown > 0.001
     },
