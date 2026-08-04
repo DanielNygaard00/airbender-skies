@@ -147,11 +147,14 @@ times the camera's and would never face the camera. That bug passes a test that 
 `bar.object.quaternion`, because the local value is exactly right; the test checks
 `getWorldQuaternion` instead.
 
-Confirmed in the running game, not just in tests: a bar appears on the first hit, runs
-1 → 0.667 → 0.333 → 0 across three gusts, hides when the soldier goes down, and holds 0
-radians off-camera through a hard camera swing while the soldier itself is rotated. The one
-claim resting on unit tests alone is that terrain occludes a bar — `depthTest: true` is set
-explicitly on both materials and guarded by a test, but it has not been seen behind a hill.
+Confirmed in the running game, not just in tests: a bar stays hidden at full health, appears
+at 0.667 on the first gust, drains to 0.333 on the second, and hides again when the third
+gust puts the soldier down, and it holds 0 radians off-camera through a hard camera swing
+while the soldier itself is rotated. The one claim resting on unit tests alone is that
+terrain occludes a bar — `depthTest: true` is set explicitly on both materials, and a test
+catches a flip to `false`, but it would not catch the explicit setting being deleted outright,
+because `true` is also the three.js default. Terrain occlusion itself has not been seen
+behind a hill.
 
 ## What has NOT been built
 

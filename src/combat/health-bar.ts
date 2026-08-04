@@ -59,8 +59,10 @@ export function createHealthBar(): HealthBar {
   object.position.y = HEIGHT_ABOVE_FEET
 
   const trackGeometry = new PlaneGeometry(WIDTH, HEIGHT)
-  // Terrain hides a bar drawn over a hill, preventing the player from finding an enemy
-  // by its health bar alone. Unlike src/fx/, where every effect hides behind terrain.
+  // Depth-tested so terrain hides the bar, unlike src/fx/gust-cone.ts and
+  // src/fx/dash-trail.ts, which deliberately draw over the world. An attack effect drawn
+  // over a hill shows the player something they did; a health bar drawn over a hill
+  // would reveal an enemy they cannot see.
   const trackMaterial = new MeshBasicMaterial({
     color: TRACK_COLOR, transparent: true, opacity: TRACK_OPACITY, depthWrite: false, depthTest: true,
   })

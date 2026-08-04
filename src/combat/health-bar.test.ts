@@ -4,7 +4,7 @@ import { createHealthBar, healthBarVisible } from './health-bar'
 import type { Health } from './health'
 
 const at = (current: number, max = 4): Health => ({ current, max, sinceHit: 0 })
-const FACING = new Quaternion()
+const CAMERA = new Quaternion()
 
 /** The bar's children are named, so a test does not depend on the order they were added. */
 function meshNamed(bar: { object: { getObjectByName(name: string): unknown } }, name: string): Mesh {
@@ -45,7 +45,7 @@ describe('createHealthBar', () => {
 
   it('scales the fill to the health fraction', () => {
     const bar = createHealthBar()
-    bar.update(at(1), FACING)
+    bar.update(at(1), CAMERA)
     expect(meshNamed(bar, 'fill').scale.x).toBeCloseTo(0.25, 4)
   })
 
@@ -54,7 +54,7 @@ describe('createHealthBar', () => {
     // reads as a bar draining from both ends at once. The scale value alone cannot
     // tell the two apart, so this compares edges.
     const bar = createHealthBar()
-    bar.update(at(2), FACING)
+    bar.update(at(2), CAMERA)
     const fill = new Box3().setFromObject(meshNamed(bar, 'fill'))
     const track = new Box3().setFromObject(meshNamed(bar, 'track'))
     expect(fill.min.x).toBeCloseTo(track.min.x, 5)
@@ -70,22 +70,22 @@ describe('createHealthBar', () => {
 
   it('hides itself at full health and shows itself once damaged', () => {
     const bar = createHealthBar()
-    bar.update(at(4), FACING)
+    bar.update(at(4), CAMERA)
     expect(bar.object.visible).toBe(false)
-    bar.update(at(2), FACING)
+    bar.update(at(2), CAMERA)
     expect(bar.object.visible).toBe(true)
   })
 
   it('keeps a finite scale for a non-finite health', () => {
     const bar = createHealthBar()
-    bar.update({ current: Number.NaN, max: 4, sinceHit: 0 }, FACING)
+    bar.update({ current: Number.NaN, max: 4, sinceHit: 0 }, CAMERA)
     expect(Number.isFinite(meshNamed(bar, 'fill').scale.x)).toBe(true)
   })
 
   it('is depth-tested, so terrain hides it', () => {
-    // Regression guard, and a deliberate difference from src/fx/, where every effect
-    // sets depthTest false. A bar drawn over a hill would reveal an enemy the player
-    // cannot see.
+    // Regression guard, and a deliberate difference from src/fx/gust-cone.ts and
+    // src/fx/dash-trail.ts, the two modules that set depthTest false. A bar drawn over
+    // a hill would reveal an enemy the player cannot see.
     const bar = createHealthBar()
     for (const name of ['track', 'fill']) {
       expect(materialOf(meshNamed(bar, name)).depthTest).toBe(true)

@@ -176,8 +176,8 @@ rotation is the current frame's, not the previous frame's.
 - **The fill grows from the left**: at half health the fill's world bounding box shares its
   minimum x with the track's, and its maximum x is less than the track's.
 - The group's quaternion equals the camera quaternion it was handed.
-- `depthTest` is true on both materials — a regression guard, because every neighbouring
-  effect module sets it false.
+- `depthTest` is true on both materials — a regression guard, because `src/fx/gust-cone.ts`
+  and `src/fx/dash-trail.ts` set it false.
 - Both meshes carry `excludeFromShadows`.
 - `dispose` does not throw.
 
