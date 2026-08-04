@@ -96,6 +96,14 @@ describe('createDashTrail', () => {
     expect(opacityOf(trail)).toBeLessThan(start)
   })
 
+  it('draws over the world rather than being buried by it', () => {
+    // Same regression guard as the gust cone: a low slab near the ground is hidden by
+    // terrain that slopes up away from the player, which made the effect invisible.
+    const material = streak(createDashTrail(ORIGIN, HEADING, 1, DEFAULT_GROUND_CONFIG)).material
+    if (Array.isArray(material)) throw new Error('expected a single material')
+    expect(material.depthTest).toBe(false)
+  })
+
   it('casts no shadow', () => {
     const trail = createDashTrail(ORIGIN, HEADING, 1, DEFAULT_GROUND_CONFIG)
     expect(streak(trail).userData.excludeFromShadows).toBe(true)

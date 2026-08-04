@@ -133,6 +133,20 @@ describe('createGustCone', () => {
     expect(material.opacity).toBeLessThan(start)
   })
 
+  it('draws over the world rather than being buried by it', () => {
+    // Regression guard on a defect found only by playing: with depth testing on, a flat
+    // sector a metre above the player's feet is hidden by ground that slopes up away from
+    // them, and the whole effect is invisible. The shape was never wrong; the terrain was
+    // simply in front of it.
+    const cone = createGustCone(ORIGIN, new Vector3(0, 0, 1), C)
+    for (const child of cone.object.children) {
+      if (!(child instanceof Mesh)) throw new Error('expected meshes')
+      const material = child.material
+      if (Array.isArray(material)) throw new Error('expected a single material')
+      expect(material.depthTest).toBe(false)
+    }
+  })
+
   it('casts no shadow', () => {
     const cone = createGustCone(ORIGIN, new Vector3(0, 0, 1), C)
     for (const child of cone.object.children) {

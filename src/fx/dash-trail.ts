@@ -17,12 +17,12 @@ const LIFETIME = 0.3
 const HEIGHT = 0.5
 const WIDTH = 0.45
 const THICKNESS = 0.12
-const TINT = 0xd9f4ff
+const TINT = 0x7fe4ff
 /** Length and opacity multipliers from the first dash of a chain to the last. */
 const FIRST_LENGTH = 0.8
 const LAST_LENGTH = 1.35
-const FIRST_OPACITY = 0.3
-const LAST_OPACITY = 0.62
+const FIRST_OPACITY = 0.45
+const LAST_OPACITY = 0.85
 
 export function createDashTrail(
   origin: Vector3,
@@ -53,6 +53,9 @@ export function createDashTrail(
   const geometry = new BoxGeometry(WIDTH, THICKNESS, 1)
   const material = new MeshBasicMaterial({
     color: TINT, transparent: true, side: DoubleSide, depthWrite: false, opacity: peak,
+    // Drawn over the world, for the same reason as the gust cone: a low slab near the
+    // ground is buried by terrain that slopes up, which made it invisible in play.
+    depthTest: false,
   })
   const streak = new Mesh(geometry, material)
   streak.scale.z = length

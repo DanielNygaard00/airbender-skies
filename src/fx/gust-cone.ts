@@ -16,12 +16,21 @@ import type { Effect } from './effect'
 const LIFETIME = 0.22
 /** Above the player's origin, which is at their feet — a sector on the ground is hidden. */
 const HEIGHT = 1
-const FILL_OPACITY = 0.16
-const ARC_OPACITY = 0.5
+/**
+ * Opacities and tint chosen against the world, not in the abstract.
+ *
+ * The first pass used a very pale blue at 0.16 and 0.5, which measured fine and was
+ * invisible in play: that tint sits almost on top of the pale green terrain and the washed
+ * sky, so even where the effect drew, nothing read. Found only by playing — the geometry
+ * tests all passed throughout. Raised and cooled toward cyan so the effect separates from
+ * both the ground and the sky.
+ */
+const FILL_OPACITY = 0.34
+const ARC_OPACITY = 0.9
 /** Arc thickness as a fraction of its own radius. */
 const ARC_THICKNESS = 0.16
 const SEGMENTS = 48
-const TINT = 0xdff1ff
+const TINT = 0x7fe4ff
 
 export function createGustCone(origin: Vector3, forward: Vector3, c: GustConfig): Effect {
   const group = new Group()
@@ -46,6 +55,12 @@ export function createGustCone(origin: Vector3, forward: Vector3, c: GustConfig)
   const fillMaterial = new MeshBasicMaterial({
     color: TINT, transparent: true, side: DoubleSide, depthWrite: false,
     opacity: FILL_OPACITY,
+    // Drawn over the world rather than depth-tested against it. A flat sector a metre
+    // above the player's feet is buried by ground that slopes up away from them, which
+    // made this effect invisible in play — the shape was right, the terrain was simply in
+    // front of it. Rendering on top keeps the footprint exactly true at the cost of
+    // showing through a hill for the fifth of a second it lives.
+    depthTest: false,
   })
   const fill = new Mesh(fillGeometry, fillMaterial)
   fill.rotation.x = -Math.PI / 2
@@ -58,7 +73,7 @@ export function createGustCone(origin: Vector3, forward: Vector3, c: GustConfig)
   )
   const arcMaterial = new MeshBasicMaterial({
     color: TINT, transparent: true, side: DoubleSide, depthWrite: false,
-    opacity: ARC_OPACITY,
+    opacity: ARC_OPACITY, depthTest: false,
   })
   const arc = new Mesh(arcGeometry, arcMaterial)
   arc.rotation.x = -Math.PI / 2
