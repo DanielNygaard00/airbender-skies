@@ -14,7 +14,7 @@ function span(glider: ReturnType<typeof createGlider>) {
 }
 
 function settle(glider: ReturnType<typeof createGlider>, deployed: boolean) {
-  for (let i = 0; i < 120; i++) glider.update(1 / 60, deployed)
+  for (let i = 0; i < 120; i++) glider.update(1 / 60, deployed, null)
 }
 
 describe('createGlider assembly', () => {
@@ -144,7 +144,7 @@ describe('createGlider assembly', () => {
   it('never produces non-finite geometry mid-animation', () => {
     const glider = createGlider()
     for (let i = 0; i < 200; i++) {
-      glider.update(1 / 60, i % 40 < 20)
+      glider.update(1 / 60, i % 40 < 20, null)
       const current = span(glider)
       for (const value of [current.x, current.y, current.z]) {
         expect(Number.isFinite(value)).toBe(true)

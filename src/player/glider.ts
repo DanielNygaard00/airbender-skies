@@ -132,7 +132,7 @@ function createFinGeometry(): BufferGeometry {
 
 export function createGlider(): {
   object: Object3D
-  update(dt: number, deployed: boolean, swing?: number | null): void
+  update(dt: number, deployed: boolean, swing: number | null): void
   openness(): number
 } {
   const object = new Group()
@@ -198,7 +198,7 @@ export function createGlider(): {
 
   return {
     object,
-    update(dt: number, deployed: boolean, swingProgress: number | null = null): void {
+    update(dt: number, deployed: boolean, swingProgress: number | null): void {
       openness = advanceOpenness(openness, deployed, dt, OPEN_SECONDS)
       swing = swingProgress
       apply()
