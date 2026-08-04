@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { controllerStep, respawn, type ControllerDeps } from './controller'
-import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG } from '../core/config'
+import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG } from '../core/config'
 import type { InputState, PlayerState, TerrainQuery } from '../core/types'
 
 const flatGround: TerrainQuery = {
@@ -23,17 +23,18 @@ const deps = (
   worldFloorY: -600,
   spawnPointFor:
     spawnPointFor ?? ((id) => (id === 'flat' ? new Vector3(0, 0, 0) : new Vector3(1, 1, 1))),
+  slipstream: DEFAULT_SLIPSTREAM_CONFIG,
 })
 
 const input = (over: Partial<InputState> = {}): InputState => ({
   lookDirection: new Vector3(0, 0, -1), forward: 0, strafe: 0,
-  sprint: false, tuck: false, actionPressed: false, actionHeld: false, actionReleased: false, scooterPressed: false, dashPressed: false, gustPressed: false, avatarStatePressed: false, vortexHeld: false, vortexReleased: false,
+  sprint: false, tuck: false, actionPressed: false, actionHeld: false, actionReleased: false, scooterPressed: false, dashPressed: false, gustPressed: false, avatarStatePressed: false, vortexHeld: false, vortexReleased: false, slipstreamPressed: false,
   ...over,
 })
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({
   mode: 'ground', position: new Vector3(0, 0, 0), velocity: new Vector3(),
   forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
-  grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0, ...over,
+  grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0, slipstreamElapsed: null, slipstreamCooldown: 0, ...over,
 })
 
 describe('mode switching', () => {
@@ -331,5 +332,49 @@ describe('the controller flies through the level\'s wind', () => {
       ...deps(voidWorld), windAt: () => ({ accel: new Vector3(), liftScale: 1 }),
     })
     expect(before.velocity.y).toBeCloseTo(explicit.velocity.y, 9)
+  })
+})
+
+describe('slipstream', () => {
+  it('adds speed on the ground', () => {
+    const standing = player()
+    const dodged = controllerStep(
+      standing, input({ slipstreamPressed: true }), 1 / 60, deps(flatGround),
+    )
+    expect(dodged.velocity.length()).toBeGreaterThan(DEFAULT_SLIPSTREAM_CONFIG.speed / 2)
+    expect(dodged.slipstreamElapsed).not.toBeNull()
+  })
+
+  it('works in the glider too, unlike the blast dash', () => {
+    // The reason it is a separate move: the dash is ground-only, and a dodge you
+    // cannot use while gliding is no use against anything in the air.
+    const flying = player({
+      mode: 'glider', position: new Vector3(0, 200, 0), grounded: false,
+      velocity: new Vector3(0, 0, -20),
+    })
+    const dodged = controllerStep(
+      flying, input({ slipstreamPressed: true }), 1 / 60, deps(voidWorld),
+    )
+    expect(dodged.slipstreamElapsed).not.toBeNull()
+    expect(dodged.velocity.length()).toBeGreaterThan(flying.velocity.length())
+  })
+
+  it('respects the cooldown', () => {
+    let s = controllerStep(player(), input({ slipstreamPressed: true }), 1 / 60, deps(flatGround))
+    const firstSpeed = s.velocity.length()
+    // Run past the dash's duration but not its cooldown.
+    for (let t = 0; t < DEFAULT_SLIPSTREAM_CONFIG.durationSeconds + 0.1; t += 1 / 60) {
+      s = controllerStep(s, input(), 1 / 60, deps(flatGround))
+    }
+    const before = s.velocity.length()
+    const again = controllerStep(s, input({ slipstreamPressed: true }), 1 / 60, deps(flatGround))
+    expect(again.velocity.length()).toBeLessThan(before + firstSpeed / 2)
+  })
+
+  it('clears on respawn', () => {
+    // A NaN respawn mid-dodge must not carry an invulnerability window into the
+    // fresh state, which would hand out free protection after a crash.
+    const broken = player({ position: new Vector3(Number.NaN, 0, 0), slipstreamElapsed: 0.05 })
+    expect(controllerStep(broken, input(), 1 / 60, deps(flatGround)).slipstreamElapsed).toBeNull()
   })
 })

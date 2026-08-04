@@ -24,6 +24,7 @@ export function toInputState(
   gustPressed = false,
   avatarStatePressed = false,
   vortexReleased = false,
+  slipstreamPressed = false,
 ): InputState {
   const axis = (pos: string, neg: string) => (held.has(pos) ? 1 : 0) - (held.has(neg) ? 1 : 0)
   return {
@@ -41,6 +42,7 @@ export function toInputState(
     avatarStatePressed,
     vortexHeld: held.has('KeyR'),
     vortexReleased,
+    slipstreamPressed,
   }
 }
 
@@ -57,6 +59,7 @@ export class InputTracker {
   private avatarStatePressed = false
   private actionReleased = false
   private vortexReleased = false
+  private slipstreamPressed = false
   private readonly listeners: (() => void)[] = []
 
   constructor(target: EventTarget, canvas: HTMLCanvasElement) {
@@ -81,6 +84,7 @@ export class InputTracker {
       if (!e.repeat && e.code === 'KeyQ') this.dashPressed = true
       if (!e.repeat && e.code === 'KeyF') this.gustPressed = true
       if (!e.repeat && e.code === 'KeyE') this.avatarStatePressed = true
+      if (!e.repeat && e.code === 'KeyC') this.slipstreamPressed = true
     })
     on<KeyboardEvent>('keyup', (e) => {
       this.held.delete(e.code)
@@ -113,6 +117,7 @@ export class InputTracker {
       this.gustPressed,
       this.avatarStatePressed,
       this.vortexReleased,
+      this.slipstreamPressed,
     )
     this.actionPressed = false
     this.actionReleased = false
@@ -121,6 +126,7 @@ export class InputTracker {
     this.gustPressed = false
     this.avatarStatePressed = false
     this.vortexReleased = false
+    this.slipstreamPressed = false
     return state
   }
 

@@ -10,7 +10,8 @@ const p = (over: Partial<PlayerState> = {}): PlayerState => ({
   mode: 'ground', position: new Vector3(), velocity: new Vector3(),
   forward: new Vector3(0, 0, 1), breath: 100, maxBreath: 100,
   grounded: true, lastGroundIslandId: null, airJumpsUsed: 0, chargeTime: 0,
-  scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0, ...over,
+  scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+  slipstreamElapsed: null, slipstreamCooldown: 0, ...over,
 })
 
 const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({

@@ -32,6 +32,8 @@ export interface InputState {
   vortexHeld: boolean
   /** R, edge-triggered on key-up: release the vortex. */
   vortexReleased: boolean
+  /** C, edge-triggered: a slipstream dodge. */
+  slipstreamPressed: boolean
 }
 
 export interface PlayerState {
@@ -56,6 +58,10 @@ export interface PlayerState {
   dashesUsed: number
   /** Seconds of dash recovery still owed. */
   dashRecovery: number
+  /** Seconds since a slipstream fired, or null when not slipstreaming. */
+  slipstreamElapsed: number | null
+  /** Seconds of slipstream cooldown still owed. */
+  slipstreamCooldown: number
 }
 
 export interface TerrainHit {

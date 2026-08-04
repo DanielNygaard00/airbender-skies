@@ -2,7 +2,7 @@ import { Vector3, Mesh, OctahedronGeometry, MeshBasicMaterial, Group } from 'thr
 import { createRenderer, hasWebGL, showFallback, WEBGL_MESSAGE } from './core/renderer'
 import { createStepper } from './core/loop'
 import { InputTracker } from './core/input'
-import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG } from './core/config'
+import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG } from './core/config'
 import { loadSave, writeSave } from './core/save'
 import { loadGLTF } from './core/assets'
 import { buildWorld, type World } from './world/world'
@@ -185,6 +185,7 @@ function start(): void {
     ground: DEFAULT_GROUND_CONFIG,
     worldFloorY: ARCHIPELAGO.worldFloorY,
     spawnPointFor: spawnPointFor(ARCHIPELAGO, world.terrain),
+    slipstream: DEFAULT_SLIPSTREAM_CONFIG,
     // Surged for the Avatar State on the way out, and the unsurged sample kept so the
     // Focus rate reads the real air. Otherwise the surge feeds itself: the state boosts
     // the wind, and the boosted wind pays more Focus.
