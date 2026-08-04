@@ -260,7 +260,15 @@ function start(): void {
     // pre-step state, input, dt and staff config controllerStep is about to consume,
     // since a PlayerState alone cannot say a swing started this frame as opposed to
     // continuing one already in progress.
-    const staffSwing = staffStep(player, state, dt, deps.staff)
+    //
+    // Gated on the same `willRespawn` check the slam guard below uses (a NaN position,
+    // or falling past the world floor): `controllerStep` resets the whole combo to idle
+    // on that frame via `safeRespawn`, so a swing reported here would resolve against
+    // enemies in the fight for a player who, this same frame, is on the way out of the
+    // world — landing a hit on the way to a respawn.
+    const staffSwing = willRespawn(player, ARCHIPELAGO.worldFloorY)
+      ? null
+      : staffStep(player, state, dt, deps.staff)
     player = controllerStep(player, state, dt, deps)
     if (avatarActive) player = refillBreath(player)
 

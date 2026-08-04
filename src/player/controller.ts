@@ -184,14 +184,22 @@ export function controllerStep(
       next = groundStep(state, input, dt, deps.terrain, deps.ground)
     }
 
-    // The staff steps only on foot — in the glider it IS the wing, so a press there
-    // is dropped rather than queued for landing (see the mode-gated branch below).
-    // Advanced from whichever branch above just ran, since both share the same combo.
-    const staff = stepStaff(staffOf(state), input.staffPressed, dt, deps.staff).state
-    next = {
-      ...next,
-      staffChain: staff.chain, staffElapsed: staff.elapsed, staffRecovery: staff.recovery,
-      staffSinceSwing: staff.sinceSwing,
+    // Gated on next.mode, not state.mode: a press that lands on the same frame the
+    // glider deploys must not start a swing here. stepStaff only ever advances from
+    // this ground branch, so a swing begun on a deploy frame would freeze at
+    // elapsed: 0 for the entire glide — staffBusy stuck true, since nothing steps it
+    // down until landing returns the player to ground mode. Reading `state.mode`
+    // instead would have missed exactly that frame, because the deploy branch above
+    // runs while state.mode is still 'ground'.
+    if (next.mode === 'ground') {
+      // The staff steps only on foot — in the glider it IS the wing, so a press there
+      // is dropped rather than queued for landing.
+      const staff = stepStaff(staffOf(state), input.staffPressed, dt, deps.staff).state
+      next = {
+        ...next,
+        staffChain: staff.chain, staffElapsed: staff.elapsed, staffRecovery: staff.recovery,
+        staffSinceSwing: staff.sinceSwing,
+      }
     }
   } else if (input.actionPressed) {
     next = {

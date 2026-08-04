@@ -420,6 +420,25 @@ describe('the staff', () => {
     expect(staffBusy(staffOf(swinging()))).toBe(true)
   })
 
+  it('does not start a swing on the frame it deploys, so the staff cannot freeze mid-glide', () => {
+    // Fix-round 1 finding: staffPressed and actionPressed landing on the same frame,
+    // with the staff free, used to start a swing gated on the mode BEFORE this frame's
+    // branches (still 'ground' during the deploy branch) even though the state coming
+    // out of it is 'glider'. That swing then froze at elapsed: 0 for the whole flight —
+    // nothing steps the staff while airborne — so staffBusy stayed true long after
+    // landing, blocking an unrelated later deploy for no reason the player could see.
+    const falling = player({
+      position: new Vector3(0, 200, 0), grounded: false,
+      airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps,
+    })
+    const s = controllerStep(
+      falling, input({ staffPressed: true, actionPressed: true }), 1 / 60, deps(voidWorld),
+    )
+    expect(s.mode).toBe('glider')
+    expect(isSwinging(staffOf(s))).toBe(false)
+    expect(staffBusy(staffOf(s))).toBe(false)
+  })
+
   it('reports the swing it started, so the fight can resolve it', () => {
     // staffStep is the interface answer to Task 5's open question: controllerStep's
     // return type stays a plain PlayerState (main.ts needs no new plumbing there), and
