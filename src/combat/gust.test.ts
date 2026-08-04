@@ -12,6 +12,8 @@ const E: EnemyConfig = {
   knockbackDamping: 3,
   // Matches DEFAULT_COMBAT_CONFIG.enemy.gravity.
   gravity: 20,
+  // Matches DEFAULT_COMBAT_CONFIG.enemy.snapDistance.
+  snapDistance: 1.2,
 }
 
 const ORIGIN = new Vector3(0, 0, 0)

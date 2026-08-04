@@ -68,6 +68,17 @@ export interface EnemyConfig extends HealthConfig {
   knockbackDamping: number
   /** Matches the world's own gravity in DEFAULT_GROUND_CONFIG. */
   gravity: number
+  /**
+   * Step-down tolerance for the ground snap, in metres.
+   *
+   * Walking downhill, an enemy's horizontal step lands it above the lower ground
+   * ahead of it for one frame — `position.y > height` — before gravity pulls it down
+   * onto the snap on the next frame. Without a tolerance that alternation reads as
+   * airborne every other frame, which halves its effective walk speed and, because an
+   * airborne enemy is inert, halves its ability to attack too. This tolerance lets a
+   * body that was already on the ground stick to a slope or small drop underfoot.
+   */
+  snapDistance: number
 }
 
 export function spawnEnemy(id: string, position: Vector3, c: EnemyConfig): Enemy {
@@ -121,7 +132,23 @@ function fall(
   let grounded = false
   const height = ground.groundHeightAt(position.x, position.z)
   // Only a descending enemy lands, so a lift is not cancelled on its first frame.
-  if (height !== null && verticalVelocity <= 0 && position.y <= height) {
+  //
+  // The second half of the OR is a step-down tolerance, matching the player's own
+  // snapDistance in groundStep (src/player/ground-move.ts): walking downhill, the
+  // horizontal step lands an enemy above the lower ground ahead of it for one
+  // frame, and without this it reads as airborne every other frame -- half its
+  // walk speed, and since an airborne enemy is inert, half its ability to attack.
+  //
+  // That tolerance is gated on `enemy.grounded` (last frame's state, not this
+  // one's) for the same reason the player's is gated on `state.grounded`: a body
+  // that was not already on the ground must actually reach it. A Vortex lifts an
+  // enemy several metres up, and an ungated tolerance would snap it onto the
+  // ground up to snapDistance before it truly landed -- a visible pop for a lift
+  // that size.
+  if (
+    height !== null && verticalVelocity <= 0 &&
+    (position.y <= height || (enemy.grounded && position.y - height <= c.snapDistance))
+  ) {
     position.y = height
     verticalVelocity = 0
     grounded = true

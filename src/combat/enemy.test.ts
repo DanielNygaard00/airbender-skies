@@ -9,7 +9,7 @@ import { isDowned } from './health'
 const C: EnemyConfig = {
   maxHealth: 3, outOfCombatSeconds: 4, regenPerSecond: 0.4,
   moveSpeed: 4, strikeRange: 3, aggroRange: 30, windUpSeconds: 0.5, recoverSeconds: 0.6,
-  strikeDamage: 1, knockbackDamping: 3, gravity: 20,
+  strikeDamage: 1, knockbackDamping: 3, gravity: 20, snapDistance: 1.2,
 }
 
 const AT = (x: number, z: number) => new Vector3(x, 0, z)
@@ -258,5 +258,85 @@ describe('enemy gravity', () => {
     const after = settle(shoved, 2)
     expect(after.position.x).toBeGreaterThan(1)
     expect(Math.hypot(after.knockback.x, after.knockback.z)).toBeLessThan(1)
+  })
+})
+
+describe('walking downhill', () => {
+  // Constant downhill grade: height falls as x rises, so an enemy walking toward
+  // a player further along +x is always stepping onto lower ground.
+  const s = 0.2
+  const slope: GroundHeightQuery = { groundHeightAt: (x) => 100 - s * x }
+  // Halfway between strikeRange and aggroRange: well outside strike reach (so it
+  // walks rather than winds up) and well inside the leash, for the entire 3
+  // seconds below (moveSpeed 4 over 3s closes at most 12, leaving it short of
+  // strikeRange 3 the whole time). Derived from config, not a literal.
+  const playerDistance = (C.strikeRange + C.aggroRange) / 2
+  const player = AT(playerDistance, 0)
+  const spawnOnSlope = () => spawnEnemy('a', new Vector3(0, slope.groundHeightAt(0, 0) ?? 0, 0), C)
+
+  it('stays grounded every frame on a 0.2 downhill slope', () => {
+    // The measured bug: stepping onto lower ground puts position.y above the new
+    // height for one frame, which the old ground check reads as airborne. Over 180
+    // frames (3s at 1/60) that halved both walk speed and uptime for striking.
+    let enemy = spawnOnSlope()
+    let groundedFrames = 0
+    for (let i = 0; i < 180; i++) {
+      const step = stepEnemy(enemy, player, slope, FLOOR, 1 / 60, C)
+      enemy = step.enemy
+      if (enemy.grounded) groundedFrames++
+    }
+    expect(groundedFrames).toBe(180)
+  })
+
+  it('does not halve its walk speed on the same slope', () => {
+    // Companion to the grounded-every-frame test: half the frames airborne meant
+    // half the frames advancing too, since an airborne enemy does not move.
+    let enemy = spawnOnSlope()
+    const start = enemy.position.clone()
+    for (let i = 0; i < 180; i++) {
+      enemy = stepEnemy(enemy, player, slope, FLOOR, 1 / 60, C).enemy
+    }
+    const traveled = horizontalDistance(enemy.position, start)
+    const expected = C.moveSpeed * 3
+    // Half speed (the measured bug, roughly expected/2) must fail this; the walk
+    // here is a straight, constant-speed closing line with no easing to budget for,
+    // so the tolerance can stay tight.
+    expect(traveled).toBeGreaterThan(expected * 0.9)
+    expect(traveled).toBeLessThanOrEqual(expected + 0.01)
+  })
+})
+
+describe('the ground snap does not grab a body from mid-air', () => {
+  it('does not snap onto the ground early after a big lift', () => {
+    // What the was-grounded guard exists to protect: a Vortex lifts an already-
+    // grounded enemy several metres up. hitEnemy leaves the stale `grounded: true`
+    // in place, but the very next physics tick has positive vertical velocity, so
+    // the snap check is skipped entirely and it comes out genuinely airborne —
+    // from then on it is not "already grounded" until it truly lands. If the
+    // tolerance were unconditional (no was-grounded requirement), the moment its
+    // fall brought it back within snapDistance of the ground it would pop onto the
+    // ground early -- landing several frames before it actually reached it, which
+    // for a multi-metre Vortex lift would be a visible teleport underfoot.
+    const lifted = hitEnemy(spawnEnemy('a', AT(0, 0), C), 0, new Vector3(0, 11, 0))
+    let enemy = lifted
+    let sawSmallGapWhileAirborne = false
+    for (let t = 0; t < 3; t += 1 / 60) {
+      enemy = stepEnemy(enemy, AT(0, 500), flatGround, FLOOR, 1 / 60, C).enemy
+      // Only descending frames matter here: on the way up, verticalVelocity > 0
+      // skips the snap check regardless of any guard, so a small gap while rising
+      // proves nothing about the guard being tested.
+      if (
+        !enemy.grounded && enemy.verticalVelocity <= 0 &&
+        enemy.position.y > 0 && enemy.position.y <= C.snapDistance
+      ) {
+        sawSmallGapWhileAirborne = true
+      }
+      if (enemy.grounded) break
+    }
+    // Seeing this intermediate frame -- inside the tolerance band, but still
+    // reporting airborne -- is the proof the guard did not fire early. An
+    // unconditional tolerance jumps straight from "well above" to "grounded, y
+    // at the ground" with no such frame in between.
+    expect(sawSmallGapWhileAirborne).toBe(true)
   })
 })

@@ -30,6 +30,9 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     // Matches DEFAULT_GROUND_CONFIG's gravity, so a lifted soldier falls at the
     // same rate the player does.
     gravity: 20,
+    // Matches DEFAULT_GROUND_CONFIG's own snapDistance, so a soldier sticks to a
+    // slope underfoot the same way the player does.
+    snapDistance: 1.2,
   },
   gust: {
     range: 12,
