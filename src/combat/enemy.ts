@@ -168,6 +168,21 @@ export function stepEnemy(
     }
   }
 
+  // Airborne: inert. This is what makes a Vortex setup rather than damage — the payoff
+  // for lifting a group is that the group stops acting. A wind-up in progress is
+  // dropped, consistent with hitEnemy already treating a hit as an interruption.
+  if (!moved.grounded) {
+    const winding = enemy.stance === 'wind-up'
+    return {
+      enemy: {
+        ...enemy, ...moved,
+        stance: winding ? 'recover' : enemy.stance,
+        stanceTime: winding ? 0 : enemy.stanceTime + dt,
+      },
+      damageToPlayer: 0,
+    }
+  }
+
   const toPlayer = horizontalTo(moved.position, playerPosition)
   const distance = horizontalDistance(moved.position, playerPosition)
   const stanceTime = enemy.stanceTime + dt

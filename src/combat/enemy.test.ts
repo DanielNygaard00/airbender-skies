@@ -154,6 +154,68 @@ describe('the aggro leash', () => {
   })
 })
 
+describe('an airborne enemy', () => {
+  /** Get an enemy into wind-up stance right next to the player, then lift it. */
+  const liftedInWindUp = () => {
+    const player = AT(0, 0)
+    let enemy = spawnEnemy('a', AT(0, 0.5), C)
+    // Step until it winds up (close enough to strike).
+    for (let t = 0; t < 2 && enemy.stance !== 'wind-up'; t += 1 / 60) {
+      enemy = stepEnemy(enemy, player, flatGround, FLOOR, 1 / 60, C).enemy
+    }
+    // Now in wind-up, lift without interrupting (preserve the wind-up).
+    return { ...enemy, verticalVelocity: enemy.verticalVelocity + 9 }
+  }
+
+  it('deals no damage even from inside strike range', () => {
+    // The whole payoff of a vortex: a lifted group stops acting. Range is derived
+    // from config so this survives retuning.
+    const player = AT(0, 0)
+    let enemy = liftedInWindUp()
+    expect(enemy.stance).toBe('wind-up')
+    expect(horizontalDistance(enemy.position, player)).toBeLessThan(C.strikeRange)
+    let dealt = 0
+    for (let t = 0; t < C.windUpSeconds * 3; t += 1 / 60) {
+      const step = stepEnemy(enemy, player, flatGround, FLOOR, 1 / 60, C)
+      enemy = step.enemy
+      dealt += step.damageToPlayer
+      if (enemy.grounded) break
+    }
+    expect(dealt).toBe(0)
+  })
+
+  it('drops a wind-up in progress when it leaves the ground', () => {
+    const player = AT(0, 0)
+    const enemy = liftedInWindUp()
+    expect(enemy.stance).toBe('wind-up')
+
+    const lifted = stepEnemy(enemy, player, flatGround, FLOOR, 1 / 60, C).enemy
+    expect(lifted.grounded).toBe(false)
+    // Once airborne, wind-up is interrupted and should not advance.
+    expect(lifted.stance).not.toBe('wind-up')
+  })
+
+  it('strikes again once it has landed', () => {
+    // Inertness must be temporary, or a vortex would be a permanent disable.
+    const player = AT(0, 0)
+    // Lift an enemy that was in wind-up, then let it fall and recover.
+    let enemy = liftedInWindUp()
+    for (let t = 0; t < 4; t += 1 / 60) {
+      enemy = stepEnemy(enemy, player, flatGround, FLOOR, 1 / 60, C).enemy
+      if (enemy.grounded) break
+    }
+    expect(enemy.grounded).toBe(true)
+    // Now let it get back into striking position.
+    let dealt = 0
+    for (let t = 0; t < C.windUpSeconds * 4; t += 1 / 60) {
+      const step = stepEnemy(enemy, player, flatGround, FLOOR, 1 / 60, C)
+      enemy = step.enemy
+      dealt += step.damageToPlayer
+    }
+    expect(dealt).toBeGreaterThan(0)
+  })
+})
+
 describe('enemy gravity', () => {
   it('returns a lifted enemy to the ground', () => {
     // Regression guard for a measured bug: gust and Pressure Wave both apply an
