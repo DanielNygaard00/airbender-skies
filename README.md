@@ -17,6 +17,8 @@ back down to a walking stick.
 | `Q` | Air blast dash — three in a chain, then a short recovery | — |
 | `F` | Gust — a wide sweep of air that knocks enemies back | Gust |
 | `E` | Avatar State — once the pip under your Focus bar is full | Avatar State |
+| `R` | Vortex — hold to charge, release to pull nearby enemies inward and lift them off their feet | Vortex |
+| `C` | Slipstream — a short dash, briefly unhittable | Slipstream |
 | `Ctrl` | Hold through a landing to slam | Tuck — fold the wings for a fast dive, and hold it through the landing to slam |
 | `Space` | Jump — twice, the second gains more height the faster you are rising | Deploy or stow the glider |
 | `H` | Guide — every action, and whether you can use it right now | Guide |

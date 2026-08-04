@@ -23,6 +23,8 @@ const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({
   wave: DEFAULT_COMBAT_CONFIG.pressureWave,
   gustReady: true,
   avatarStateReady: false,
+  vortexReady: true,
+  slipstreamReady: true,
   ...over,
 })
 

@@ -34,7 +34,7 @@ import { vortexRadius } from './combat/vortex'
 import { createEnemyView } from './combat/enemy-mesh'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
-import { isInvulnerable, slipstreamHeading } from './player/slipstream'
+import { canSlipstream, isInvulnerable, slipstreamHeading } from './player/slipstream'
 import { controllerStep, willRespawn, type ControllerDeps } from './player/controller'
 import { collectStep } from './player/shrine-collect'
 import { enableShadows } from './core/sun'
@@ -44,7 +44,7 @@ import { animationFor, chargeSquashScale } from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
 import { createHud, hudModelFor } from './ui/hud'
 import { createGuide, guideModelFor } from './ui/guide/panel'
-import { canGust } from './combat/encounter'
+import { canGust, canVortex } from './combat/encounter'
 import { isArmed } from './focus/avatar-state'
 import { createWindAudio } from './fx/audio'
 import { fovForSpeed } from './fx/mapping'
@@ -187,6 +187,11 @@ function start(): void {
       wave: DEFAULT_COMBAT_CONFIG.pressureWave,
       gustReady: canGust(encounter),
       avatarStateReady: isArmed(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
+      vortexReady: canVortex(encounter),
+      slipstreamReady: canSlipstream({
+        elapsed: player.slipstreamElapsed,
+        cooldown: player.slipstreamCooldown,
+      }),
     }))
   })
   const wind = createWindAudio()
