@@ -25,6 +25,8 @@ import { detectSlam, applyBounce } from './player/slam'
 import { createShockwave } from './fx/shockwave'
 import { createEffectPool } from './fx/effect-pool'
 import { createGustCone } from './fx/gust-cone'
+import { createStaffArc } from './fx/staff-arc-fx'
+import { staffShape } from './combat/staff-arc'
 import { createDashTrail } from './fx/dash-trail'
 import { createImpact } from './fx/impact'
 import { createAvatarAura } from './fx/avatar-aura'
@@ -370,6 +372,14 @@ function start(): void {
     // will actually do on this same frame rather than a frame late.
     if (state.gustPressed && canGust(encounter)) {
       effects.add(createGustCone(player.position, player.forward, fightConfig.gust))
+    }
+
+    // staffShape(staffSwing.finisher, fightConfig.staffArc): the same call stepEncounter is
+    // about to resolve the swing with, so the drawn arc and the hit arc cannot diverge.
+    if (staffSwing) {
+      effects.add(createStaffArc(
+        player.position, player.forward, staffShape(staffSwing.finisher, fightConfig.staffArc),
+      ))
     }
 
     const fight = stepEncounter(encounter, {
