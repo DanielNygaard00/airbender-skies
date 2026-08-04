@@ -3,11 +3,20 @@ import { createStepper, FIXED_DT, MAX_STEPS_PER_FRAME } from './loop'
 
 function spy() {
   const dts: number[] = []
-  let renders = 0
+  const alphas: number[] = []
+  const frameDts: number[] = []
   return {
     dts,
-    renders: () => renders,
-    cb: { update: (dt: number) => dts.push(dt), render: () => { renders++ } },
+    alphas,
+    frameDts,
+    renders: () => alphas.length,
+    cb: {
+      update: (dt: number) => dts.push(dt),
+      render: (alpha: number, frameDt: number) => {
+        alphas.push(alpha)
+        frameDts.push(frameDt)
+      },
+    },
   }
 }
 
@@ -62,5 +71,42 @@ describe('createStepper', () => {
     expect(stepper.advance(NaN)).toBe(0)
     expect(stepper.advance(-1)).toBe(0)
     expect(s.renders()).toBe(2)
+  })
+
+  it('reports the un-simulated fraction of a step as alpha', () => {
+    const s = spy()
+    createStepper(s.cb).advance(FIXED_DT * 1.5)
+    expect(s.alphas[0]).toBeCloseTo(0.5, 6)
+  })
+
+  it('grows alpha across zero-step frames', () => {
+    const s = spy()
+    const stepper = createStepper(s.cb)
+    stepper.advance(FIXED_DT * 0.25)
+    stepper.advance(FIXED_DT * 0.25)
+    expect(s.alphas[0]).toBeCloseTo(0.25, 6)
+    expect(s.alphas[1]).toBeCloseTo(0.5, 6)
+  })
+
+  it('keeps alpha in [0, 1) even after a clamped stall', () => {
+    const s = spy()
+    createStepper(s.cb).advance(30)
+    expect(s.alphas[0]).toBeGreaterThanOrEqual(0)
+    expect(s.alphas[0]).toBeLessThan(1)
+  })
+
+  it('passes the real elapsed seconds through as frameDt', () => {
+    const s = spy()
+    createStepper(s.cb).advance(0.021)
+    expect(s.frameDts[0]).toBeCloseTo(0.021, 6)
+  })
+
+  it('renders an invalid delta with a frameDt of zero and alpha unchanged', () => {
+    const s = spy()
+    const stepper = createStepper(s.cb)
+    stepper.advance(FIXED_DT * 0.5)
+    stepper.advance(NaN)
+    expect(s.frameDts[1]).toBe(0)
+    expect(s.alphas[1]).toBeCloseTo(s.alphas[0]!, 6)
   })
 })
