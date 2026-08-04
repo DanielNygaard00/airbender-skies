@@ -1,5 +1,6 @@
 import { Vector3 } from 'three'
-import { horizontalDistance, type Enemy } from './enemy'
+import { type Enemy } from './enemy'
+import { inCone } from './cone'
 
 /**
  * Gust: fast, low damage, high knockback.
@@ -25,21 +26,21 @@ export interface GustConfig {
   cooldownSeconds: number
 }
 
-/** Whether a target lies inside the blast. Horizontal: a gust is a sweep, not a shot. */
+/**
+ * Whether a target lies inside the blast. Horizontal: a gust is a sweep, not a shot.
+ *
+ * Kept as its own name over `inCone` for two reasons: `GustConfig` satisfies `ConeShape`
+ * structurally so this costs nothing, and `src/fx/gust-cone.test.ts` uses this function as
+ * the independent mechanism it compares the drawn cone against. Inlining it at the call
+ * sites would quietly delete that check.
+ */
 export function inGust(
   origin: Vector3,
   forward: Vector3,
   target: Vector3,
   c: GustConfig,
 ): boolean {
-  const distance = horizontalDistance(origin, target)
-  if (distance > c.range || distance < 1e-6) return false
-
-  const toTarget = new Vector3(target.x - origin.x, 0, target.z - origin.z).normalize()
-  const heading = new Vector3(forward.x, 0, forward.z)
-  if (heading.lengthSq() < 1e-8) return false
-
-  return toTarget.dot(heading.normalize()) >= Math.cos(c.halfAngle)
+  return inCone(origin, forward, target, c)
 }
 
 /**

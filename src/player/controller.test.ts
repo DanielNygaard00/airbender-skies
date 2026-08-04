@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { controllerStep, respawn, type ControllerDeps } from './controller'
-import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG } from '../core/config'
+import { controllerStep, respawn, staffStep, type ControllerDeps } from './controller'
+import {
+  DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG, DEFAULT_STAFF_CONFIG,
+} from '../core/config'
+import { isSwinging, staffBusy, staffOf } from './staff'
 import type { InputState, PlayerState, TerrainQuery } from '../core/types'
 
 const flatGround: TerrainQuery = {
@@ -24,17 +27,19 @@ const deps = (
   spawnPointFor:
     spawnPointFor ?? ((id) => (id === 'flat' ? new Vector3(0, 0, 0) : new Vector3(1, 1, 1))),
   slipstream: DEFAULT_SLIPSTREAM_CONFIG,
+  staff: DEFAULT_STAFF_CONFIG,
 })
 
 const input = (over: Partial<InputState> = {}): InputState => ({
   lookDirection: new Vector3(0, 0, -1), forward: 0, strafe: 0,
-  sprint: false, tuck: false, actionPressed: false, actionHeld: false, actionReleased: false, scooterPressed: false, dashPressed: false, gustPressed: false, avatarStatePressed: false, vortexHeld: false, vortexReleased: false, slipstreamPressed: false,
+  sprint: false, tuck: false, actionPressed: false, actionHeld: false, actionReleased: false, scooterPressed: false, dashPressed: false, gustPressed: false, avatarStatePressed: false, vortexHeld: false, vortexReleased: false, slipstreamPressed: false, staffPressed: false,
   ...over,
 })
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({
   mode: 'ground', position: new Vector3(0, 0, 0), velocity: new Vector3(),
   forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
-  grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0, slipstreamElapsed: null, slipstreamCooldown: 0, ...over,
+  grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0, slipstreamElapsed: null, slipstreamCooldown: 0,
+  staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, ...over,
 })
 
 describe('mode switching', () => {
@@ -403,5 +408,107 @@ describe('slipstream', () => {
     // fresh state, which would hand out free protection after a crash.
     const broken = player({ position: new Vector3(Number.NaN, 0, 0), slipstreamElapsed: 0.05 })
     expect(controllerStep(broken, input(), 1 / 60, deps(flatGround)).slipstreamElapsed).toBeNull()
+  })
+})
+
+describe('the staff', () => {
+  const swinging = () => controllerStep(
+    player(), input({ staffPressed: true }), 1 / 60, deps(flatGround),
+  )
+
+  it('starts a swing on a press', () => {
+    expect(staffBusy(staffOf(swinging()))).toBe(true)
+  })
+
+  it('does not start a swing on the frame it deploys, so the staff cannot freeze mid-glide', () => {
+    // Fix-round 1 finding: staffPressed and actionPressed landing on the same frame,
+    // with the staff free, used to start a swing gated on the mode BEFORE this frame's
+    // branches (still 'ground' during the deploy branch) even though the state coming
+    // out of it is 'glider'. That swing then froze at elapsed: 0 for the whole flight —
+    // nothing steps the staff while airborne — so staffBusy stayed true long after
+    // landing, blocking an unrelated later deploy for no reason the player could see.
+    const falling = player({
+      position: new Vector3(0, 200, 0), grounded: false,
+      airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps,
+    })
+    const s = controllerStep(
+      falling, input({ staffPressed: true, actionPressed: true }), 1 / 60, deps(voidWorld),
+    )
+    expect(s.mode).toBe('glider')
+    expect(isSwinging(staffOf(s))).toBe(false)
+    expect(staffBusy(staffOf(s))).toBe(false)
+  })
+
+  it('reports the swing it started, so the fight can resolve it', () => {
+    // staffStep is the interface answer to Task 5's open question: controllerStep's
+    // return type stays a plain PlayerState (main.ts needs no new plumbing there), and
+    // this sits beside it the way detectSlam does, called with the same pre-step state,
+    // input, dt and config so it can never disagree with what controllerStep just did.
+    const swing = staffStep(player(), input({ staffPressed: true }), 1 / 60, DEFAULT_STAFF_CONFIG)
+    expect(swing?.index).toBe(1)
+  })
+
+  it('does not swing in the glider, where the staff is a wing', () => {
+    const flying = player({
+      mode: 'glider', position: new Vector3(0, 200, 0), grounded: false,
+      velocity: new Vector3(0, 0, -20),
+    })
+    const pressed = controllerStep(flying, input({ staffPressed: true }), 1 / 60, deps(voidWorld))
+    expect(staffBusy(staffOf(pressed))).toBe(false)
+    expect(staffStep(flying, input({ staffPressed: true }), 1 / 60, DEFAULT_STAFF_CONFIG)).toBeNull()
+  })
+
+  it('blocks a glider deploy while swinging', () => {
+    // The design document's central risk decision: commit to melee and the wing is not
+    // available until the staff is done with you.
+    const falling = player({
+      position: new Vector3(0, 200, 0), grounded: false,
+      airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps,
+    })
+    const mid = controllerStep(falling, input({ staffPressed: true }), 1 / 60, deps(voidWorld))
+    expect(staffBusy(staffOf(mid))).toBe(true)
+    const deployed = controllerStep(mid, input({ actionPressed: true }), 1 / 60, deps(voidWorld))
+    expect(deployed.mode).toBe('ground')
+  })
+
+  it('still blocks a deploy during recovery, after the swinging has stopped', () => {
+    // A gate that only covers the swing itself would make the commitment nearly free.
+    let s = player({
+      position: new Vector3(0, 400, 0), grounded: false,
+      airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps,
+    })
+    s = controllerStep(s, input({ staffPressed: true }), 1 / 60, deps(voidWorld))
+    for (let i = 0; i < DEFAULT_STAFF_CONFIG.maxChain - 1; i++) {
+      for (let t = 0; t < DEFAULT_STAFF_CONFIG.swingSeconds; t += 1 / 60) {
+        s = controllerStep(s, input(), 1 / 60, deps(voidWorld))
+      }
+      s = controllerStep(s, input({ staffPressed: true }), 1 / 60, deps(voidWorld))
+    }
+    for (let t = 0; t < DEFAULT_STAFF_CONFIG.swingSeconds + 0.02; t += 1 / 60) {
+      s = controllerStep(s, input(), 1 / 60, deps(voidWorld))
+    }
+    expect(isSwinging(staffOf(s))).toBe(false)
+    expect(staffBusy(staffOf(s))).toBe(true)
+    const blocked = controllerStep(s, input({ actionPressed: true }), 1 / 60, deps(voidWorld))
+    expect(blocked.mode).toBe('ground')
+  })
+
+  it('allows the deploy once the staff is free again', () => {
+    // The control for the two tests above: without it they only prove deploy never works.
+    let s = player({
+      position: new Vector3(0, 400, 0), grounded: false,
+      airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps,
+    })
+    s = controllerStep(s, input({ staffPressed: true }), 1 / 60, deps(voidWorld))
+    for (let t = 0; t < 3; t += 1 / 60) s = controllerStep(s, input(), 1 / 60, deps(voidWorld))
+    expect(staffBusy(staffOf(s))).toBe(false)
+    const deployed = controllerStep(s, input({ actionPressed: true }), 1 / 60, deps(voidWorld))
+    expect(deployed.mode).toBe('glider')
+  })
+
+  it('clears on respawn', () => {
+    const broken = player({ position: new Vector3(Number.NaN, 0, 0), staffElapsed: 0.1 })
+    const back = controllerStep(broken, input(), 1 / 60, deps(flatGround))
+    expect(staffBusy(staffOf(back))).toBe(false)
   })
 })

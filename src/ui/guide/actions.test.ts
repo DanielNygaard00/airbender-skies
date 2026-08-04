@@ -14,7 +14,8 @@ const p = (over: Partial<PlayerState> = {}): PlayerState => ({
   forward: new Vector3(0, 0, 1), breath: 100, maxBreath: 100,
   grounded: true, lastGroundIslandId: null, airJumpsUsed: 0, chargeTime: 0,
   scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
-  slipstreamElapsed: null, slipstreamCooldown: 0, ...over,
+  slipstreamElapsed: null, slipstreamCooldown: 0,
+  staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, ...over,
 })
 
 const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({
@@ -112,6 +113,36 @@ describe('the double jump and the deploy are mutually exclusive', () => {
     expect(can('Deploy the glider', unspent)).toBe(false)
     expect(can('Double jump', spent)).toBe(false)
     expect(can('Deploy the glider', spent)).toBe(true)
+  })
+})
+
+describe('the staff', () => {
+  it('offers the combo while idle on the ground', () => {
+    expect(can('Staff combo')).toBe(true)
+  })
+
+  it('withholds the combo while a swing is in flight', () => {
+    expect(can('Staff combo', { player: p({ staffElapsed: 0.1 }) })).toBe(false)
+  })
+
+  it('withholds the combo during the post-combo recovery', () => {
+    expect(can('Staff combo', { player: p({ staffRecovery: 0.2 }) })).toBe(false)
+  })
+
+  it('withholds the combo in the glider', () => {
+    // Ground only — in the air the staff is a wing, not a weapon.
+    expect(can('Staff combo', { player: p({ mode: 'glider', grounded: false }) })).toBe(false)
+  })
+
+  it('withholds deploying the glider while the staff is busy, even with the jump spent', () => {
+    // The glider IS the staff: mid-combo or still recovering, there is no wing to snap
+    // open, so the panel must agree with the controller rather than only checking the
+    // jump count.
+    expect(can('Deploy the glider', {
+      player: p({
+        grounded: false, airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps, staffRecovery: 0.2,
+      }),
+    })).toBe(false)
   })
 })
 

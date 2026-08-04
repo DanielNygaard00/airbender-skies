@@ -10,6 +10,8 @@ import {
   waveDamage, waveImpulse, waveTargets, type PressureWaveConfig,
 } from './pressure-wave'
 import { vortexCharge, vortexImpulse, vortexTargets, type VortexConfig } from './vortex'
+import { staffDamage, staffImpulse, staffTargets, type StaffArcConfig } from './staff-arc'
+import type { StaffSwing } from '../player/staff'
 
 /**
  * One fight: the enemies, the player's health, and the cooldown on their bending.
@@ -35,6 +37,7 @@ export interface CombatConfig {
   gust: GustConfig
   pressureWave: PressureWaveConfig
   vortex: VortexConfig
+  staffArc: StaffArcConfig
 }
 
 export interface EnemySpawn {
@@ -76,6 +79,8 @@ export interface EncounterInput {
   vortexReleased: boolean
   /** The player is inside a slipstream's invulnerable window. */
   playerInvulnerable: boolean
+  /** The swing the player's staff started this frame, or null. */
+  staffSwing: StaffSwing | null
 }
 
 export interface EncounterStep {
@@ -88,6 +93,9 @@ export interface EncounterStep {
    *  that one feeds a per-enemy Focus grant, and a slam is already paid for by its
    *  own strength, so folding them together would pay twice for one slam. */
   slamHitThisFrame: string[]
+  /** Enemies a staff swing connected with. Kept apart from hitThisFrame and
+   *  slamHitThisFrame because each feeds a differently tuned Focus grant. */
+  staffHitThisFrame: string[]
   /** Whether the player was hit this frame, for feedback. */
   playerHit: boolean
   /**
@@ -112,11 +120,11 @@ export function canVortex(encounter: Encounter): boolean {
 /**
  * Advance the whole fight one frame.
  *
- * Order matters: the gust resolves, then the wave, then the enemies act. Both the
- * gust and the wave interrupt a wind-up rather than trading with it, which requires
- * both to land before enemies are stepped. Gust-then-wave is arbitrary between the
- * two moves but deterministic, and it means the wave sees the gust's knockback
- * already applied.
+ * Order matters: the gust resolves, then the vortex, then the staff, then the wave,
+ * then the enemies act. Each of the gust, the staff and the wave interrupts a
+ * wind-up rather than trading with it, which requires all three to land before
+ * enemies are stepped. Their relative order is arbitrary but deterministic, and it
+ * means each later move sees the earlier ones' knockback already applied.
  */
 export function stepEncounter(
   encounter: Encounter,
@@ -200,6 +208,28 @@ export function stepEncounter(
     vortexHeldSeconds = 0
   }
 
+  let staffHitThisFrame: string[] = []
+
+  if (input.staffSwing) {
+    const { finisher } = input.staffSwing
+    const caught = new Set(
+      staffTargets(input.playerPosition, input.playerForward, finisher, enemies, c.staffArc)
+        .map((enemy) => enemy.id),
+    )
+    // Read before the hits land, so a connect means a live enemy took it rather than a body
+    // being shoved around the island.
+    staffHitThisFrame = enemies
+      .filter((enemy) => caught.has(enemy.id) && !isDowned(enemy.health))
+      .map((enemy) => enemy.id)
+    const damage = staffDamage(finisher, c.staffArc)
+    enemies = enemies.map((enemy) =>
+      caught.has(enemy.id) && !isDowned(enemy.health)
+        ? hitEnemy(enemy, damage, staffImpulse(
+            input.playerPosition, enemy.position, finisher, c.staffArc,
+          ))
+        : enemy)
+  }
+
   let slamHitThisFrame: string[] = []
 
   if (input.slam) {
@@ -246,6 +276,7 @@ export function stepEncounter(
     downedThisFrame,
     hitThisFrame,
     slamHitThisFrame,
+    staffHitThisFrame,
     playerHit: applied > 0,
     damageAvoided: avoided,
     vortexFired,

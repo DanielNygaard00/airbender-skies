@@ -3,7 +3,9 @@ import { createRenderer, hasWebGL, showFallback, WEBGL_MESSAGE } from './core/re
 import { createStepper } from './core/loop'
 import { createInterpolatedVector, type InterpolatedVector } from './core/interpolation'
 import { InputTracker } from './core/input'
-import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG } from './core/config'
+import {
+  DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG, DEFAULT_STAFF_CONFIG,
+} from './core/config'
 import { loadSave, writeSave } from './core/save'
 import { loadGLTF } from './core/assets'
 import { buildWorld, type World } from './world/world'
@@ -23,6 +25,8 @@ import { detectSlam, applyBounce } from './player/slam'
 import { createShockwave } from './fx/shockwave'
 import { createEffectPool } from './fx/effect-pool'
 import { createGustCone } from './fx/gust-cone'
+import { createStaffArc } from './fx/staff-arc-fx'
+import { staffShape } from './combat/staff-arc'
 import { createDashTrail } from './fx/dash-trail'
 import { createImpact } from './fx/impact'
 import { createAvatarAura } from './fx/avatar-aura'
@@ -35,7 +39,7 @@ import { createEnemyView } from './combat/enemy-mesh'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
 import { canSlipstream, isInvulnerable, dodgeHeading } from './player/slipstream'
-import { controllerStep, willRespawn, type ControllerDeps } from './player/controller'
+import { controllerStep, staffStep, willRespawn, type ControllerDeps } from './player/controller'
 import { collectStep } from './player/shrine-collect'
 import { enableShadows } from './core/sun'
 import { createAvatar } from './player/avatar'
@@ -206,6 +210,7 @@ function start(): void {
     worldFloorY: ARCHIPELAGO.worldFloorY,
     spawnPointFor: spawnPointFor(ARCHIPELAGO, world.terrain),
     slipstream: DEFAULT_SLIPSTREAM_CONFIG,
+    staff: DEFAULT_STAFF_CONFIG,
     // Surged for the Avatar State on the way out, and the unsurged sample kept so the
     // Focus rate reads the real air. Otherwise the surge feeds itself: the state boosts
     // the wind, and the boosted wind pays more Focus.
@@ -253,6 +258,19 @@ function start(): void {
     lastWind = stillAir()
     // Held across the step so the impact speed survives the landing that zeroes it.
     const beforeStep = player
+    // Read beside controllerStep rather than after it: staffStep needs the same
+    // pre-step state, input, dt and staff config controllerStep is about to consume,
+    // since a PlayerState alone cannot say a swing started this frame as opposed to
+    // continuing one already in progress.
+    //
+    // Gated on the same `willRespawn` check the slam guard below uses (a NaN position,
+    // or falling past the world floor): `controllerStep` resets the whole combo to idle
+    // on that frame via `safeRespawn`, so a swing reported here would resolve against
+    // enemies in the fight for a player who, this same frame, is on the way out of the
+    // world — landing a hit on the way to a respawn.
+    const staffSwing = willRespawn(player, ARCHIPELAGO.worldFloorY)
+      ? null
+      : staffStep(player, state, dt, deps.staff)
     player = controllerStep(player, state, dt, deps)
     if (avatarActive) player = refillBreath(player)
 
@@ -321,7 +339,21 @@ function start(): void {
     avatar.setSquash(chargeSquashScale(player, deps.ground))
     followSun(player.position)
     avatar.update(dt)
-    glider.update(dt, player.mode === 'glider')
+    // Progress through the active swing, not the frame one started: `staffSwing` above is
+    // only true on the frame a new swing begins, but the glider needs to track the motion
+    // for the whole 0..swingSeconds window that follows. `player.staffElapsed` already
+    // carries that, post-step, so no extra bookkeeping is needed here.
+    const rawStaffProgress = player.staffElapsed === null
+      ? null
+      : Math.min(1, Math.max(0, player.staffElapsed / deps.staff.swingSeconds))
+    // Alternate the sweep direction per swing so a combo doesn't read as the same stroke
+    // repeated. Read off `player.staffChain` (the swing's own 1-based index) rather than a
+    // second counter here — a second counter is a second thing that can drift out of step
+    // with the combo it's supposed to track.
+    const staffProgress = rawStaffProgress === null
+      ? null
+      : (player.staffChain % 2 === 0 ? 1 - rawStaffProgress : rawStaffProgress)
+    glider.update(dt, player.mode === 'glider', staffProgress)
     aura.update(dt, avatarActive)
     // Tracks the invulnerability window exactly, not the whole dash: the window is
     // the mechanic, so the shell must vanish the instant `isInvulnerable` goes false.
@@ -356,6 +388,14 @@ function start(): void {
       effects.add(createGustCone(player.position, player.forward, fightConfig.gust))
     }
 
+    // staffShape(staffSwing.finisher, fightConfig.staffArc): the same call stepEncounter is
+    // about to resolve the swing with, so the drawn arc and the hit arc cannot diverge.
+    if (staffSwing) {
+      effects.add(createStaffArc(
+        player.position, player.forward, staffShape(staffSwing.finisher, fightConfig.staffArc),
+      ))
+    }
+
     const fight = stepEncounter(encounter, {
       playerPosition: player.position,
       playerForward: player.forward,
@@ -367,6 +407,7 @@ function start(): void {
         { elapsed: player.slipstreamElapsed, cooldown: player.slipstreamCooldown },
         DEFAULT_SLIPSTREAM_CONFIG,
       ),
+      staffSwing,
     }, dt, fightConfig, { ground: world.terrain, worldFloorY: ARCHIPELAGO.worldFloorY })
     encounter = fight.encounter
     for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy, camera.quaternion)
@@ -401,6 +442,7 @@ function start(): void {
       playerHit: fight.playerHit,
       fellOutOfWorld: crashed,
       damageAvoided: fight.damageAvoided,
+      staffConnects: fight.staffHitThisFrame.length,
     }
     const inWind = lastWind.accel.lengthSq() > 1e-6 || lastWind.liftScale !== 1
     focus = stepFocus(focus, {

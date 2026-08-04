@@ -33,6 +33,9 @@ export const DEFAULT_FOCUS_CONFIG: FocusConfig = {
   // Above gustConnectGain (6) and below downGain (14): avoiding a hit is worth more
   // than landing one and less than putting someone down.
   dodgeGain: 8,
+  // Below gustConnectGain (6): a wide arc on three soldiers pays three times, and it pays
+  // at melee range where the risk is already its own reward.
+  staffConnectGain: 3,
 }
 
 /**

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  advanceOpenness, easeOpenness, panelAngle,
+  advanceOpenness, easeOpenness, panelAngle, createGlider,
   OPEN_SECONDS, PANELS_PER_SIDE, FAN_SPREAD,
 } from './glider'
 
@@ -120,5 +120,71 @@ describe('panelAngle', () => {
 
   it('handles a single-panel fan without dividing by zero', () => {
     expect(panelAngle(0, 1, 1, FAN_SPREAD)).toBe(0)
+  })
+})
+
+describe('the staff sweeping through a swing', () => {
+  it('moves the staff while a swing is in progress', () => {
+    const a = createGlider()
+    a.update(1 / 60, false, 0)
+    const start = a.object.rotation.y
+    const b = createGlider()
+    b.update(1 / 60, false, 0.5)
+    expect(b.object.rotation.y).not.toBeCloseTo(start, 4)
+  })
+
+  it('leaves the stowed pose alone when not swinging', () => {
+    // Regression guard: the sweep composes onto the pose this module already owns, so a
+    // null swing has to leave that pose exactly as it was before the argument existed.
+    const stowed = createGlider()
+    stowed.update(1 / 60, false, null)
+    const reference = createGlider()
+    reference.update(1 / 60, false, null)
+    expect(stowed.object.rotation.y).toBeCloseTo(reference.object.rotation.y, 6)
+    expect(stowed.object.position.toArray()).toEqual(reference.object.position.toArray())
+    // Comparing two freshly-created gliders alone cannot catch an unconditionally-applied
+    // sweep: both would pick up the same leaked offset and still agree with each other.
+    // Pin rotation.y to its known pre-sweep value too — neither the stowed nor the deployed
+    // pose carries any yaw, so this is 0 regardless of openness — giving an unconditional
+    // application something concrete to disagree with.
+    expect(stowed.object.rotation.y).toBeCloseTo(0, 6)
+  })
+
+  it('returns to the stowed pose once the swing ends', () => {
+    const g = createGlider()
+    g.update(1 / 60, false, null)
+    const rest = g.object.rotation.y
+    // 0.75, not 0.5: the sweep lerps symmetrically either side of the stowed pose
+    // (see SWEEP_ARC's doc comment), so progress 0.5 sits exactly at that pose's own
+    // rotation.y by construction — a real mid-swing sample would spuriously equal
+    // "rest" and this assertion could never catch a broken implementation.
+    g.update(1 / 60, false, 0.75)
+    expect(g.object.rotation.y).not.toBeCloseTo(rest, 4)
+    g.update(1 / 60, false, null)
+    expect(g.object.rotation.y).toBeCloseTo(rest, 6)
+  })
+
+  it('ignores a swing while deployed, where the staff is a wing', () => {
+    const g = createGlider()
+    for (let t = 0; t < 1; t += 1 / 60) g.update(1 / 60, true, null)
+    const deployed = g.object.rotation.y
+    g.update(1 / 60, true, 0.5)
+    expect(g.object.rotation.y).toBeCloseTo(deployed, 6)
+  })
+
+  it('still ignores a swing one frame into folding away, before openness catches up', () => {
+    // This is the case gating on `openness` exists for, not the always-deployed case
+    // above: `deployed` flips to false the instant the fold starts, but `openness` is
+    // still ~0.94 (OPEN_SECONDS is 0.3s, so one 1/60s frame barely moves it) — a glider
+    // in that state is still a wing. Gating on the `deployed` flag instead would open
+    // the sweep on this exact frame and the wing would twitch mid-fold.
+    const g = createGlider()
+    for (let t = 0; t < 1; t += 1 / 60) g.update(1 / 60, true, null)
+    g.update(1 / 60, false, null)
+    const folding = g.object.rotation.y
+    // 0.75, not 0.5, for the same reason as the earlier stowed-pose regression test: the
+    // symmetric sweep is exactly zero at progress 0.5, which would mask a wrongly-open gate.
+    g.update(1 / 60, false, 0.75)
+    expect(g.object.rotation.y).toBeCloseTo(folding, 6)
   })
 })

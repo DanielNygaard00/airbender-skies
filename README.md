@@ -11,6 +11,7 @@ back down to a walking stick.
 | Input | Ground | Glider |
 | --- | --- | --- |
 | Mouse | Look | Trim — nudges the nose toward where you look |
+| `Mouse left` | Staff combo — up to three wide horizontal swings that hit everyone in front of you; keep swinging to continue, the third sweeps wider and shoves much harder | — |
 | `W` / `S` | Walk forward / back | Airbending thrust / flare |
 | `A` / `D` | Strafe | Shift your weight — this is how you steer |
 | `Shift` | Air scooter (tap to ride, tap to step off) — or hold to sprint instead, which also raises the scooter's speed | Hover — hold position in mid-air |

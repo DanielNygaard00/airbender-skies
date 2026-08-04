@@ -9,6 +9,9 @@ import { groundStep } from './ground-move'
 import { canAirJump } from './jump'
 import { stillAir, type WindSample } from '../world/wind'
 import { stepSlipstream, dodgeHeading, type SlipstreamConfig } from './slipstream'
+import {
+  idleStaff, staffBusy, staffOf, stepStaff, type StaffConfig, type StaffSwing,
+} from './staff'
 
 export interface ControllerDeps {
   terrain: TerrainQuery
@@ -23,6 +26,7 @@ export interface ControllerDeps {
    */
   windAt?(position: Vector3, forward: Vector3): WindSample
   slipstream: SlipstreamConfig
+  staff: StaffConfig
 }
 
 /** Distance below the glider at which touching down counts as landing. */
@@ -37,6 +41,23 @@ const STAGGER_RETENTION = 0.3
  * place the ground layer threw away all the momentum the player had built.
  */
 const LANDING_RETENTION = 0.85
+
+/**
+ * The four staff fields, flattened onto `PlayerState`, at their idle value.
+ *
+ * Exists so `respawn` and its non-finite fallback both clear the combo through
+ * `idleStaff()` rather than typing out `0, null, 0, 0` twice and risking the two
+ * copies drifting apart.
+ */
+function idleStaffFields(): Pick<
+  PlayerState, 'staffChain' | 'staffElapsed' | 'staffRecovery' | 'staffSinceSwing'
+> {
+  const s = idleStaff()
+  return {
+    staffChain: s.chain, staffElapsed: s.elapsed, staffRecovery: s.recovery,
+    staffSinceSwing: s.sinceSwing,
+  }
+}
 
 export function isFinitePlayer(s: PlayerState): boolean {
   const nums = [
@@ -78,6 +99,7 @@ export function respawn(state: PlayerState, deps: ControllerDeps): PlayerState {
     airJumpsUsed: 0,
     chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
     slipstreamElapsed: null, slipstreamCooldown: 0,
+    ...idleStaffFields(),
   }
 }
 
@@ -102,7 +124,29 @@ function safeRespawn(state: PlayerState, deps: ControllerDeps): PlayerState {
     airJumpsUsed: 0,
     chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
     slipstreamElapsed: null, slipstreamCooldown: 0,
+    ...idleStaffFields(),
   }
+}
+
+/**
+ * The swing the staff started this frame, if any — reported separately from
+ * `controllerStep` because a `PlayerState` cannot say so on its own: `staffElapsed`
+ * reads 0 for the whole first frame of a swing whether or not one just began.
+ *
+ * This is the parallel-function shape from Task 5's brief, chosen over recomputing
+ * `finisher` from a before/after `staffChain` comparison in `main.ts`: that would put
+ * chain-length knowledge in a second place, and only `stepStaff` is allowed to decide
+ * `finisher`. Calling `stepStaff` again here is safe because it is a pure read of the
+ * same state, input, dt and config `controllerStep` is about to use — fed the same
+ * inputs, the two calls can never disagree.
+ */
+export function staffStep(
+  state: PlayerState, input: InputState, dt: number, c: StaffConfig,
+): StaffSwing | null {
+  // The staff steps only in ground mode: in the glider the staff IS the wing, so a
+  // press here is dropped rather than queued for landing.
+  if (state.mode !== 'ground') return null
+  return stepStaff(staffOf(state), input.staffPressed, dt, c).started
 }
 
 export function controllerStep(
@@ -116,10 +160,14 @@ export function controllerStep(
   let next: PlayerState
 
   if (state.mode === 'ground') {
-    if (input.actionPressed && !state.grounded && !canAirJump(state, deps.ground)) {
-      // Deploy the glider mid-fall — but only once the air jump is spent.
-      // Grounded presses charge or jump; airborne presses with reserve
-      // double-jump. Both are handled by groundStep.
+    if (input.actionPressed && !state.grounded && !canAirJump(state, deps.ground)
+        && !staffBusy(staffOf(state))) {
+      // Deploy the glider mid-fall — but only once the air jump is spent, and only
+      // once the staff is free. The glider IS the staff, folded across the back and
+      // unfolding fan leaves on deploy: it cannot open while it is out swinging, and
+      // that is the design document's central risk decision, not a restriction
+      // bolted on afterward. Grounded presses charge or jump; airborne presses with
+      // reserve double-jump. Both are handled by groundStep.
       // The wings snapping open adds a kick rather than only preserving momentum,
       // so a well-timed deploy out of a jump is rewarded.
       const launched = state.velocity.clone()
@@ -134,6 +182,24 @@ export function controllerStep(
       }
     } else {
       next = groundStep(state, input, dt, deps.terrain, deps.ground)
+    }
+
+    // Gated on next.mode, not state.mode: a press that lands on the same frame the
+    // glider deploys must not start a swing here. stepStaff only ever advances from
+    // this ground branch, so a swing begun on a deploy frame would freeze at
+    // elapsed: 0 for the entire glide — staffBusy stuck true, since nothing steps it
+    // down until landing returns the player to ground mode. Reading `state.mode`
+    // instead would have missed exactly that frame, because the deploy branch above
+    // runs while state.mode is still 'ground'.
+    if (next.mode === 'ground') {
+      // The staff steps only on foot — in the glider it IS the wing, so a press there
+      // is dropped rather than queued for landing.
+      const staff = stepStaff(staffOf(state), input.staffPressed, dt, deps.staff).state
+      next = {
+        ...next,
+        staffChain: staff.chain, staffElapsed: staff.elapsed, staffRecovery: staff.recovery,
+        staffSinceSwing: staff.sinceSwing,
+      }
     }
   } else if (input.actionPressed) {
     next = {

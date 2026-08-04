@@ -19,6 +19,7 @@ const C: FocusConfig = {
   damageDrain: 30,
   crashDrain: 50,
   dodgeGain: 8,
+  staffConnectGain: 3,
 }
 
 const FLIGHT: FlightConfig = { ...DEFAULT_FLIGHT_CONFIG, stallSpeed: 10 }
@@ -28,7 +29,8 @@ const p = (over: Partial<PlayerState> = {}): PlayerState => ({
   forward: new Vector3(0, 0, 1), breath: 100, maxBreath: 100,
   grounded: true, lastGroundIslandId: null, airJumpsUsed: 0, chargeTime: 0,
   scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
-  slipstreamElapsed: null, slipstreamCooldown: 0, ...over,
+  slipstreamElapsed: null, slipstreamCooldown: 0,
+  staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, ...over,
 })
 
 const gliding = (speed: number) =>

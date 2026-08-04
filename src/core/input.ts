@@ -25,6 +25,7 @@ export function toInputState(
   avatarStatePressed = false,
   vortexReleased = false,
   slipstreamPressed = false,
+  staffPressed = false,
 ): InputState {
   const axis = (pos: string, neg: string) => (held.has(pos) ? 1 : 0) - (held.has(neg) ? 1 : 0)
   return {
@@ -43,6 +44,7 @@ export function toInputState(
     vortexHeld: held.has('KeyR'),
     vortexReleased,
     slipstreamPressed,
+    staffPressed,
   }
 }
 
@@ -60,6 +62,7 @@ export class InputTracker {
   private actionReleased = false
   private vortexReleased = false
   private slipstreamPressed = false
+  private staffPressed = false
   private readonly listeners: (() => void)[] = []
 
   constructor(target: EventTarget, canvas: HTMLCanvasElement) {
@@ -103,6 +106,12 @@ export class InputTracker {
     const requestLock = () => void canvas.requestPointerLock()
     canvas.addEventListener('click', requestLock)
     this.listeners.push(() => canvas.removeEventListener('click', requestLock))
+
+    on<MouseEvent>('mousedown', (e) => {
+      // Left button only, and only while the canvas holds the pointer: otherwise a click
+      // on the page chrome would swing the staff.
+      if (e.button === 0 && document.pointerLockElement === canvas) this.staffPressed = true
+    })
   }
 
   /** Call exactly once per frame: reading clears the action edge. */
@@ -118,6 +127,7 @@ export class InputTracker {
       this.avatarStatePressed,
       this.vortexReleased,
       this.slipstreamPressed,
+      this.staffPressed,
     )
     this.actionPressed = false
     this.actionReleased = false
@@ -127,6 +137,7 @@ export class InputTracker {
     this.avatarStatePressed = false
     this.vortexReleased = false
     this.slipstreamPressed = false
+    this.staffPressed = false
     return state
   }
 

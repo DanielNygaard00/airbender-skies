@@ -109,3 +109,17 @@ export const DEFAULT_SLIPSTREAM_CONFIG: SlipstreamConfig = {
   invulnerableSeconds: 0.11,
   cooldownSeconds: 1.5,
 }
+
+import type { StaffConfig } from '../player/staff'
+
+/**
+ * The staff. A full three-swing combo occupies it for about 0.8s of swinging plus 0.4s of
+ * recovery, so committing to melee costs over a second with no wing — which is the price
+ * the design document's "central risk decision" is supposed to have.
+ */
+export const DEFAULT_STAFF_CONFIG: StaffConfig = {
+  maxChain: 3,
+  swingSeconds: 0.26,
+  continueSeconds: 0.3,
+  recoverySeconds: 0.4,
+}

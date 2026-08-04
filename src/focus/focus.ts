@@ -44,6 +44,8 @@ export interface FocusConfig {
   crashDrain: number
   /** Focus for a dodge that beat an incoming hit. */
   dodgeGain: number
+  /** Focus per enemy a staff swing connected with. */
+  staffConnectGain: number
 }
 
 /** What happened this frame that Focus cares about. */
@@ -58,6 +60,8 @@ export interface FocusEvents {
   fellOutOfWorld: boolean
   /** A slipstream dodge beat a hit that would otherwise have landed this frame. */
   damageAvoided: boolean
+  /** Enemies a staff swing connected with. */
+  staffConnects: number
 }
 
 export interface FocusInput {
@@ -73,7 +77,7 @@ export interface FocusInput {
 export function noFocusEvents(): FocusEvents {
   return {
     gustConnects: 0, downs: 0, slamStrength: 0, playerHit: false, fellOutOfWorld: false,
-    damageAvoided: false,
+    damageAvoided: false, staffConnects: 0,
   }
 }
 
@@ -128,6 +132,7 @@ export function stepFocus(
   value += (events.gustConnects * c.gustConnectGain
     + events.downs * c.downGain
     + events.slamStrength * c.slamGainAtFullImpact
+    + events.staffConnects * c.staffConnectGain
     + (events.damageAvoided ? c.dodgeGain : 0)) * ramp
 
   return { value: MathUtils.clamp(value, 0, focus.max), max: focus.max, chainTime }
