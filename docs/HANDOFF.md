@@ -190,8 +190,10 @@ later, identical to three decimals. `Enemy` now carries a ballistic `verticalVel
 stored `grounded` flag; `knockback` is horizontal-only and a test pins `knockback.y` at zero so
 the contract is enforced rather than merely documented. `stepEnemy` takes a deliberately narrow
 `GroundHeightQuery` (`groundHeightAt` only) rather than the whole `TerrainQuery`. An enemy
-below `worldFloorY` is downed, per §4.6's list of ways an enemy goes down — without that rule,
-adding gravity would mean falling forever.
+below `worldFloorY` is downed, per §4.6's list of ways an enemy goes down, and is then
+**parked** — an earlier version only downed it, which did not stop it falling, so a corpse in
+empty air accelerated without bound (measured at 36km down and still gaining 1.2km/s a minute
+in). Nothing can see it again, so it stops rather than running the physics forever.
 
 Two things in here are easy to break by accident. **A lifted enemy must be inert** — no
 advancing, no wind-up, no strike while `grounded` is false — because that inertness *is* what

@@ -159,7 +159,11 @@ export function stepEncounter(
   let vortexHeldSeconds = encounter.vortexHeldSeconds
   let vortexFired: number | null = null
 
-  if (input.vortexHeld && vortexCooldown <= 0) {
+  // Gated on `canVortex(encounter)`, the same predicate the action guide asks, rather than
+  // on the locally decremented copy above — reading the copy let charge start on the frame
+  // the cooldown expired, one frame before the guide would admit it could. The gust does
+  // the same thing with `canGust(encounter)`.
+  if (input.vortexHeld && canVortex(encounter)) {
     vortexHeldSeconds = Math.min(
       vortexHeldSeconds + dt, c.vortex.maxChargeSeconds,
     )
