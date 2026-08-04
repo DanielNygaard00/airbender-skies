@@ -28,6 +28,7 @@ import { createAvatarAura } from './fx/avatar-aura'
 import { createEnemyView } from './combat/enemy-mesh'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
+import { isInvulnerable } from './player/slipstream'
 import { controllerStep, willRespawn, type ControllerDeps } from './player/controller'
 import { collectStep } from './player/shrine-collect'
 import { enableShadows } from './core/sun'
@@ -321,6 +322,10 @@ function start(): void {
       slam: slam ? { strength: slam.strength } : null,
       vortexHeld: state.vortexHeld,
       vortexReleased: state.vortexReleased,
+      playerInvulnerable: isInvulnerable(
+        { elapsed: player.slipstreamElapsed, cooldown: player.slipstreamCooldown },
+        DEFAULT_SLIPSTREAM_CONFIG,
+      ),
     }, dt, fightConfig, { ground: world.terrain, worldFloorY: ARCHIPELAGO.worldFloorY })
     encounter = fight.encounter
     for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy, camera.quaternion)
@@ -346,6 +351,7 @@ function start(): void {
       slamStrength: slam?.strength ?? 0,
       playerHit: fight.playerHit,
       fellOutOfWorld: crashed,
+      damageAvoided: fight.damageAvoided,
     }
     const inWind = lastWind.accel.lengthSq() > 1e-6 || lastWind.liftScale !== 1
     focus = stepFocus(focus, {

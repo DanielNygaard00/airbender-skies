@@ -74,6 +74,8 @@ export interface EncounterInput {
   vortexHeld: boolean
   /** R released this frame. */
   vortexReleased: boolean
+  /** The player is inside a slipstream's invulnerable window. */
+  playerInvulnerable: boolean
 }
 
 export interface EncounterStep {
@@ -88,6 +90,11 @@ export interface EncounterStep {
   slamHitThisFrame: string[]
   /** Whether the player was hit this frame, for feedback. */
   playerHit: boolean
+  /**
+   * Damage was incoming and was discarded. NOT "the player is invulnerable" — a flag
+   * meaning that would let a player farm Focus by dodging nothing.
+   */
+  damageAvoided: boolean
   /** The charge a vortex fired at, or null. For the effect that draws it. */
   vortexFired: number | null
 }
@@ -219,9 +226,11 @@ export function stepEncounter(
     return step.enemy
   })
 
-  const hurt = damageToPlayer > 0
-    ? applyDamage(encounter.playerHealth, damageToPlayer)
-    : encounter.playerHealth
+  // Avoided only counts when something was actually coming.
+  const avoided = input.playerInvulnerable && damageToPlayer > 0
+  const applied = avoided ? 0 : damageToPlayer
+
+  const hurt = applied > 0 ? applyDamage(encounter.playerHealth, applied) : encounter.playerHealth
   const playerHealth = stepHealth(hurt, dt, c.player)
 
   const downedThisFrame = enemies
@@ -233,7 +242,8 @@ export function stepEncounter(
     downedThisFrame,
     hitThisFrame,
     slamHitThisFrame,
-    playerHit: damageToPlayer > 0,
+    playerHit: applied > 0,
+    damageAvoided: avoided,
     vortexFired,
   }
 }

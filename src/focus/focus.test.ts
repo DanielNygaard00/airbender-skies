@@ -21,6 +21,7 @@ const C: FocusConfig = {
   slamGainAtFullImpact: 20,
   damageDrain: 30,
   crashDrain: 50,
+  dodgeGain: 8,
 }
 
 const focusAt = (value: number, chainTime = 0): Focus => ({ value, max: C.maxFocus, chainTime })
@@ -194,5 +195,29 @@ describe('stepFocus slams', () => {
     )
     // 80 - 30 damage + 20 unramped slam.
     expect(next.value).toBeCloseTo(70)
+  })
+})
+
+describe('focus from a dodge', () => {
+  it('grants for damage avoided', () => {
+    const dodged = stepFocus(
+      emptyFocus(C), input({ events: { damageAvoided: true } }), 1 / 60, C,
+    )
+    expect(dodged.value).toBeGreaterThan(0)
+  })
+
+  it('grants nothing without the event', () => {
+    const nothing = stepFocus(emptyFocus(C), input(), 1 / 60, C)
+    expect(nothing.value).toBe(0)
+  })
+
+  it('keeps a chain alive where taking the hit would break it', () => {
+    // Section 4.5 builds Focus from unbroken chains, and a dodge is how a chain
+    // survives an attack. Being hit resets chainTime; avoiding must not.
+    const built = focusAt(40, 5)
+    const dodged = stepFocus(built, input({ events: { damageAvoided: true } }), 1 / 60, C)
+    const hit = stepFocus(built, input({ events: { playerHit: true } }), 1 / 60, C)
+    expect(dodged.chainTime).toBeGreaterThan(built.chainTime)
+    expect(hit.chainTime).toBe(0)
   })
 })

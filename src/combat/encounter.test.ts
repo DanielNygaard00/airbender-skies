@@ -42,7 +42,7 @@ const DEPS = { ground: flatGround, worldFloorY: -50 }
 /** A neutral frame of input: nothing pressed, nothing held. */
 const defaults: EncounterInput = {
   playerPosition: ORIGIN, playerForward: NORTH, gustPressed: false, slam: null,
-  vortexHeld: false, vortexReleased: false,
+  vortexHeld: false, vortexReleased: false, playerInvulnerable: false,
 }
 
 /** Run the fight with fixed input. */
@@ -375,5 +375,68 @@ describe('a vortex', () => {
       fired.encounter, { ...defaults, vortexHeld: true }, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
     )
     expect(held.encounter.vortexHeldSeconds).toBe(0)
+  })
+})
+
+describe('invulnerability', () => {
+  /** Step until the enemy's strike would land, returning every step. */
+  const untilStrike = (invulnerable: boolean) => {
+    let encounter = startEncounter(
+      [{ id: 'a', position: new Vector3(1, 0, 0) }], DEFAULT_COMBAT_CONFIG,
+    )
+    const steps = []
+    // At this range the enemy is in strike range from frame one, so wind-up,
+    // strike and recover repeat back-to-back with no approach in between. The
+    // window has to land inside that first recovery and stop short of the next
+    // wind-up, or the exact stopping point would depend on which phase of a later
+    // cycle a hardcoded duration happens to land in.
+    const enemyC = DEFAULT_COMBAT_CONFIG.enemy
+    const duration = enemyC.windUpSeconds + enemyC.recoverSeconds / 2
+    for (let t = 0; t < duration; t += 1 / 60) {
+      const step = stepEncounter(
+        encounter, { ...defaults, playerInvulnerable: invulnerable },
+        1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
+      )
+      encounter = step.encounter
+      steps.push(step)
+    }
+    return { encounter, steps }
+  }
+
+  it('takes the hit when not invulnerable', () => {
+    // The control for the test below: without it, "no damage" proves nothing.
+    const { encounter } = untilStrike(false)
+    expect(encounter.playerHealth.current).toBeLessThan(DEFAULT_COMBAT_CONFIG.player.maxHealth)
+  })
+
+  it('discards the damage when invulnerable', () => {
+    const { encounter } = untilStrike(true)
+    expect(encounter.playerHealth.current).toBeCloseTo(DEFAULT_COMBAT_CONFIG.player.maxHealth, 5)
+  })
+
+  it('reports the dodge, and does not report a hit', () => {
+    const { steps } = untilStrike(true)
+    expect(steps.some((s) => s.damageAvoided)).toBe(true)
+    expect(steps.some((s) => s.playerHit)).toBe(false)
+  })
+
+  it('reports no dodge when there was no damage to avoid', () => {
+    // The anti-farming rule. A flag meaning "invulnerable this frame" would let a
+    // player build Focus by dodging an empty field, turning section 4.5's reward for
+    // skill into a grind.
+    let encounter = startEncounter([], DEFAULT_COMBAT_CONFIG)
+    for (let t = 0; t < 1; t += 1 / 60) {
+      const step = stepEncounter(
+        encounter, { ...defaults, playerInvulnerable: true }, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
+      )
+      encounter = step.encounter
+      expect(step.damageAvoided).toBe(false)
+    }
+  })
+
+  it('still costs the attacker its wind-up', () => {
+    // A dodge beats the attack; it does not erase it. The enemy commits and recovers.
+    const { encounter } = untilStrike(true)
+    expect(['recover', 'advance']).toContain(encounter.enemies[0]?.stance)
   })
 })
