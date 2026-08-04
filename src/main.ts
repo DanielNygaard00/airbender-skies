@@ -265,13 +265,13 @@ function start(): void {
       })
     }
 
-    // Face the character along the glider forward, or along travel on foot.
-    const facing = player.mode === 'glider'
-      ? player.forward
-      : new Vector3(player.velocity.x, 0, player.velocity.z)
+    // Face the character along its heading, in both modes. On foot this used to face the
+    // direction of travel, which left the model looking one way while a gust blew another:
+    // travel is zero exactly when a player stops to aim, so a standing turn moved the blast
+    // and not the character. One rule now, and what the character faces is what it hits.
     avatar.object.position.copy(player.position)
-    if (facing.lengthSq() > 1e-4) {
-      avatar.object.lookAt(player.position.clone().add(facing))
+    if (player.forward.lengthSq() > 1e-4) {
+      avatar.object.lookAt(player.position.clone().add(player.forward))
     }
     avatar.setAnimation(animationFor(player))
     avatar.setSquash(chargeSquashScale(player, deps.ground))
