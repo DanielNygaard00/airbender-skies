@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { applyDamage, fullHealth, isDowned, stepHealth, type HealthConfig } from './health'
+import { applyDamage, fullHealth, healthFraction, isDowned, stepHealth, type Health, type HealthConfig } from './health'
 
 const C: HealthConfig = { maxHealth: 5, outOfCombatSeconds: 4, regenPerSecond: 0.4 }
 
@@ -63,5 +63,41 @@ describe('regeneration', () => {
 
   it('never exceeds the maximum', () => {
     expect(rest(600, applyDamage(fullHealth(C), 1)).current).toBe(C.maxHealth)
+  })
+})
+
+describe('healthFraction', () => {
+  const at = (current: number, max = 4): Health => ({ current, max, sinceHit: 0 })
+
+  it('is 1 at full health', () => {
+    expect(healthFraction(at(4))).toBe(1)
+  })
+
+  it('is a half at half health', () => {
+    expect(healthFraction(at(2))).toBeCloseTo(0.5, 6)
+  })
+
+  it('is 0 at the floor', () => {
+    expect(healthFraction(at(0))).toBe(0)
+  })
+
+  it('clamps a current above max', () => {
+    // Regeneration clamps already, but a fraction above 1 would scale a quad past
+    // the track it sits in, so this stays a guard rather than an assumption.
+    expect(healthFraction(at(9))).toBe(1)
+  })
+
+  it('clamps a negative current', () => {
+    expect(healthFraction(at(-3))).toBe(0)
+  })
+
+  it('is 0 rather than NaN for a non-finite current', () => {
+    // This value reaches a transform. NaN in scale.x corrupts the matrix rather
+    // than merely looking wrong, so it must not survive this function.
+    expect(healthFraction(at(Number.NaN))).toBe(0)
+  })
+
+  it('is 0 rather than dividing by a zero max', () => {
+    expect(healthFraction({ current: 0, max: 0, sinceHit: 0 })).toBe(0)
   })
 })
