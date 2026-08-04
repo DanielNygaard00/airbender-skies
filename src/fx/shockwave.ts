@@ -1,6 +1,5 @@
-import {
-  DoubleSide, MathUtils, Mesh, MeshBasicMaterial, RingGeometry, type Object3D,
-} from 'three'
+import { DoubleSide, MathUtils, Mesh, MeshBasicMaterial, RingGeometry } from 'three'
+import type { Effect } from './effect'
 
 /**
  * The ring a Pressure Wave leaves on the ground.
@@ -10,13 +9,7 @@ import {
  * whole mechanic. So the ring carries the same information the damage does: a weak
  * slam is a faint ring, a full one is bright.
  */
-export interface Shockwave {
-  object: Object3D
-  /** Advance the ring. False once it has finished and can be removed. */
-  advance(dt: number): boolean
-  /** Release the geometry and material. One ring is created per slam. */
-  dispose(): void
-}
+export type Shockwave = Effect
 
 const LIFETIME = 0.4
 /** Fraction of the final radius the ring starts at. */
@@ -26,7 +19,7 @@ const THICKNESS = 0.35
 /** Opacity of a minimum-strength slam, so a weak one is still visible. */
 const FAINTEST = 0.25
 
-export function createShockwave(radius: number, strength: number): Shockwave {
+export function createShockwave(radius: number, strength: number): Effect {
   // A unit ring scaled at runtime. Rebuilding the geometry each frame to grow it
   // would allocate sixty times a second for something a scale already does.
   const geometry = new RingGeometry(1 - THICKNESS, 1, 48)
