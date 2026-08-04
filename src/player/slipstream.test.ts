@@ -58,11 +58,26 @@ describe('stepSlipstream', () => {
     expect(stepSlipstream(active, true, NORTH, 1 / 60, S).impulse).toBeNull()
   })
 
-  it('flattens the heading, so looking up does not launch you', () => {
+  it('forwards the heading to the impulse', () => {
+    // If heading is ignored entirely, this test fails; every other test before this
+    // uses a heading that normalizes to the same vector.
     const impulse = stepSlipstream(
-      idleSlipstream(), true, new Vector3(0, 5, -1), 1 / 60, S,
+      idleSlipstream(), true, new Vector3(1, 0, 0), 1 / 60, S,
+    ).impulse
+    expect(impulse?.x).toBeCloseTo(S.speed, 5)
+    expect(impulse?.z).toBeCloseTo(0, 5)
+  })
+
+  it('flattens the heading, so looking up does not launch you', () => {
+    // Heading with a real horizontal component and a vertical component.
+    // Flattening should preserve the x while zeroing y.
+    const impulse = stepSlipstream(
+      idleSlipstream(), true, new Vector3(1, 5, 0), 1 / 60, S,
     ).impulse
     expect(impulse?.y).toBe(0)
+    // The horizontal component must be preserved at full speed.
+    expect(impulse?.length()).toBeCloseTo(S.speed, 5)
+    expect(impulse?.x).toBeCloseTo(S.speed, 5)
   })
 
   it('falls back to a fixed direction rather than producing NaN', () => {
