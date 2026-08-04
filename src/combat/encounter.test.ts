@@ -9,6 +9,8 @@ const C: CombatConfig = {
     maxHealth: 1.5, outOfCombatSeconds: 4, regenPerSecond: 0,
     moveSpeed: 4, strikeRange: 3, aggroRange: 30, windUpSeconds: 0.5, recoverSeconds: 0.6,
     strikeDamage: 1, knockbackDamping: 3,
+    // Matches DEFAULT_COMBAT_CONFIG.enemy.gravity.
+    gravity: 20,
   },
   gust: { range: 12, halfAngle: Math.PI / 3, damage: 0.5, knockback: 26, cooldownSeconds: 0.5 },
   pressureWave: {
@@ -22,6 +24,12 @@ const ORIGIN = new Vector3(0, 0, 0)
 const NORTH = new Vector3(0, 0, -1)
 const near = () => startEncounter([{ id: 'a', position: new Vector3(0, 0, -2) }], C)
 
+// Flat, bottomless-pit-free ground: existing tests were written before gravity
+// existed, so a flat floor well below anything the fight does keeps them
+// exercising the same horizontal behaviour rather than newly falling enemies.
+const flatGround = { groundHeightAt: () => 0 }
+const DEPS = { ground: flatGround, worldFloorY: -50 }
+
 /** Run the fight with fixed input. */
 function run(seconds: number, over: Partial<Parameters<typeof stepEncounter>[1]> = {}, from = near()) {
   let encounter = from
@@ -30,7 +38,7 @@ function run(seconds: number, over: Partial<Parameters<typeof stepEncounter>[1]>
   for (let t = 0; t < seconds; t += 1 / 60) {
     const step = stepEncounter(encounter, {
       playerPosition: ORIGIN, playerForward: NORTH, gustPressed: false, slam: null, ...over,
-    }, 1 / 60, C)
+    }, 1 / 60, C, DEPS)
     encounter = step.encounter
     downed = downed.concat(step.downedThisFrame)
     if (step.playerHit) hits++
@@ -74,7 +82,7 @@ describe('gusting', () => {
     }
     const gusted = stepEncounter(winding, {
       playerPosition: ORIGIN, playerForward: NORTH, gustPressed: true, slam: null,
-    }, 1 / 60, C)
+    }, 1 / 60, C, DEPS)
     expect(gusted.encounter.enemies[0]!.stance).not.toBe('wind-up')
     expect(gusted.playerHit).toBe(false)
   })
@@ -82,14 +90,14 @@ describe('gusting', () => {
   it('goes on cooldown so it cannot be held down', () => {
     const fired = stepEncounter(near(), {
       playerPosition: ORIGIN, playerForward: NORTH, gustPressed: true, slam: null,
-    }, 1 / 60, C)
+    }, 1 / 60, C, DEPS)
     expect(canGust(fired.encounter)).toBe(false)
   })
 
   it('comes back off cooldown', () => {
     const fired = stepEncounter(near(), {
       playerPosition: ORIGIN, playerForward: NORTH, gustPressed: true, slam: null,
-    }, 1 / 60, C).encounter
+    }, 1 / 60, C, DEPS).encounter
     expect(canGust(run(C.gust.cooldownSeconds + 0.2, {}, fired).encounter)).toBe(true)
   })
 
@@ -98,7 +106,7 @@ describe('gusting', () => {
     // would be a damage move wearing a crowd-control costume.
     const fired = stepEncounter(near(), {
       playerPosition: ORIGIN, playerForward: NORTH, gustPressed: true, slam: null,
-    }, 1 / 60, C)
+    }, 1 / 60, C, DEPS)
     expect(fired.downedThisFrame).toEqual([])
     expect(isDowned(fired.encounter.enemies[0]!.health)).toBe(false)
   })
@@ -108,7 +116,7 @@ describe('gusting', () => {
     // knockback that big means gust cannot be spammed on one target from one spot.
     const fired = stepEncounter(near(), {
       playerPosition: ORIGIN, playerForward: NORTH, gustPressed: true, slam: null,
-    }, 1 / 60, C)
+    }, 1 / 60, C, DEPS)
     const settled = run(C.gust.cooldownSeconds, {}, fired.encounter).encounter
     const distance = Math.hypot(settled.enemies[0]!.position.x, settled.enemies[0]!.position.z)
     expect(distance).toBeGreaterThan(C.enemy.strikeRange)
@@ -137,7 +145,7 @@ describe('gusting', () => {
     ], C)
     const step = stepEncounter(encounter, {
       playerPosition: ORIGIN, playerForward: NORTH, gustPressed: true, slam: null,
-    }, 1 / 60, C)
+    }, 1 / 60, C, DEPS)
 
     // 'a' is inside the 12 unit range; 'b' at 40 is well outside it.
     expect(step.hitThisFrame).toEqual(['a'])
@@ -146,7 +154,7 @@ describe('gusting', () => {
   it('reports nothing on a frame with no gust', () => {
     const step = stepEncounter(near(), {
       playerPosition: ORIGIN, playerForward: NORTH, gustPressed: false, slam: null,
-    }, 1 / 60, C)
+    }, 1 / 60, C, DEPS)
     expect(step.hitThisFrame).toEqual([])
   })
 
@@ -162,7 +170,7 @@ describe('gusting', () => {
     }
     const step = stepEncounter(alreadyDowned, {
       playerPosition: ORIGIN, playerForward: NORTH, gustPressed: true, slam: null,
-    }, 1 / 60, C)
+    }, 1 / 60, C, DEPS)
 
     expect(step.hitThisFrame).toEqual([])
   })
@@ -175,40 +183,40 @@ describe('slamming', () => {
 
   it('damages an enemy inside the blast', () => {
     const before = near().enemies[0]!.health.current
-    const step = stepEncounter(near(), slamAt(1), 1 / 60, C)
+    const step = stepEncounter(near(), slamAt(1), 1 / 60, C, DEPS)
     expect(step.encounter.enemies[0]!.health.current).toBeLessThan(before)
   })
 
   it('leaves an enemy outside the blast alone', () => {
     const far = startEncounter([{ id: 'a', position: new Vector3(0, 0, -60) }], C)
-    const step = stepEncounter(far, slamAt(1), 1 / 60, C)
+    const step = stepEncounter(far, slamAt(1), 1 / 60, C, DEPS)
     expect(step.encounter.enemies[0]!.health.current).toBeCloseTo(C.enemy.maxHealth)
   })
 
   it('downs an enemy in one full-strength slam', () => {
     // The payoff, and the thing that separates the wave from the gust: a gust needs
     // three connects, a committed dive needs one.
-    const step = stepEncounter(near(), slamAt(1), 1 / 60, C)
+    const step = stepEncounter(near(), slamAt(1), 1 / 60, C, DEPS)
     expect(step.downedThisFrame).toEqual(['a'])
     expect(isDowned(step.encounter.enemies[0]!.health)).toBe(true)
   })
 
   it('does not down an enemy in one minimum slam', () => {
-    const step = stepEncounter(near(), slamAt(0), 1 / 60, C)
+    const step = stepEncounter(near(), slamAt(0), 1 / 60, C, DEPS)
     expect(step.downedThisFrame).toEqual([])
     expect(isDowned(step.encounter.enemies[0]!.health)).toBe(false)
   })
 
   it('hits enemies behind the player, unlike a gust', () => {
     const behind = startEncounter([{ id: 'b', position: new Vector3(0, 0, 2) }], C)
-    const step = stepEncounter(behind, slamAt(1), 1 / 60, C)
+    const step = stepEncounter(behind, slamAt(1), 1 / 60, C, DEPS)
     expect(step.slamHitThisFrame).toEqual(['b'])
   })
 
   it('reports slam connects apart from gust connects', () => {
     // Kept separate on purpose: hitThisFrame feeds a per-enemy Focus grant, so
     // folding the wave in would pay the player twice for one slam.
-    const step = stepEncounter(near(), slamAt(1), 1 / 60, C)
+    const step = stepEncounter(near(), slamAt(1), 1 / 60, C, DEPS)
     expect(step.slamHitThisFrame).toEqual(['a'])
     expect(step.hitThisFrame).toEqual([])
   })
@@ -221,14 +229,14 @@ describe('slamming', () => {
         ...enemy, health: { ...enemy.health, current: 0 },
       })),
     }
-    const step = stepEncounter(alreadyDowned, slamAt(1), 1 / 60, C)
+    const step = stepEncounter(alreadyDowned, slamAt(1), 1 / 60, C, DEPS)
     expect(step.slamHitThisFrame).toEqual([])
   })
 
   it('changes nothing on a frame with no slam', () => {
     const step = stepEncounter(near(), {
       playerPosition: ORIGIN, playerForward: NORTH, gustPressed: false, slam: null,
-    }, 1 / 60, C)
+    }, 1 / 60, C, DEPS)
     expect(step.slamHitThisFrame).toEqual([])
     expect(step.encounter.enemies[0]!.health.current).toBeCloseTo(C.enemy.maxHealth)
   })
@@ -245,13 +253,13 @@ describe('slamming', () => {
         ...enemy, stance: 'wind-up' as const, stanceTime: C.enemy.windUpSeconds - (1 / 60) / 2,
       })),
     }
-    const slammed = stepEncounter(winding, slamAt(0.3), 1 / 60, C)
+    const slammed = stepEncounter(winding, slamAt(0.3), 1 / 60, C, DEPS)
     expect(slammed.encounter.enemies[0]!.stance).not.toBe('wind-up')
     expect(slammed.playerHit).toBe(false)
   })
 
   it('knocks a slammed enemy away from the player', () => {
-    const step = stepEncounter(near(), slamAt(1), 1 / 60, C)
+    const step = stepEncounter(near(), slamAt(1), 1 / 60, C, DEPS)
     // 'a' starts at z -2, so it is pushed further negative.
     expect(step.encounter.enemies[0]!.knockback.z).toBeLessThan(0)
     expect(step.encounter.enemies[0]!.knockback.y).toBeGreaterThan(0)

@@ -318,7 +318,7 @@ function start(): void {
       playerForward: player.forward,
       gustPressed: state.gustPressed,
       slam: slam ? { strength: slam.strength } : null,
-    }, dt, fightConfig)
+    }, dt, fightConfig, { ground: world.terrain, worldFloorY: ARCHIPELAGO.worldFloorY })
     encounter = fight.encounter
     for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy, camera.quaternion)
 

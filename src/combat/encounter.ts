@@ -2,7 +2,9 @@ import { Vector3 } from 'three'
 import {
   applyDamage, fullHealth, isDowned, stepHealth, type Health, type HealthConfig,
 } from './health'
-import { hitEnemy, spawnEnemy, stepEnemy, type Enemy, type EnemyConfig } from './enemy'
+import {
+  hitEnemy, spawnEnemy, stepEnemy, type Enemy, type EnemyConfig, type GroundHeightQuery,
+} from './enemy'
 import { gustImpulse, gustTargets, type GustConfig } from './gust'
 import {
   waveDamage, waveImpulse, waveTargets, type PressureWaveConfig,
@@ -33,6 +35,17 @@ export interface CombatConfig {
 export interface EnemySpawn {
   id: string
   position: Vector3
+}
+
+/**
+ * What the fight needs from the world, separate from the per-frame input.
+ *
+ * Mirrors how `ControllerDeps` sits beside `InputState` in the player controller:
+ * a terrain query is a dependency, not something the player did this frame.
+ */
+export interface EncounterDeps {
+  ground: GroundHeightQuery
+  worldFloorY: number
 }
 
 export function startEncounter(spawns: readonly EnemySpawn[], c: CombatConfig): Encounter {
@@ -85,6 +98,7 @@ export function stepEncounter(
   input: EncounterInput,
   dt: number,
   c: CombatConfig,
+  deps: EncounterDeps,
 ): EncounterStep {
   const wasDowned = new Set(
     encounter.enemies.filter((enemy) => isDowned(enemy.health)).map((enemy) => enemy.id),
@@ -141,7 +155,7 @@ export function stepEncounter(
 
   let damageToPlayer = 0
   enemies = enemies.map((enemy) => {
-    const step = stepEnemy(enemy, input.playerPosition, dt, c.enemy)
+    const step = stepEnemy(enemy, input.playerPosition, deps.ground, deps.worldFloorY, dt, c.enemy)
     damageToPlayer += step.damageToPlayer
     return step.enemy
   })
