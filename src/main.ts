@@ -418,6 +418,7 @@ function start(): void {
       playerHit: fight.playerHit,
       fellOutOfWorld: crashed,
       damageAvoided: fight.damageAvoided,
+      staffConnects: fight.staffHitThisFrame.length,
     }
     const inWind = lastWind.accel.lengthSq() > 1e-6 || lastWind.liftScale !== 1
     focus = stepFocus(focus, {

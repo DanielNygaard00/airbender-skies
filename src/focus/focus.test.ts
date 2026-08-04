@@ -22,6 +22,7 @@ const C: FocusConfig = {
   damageDrain: 30,
   crashDrain: 50,
   dodgeGain: 8,
+  staffConnectGain: 3,
 }
 
 const focusAt = (value: number, chainTime = 0): Focus => ({ value, max: C.maxFocus, chainTime })
@@ -219,5 +220,29 @@ describe('focus from a dodge', () => {
     const hit = stepFocus(built, input({ events: { playerHit: true } }), 1 / 60, C)
     expect(dodged.chainTime).toBeGreaterThan(built.chainTime)
     expect(hit.chainTime).toBe(0)
+  })
+})
+
+describe('focus from the staff', () => {
+  const withEvents = (over: Partial<FocusEvents>) => stepFocus(
+    emptyFocus(C),
+    { ratePerSecond: 0, events: { ...noFocusEvents(), ...over }, frozen: false, reset: false },
+    1 / 60, C,
+  )
+
+  it('grants per enemy the swing connected with', () => {
+    // A wide arc on three soldiers is three connects, which is the point of the move.
+    expect(withEvents({ staffConnects: 3 }).value)
+      .toBeCloseTo(withEvents({ staffConnects: 1 }).value * 3, 5)
+  })
+
+  it('grants nothing without a connect', () => {
+    expect(withEvents({}).value).toBe(0)
+  })
+
+  it('pays less per hit than a gust connect', () => {
+    // A gust pays once per enemy at range and off cooldown; the staff pays three times a
+    // combo at melee range. Per-hit parity would make the staff the way to farm the meter.
+    expect(C.staffConnectGain).toBeLessThan(C.gustConnectGain)
   })
 })

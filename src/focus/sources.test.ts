@@ -19,6 +19,7 @@ const C: FocusConfig = {
   damageDrain: 30,
   crashDrain: 50,
   dodgeGain: 8,
+  staffConnectGain: 3,
 }
 
 const FLIGHT: FlightConfig = { ...DEFAULT_FLIGHT_CONFIG, stallSpeed: 10 }
