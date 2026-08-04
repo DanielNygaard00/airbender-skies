@@ -26,6 +26,9 @@ import { createGustCone } from './fx/gust-cone'
 import { createDashTrail } from './fx/dash-trail'
 import { createImpact } from './fx/impact'
 import { createAvatarAura } from './fx/avatar-aura'
+import { createVortexRing } from './fx/vortex-ring'
+import { createVortexChargeTell } from './fx/vortex-charge'
+import { vortexRadius } from './combat/vortex'
 import { createEnemyView } from './combat/enemy-mesh'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
@@ -148,6 +151,10 @@ function start(): void {
   // A child of avatar.object, alongside the glider — never of the model, which lives in
   // an inner wrapper that absorbs the fitting and squash transforms.
   avatar.object.add(aura.object)
+
+  const chargeTell = createVortexChargeTell()
+  // Same attachment pattern as the aura: a child of avatar.object, not the model.
+  avatar.object.add(chargeTell.object)
 
   // BASE_URL, not a bare absolute path: vite.config.ts sets base to
   // '/airbender-skies/' for GitHub Pages, so "/models/..." would resolve in dev
@@ -306,6 +313,10 @@ function start(): void {
       DEFAULT_COMBAT_CONFIG, avatarActive, DEFAULT_AVATAR_STATE_CONFIG,
     )
 
+    // fightConfig.vortex, not the unboosted default, so the tell agrees with whatever
+    // the Avatar State is currently doing to the move's reach.
+    chargeTell.update(dt, encounter.vortexHeldSeconds, fightConfig.vortex)
+
     // Asked against the pre-step encounter, so the visual agrees with what stepEncounter
     // will actually do on this same frame rather than a frame late.
     if (state.gustPressed && canGust(encounter)) {
@@ -326,6 +337,14 @@ function start(): void {
     }, dt, fightConfig, { ground: world.terrain, worldFloorY: ARCHIPELAGO.worldFloorY })
     encounter = fight.encounter
     for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy, camera.quaternion)
+
+    // Drawn at the true vortexRadius for the same reason the gust cone is drawn at its
+    // true hit volume — a pull that reaches outside the visible ring reads as a bug.
+    if (fight.vortexFired !== null) {
+      effects.add(createVortexRing(
+        player.position, vortexRadius(fight.vortexFired, fightConfig.vortex),
+      ))
+    }
 
     // A down and a connect both name an enemy that went down this frame, because the two
     // lists are computed at different moments. The down is the louder statement, so it
