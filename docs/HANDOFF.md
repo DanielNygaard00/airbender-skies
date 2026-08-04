@@ -1,11 +1,11 @@
 # Handoff
 
-Written 2026-07-31, updated 2026-08-04 for the combat visuals. This is a recap
+Written 2026-07-31, updated 2026-08-04 for the enemy health bars. This is a recap
 for whoever picks the project up next, including a future session with no memory of the
 work below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 826 tests across 58 files,
+**Repo state:** 854 tests across 60 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -125,6 +125,36 @@ rather than a tidy puff. On foot `forward` now follows the flattened look direct
 the character model faces `forward` in both modes rather than facing its direction of
 travel on foot: travel is zero at exactly the moment a player stops to aim, so a standing
 turn used to move the blast and not the character.
+
+**Enemy health bars.** `src/combat/health-bar.ts` is a small billboarded bar — a dark track
+and a coloured fill — that takes a `Health` and a camera rotation and knows nothing about
+enemies. `createEnemyView` composes one per soldier. It appears only once an enemy has been
+damaged, hides when the enemy is downed, and is depth-tested so terrain hides it, which is a
+deliberate difference from `src/fx/`: an attack effect drawn over a hill shows the player
+something they did, while a health bar drawn over a hill shows them an enemy they cannot see.
+Spec at
+[`docs/superpowers/specs/2026-08-04-enemy-health-bars-design.md`](superpowers/specs/2026-08-04-enemy-health-bars-design.md).
+
+Two things in that module are load-bearing and easy to undo by accident. The fill's geometry
+is translated so its origin is its **left edge**, because a quad scaled about its centre
+drains from both ends at once and `scale.x` is identical either way — `health-bar.test.ts`
+compares the fill's and track's bounding-box edges rather than the scale value, which is the
+only way to tell the two apart. And `enemy-mesh.ts` now has an inner **`rig`** Group: the
+root carries position, the rig carries the soldier's facing and downed rotation, and the bar
+hangs off the *unrotated* root. `HealthBar.update` copies the camera rotation into a **local**
+quaternion, so a bar parented to the rotating rig would come out at the soldier's heading
+times the camera's and would never face the camera. That bug passes a test that checks
+`bar.object.quaternion`, because the local value is exactly right; the test checks
+`getWorldQuaternion` instead.
+
+Confirmed in the running game, not just in tests: a bar stays hidden at full health, appears
+at 0.667 on the first gust, drains to 0.333 on the second, and hides again when the third
+gust puts the soldier down, and it holds 0 radians off-camera through a hard camera swing
+while the soldier itself is rotated. The one claim resting on unit tests alone is that
+terrain occludes a bar — `depthTest: true` is set explicitly on both materials, and a test
+catches a flip to `false`, but it would not catch the explicit setting being deleted outright,
+because `true` is also the three.js default. Terrain occlusion itself has not been seen
+behind a hill.
 
 ## What has NOT been built
 

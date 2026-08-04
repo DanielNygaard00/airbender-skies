@@ -58,3 +58,16 @@ export function stepHealth(h: Health, dt: number, c: HealthConfig): Health {
     current: MathUtils.clamp(h.current + c.regenPerSecond * dt, 0, h.max),
   }
 }
+
+/**
+ * Health as a 0-to-1 fraction, for anything that draws it.
+ *
+ * Fails closed rather than propagating a bad number: the result is multiplied into a
+ * transform, where a NaN corrupts the matrix instead of just looking wrong. Note that
+ * `hudModelFor` returns 1 for a missing pool, because there an absent health pool means
+ * "nothing to report"; here a `max` of zero means there is nothing to fill.
+ */
+export function healthFraction(h: Health): number {
+  if (!(h.max > 0) || !Number.isFinite(h.current)) return 0
+  return MathUtils.clamp(h.current / h.max, 0, 1)
+}

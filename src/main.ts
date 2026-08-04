@@ -320,7 +320,7 @@ function start(): void {
       slam: slam ? { strength: slam.strength } : null,
     }, dt, fightConfig)
     encounter = fight.encounter
-    for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy)
+    for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy, camera.quaternion)
 
     // A down and a connect both name an enemy that went down this frame, because the two
     // lists are computed at different moments. The down is the louder statement, so it
