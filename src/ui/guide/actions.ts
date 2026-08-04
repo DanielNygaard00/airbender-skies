@@ -129,7 +129,9 @@ export const ACTIONS: readonly GameAction[] = [
     available: (ctx) => ctx.slipstreamReady,
     detail: 'A dash that cannot be hit for the first instant of it. The window is shorter '
       + 'than the dash, so it beats an attack you can see coming rather than everything. '
-      + 'Timed right it also builds Focus.',
+      + 'Timed right it also builds Focus. On foot it goes wherever you are moving or '
+      + 'looking; in the glider, bank left or right to dodge sideways, since thrust and '
+      + 'flare are not directions.',
   },
   {
     key: 'Ctrl', press: 'hold', name: 'Tuck', mode: 'glider', available: inGlider,
