@@ -5,7 +5,7 @@ for whoever picks the project up next, including a future session with no memory
 work below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 942 tests across 67 files,
+**Repo state:** 1022 tests across 71 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -219,15 +219,57 @@ rotation**: the render-interpolation work moved the camera update into the per-f
 `syncVisuals`, while enemy `sync` still runs in the fixed step. Visually negligible, but it is
 no longer the same-frame guarantee the health-bar spec documented.
 
+**The staff.** §4.2's other half. Left mouse swings up to three wide horizontal arcs: the two
+openers reach 3.6 and sweep 164°, the finisher reaches 4.2 and sweeps 189.5° — the front
+hemisphere plus about 4.7° past each flank, so it does **not** reach an enemy directly behind.
+Press again inside the window to continue the combo; let it lapse and the chain restarts. The
+combo is player-side in `src/player/staff.ts`, which owns `maxChain` and labels each swing with
+a `finisher` flag on the way out; `src/combat/staff-arc.ts` resolves the hit and never learns
+how long a combo is. `staffImpulse` deliberately has **no** vertical component — lift is what
+air does, and a lifted enemy is inert, which is the Vortex's payoff; a staff sweep slides a
+soldier sideways instead. Spec at
+[`docs/superpowers/specs/2026-08-04-staff-melee-design.md`](superpowers/specs/2026-08-04-staff-melee-design.md).
+
+**The gate is the feature, and it is physical.** While the staff is busy you cannot deploy the
+glider, because the glider *is* the staff — `src/player/glider.ts` stows it across the rider's
+back and unfolds fan leaves from it. You cannot open the wing while holding it as a weapon.
+Only gliding is blocked; jumping, dashing, gusting and dodging stay available mid-combo.
+
+Three things here are easy to break and were each found the hard way:
+
+- **`staffBusy` must hold continuously.** It was originally `isSwinging || recovery > 0`, and
+  since recovery is only owed once the combo *ends*, the staff reported itself free during the
+  continue window. Measured in the running game, the gate went blocked → **open** → blocked →
+  free: you could glide out 0.3s after a swing for free, and were only punished if you
+  dithered. Every test passed, because they checked "blocked while swinging" and "blocked
+  during recovery" separately and never the gap between. There is now a test that walks the
+  whole commitment and asserts no gap.
+- **The swing must not start on a frame that deploys.** The merge was gated on the mode
+  *before* the step, so pressing swing and deploy together started a swing on a glider-mode
+  state — and since the staff only advances on the ground, it froze at elapsed 0 for the whole
+  flight, keeping `staffBusy` true and delaying a later deploy after landing. Gated on the
+  post-branch mode now.
+- **There is no attack animation.** The model ships idle, walk, run, fall and glide, so the
+  tell is built: an arc effect drawn at the swing's true reach (`src/fx/staff-arc-fx.ts`) plus
+  a procedural sweep composed inside `glider.ts`'s own `apply()`, which rewrites the staff
+  transform every frame and would overwrite anything set from outside.
+
+Confirmed in the running game, not only in tests: a click swings and the staff visibly rotates,
+alternating direction per swing; the drawn arc measures 3.6 at 163.6° for the openers and 4.2
+at 189.5° for the finisher, matching what the fight resolved with; letting the window lapse
+restarts the chain as an opener; and the gate now blocks a deploy at 3, 20 and 40 frames after a
+swing and allows it at 80. Not yet checked by a human with a mouse: whether a 0.26s swing feels
+snappy and whether a second of no wing is a fair price.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
 
-- **The rest of §4 combat.** Air Wall, staff melee combos, and the three borrowed elements
-  (water, earth, fire) with their radial switch. Five of the six enemy types in the enemy
-  contract. Aerial combat as a distinct posture. Air Wall is blocked rather than merely
-  unbuilt: its function is deflecting projectiles at an angle to return fire, and nothing in
-  the game shoots yet, so it needs archers first.
+- **The rest of §4 combat.** Air Wall, and the three borrowed elements (water, earth, fire)
+  with their radial switch. Five of the six enemy types in the enemy contract. Aerial combat
+  as a distinct posture. Air Wall is blocked rather than merely unbuilt: its function is
+  deflecting projectiles at an angle to return fire, and nothing in the game shoots yet, so
+  it needs archers first.
 - **§4.5's elemental Focus sink.** Focus and the Avatar State exist, but the document
   also has Focus spend on elemental heavy moves, and those are unbuilt. Two of its listed
   build sources are also missing: redirected projectiles needs archers, and damage
