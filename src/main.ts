@@ -19,7 +19,12 @@ import { restingAvatarState, stepAvatarState, armFraction } from './focus/avatar
 import { boostedCombatConfig, surgeWind, refillBreath } from './focus/effects'
 import { waveRadius } from './combat/pressure-wave'
 import { detectSlam, applyBounce } from './player/slam'
-import { createShockwave, type Shockwave } from './fx/shockwave'
+import { createShockwave } from './fx/shockwave'
+import { createEffectPool } from './fx/effect-pool'
+import { createGustCone } from './fx/gust-cone'
+import { createDashTrail } from './fx/dash-trail'
+import { createImpact } from './fx/impact'
+import { createAvatarAura } from './fx/avatar-aura'
 import { createEnemyView } from './combat/enemy-mesh'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
@@ -71,8 +76,8 @@ function start(): void {
   let avatarActive = false
   /** The unsurged sample from the last windAt call, so the surge cannot feed itself. */
   let lastWind: WindSample = stillAir()
-  /** Live shockwave rings, culled as they finish. One is created per slam. */
-  const shockwaves: Shockwave[] = []
+  /** Every live one-shot effect. The pool owns removal and disposal. */
+  const effects = createEffectPool(scene)
 
   // Shrine markers: a spinning octahedron each, hidden once collected.
   const shrineGroup = new Group()
@@ -136,6 +141,11 @@ function start(): void {
   const glider = createGlider()
   // A child of the avatar, so it inherits the character's position and facing.
   avatar.object.add(glider.object)
+
+  const aura = createAvatarAura()
+  // A child of avatar.object, alongside the glider — never of the model, which lives in
+  // an inner wrapper that absorbs the fitting and squash transforms.
+  avatar.object.add(aura.object)
 
   // BASE_URL, not a bare absolute path: vite.config.ts sets base to
   // '/airbender-skies/' for GitHub Pages, so "/models/..." would resolve in dev
@@ -221,14 +231,23 @@ function start(): void {
       beforeStep, player, state.tuck, willRespawn(beforeStep, ARCHIPELAGO.worldFloorY),
       DEFAULT_COMBAT_CONFIG.pressureWave,
     )
+
+    // A dash fired iff the chain advanced this frame. Read across the step, the same way
+    // the slam is, so no movement code has to report anything. The origin is where the
+    // burst started; the heading is the velocity it produced.
+    if (player.dashesUsed > beforeStep.dashesUsed) {
+      effects.add(createDashTrail(
+        beforeStep.position, player.velocity, player.dashesUsed, DEFAULT_GROUND_CONFIG,
+      ))
+    }
+
     if (slam) {
       // The ring is placed at the point of contact, before the bounce moves the player.
       const ring = createShockwave(
         waveRadius(slam.strength, DEFAULT_COMBAT_CONFIG.pressureWave), slam.strength,
       )
       ring.object.position.copy(player.position)
-      scene.add(ring.object)
-      shockwaves.push(ring)
+      effects.add(ring)
       player = applyBounce(player, slam, DEFAULT_COMBAT_CONFIG.pressureWave)
     }
 
@@ -259,6 +278,7 @@ function start(): void {
     followSun(player.position)
     avatar.update(dt)
     glider.update(dt, player.mode === 'glider')
+    aura.update(dt, avatarActive)
 
     const profile = profileFor(player.mode)
     const desired = pullInForTerrain(
@@ -278,12 +298,19 @@ function start(): void {
     for (const waterfall of waterfalls) waterfall.advance(dt)
     for (const tell of windTells) tell.advance(dt * (avatarActive ? WIND_TELL_SURGE : 1))
 
-    for (let i = shockwaves.length - 1; i >= 0; i--) {
-      const ring = shockwaves[i]
-      if (!ring || ring.advance(dt)) continue
-      scene.remove(ring.object)
-      ring.dispose()
-      shockwaves.splice(i, 1)
+    effects.advance(dt)
+
+    // Hoisted so the drawn cone and the resolved gust cannot read different configs.
+    // During the Avatar State the gust's reach and cooldown differ from the base config,
+    // and a cone drawn from the base one would misrepresent what the fight just did.
+    const fightConfig = boostedCombatConfig(
+      DEFAULT_COMBAT_CONFIG, avatarActive, DEFAULT_AVATAR_STATE_CONFIG,
+    )
+
+    // Asked against the pre-step encounter, so the visual agrees with what stepEncounter
+    // will actually do on this same frame rather than a frame late.
+    if (state.gustPressed && canGust(encounter)) {
+      effects.add(createGustCone(player.position, player.forward, fightConfig.gust))
     }
 
     const fight = stepEncounter(encounter, {
@@ -291,9 +318,24 @@ function start(): void {
       playerForward: player.forward,
       gustPressed: state.gustPressed,
       slam: slam ? { strength: slam.strength } : null,
-    }, dt, boostedCombatConfig(DEFAULT_COMBAT_CONFIG, avatarActive, DEFAULT_AVATAR_STATE_CONFIG))
+    }, dt, fightConfig)
     encounter = fight.encounter
     for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy)
+
+    // A down and a connect both name an enemy that went down this frame, because the two
+    // lists are computed at different moments. The down is the louder statement, so it
+    // wins and the connect is dropped.
+    const downedNow = new Set(fight.downedThisFrame)
+    const positionOf = (id: string) => encounter.enemies.find((e) => e.id === id)?.position
+    for (const id of new Set([...fight.hitThisFrame, ...fight.slamHitThisFrame])) {
+      if (downedNow.has(id)) continue
+      const at = positionOf(id)
+      if (at) effects.add(createImpact(at, 'hit'))
+    }
+    for (const id of fight.downedThisFrame) {
+      const at = positionOf(id)
+      if (at) effects.add(createImpact(at, 'down'))
+    }
 
     const events: FocusEvents = {
       gustConnects: fight.hitThisFrame.length,
