@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   idleStaff, isSwinging, staffBusy, staffOf, stepStaff,
 } from './staff'
+import type { StaffState } from './staff'
 import { DEFAULT_STAFF_CONFIG as S } from '../core/config'
 
 /** Press once from the given state. */
@@ -59,6 +60,28 @@ describe('stepStaff', () => {
     let s = press().state
     s = wait(s, S.swingSeconds + S.continueSeconds + S.recoverySeconds + 0.1)
     expect(stepStaff(s, true, 1 / 60, S).started?.index).toBe(1)
+  })
+
+  it('resolves a press-vs-lapse tie in the press\'s favour', () => {
+    // On the frame where sinceSwing + dt would cross continueSeconds, the press still
+    // wins: `free` in stepStaff deliberately checks only `recovery`/`chain`, not
+    // `sinceSwing`, so a press this frame continues the combo instead of the window
+    // being treated as already lapsed. That's a design choice — input leniency at a
+    // frame's width beats a combo that intermittently refuses to continue at exactly
+    // the wrong moment — not an oversight. Nothing else pins it down: adding a
+    // `sinceSwing` check to `free` as a "tidy-up" would flip this silently and pass
+    // every other test.
+    //
+    // Built directly rather than played forward with `wait`, so the boundary is exact
+    // instead of resting on however dt happens to accumulate in floating point.
+    const dt = 0.01
+    const s: StaffState = {
+      chain: 1, elapsed: null, recovery: 0, sinceSwing: S.continueSeconds - 0.001,
+    }
+    const { started } = stepStaff(s, true, dt, S)
+    expect(started).not.toBeNull()
+    // Both halves matter: a restarted combo would also "land a swing" at index 1.
+    expect(started?.index).toBe(2)
   })
 
   it('will not exceed the chain length', () => {
