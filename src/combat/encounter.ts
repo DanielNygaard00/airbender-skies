@@ -156,6 +156,15 @@ export function stepEncounter(
     vortexHeldSeconds = Math.min(
       vortexHeldSeconds + dt, c.vortex.maxChargeSeconds,
     )
+  } else if (!input.vortexReleased) {
+    // Neither held nor released: R went away without a key-up edge, which is what
+    // a window blur produces — InputTracker's blur handler clears the held-key set
+    // but never fires keyup, so vortexReleased stays false. Left alone the charge
+    // would freeze rather than clear, so a later tap would resume on top of a
+    // stale total and fire a bigger vortex than that tap earned. The `else` keeps
+    // this from firing on the frame a real release comes through, where
+    // vortexHeld is already false but vortexReleased is true.
+    vortexHeldSeconds = 0
   }
 
   if (input.vortexReleased) {

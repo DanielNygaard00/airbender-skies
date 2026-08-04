@@ -288,6 +288,24 @@ describe('a vortex', () => {
     expect(encounter.vortexHeldSeconds).toBeGreaterThan(0.4)
   })
 
+  it('drops an abandoned charge if the key goes away without a release edge', () => {
+    // The shape a window blur produces: InputTracker's blur handler clears the
+    // held-key set but fires no keyup, so a frame can see vortexHeld go false
+    // with vortexReleased staying false too. Without a reset for that case the
+    // charge would freeze rather than clear, and a later tap would resume on top
+    // of the stale total and fire a bigger vortex than that tap earned.
+    let encounter = startEncounter([], DEFAULT_COMBAT_CONFIG)
+    for (let t = 0; t < 0.5; t += 1 / 60) {
+      encounter = stepEncounter(
+        encounter, { ...defaults, vortexHeld: true }, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
+      ).encounter
+    }
+    expect(encounter.vortexHeldSeconds).toBeGreaterThan(0)
+
+    encounter = stepEncounter(encounter, defaults, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS).encounter
+    expect(encounter.vortexHeldSeconds).toBe(0)
+  })
+
   it('lifts a caught enemy and spends the cooldown', () => {
     const step = chargeAndRelease(
       DEFAULT_COMBAT_CONFIG.vortex.maxChargeSeconds, [{ id: 'a', position: new Vector3(3, 0, 0) }],
@@ -301,11 +319,14 @@ describe('a vortex', () => {
 
   it('does no damage', () => {
     // "Setup, not damage" — the enemy must come out of a vortex at full health.
+    // vortexFired is asserted too: without it, this test would pass just as well
+    // against a vortex that never fired at all, which proves nothing about the move.
     const step = chargeAndRelease(
       DEFAULT_COMBAT_CONFIG.vortex.maxChargeSeconds, [{ id: 'a', position: new Vector3(3, 0, 0) }],
     )
     const enemy = step.encounter.enemies[0]
     if (!enemy) throw new Error('expected an enemy')
+    expect(step.vortexFired).not.toBeNull()
     expect(enemy.health.current).toBeCloseTo(DEFAULT_COMBAT_CONFIG.enemy.maxHealth, 5)
   })
 
