@@ -3,7 +3,9 @@ import { createRenderer, hasWebGL, showFallback, WEBGL_MESSAGE } from './core/re
 import { createStepper } from './core/loop'
 import { createInterpolatedVector, type InterpolatedVector } from './core/interpolation'
 import { InputTracker } from './core/input'
-import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG } from './core/config'
+import {
+  DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG, DEFAULT_STAFF_CONFIG,
+} from './core/config'
 import { loadSave, writeSave } from './core/save'
 import { loadGLTF } from './core/assets'
 import { buildWorld, type World } from './world/world'
@@ -35,7 +37,7 @@ import { createEnemyView } from './combat/enemy-mesh'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
 import { canSlipstream, isInvulnerable, dodgeHeading } from './player/slipstream'
-import { controllerStep, willRespawn, type ControllerDeps } from './player/controller'
+import { controllerStep, staffStep, willRespawn, type ControllerDeps } from './player/controller'
 import { collectStep } from './player/shrine-collect'
 import { enableShadows } from './core/sun'
 import { createAvatar } from './player/avatar'
@@ -206,6 +208,7 @@ function start(): void {
     worldFloorY: ARCHIPELAGO.worldFloorY,
     spawnPointFor: spawnPointFor(ARCHIPELAGO, world.terrain),
     slipstream: DEFAULT_SLIPSTREAM_CONFIG,
+    staff: DEFAULT_STAFF_CONFIG,
     // Surged for the Avatar State on the way out, and the unsurged sample kept so the
     // Focus rate reads the real air. Otherwise the surge feeds itself: the state boosts
     // the wind, and the boosted wind pays more Focus.
@@ -253,6 +256,11 @@ function start(): void {
     lastWind = stillAir()
     // Held across the step so the impact speed survives the landing that zeroes it.
     const beforeStep = player
+    // Read beside controllerStep rather than after it: staffStep needs the same
+    // pre-step state, input, dt and staff config controllerStep is about to consume,
+    // since a PlayerState alone cannot say a swing started this frame as opposed to
+    // continuing one already in progress.
+    const staffSwing = staffStep(player, state, dt, deps.staff)
     player = controllerStep(player, state, dt, deps)
     if (avatarActive) player = refillBreath(player)
 
@@ -367,6 +375,7 @@ function start(): void {
         { elapsed: player.slipstreamElapsed, cooldown: player.slipstreamCooldown },
         DEFAULT_SLIPSTREAM_CONFIG,
       ),
+      staffSwing,
     }, dt, fightConfig, { ground: world.terrain, worldFloorY: ARCHIPELAGO.worldFloorY })
     encounter = fight.encounter
     for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy, camera.quaternion)

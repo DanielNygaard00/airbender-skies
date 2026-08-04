@@ -34,6 +34,8 @@ export interface InputState {
   vortexReleased: boolean
   /** C, edge-triggered: a slipstream dodge. */
   slipstreamPressed: boolean
+  /** Left mouse button, edge-triggered, only while the canvas holds the pointer lock. */
+  staffPressed: boolean
 }
 
 export interface PlayerState {
@@ -62,6 +64,14 @@ export interface PlayerState {
   slipstreamElapsed: number | null
   /** Seconds of slipstream cooldown still owed. */
   slipstreamCooldown: number
+  /** Swings thrown in the current staff combo. See `StaffState.chain`. */
+  staffChain: number
+  /** Seconds into the active staff swing, or null between swings. See `StaffState.elapsed`. */
+  staffElapsed: number | null
+  /** Seconds of staff recovery still owed. See `StaffState.recovery`. */
+  staffRecovery: number
+  /** Seconds since the last swing ended, mid-combo. See `StaffState.sinceSwing`. */
+  staffSinceSwing: number
 }
 
 export interface TerrainHit {

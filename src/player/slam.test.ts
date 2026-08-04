@@ -25,7 +25,8 @@ const p = (over: Partial<PlayerState> = {}): PlayerState => ({
   forward: new Vector3(0, 0, 1), breath: 100, maxBreath: 100,
   grounded: false, lastGroundIslandId: null, airJumpsUsed: 1, chargeTime: 0,
   scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
-  slipstreamElapsed: null, slipstreamCooldown: 0, ...over,
+  slipstreamElapsed: null, slipstreamCooldown: 0,
+  staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, ...over,
 })
 
 /** Falling at `speed`, then landed: velocity.y is zeroed by the landing. */
