@@ -1,11 +1,11 @@
 # Handoff
 
-Written 2026-07-31, updated 2026-08-03 for Focus and the Avatar State. This is a recap
+Written 2026-07-31, updated 2026-08-04 for the combat visuals. This is a recap
 for whoever picks the project up next, including a future session with no memory of the
 work below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 674 tests across 47 files,
+**Repo state:** 823 tests across 58 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -96,6 +96,31 @@ list, an explanation of the three HUD meters, and a legend for the five wind clo
 Spec at
 [`docs/superpowers/specs/2026-08-03-action-guide-design.md`](superpowers/specs/2026-08-03-action-guide-design.md).
 
+**Combat visuals.** `src/fx/` holds the effects layer: a shared `Effect` contract and an
+`EffectPool` that owns add, advance, cull and dispose for every one-shot effect, plus a
+gust cone drawn at the move's *true* 12-unit, 120-degree hit volume, a dash streak whose
+length and brightness read the chain index, impact bursts that distinguish a connect from
+a down, and an Avatar State aura on the character. Every trigger reads a signal the game
+already produced, so no movement or combat code changed. The cone's honesty is tested by
+sampling points and comparing the drawn sector against `inGust` — a different mechanism
+from the one the code uses. Spec at
+[`docs/superpowers/specs/2026-08-03-combat-visuals-design.md`](superpowers/specs/2026-08-03-combat-visuals-design.md).
+
+**The gust cone is not visually confirmed, and this is the first thing to check.** Its
+geometry is verified in the running game — a two-mesh Group at `outerRadius` 12 spanning
+120 degrees, positioned a metre above the player, culled after 20 frames — and all three
+dash streaks fire. But nobody has actually *seen* the cone on screen. Two defects were
+found and fixed along the way: terrain occlusion (a flat sector near the ground is buried
+by slopes, fixed by drawing the attack effects over the world with `depthTest: false`, and
+proven both ways in-game), and low contrast (pale blue at 0.16 opacity is invisible against
+pale green terrain, raised to 0.34 and cooled toward cyan). The occlusion fix is confirmed;
+the contrast change is **not** — repeated attempts to catch the cone in a screenshot after
+it failed, and the cause was not established. Start here: open the live build, press `F`,
+and see whether anything appears. If not, the remaining suspects are the effect never
+reaching the render (frustum culling on a sector geometry with a non-zero `thetaStart`) or
+the opacity still being too low. Do not trust the geometry tests to tell you — they passed
+through every version of this defect.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
@@ -131,8 +156,8 @@ is a considered guess, verified by unit tests and isolated renders but never by 
 human playing the game. The most suspect are `hoverDamping`, `weightShiftTurnRate`,
 `baseTurnRate` (dropped from 2.2 to 0.9, which materially changed how the mouse
 feels), `groundResponse`, `dashSpeed`, the scooter accumulator rates, every wind
-strength, every value in `src/focus/config.ts`, and the pressureWave block in
-`src/combat/config.ts`. Treat them as a starting point. Of that last block, the
+strength, every value in `src/focus/config.ts`, the pressureWave block in
+`src/combat/config.ts`, and every lifetime, opacity and tint in `src/fx/`. Treat them as a starting point. Of that last block, the
 damage cliff — where the slam starts downing a soldier in one hit, around 30.6 m/s of
 descent — is the value most worth feeling out by hand.
 
