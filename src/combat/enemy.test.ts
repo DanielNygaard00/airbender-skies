@@ -1,26 +1,45 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { spawnEnemy, stepEnemy, hitEnemy, horizontalDistance, type EnemyConfig } from './enemy'
+import {
+  spawnEnemy, stepEnemy, hitEnemy, horizontalDistance,
+  type Enemy, type EnemyConfig, type GroundHeightQuery,
+} from './enemy'
 import { isDowned } from './health'
 
 const C: EnemyConfig = {
   maxHealth: 3, outOfCombatSeconds: 4, regenPerSecond: 0.4,
   moveSpeed: 4, strikeRange: 3, aggroRange: 30, windUpSeconds: 0.5, recoverSeconds: 0.6,
-  strikeDamage: 1, knockbackDamping: 3,
+  strikeDamage: 1, knockbackDamping: 3, gravity: 20,
 }
 
 const AT = (x: number, z: number) => new Vector3(x, 0, z)
+
+/** Flat ground at y=0, so an arc can be reasoned about exactly. */
+const flatGround: GroundHeightQuery = { groundHeightAt: () => 0 }
+/** No ground anywhere: what being blown off an island looks like. */
+const emptyAir: GroundHeightQuery = { groundHeightAt: () => null }
+const FLOOR = -50
 
 /** Run the enemy against a stationary player and total the damage dealt. */
 function fight(seconds: number, playerAt: Vector3, from = spawnEnemy('a', AT(0, 20), C)) {
   let enemy = from
   let damage = 0
   for (let t = 0; t < seconds; t += 1 / 60) {
-    const step = stepEnemy(enemy, playerAt, 1 / 60, C)
+    const step = stepEnemy(enemy, playerAt, flatGround, FLOOR, 1 / 60, C)
     enemy = step.enemy
     damage += step.damageToPlayer
   }
   return { enemy, damage }
+}
+
+/** Step an enemy for `seconds` with no player nearby, so only physics acts. */
+function settle(enemy: Enemy, seconds: number, ground = flatGround): Enemy {
+  let current = enemy
+  const far = AT(0, 500)
+  for (let t = 0; t < seconds; t += 1 / 60) {
+    current = stepEnemy(current, far, ground, FLOOR, 1 / 60, C).enemy
+  }
+  return current
 }
 
 describe('spear infantry pressures ground spacing', () => {
@@ -61,7 +80,7 @@ describe('spear infantry pressures ground spacing', () => {
     for (let t = 0; t < C.windUpSeconds + 0.2; t += 1 / 60) {
       // Step away as soon as the wind-up starts.
       const playerAt = enemy.stance === 'wind-up' ? AT(0, -40) : AT(0, 0)
-      const step = stepEnemy(enemy, playerAt, 1 / 60, C)
+      const step = stepEnemy(enemy, playerAt, flatGround, FLOOR, 1 / 60, C)
       enemy = step.enemy
       damage += step.damageToPlayer
     }
@@ -132,5 +151,50 @@ describe('the aggro leash', () => {
   it('still faces a player it is ignoring, so the leash is not blindness', () => {
     const distant = spawnEnemy('a', AT(0, C.aggroRange + 20), C)
     expect(fight(0.5, AT(0, 0), distant).enemy.facing.z).toBeLessThan(0)
+  })
+})
+
+describe('enemy gravity', () => {
+  it('returns a lifted enemy to the ground', () => {
+    // Regression guard for a measured bug: gust and Pressure Wave both apply an
+    // upward impulse, and with no gravity the soldier stayed up permanently — a
+    // gusted enemy was measured 2.4m above the ground twenty seconds later.
+    const lifted = hitEnemy(spawnEnemy('a', AT(0, 0), C), 0, new Vector3(0, 9, 0))
+    expect(settle(lifted, 3).position.y).toBeCloseTo(0, 3)
+  })
+
+  it('rises before it falls', () => {
+    const lifted = hitEnemy(spawnEnemy('a', AT(0, 0), C), 0, new Vector3(0, 9, 0))
+    expect(settle(lifted, 0.2).position.y).toBeGreaterThan(0.5)
+  })
+
+  it('reports itself airborne while up, and grounded once it lands', () => {
+    const lifted = hitEnemy(spawnEnemy('a', AT(0, 0), C), 0, new Vector3(0, 9, 0))
+    expect(settle(lifted, 0.2).grounded).toBe(false)
+    expect(settle(lifted, 3).grounded).toBe(true)
+  })
+
+  it('lets a downed body fall rather than stranding it in the air', () => {
+    // stepEnemy returns early for the downed. Leaving gravity out of that branch
+    // would strand any corpse that was airborne when it went down.
+    const downed = hitEnemy(spawnEnemy('a', AT(0, 0), C), C.maxHealth, new Vector3(0, 9, 0))
+    const settled = settle(downed, 3)
+    expect(settled.stance).toBe('downed')
+    expect(settled.position.y).toBeCloseTo(0, 3)
+  })
+
+  it('downs an enemy that falls out of the world', () => {
+    // Section 4.6 counts being blown off a ledge as a down. Without this, adding
+    // gravity would make an enemy off the island fall forever.
+    const pushed = settle(spawnEnemy('a', AT(0, 0), C), 6, emptyAir)
+    expect(isDowned(pushed.health)).toBe(true)
+  })
+
+  it('still decays a horizontal push', () => {
+    // Pre-existing behaviour that the split of knockback must not lose.
+    const shoved = hitEnemy(spawnEnemy('a', AT(0, 0), C), 0, new Vector3(20, 0, 0))
+    const after = settle(shoved, 2)
+    expect(after.position.x).toBeGreaterThan(1)
+    expect(Math.hypot(after.knockback.x, after.knockback.z)).toBeLessThan(1)
   })
 })
