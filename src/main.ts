@@ -26,6 +26,8 @@ import { createGustCone } from './fx/gust-cone'
 import { createDashTrail } from './fx/dash-trail'
 import { createImpact } from './fx/impact'
 import { createAvatarAura } from './fx/avatar-aura'
+import { createSlipstreamTrail } from './fx/slipstream-trail'
+import { createGuardShell } from './fx/guard-shell'
 import { createVortexRing } from './fx/vortex-ring'
 import { createVortexChargeTell } from './fx/vortex-charge'
 import { vortexRadius } from './combat/vortex'
@@ -156,6 +158,10 @@ function start(): void {
   // Same attachment pattern as the aura: a child of avatar.object, not the model.
   avatar.object.add(chargeTell.object)
 
+  const guard = createGuardShell()
+  // Same attachment pattern as the aura: a child of avatar.object, not the model.
+  avatar.object.add(guard.object)
+
   // BASE_URL, not a bare absolute path: vite.config.ts sets base to
   // '/airbender-skies/' for GitHub Pages, so "/models/..." would resolve in dev
   // and 404 only on the deployed site. Fire-and-forget on purpose — loadGLTF
@@ -266,6 +272,15 @@ function start(): void {
       ))
     }
 
+    // A Slipstream fired iff its elapsed timer went from null to running this frame,
+    // the same before/after comparison the dash trail above uses. The origin is where
+    // the dodge started; the heading is the velocity it produced.
+    if (player.slipstreamElapsed !== null && beforeStep.slipstreamElapsed === null) {
+      effects.add(createSlipstreamTrail(
+        beforeStep.position, player.velocity, DEFAULT_SLIPSTREAM_CONFIG,
+      ))
+    }
+
     if (slam) {
       // The ring is placed at the point of contact, before the bounce moves the player.
       const ring = createShockwave(
@@ -296,6 +311,12 @@ function start(): void {
     avatar.update(dt)
     glider.update(dt, player.mode === 'glider')
     aura.update(dt, avatarActive)
+    // Tracks the invulnerability window exactly, not the whole dash: the window is
+    // the mechanic, so the shell must vanish the instant `isInvulnerable` goes false.
+    guard.update(dt, isInvulnerable(
+      { elapsed: player.slipstreamElapsed, cooldown: player.slipstreamCooldown },
+      DEFAULT_SLIPSTREAM_CONFIG,
+    ))
 
     lookDirection.copy(state.lookDirection)
     const airspeed = player.velocity.length()
