@@ -128,6 +128,18 @@ leave the bar leaning away from a camera looking down from above.
 ### `src/combat/enemy-mesh.ts` (changed)
 
 `createEnemyView` composes one `HealthBar`, adds it to its Group, and drives it from `sync`.
+
+The view's object splits in two to make that safe. `sync` rotates the view's Group — by the
+facing heading, and by `PI / 2` when downed — and a child's world orientation is its parent's
+times its own. A bar parented to that rotating Group and handed the camera's rotation would
+come out rotated by the soldier's heading as well, and would never actually face the camera.
+So the **root** Group carries position only, a new inner **rig** Group carries the rotation
+and holds the body and spear, and the bar hangs off the unrotated root: the root positions,
+the rig orients, the bar billboards. Multiplying by the inverse of the parent's world
+rotation inside `update` would also work, but it buries a fact about the enemy view's
+structure in the bar's maths, where the next person to add a child to the view will not find
+it.
+
 The signature gains the camera rotation:
 
 ```ts
