@@ -8,7 +8,7 @@ import { stepBreath, canBend } from './breath'
 import { groundStep } from './ground-move'
 import { canAirJump } from './jump'
 import { stillAir, type WindSample } from '../world/wind'
-import { stepSlipstream, slipstreamHeading, type SlipstreamConfig } from './slipstream'
+import { stepSlipstream, dodgeHeading, type SlipstreamConfig } from './slipstream'
 
 export interface ControllerDeps {
   terrain: TerrainQuery
@@ -197,7 +197,9 @@ export function controllerStep(
   const slip = stepSlipstream(
     { elapsed: next.slipstreamElapsed, cooldown: next.slipstreamCooldown },
     input.slipstreamPressed,
-    slipstreamHeading(input.lookDirection, input.forward, input.strafe),
+    // Posture-aware: on foot the movement keys are walk and strafe, but in the glider
+    // they are thrust and bank, so `dodgeHeading` reads only what means direction there.
+    dodgeHeading(next.mode, next.forward, input.lookDirection, input.forward, input.strafe),
     dt,
     deps.slipstream,
   )

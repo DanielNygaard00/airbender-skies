@@ -167,6 +167,17 @@ for the first **0.11s only**. The window being shorter than the dash is the desi
 an attack you saw coming, and mistiming it leaves you committed to a direction with no
 protection. A dodge that actually avoids a hit grants Focus, which implements §4.5's fourth
 build source, "damage avoided at close range" — specified since the beginning and never built.
+
+The dodge's direction is posture-aware, and `dodgeHeading` in `src/player/slipstream.ts` is
+the single place that decides it — both the controller and the streak effect call it, so the
+drawn direction cannot drift from the resolved one. On foot the movement keys mean walk and
+strafe, so the dodge is camera-relative and can go anywhere. In the glider they do not: `W` is
+airbending thrust and `S` is a flare, and reading them as translation made holding `S` dodge
+*backwards* for an input that only ever meant "raise the nose", while `W` — the normal flying
+state — would have turned nearly every glider dodge into a forward one. So only the bank axis
+steers a glider dodge, perpendicular to the heading, which is the direction that beats
+something coming straight at you. Measured in flight at 41 m/s: banking right dodges 91.6°
+off the heading, and a flare now dodges 0° off it instead of reversing.
 Spec at
 [`docs/superpowers/specs/2026-08-04-vortex-slipstream-design.md`](superpowers/specs/2026-08-04-vortex-slipstream-design.md).
 

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
   idleSlipstream, canSlipstream, isInvulnerable, stepSlipstream, slipstreamHeading,
+  dodgeHeading,
 } from './slipstream'
 import { DEFAULT_SLIPSTREAM_CONFIG as S } from '../core/config'
 
@@ -105,5 +106,49 @@ describe('slipstreamHeading', () => {
 
   it('stays normalised on a diagonal', () => {
     expect(slipstreamHeading(NORTH, 1, 1).length()).toBeCloseTo(1, 5)
+  })
+})
+
+describe('dodgeHeading', () => {
+  /**
+   * Camera pointing north, glider flying east — deliberately different, so a call that
+   * reads the wrong basis picks the wrong axis and fails rather than coinciding.
+   */
+  const FLYING_EAST = new Vector3(1, 0, 0)
+
+  it('on foot, dodges forward along the camera', () => {
+    expect(dodgeHeading('ground', FLYING_EAST, NORTH, 1, 0).z).toBeCloseTo(-1, 5)
+  })
+
+  it('on foot, still dodges backwards when back is held', () => {
+    // On the ground S really is reverse, so this must keep working.
+    expect(dodgeHeading('ground', FLYING_EAST, NORTH, -1, 0).z).toBeCloseTo(1, 5)
+  })
+
+  it('in the glider, a flare does not dodge backwards', () => {
+    // The bug this exists to fix. In the glider S is a flare — raise the nose — not
+    // reverse, so reading it as translation sent the dodge backwards for an input that
+    // never meant "go back".
+    expect(dodgeHeading('glider', FLYING_EAST, NORTH, -1, 0).x).toBeCloseTo(1, 5)
+  })
+
+  it('in the glider, thrust does not steer the dodge either', () => {
+    // W is airbending thrust and holding it is the normal flying state, so if it steered
+    // the dodge then almost every glider dodge would silently become a forward one.
+    expect(dodgeHeading('glider', FLYING_EAST, NORTH, 1, 0).x).toBeCloseTo(1, 5)
+  })
+
+  it('in the glider, banking dodges sideways rather than along the heading', () => {
+    // Perpendicular is the point: it is what beats something coming straight at you.
+    const dodge = dodgeHeading('glider', FLYING_EAST, NORTH, 0, 1)
+    expect(dodge.dot(FLYING_EAST)).toBeCloseTo(0, 5)
+    expect(dodge.length()).toBeCloseTo(1, 5)
+  })
+
+  it('in the glider, uses the glider heading rather than the camera', () => {
+    // The mouse only trims in the glider, so the heading is where the player is flying.
+    const dodge = dodgeHeading('glider', FLYING_EAST, NORTH, 0, 0)
+    expect(dodge.x).toBeCloseTo(1, 5)
+    expect(dodge.z).toBeCloseTo(0, 5)
   })
 })

@@ -1,4 +1,5 @@
 import { Vector3 } from 'three'
+import type { PlayerMode } from '../core/types'
 
 /**
  * Slipstream: a directional dash with a brief invulnerability window.
@@ -53,6 +54,36 @@ export function slipstreamHeading(
   const right = new Vector3().crossVectors(facing, new Vector3(0, 1, 0)).normalize()
   const move = facing.clone().multiplyScalar(forward).addScaledVector(right, strafe)
   return move.lengthSq() < 1e-8 ? facing : move.normalize()
+}
+
+/**
+ * Where a dodge goes, per posture. Both the controller and the effect that draws the
+ * streak call this, so the drawn direction cannot drift from the resolved one.
+ *
+ * On foot the movement keys mean walk and strafe, so a dodge is camera-relative and can
+ * go anywhere, backwards included.
+ *
+ * In the glider they mean something else entirely: W is airbending thrust and S is a
+ * flare. Reading them as translation made holding S dodge *backwards*, for an input that
+ * only ever meant "raise the nose" — and since W is the normal flying state, it would
+ * have turned almost every glider dodge into a forward one. So only the bank axis steers
+ * a glider dodge, and it steers it perpendicular to the heading, which is the direction
+ * that beats something coming straight at you. The basis is the glider's own forward
+ * rather than the camera, because in the glider the mouse only trims: the heading is
+ * where the player is actually flying.
+ */
+export function dodgeHeading(
+  mode: PlayerMode,
+  gliderForward: Vector3,
+  lookDirection: Vector3,
+  forwardAxis: number,
+  strafeAxis: number,
+): Vector3 {
+  // Composed from slipstreamHeading rather than restating how axes become a direction,
+  // so there is one definition of that and the two postures only choose its inputs.
+  return mode === 'glider'
+    ? slipstreamHeading(gliderForward, 0, strafeAxis)
+    : slipstreamHeading(lookDirection, forwardAxis, strafeAxis)
 }
 
 /**
