@@ -10,6 +10,7 @@ import {
   waveDamage, waveImpulse, waveTargets, type PressureWaveConfig,
 } from './pressure-wave'
 import { vortexCharge, vortexImpulse, vortexTargets, type VortexConfig } from './vortex'
+import type { StaffArcConfig } from './staff-arc'
 
 /**
  * One fight: the enemies, the player's health, and the cooldown on their bending.
@@ -35,6 +36,7 @@ export interface CombatConfig {
   gust: GustConfig
   pressureWave: PressureWaveConfig
   vortex: VortexConfig
+  staffArc: StaffArcConfig
 }
 
 export interface EnemySpawn {

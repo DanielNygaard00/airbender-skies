@@ -89,6 +89,21 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     maxLiftSpeed: 11,
     cooldownSeconds: 3.5,
   },
+  /**
+   * The staff's arcs. Reach just past the spear's strikeRange of 3.2, so the staff can
+   * out-space infantry rather than trading with it. Two openers leave a 1.5-health soldier
+   * one hit from down and the finisher takes anyone still standing; a gust does 0.5 with 26
+   * knockback, so the staff buys damage with the reach and displacement it gives up.
+   */
+  staffArc: {
+    opener: { range: 3.6, halfAngle: Math.PI / 2.2 },      // about 164 degrees swept
+    finisher: { range: 4.2, halfAngle: Math.PI / 1.9 },    // about 190: nearly all round
+    openerDamage: 0.7,
+    finisherDamage: 1.2,
+    // Low on the openers so the combo keeps its targets in reach; the finisher clears space.
+    openerKnockback: 4,
+    finisherKnockback: 18,
+  },
 }
 
 /**

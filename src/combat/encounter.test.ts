@@ -29,6 +29,14 @@ const C: CombatConfig = {
     minPullSpeed: 10, maxPullSpeed: 18, minLiftSpeed: 5, maxLiftSpeed: 11,
     cooldownSeconds: 3.5,
   },
+  staffArc: {
+    opener: { range: 3.6, halfAngle: Math.PI / 2.2 },
+    finisher: { range: 4.2, halfAngle: Math.PI / 1.9 },
+    openerDamage: 0.7,
+    finisherDamage: 1.2,
+    openerKnockback: 4,
+    finisherKnockback: 18,
+  },
 }
 
 const ORIGIN = new Vector3(0, 0, 0)
