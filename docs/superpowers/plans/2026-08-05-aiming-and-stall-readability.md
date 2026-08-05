@@ -142,10 +142,18 @@ describe('the drawn span agrees with the hit test', () => {
 describe('the geometry', () => {
   it('reaches exactly the outer radius', () => {
     const geometry = sectorGeometry(Math.PI / 3, 0, 12)
-    geometry.computeBoundingSphere()
-    // A literal 12, not the argument echoed back: the point is that the geometry is built
-    // at the radius it was asked for.
-    expect(geometry.boundingSphere?.radius).toBeCloseTo(12, 1)
+    // The farthest vertex from the apex, NOT computeBoundingSphere. three.js centres that
+    // sphere on the bounding-box centroid rather than on the wedge's apex, so for a wedge
+    // it reports radius * sqrt(5/4 - cos(halfAngle)) — about 0.866 of the truth at a
+    // 60-degree half angle, and only exact near 75.5 degrees. Measuring the vertices tests
+    // the property the comment claims: that the geometry is built at the radius asked for.
+    // A literal 12, not the argument echoed back.
+    const positions = geometry.getAttribute('position')
+    let reach = 0
+    for (let i = 0; i < positions.count; i++) {
+      reach = Math.max(reach, Math.hypot(positions.getX(i), positions.getY(i)))
+    }
+    expect(reach).toBeCloseTo(12, 1)
     geometry.dispose()
   })
 
@@ -496,11 +504,25 @@ describe('the cone preview', () => {
   it('draws the cone at the gust the caller hands it, not a fixed one', () => {
     // The Avatar State widens the gust, and the preview reads the boosted config, so a
     // hard-coded radius would understate the reach exactly when it matters most.
+    //
+    // Measured as the farthest transformed vertex from the tell's origin, NOT via
+    // computeBoundingSphere: that centres on the bounding-box centroid rather than the
+    // wedge's apex and under-reports a wedge by a factor that depends on the half angle.
+    // Task 1 hit exactly this. Measuring transformed vertices also covers the radius
+    // itself, which lives on the mesh's scale rather than in the geometry.
     const tell = createAimTell()
     tell.update(ORIGIN, NORTH, true, true, { ...GUST, range: 40 })
+    tell.object.updateMatrixWorld(true)
     const { preview } = parts(tell)
-    preview.geometry.computeBoundingSphere()
-    expect(preview.geometry.boundingSphere?.radius).toBeCloseTo(40, 1)
+    const positions = preview.geometry.getAttribute('position')
+    let reach = 0
+    for (let i = 0; i < positions.count; i++) {
+      const world = preview.localToWorld(
+        new Vector3(positions.getX(i), positions.getY(i), positions.getZ(i)),
+      )
+      reach = Math.max(reach, Math.hypot(world.x - ORIGIN.x, world.z - ORIGIN.z))
+    }
+    expect(reach).toBeCloseTo(40, 1)
     tell.dispose()
   })
 
@@ -510,6 +532,9 @@ describe('the cone preview', () => {
     // teaches the wrong spacing, which is the defect this whole cycle exists to fix.
     const tell = createAimTell()
     tell.update(ORIGIN, NORTH, true, true, GUST)
+    // Required before localToWorld: nothing has added this tell to a scene, so no render
+    // pass has updated its matrices, and localToWorld would silently use a stale identity.
+    tell.object.updateMatrixWorld(true)
     const { preview } = parts(tell)
     const positions = preview.geometry.getAttribute('position')
     for (let i = 0; i < positions.count; i++) {
