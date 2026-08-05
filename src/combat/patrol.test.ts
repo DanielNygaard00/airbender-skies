@@ -13,9 +13,14 @@ const ENEMY_CONFIG: EnemyConfig = {
   gravity: 20, snapDistance: 1.2,
 }
 
+// Spread far wider apart than respawnRange, so the two spawn points can actually
+// disagree about whether the player has left. With them only 10 apart against a
+// respawnRange of 40 there is no player position that is beyond one and inside the
+// other, which makes `every` and `some` agree on every input this file can feed
+// shouldRestorePatrol -- and the quantifier test below could not fail.
 const SPAWNS: EnemySpawn[] = [
   { id: 'a', position: new Vector3(0, 0, 0) },
-  { id: 'b', position: new Vector3(10, 0, 0) },
+  { id: 'b', position: new Vector3(100, 0, 0) },
 ]
 
 const standing = (): Enemy[] =>
@@ -46,7 +51,12 @@ describe('when a patrol restores', () => {
   it('measures against every spawn point, not just the nearest', () => {
     // Standing beyond one spawn but close to the other must not restore, or a soldier
     // materialises behind the player.
-    const beyondOneOnly = new Vector3(10, 0, 0)
+    //
+    // 70 units out along x: 70 from spawn 'a' at the origin, which is past respawnRange's
+    // 40, but only 30 from spawn 'b' at x=100, which is inside it. That is the one shape
+    // that separates `every` from `some` -- with `some` this restores, and soldier 'b'
+    // appears 30 units from a player who never left it.
+    const beyondOneOnly = new Vector3(70, 0, 0)
     expect(shouldRestorePatrol(allDowned(), SPAWNS, beyondOneOnly, C)).toBe(false)
   })
 
