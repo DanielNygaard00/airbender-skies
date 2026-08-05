@@ -130,3 +130,24 @@ describe('hudModelFor focus', () => {
     expect(model.avatarActive).toBe(false)
   })
 })
+
+describe('the hurt flash', () => {
+  it('is nothing when the caller does not pass one', () => {
+    // Optional on purpose: every existing call site and test keeps working, which is
+    // what keeps this a widening rather than a migration.
+    expect(hudModelFor(p()).hurtFlash).toBe(0)
+  })
+
+  it('passes a fraction through', () => {
+    expect(hudModelFor(p(), undefined, undefined, 0.6).hurtFlash).toBeCloseTo(0.6)
+  })
+
+  it('clamps out of range values, so the overlay cannot go opaque', () => {
+    expect(hudModelFor(p(), undefined, undefined, 4).hurtFlash).toBe(1)
+    expect(hudModelFor(p(), undefined, undefined, -2).hurtFlash).toBe(0)
+  })
+
+  it('turns a non-finite flash into nothing rather than into a broken opacity', () => {
+    expect(hudModelFor(p(), undefined, undefined, Number.NaN).hurtFlash).toBe(0)
+  })
+})
