@@ -235,8 +235,12 @@ Deterministic, from an accumulated time, not `Math.random()` — for the same re
 
 `createAimTell()` added to the scene, updated each frame with `player.position`,
 `player.forward`, `liveGustTargets(...).length > 0`, `canGust(encounter)` and `fightConfig.gust`
-— the boosted config, so the preview widens with the Avatar State exactly as the fired cone
-does. `stallSeverity` feeds both `hudModelFor` and `glider.update`.
+— the boosted config, so the preview and the fired cone read one source and cannot diverge if
+a future Avatar State change ever touches the gust's range or half angle. (Today it does not:
+`boostedCombatConfig` only scales the gust's damage, knockback and cooldown — range and half
+angle pass through unchanged, so the preview and the cone are both drawn at the base 12-unit,
+60-degree volume whether or not the state is active.) `stallSeverity` feeds both `hudModelFor`
+and `glider.update`.
 
 ### Config
 

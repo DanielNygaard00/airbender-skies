@@ -98,8 +98,10 @@ describe('the cone preview', () => {
   })
 
   it('draws the cone at the gust the caller hands it, not a fixed one', () => {
-    // The Avatar State widens the gust, and the preview reads the boosted config, so a
-    // hard-coded radius would understate the reach exactly when it matters most.
+    // The preview must draw whatever range it is handed, not a value compiled into this
+    // module: main.ts feeds it fightConfig.gust every frame precisely so the drawn reach
+    // tracks the config, whatever that config turns out to be. A hard-coded radius would
+    // silently stop matching the fired cone the moment the config it reads ever changes.
     //
     // Measured as the farthest transformed vertex from the tell's origin, NOT via
     // computeBoundingSphere: that centres on the bounding-box centroid rather than the

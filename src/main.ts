@@ -465,8 +465,11 @@ function start(): void {
     // the Avatar State is currently doing to the move's reach.
     chargeTell.update(dt, encounter.vortexHeldSeconds, fightConfig.vortex)
 
-    // fightConfig, not the unboosted default, so the preview widens with the Avatar State
-    // exactly as the fired cone does — the same reason chargeTell reads it.
+    // fightConfig, not the unboosted default, so the preview and the fired cone
+    // (`createGustCone` below, also fed `fightConfig.gust`) read one source and cannot
+    // diverge if a future boost ever does touch the gust's range or half angle — the same
+    // reason chargeTell reads it. Today's Avatar State does not: `boostedCombatConfig`
+    // (`src/focus/effects.ts`) only scales damage, knockback and cooldown.
     aimTell.update(
       player.position,
       player.forward,

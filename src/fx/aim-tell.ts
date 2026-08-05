@@ -80,7 +80,12 @@ export function createAimTell(c: AimTellConfig = DEFAULT_AIM_TELL_CONFIG): AimTe
   object.add(marker)
 
   // Built at unit radius and scaled, so a changing gust range costs a scale rather than a
-  // geometry rebuild sixty times a second. The Avatar State changes it mid-fight.
+  // geometry rebuild sixty times a second. No boost changes halfAngle today —
+  // `boostedCombatConfig` (`src/focus/effects.ts`) only touches the gust's damage, knockback
+  // and cooldown, and `AvatarStateConfig` has no field that could widen an angle — so the
+  // conditional rebuild below never actually fires in the current game. It stays anyway: it
+  // costs one comparison a frame, and without it a future config that does widen the angle
+  // would draw a stale, wrong sector instead of failing loudly.
   const previewGeometry = sectorGeometry(1, 0, 1)
   const previewMaterial = new MeshBasicMaterial({
     color: TINT, transparent: true, side: DoubleSide, depthWrite: false,

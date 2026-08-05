@@ -502,8 +502,10 @@ describe('the cone preview', () => {
   })
 
   it('draws the cone at the gust the caller hands it, not a fixed one', () => {
-    // The Avatar State widens the gust, and the preview reads the boosted config, so a
-    // hard-coded radius would understate the reach exactly when it matters most.
+    // The preview must draw whatever range it is handed, not a value compiled into this
+    // module: main.ts feeds it fightConfig.gust every frame precisely so the drawn reach
+    // tracks the config, whatever that config turns out to be. A hard-coded radius would
+    // silently stop matching the fired cone the moment the config it reads ever changes.
     //
     // Measured as the farthest transformed vertex from the tell's origin, NOT via
     // computeBoundingSphere: that centres on the bounding-box centroid rather than the
@@ -689,7 +691,12 @@ export function createAimTell(c: AimTellConfig = DEFAULT_AIM_TELL_CONFIG): AimTe
   object.add(marker)
 
   // Built at unit radius and scaled, so a changing gust range costs a scale rather than a
-  // geometry rebuild sixty times a second. The Avatar State changes it mid-fight.
+  // geometry rebuild sixty times a second. No boost changes halfAngle today —
+  // `boostedCombatConfig` (`src/focus/effects.ts`) only touches the gust's damage, knockback
+  // and cooldown, and `AvatarStateConfig` has no field that could widen an angle — so the
+  // conditional rebuild below never actually fires in the current game. It stays anyway: it
+  // costs one comparison a frame, and without it a future config that does widen the angle
+  // would draw a stale, wrong sector instead of failing loudly.
   const previewGeometry = sectorGeometry(1, 0, 1)
   const previewMaterial = new MeshBasicMaterial({
     color: TINT, transparent: true, side: DoubleSide, depthWrite: false,
@@ -1290,8 +1297,11 @@ Import `createAimTell` from `./fx/aim-tell`, `liveGustTargets` from `./combat/gu
 In `update`, after `encounter = fight.encounter` and the interpolator resets, where `chargeTell.update` already runs:
 
 ```ts
-    // fightConfig, not the unboosted default, so the preview widens with the Avatar State
-    // exactly as the fired cone does — the same reason chargeTell reads it.
+    // fightConfig, not the unboosted default, so the preview and the fired cone
+    // (`createGustCone` below, also fed `fightConfig.gust`) read one source and cannot
+    // diverge if a future boost ever does touch the gust's range or half angle — the same
+    // reason chargeTell reads it. Today's Avatar State does not: `boostedCombatConfig`
+    // (`src/focus/effects.ts`) only scales damage, knockback and cooldown.
     aimTell.update(
       player.position,
       player.forward,
@@ -1380,9 +1390,9 @@ Fire a gust while the preview is up and compare the drawn radii of the two secto
 
 Deploy, climb steeply until airspeed falls below 8, and read the airspeed element's `style.color` and the panel pivot rotations across frames. Then walk on the ground at a normal pace and confirm the colour is unset — a red readout while strolling is the specific defect Task 4's posture gate exists to prevent, and it is worth seeing rather than trusting.
 
-- [ ] **Step 5: The Avatar State widens the preview**
+- [ ] **Step 5: The preview and the fired cone still agree while the Avatar State is running**
 
-Fill Focus, trigger the Avatar State, and confirm the preview's radius grows with the boosted gust config rather than staying at the base 12.
+This step previously asked to confirm the preview's radius grows with the boosted gust config while the Avatar State is active. That was wrong: nothing in the game widens the gust's range or half angle, boosted or not — `boostedCombatConfig` only scales damage, knockback and cooldown, and `AvatarStateConfig` has no field that could widen either. Fill Focus, trigger the Avatar State, and confirm instead that the preview's radius and the fired cone's radius still match each other and still read 12 — i.e. that reading `fightConfig.gust` rather than a hard-coded default has not introduced any drift, even though there is currently nothing for it to track.
 
 - [ ] **Step 6: Record the results**
 
