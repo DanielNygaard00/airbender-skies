@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { gliderUp, angleOfAttack, hoverAccel, flightStep } from './flight'
+import { gliderUp, angleOfAttack, hoverAccel, flightStep, stallFactor } from './flight'
 import { DEFAULT_FLIGHT_CONFIG as C } from '../core/config'
 
 const FWD_LEVEL = new Vector3(0, 0, -1)
@@ -103,6 +103,33 @@ describe('hoverAccel', () => {
     expect(position.y).toBeGreaterThan(95)
     // And it should have shed most of its speed rather than cruising on.
     expect(velocity.length()).toBeLessThan(9)
+  })
+})
+
+describe('stallFactor', () => {
+  it('makes full lift at and above stall speed', () => {
+    expect(stallFactor(C.stallSpeed, C)).toBe(1)
+    expect(stallFactor(C.stallSpeed + 20, C)).toBe(1)
+  })
+
+  it('makes no lift at rest', () => {
+    expect(stallFactor(0, C)).toBe(0)
+  })
+
+  it('ramps linearly below stall speed', () => {
+    // Literals rather than a restatement of the formula, so a changed ramp shape is caught
+    // here rather than absorbed. `stallSeverity` is this value's complement, so softening the
+    // ramp to something like a quadratic fade would move the airspeed warning and the wing
+    // shudder along with the lift, and this is the test that has to be looked at first.
+    expect(stallFactor(C.stallSpeed / 2, C)).toBeCloseTo(0.5)
+    expect(stallFactor(C.stallSpeed * 0.25, C)).toBeCloseTo(0.25)
+    expect(stallFactor(C.stallSpeed * 0.75, C)).toBeCloseTo(0.75)
+  })
+
+  it('never returns a negative factor for a negative speed', () => {
+    // A speed is a magnitude and cannot be negative, but a negative factor would invert the
+    // lift direction rather than merely weaken it, so the floor is worth holding.
+    expect(stallFactor(-5, C)).toBe(0)
   })
 })
 

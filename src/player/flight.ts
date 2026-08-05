@@ -63,6 +63,24 @@ export function hoverAccel(velocity: Vector3, c: FlightConfig): Vector3 {
   return new Vector3(0, c.gravity, 0).addScaledVector(velocity, -c.hoverDamping)
 }
 
+/**
+ * How much lift the wing still makes at this airspeed: 0 at rest, 1 at or above stall speed.
+ *
+ * Lift falls off linearly below stall speed rather than cutting off abruptly.
+ *
+ * Exported, and used by `flightStep` below, because `stallSeverity` in `./stall` is the
+ * arithmetic complement of this value: the stall warning must not hold a second,
+ * differently-shaped opinion about where a stall begins, or the airspeed readout can redden
+ * and the wings shudder while the wing is still making most of its lift. One formula in one
+ * place means retuning the ramp here retunes the warning with it, and the two cannot diverge.
+ *
+ * A non-finite speed falls through to 1, the same as a fast one: this is the integrator's
+ * hot path, and callers that care about corrupt input guard it themselves.
+ */
+export function stallFactor(speed: number, c: FlightConfig): number {
+  return speed < c.stallSpeed ? Math.max(0, speed / c.stallSpeed) : 1
+}
+
 export interface FlightResult {
   position: Vector3
   velocity: Vector3
@@ -95,8 +113,7 @@ export function flightStep(
   const aoa = angleOfAttack(input.forward, velocity, up)
   const effectiveAoa = aoa + (input.flare ? c.flareAoaBoost : 0) + c.rigAoa
 
-  // Lift falls off linearly below stall speed rather than cutting off abruptly.
-  const stallFactor = speed < c.stallSpeed ? Math.max(0, speed / c.stallSpeed) : 1
+  const stall = stallFactor(speed, c)
   // Bound at a quarter turn, which is where sin(2·aoa) reaches zero: a glider held
   // broadside to the airflow makes pure drag and no lift. Any tighter bound would
   // make lift plateau near its peak instead of falling away, contradicting the
@@ -112,7 +129,7 @@ export function flightStep(
   // Dead air drives wind.liftScale to zero, which is what forces breath-only
   // flying rather than merely making the wing less efficient.
   const liftMag =
-    c.liftCoeff * speed * speed * Math.sin(2 * clampedAoa) * stallFactor * liftFold * wind.liftScale
+    c.liftCoeff * speed * speed * Math.sin(2 * clampedAoa) * stall * liftFold * wind.liftScale
   const dragMag =
     c.dragCoeff * speed * speed * (1 + c.inducedDragFactor * Math.sin(effectiveAoa) ** 2) * dragFold
 

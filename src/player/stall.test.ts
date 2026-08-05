@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { stallSeverity } from './stall'
+import { stallFactor } from './flight'
 import { DEFAULT_FLIGHT_CONFIG } from '../core/config'
 import type { PlayerState } from '../core/types'
 
@@ -41,13 +42,16 @@ describe('a stalling wing', () => {
     expect(stallSeverity(gliding(C.stallSpeed * 0.25), C)).toBeCloseTo(0.75)
   })
 
-  it('mirrors the flight model rather than holding a second opinion', () => {
-    // flightStep computes stallFactor as speed / stallSpeed below stall speed. Severity must
-    // be exactly 1 minus that, or the tell can say "stalling" while the wing still makes
-    // full lift, or stay quiet while lift is already gone.
-    for (const speed of [0, 1, 3.5, 6, 7.99]) {
-      const stallFactor = speed / C.stallSpeed
-      expect(stallSeverity(gliding(speed), C), `speed ${speed}`).toBeCloseTo(1 - stallFactor, 10)
+  it('complements the flight model rather than holding a second opinion', () => {
+    // Compared against the real `stallFactor` the flight model scales its lift by, imported
+    // rather than restated: an earlier version of this test recomputed `speed / stallSpeed`
+    // itself, which meant it agreed with a stale copy of the formula and stayed green when the
+    // flight model's ramp changed shape underneath it. Severity must be exactly 1 minus the
+    // factor across the whole ramp, or the tell can say "stalling" while the wing still makes
+    // most of its lift, or stay quiet while lift is already gone.
+    for (const speed of [0, 1, 3.5, 6, 7.99, C.stallSpeed, 20]) {
+      expect(stallSeverity(gliding(speed), C), `speed ${speed}`)
+        .toBeCloseTo(1 - stallFactor(speed, C), 10)
     }
   })
 })
