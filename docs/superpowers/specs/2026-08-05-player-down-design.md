@@ -44,12 +44,13 @@ mechanism, not a second mechanism.
 not a fight reset. The cost is position, tempo, and the Focus bar — the same currency §6 charges
 for drowning, paid at a higher rate.
 
-**The fight persists.** Enemies keep their damage, positions and stances. The player respawns at
-the island centre, roughly 30 units from `HOME_PATROL`, which is outside the 26-unit
-`aggroRange` — so the patrol drops its aggro on its own and the player walks back in. This does
-mean respawning is a free full heal and attrition-by-dying is a slow but viable strategy.
-Accepted: it is consistent with a game whose every other failure is soft, and closing it would
-mean resetting a fight, which nothing else in the codebase does.
+**The fight persists.** Enemies keep their damage, positions and stances exactly as the beat
+found them — there is no distance check against `aggroRange` on respawn, so the patrol may well
+still be aggroed when the player comes back, and the cost of going down is the walk back plus
+the wiped Focus rather than a guaranteed clean reset. This does mean respawning is a free full
+heal and attrition-by-dying is a slow but viable strategy. Accepted: it is consistent with a
+game whose every other failure is soft, and closing it would mean resetting a fight, which
+nothing else in the codebase does.
 
 **Focus is wiped to zero and the Avatar State is cleared.** Not the existing `crashDrain` of 50
 and not a new tuned constant. Going down should never leave the player holding most of a bar,

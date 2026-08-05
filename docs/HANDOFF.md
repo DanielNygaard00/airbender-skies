@@ -265,9 +265,11 @@ snappy and whether a second of no wing is a fair price.
 standing a downed combatant back up is "a decision for a system above this one". Health at
 zero freezes the simulation for 1.5 seconds, fades to black, and stands the player back up at
 `lastGroundIslandId` at full health with Focus wiped — reusing `safeRespawn`, the same path
-falling out of the world already takes. The fight is left untouched, so respawning is a free
-heal and attrition-by-dying is technically viable; that was accepted rather than overlooked,
-because closing it means resetting an encounter and nothing else in this codebase resets.
+falling out of the world already takes. The fight is left exactly as it was — enemies keep
+their damage, positions and stances, so the patrol may well still be aggroed on the walk back
+in. Respawning is a free heal and attrition-by-dying is technically viable; that was accepted
+rather than overlooked, because closing it means resetting an encounter and nothing else in
+this codebase resets.
 
 The beat is a pure timer with no scene in it, so all of its behaviour is in
 `down.test.ts` — including the non-finite guard, which fails *open*. A clamped timer would

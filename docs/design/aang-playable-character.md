@@ -205,11 +205,7 @@ Each act's world design assumes the previous act's kit is fully internalized, an
 ## 6. Failure States and Tuning Notes
 
 - **Falling is not death.** Aang can always deploy the glider, and hard landings cost health and momentum instead of a reload. Death by falling should be nearly impossible, and that should feel like a character trait rather than a difficulty setting.
-- **Going down is a setback, not a reload.** Health reaching zero drops Aang for a beat and
-  then stands him back up at the last island he was on, at full health and with Focus emptied.
-  He is downed, exactly as his enemies are downed, and for the same reason: nothing in this
-  game dies. The fight he left keeps whatever state he put it in, so walking back in is the
-  cost, along with everything the meter had accumulated.
+- **Going down is a setback, not a reload.** Health reaching zero drops Aang for a beat and then stands him back up at the last island he was on, at full health and with Focus emptied. He is downed, exactly as his enemies are downed, and for the same reason: nothing in this game dies. The fight he left keeps whatever state he put it in, so walking back in is the cost, along with everything the meter had accumulated.
 - **Drowning is a soft fail.** Water is a boundary; Aang surfaces and loses momentum and Focus.
 - **The tuning target for the ground layer:** a player who never flies should still find the game playable but visibly harder, because they are paying full price for every wall.
 - **The tuning target for the air layer:** a player who never lands should run out of Breath in any encounter, because altitude alone is not a strategy.
