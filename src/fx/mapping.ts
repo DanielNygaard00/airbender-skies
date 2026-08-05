@@ -46,3 +46,27 @@ export function fovKickForDash(pulse: number): number {
   if (!Number.isFinite(pulse)) return 0
   return MAX_DASH_FOV_KICK * MathUtils.clamp(pulse, 0, 1)
 }
+
+/**
+ * Peak gain per combat voice.
+ *
+ * Held here rather than in `combat-audio.ts` so the mix is testable: the WebAudio
+ * graph cannot be exercised in the node test environment, but the relative levels are
+ * the part that can actually be wrong.
+ */
+export const COMBAT_LEVELS = {
+  gust: 0.22,
+  swing: 0.18,
+  finisher: 0.26,
+  impact: 0.3,
+  down: 0.36,
+  hurt: 0.4,
+} as const
+
+export function swingLevel(finisher: boolean): number {
+  return finisher ? COMBAT_LEVELS.finisher : COMBAT_LEVELS.swing
+}
+
+export function swingSeconds(finisher: boolean): number {
+  return finisher ? 0.26 : 0.16
+}

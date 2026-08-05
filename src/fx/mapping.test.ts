@@ -3,6 +3,7 @@ import {
   speedIntensity, fovForSpeed, windVolumeForSpeed, windPitchForSpeed, trailOpacityForSpeed,
   BASE_FOV, MAX_FOV_KICK, FX_SPEED_REFERENCE, TRAIL_SPEED_THRESHOLD,
   fovKickForDash, MAX_DASH_FOV_KICK,
+  COMBAT_LEVELS, swingLevel, swingSeconds,
 } from './mapping'
 
 describe('speedIntensity', () => {
@@ -98,5 +99,32 @@ describe('the dash FOV kick', () => {
     expect(fovKickForDash(-1)).toBe(0)
     expect(fovKickForDash(3)).toBeCloseTo(6)
     expect(fovKickForDash(Number.NaN)).toBe(0)
+  })
+})
+
+describe('the combat voices', () => {
+  it('makes the finisher louder than an opener, by a real margin', () => {
+    expect(swingLevel(true)).toBeGreaterThan(swingLevel(false) * 1.2)
+  })
+
+  it('makes the finisher longer than an opener, by a real margin', () => {
+    expect(swingSeconds(true)).toBeGreaterThan(swingSeconds(false) * 1.2)
+  })
+
+  it('keeps every voice audible and none of them clipping', () => {
+    for (const [name, level] of Object.entries(COMBAT_LEVELS)) {
+      expect(level, `${name} is silent`).toBeGreaterThan(0.05)
+      expect(level, `${name} will clip`).toBeLessThanOrEqual(0.5)
+    }
+  })
+
+  it('makes a hit taken the loudest thing in the fight', () => {
+    // The player's own damage is the event they most need to notice, and today it has
+    // no feedback of any kind.
+    const others = [
+      COMBAT_LEVELS.gust, COMBAT_LEVELS.swing, COMBAT_LEVELS.finisher,
+      COMBAT_LEVELS.impact, COMBAT_LEVELS.down,
+    ]
+    expect(COMBAT_LEVELS.hurt).toBeGreaterThanOrEqual(Math.max(...others))
   })
 })
