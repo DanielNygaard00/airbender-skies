@@ -99,6 +99,15 @@ export interface EnemyStep {
   enemy: Enemy
   /** Damage to deal to the player this frame. Zero on most frames. */
   damageToPlayer: number
+  /**
+   * True only on the frame this enemy went down by passing the world floor.
+   *
+   * Section 4.6 pays a non-lethal removal more than an environmental accident, so the
+   * fight has to know which happened. It must not latch: the parked branch below
+   * returns false for a body that is already down and already below the floor, which
+   * is every frame after the first.
+   */
+  fellOutOfWorld: boolean
 }
 
 function horizontalTo(from: Vector3, to: Vector3): Vector3 {
@@ -186,6 +195,7 @@ export function stepEnemy(
         stanceTime: enemy.stanceTime + dt,
       },
       damageToPlayer: 0,
+      fellOutOfWorld: false,
     }
   }
 
@@ -201,6 +211,7 @@ export function stepEnemy(
         stance: 'downed', stanceTime: 0,
       },
       damageToPlayer: 0,
+      fellOutOfWorld: true,
     }
   }
 
@@ -209,6 +220,7 @@ export function stepEnemy(
     return {
       enemy: { ...enemy, ...moved, stance: 'downed', stanceTime: enemy.stanceTime + dt },
       damageToPlayer: 0,
+      fellOutOfWorld: false,
     }
   }
 
@@ -224,6 +236,7 @@ export function stepEnemy(
         stanceTime: winding ? 0 : enemy.stanceTime + dt,
       },
       damageToPlayer: 0,
+      fellOutOfWorld: false,
     }
   }
 
@@ -264,6 +277,7 @@ export function stepEnemy(
       ...enemy, ...moved, position, facing: toPlayer, stance, stanceTime: time,
     },
     damageToPlayer,
+    fellOutOfWorld: false,
   }
 }
 
