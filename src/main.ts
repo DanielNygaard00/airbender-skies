@@ -36,6 +36,7 @@ import { createVortexRing } from './fx/vortex-ring'
 import { createVortexChargeTell } from './fx/vortex-charge'
 import { vortexRadius } from './combat/vortex'
 import { createEnemyView } from './combat/enemy-mesh'
+import { createArrowView, type ArrowView } from './fx/arrow'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
 import { canSlipstream, isInvulnerable, dodgeHeading } from './player/slipstream'
@@ -168,11 +169,17 @@ function start(): void {
   }))
   let encounter = startEncounter(patrolSpawns, DEFAULT_COMBAT_CONFIG)
   const enemyViews = new Map(encounter.enemies.map((enemy) => {
-    const view = createEnemyView()
+    const view = createEnemyView(enemy.kind)
     scene.add(view.object)
     enableShadows(view.object)
     return [enemy.id, view] as const
   }))
+
+  /**
+   * One view per arrow in flight, created on first sight and disposed when the arrow is
+   * gone. Keyed by projectile id, the same way enemyViews is keyed by enemy id.
+   */
+  const arrowViews = new Map<string, ArrowView>()
 
   const avatar = createAvatar()
   scene.add(avatar.object)
@@ -532,6 +539,28 @@ function start(): void {
     for (const id of fight.restoredThisFrame) enemyPositionLerps.delete(id)
     for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy, camera.quaternion)
 
+    // Read straight from the simulation rather than through an interpolator. Arrows are
+    // fast and short-lived, an interpolator would have to be created and disposed per
+    // arrow, and the render-interpolation work exists to smooth a camera-followed
+    // character rather than every moving object.
+    for (const arrow of encounter.projectiles) {
+      let view = arrowViews.get(arrow.id)
+      if (!view) {
+        view = createArrowView()
+        arrowViews.set(arrow.id, view)
+        scene.add(view.object)
+      }
+      view.update(arrow)
+    }
+    // Anything with no arrow left has hit, landed or expired.
+    const live = new Set(encounter.projectiles.map((arrow) => arrow.id))
+    for (const [id, view] of arrowViews) {
+      if (live.has(id)) continue
+      scene.remove(view.object)
+      view.dispose()
+      arrowViews.delete(id)
+    }
+
     // Drawn at the true vortexRadius for the same reason the gust cone is drawn at its
     // true hit volume — a pull that reaches outside the visible ring reads as a bug.
     if (fight.vortexFired !== null) {
@@ -568,6 +597,7 @@ function start(): void {
     }
     if (bursts.hits.length > 0) combatAudio.impact()
     if (bursts.downs.length > 0) combatAudio.down()
+    for (let i = 0; i < fight.firedThisFrame.length; i++) combatAudio.bowRelease()
 
     // Heavy events only. Never a gust: a move with a 0.45s cooldown that hitches on
     // every use is nausea, not weight.
