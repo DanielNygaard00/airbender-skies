@@ -348,11 +348,6 @@ function start(): void {
     player = controllerStep(player, state, dt, deps)
     if (avatarActive) player = refillBreath(player)
 
-    // One value, two consumers: the HUD readout and the wing shudder. stallSeverity applies
-    // the posture gate itself, so neither of them has to know that a walk is slower than
-    // stall speed.
-    const stall = stallSeverity(player, DEFAULT_FLIGHT_CONFIG)
-
     // Deliberately not `crashed` here, even though both flag a respawn. `crashed`
     // (fellOutOfWorld) only covers falling past the world floor, which is all the
     // Focus crash-drain below is meant to react to — draining Focus for a
@@ -417,6 +412,18 @@ function start(): void {
         maxBreath: player.maxBreath,
       })
     }
+
+    // One value, two consumers: the HUD readout and the wing shudder. stallSeverity applies
+    // the posture gate itself, so neither of them has to know that a walk is slower than
+    // stall speed.
+    //
+    // Read here rather than straight after the step, because `player` is reassigned twice
+    // between the two — by the slam bounce and by the shrine collection — and this must be
+    // the same velocity the HUD's airspeed number is formatted from. Computed earlier, a slam
+    // frame took the number from the post-bounce velocity and the warning colour from the
+    // pre-bounce one, so the readout reddened a frame out of step with itself. It has to stay
+    // above both consumers: `glider.update` below and the `hudModelFor` call after it.
+    const stall = stallSeverity(player, DEFAULT_FLIGHT_CONFIG)
 
     avatar.setAnimation(animationFor(player))
     avatar.setSquash(chargeSquashScale(player, deps.ground))
