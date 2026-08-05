@@ -56,7 +56,9 @@ import {
   noHitstop, isFrozen, triggerHitstop, stepHitstop, slamHitstopSeconds,
 } from './fx/hitstop'
 import { noShake, triggerShake, stepShake, shakeOffset, slamShakeAmplitude } from './fx/shake'
-import { DEFAULT_HITSTOP_CONFIG, DEFAULT_SHAKE_CONFIG } from './fx/config'
+import {
+  DEFAULT_HITSTOP_CONFIG, DEFAULT_SHAKE_CONFIG, HURT_FLASH_DECAY_PER_SECOND,
+} from './fx/config'
 import { stepPulse } from './fx/pulse'
 import { impactTargets } from './fx/impact-targets'
 import { createCombatAudio } from './fx/combat-audio'
@@ -65,9 +67,6 @@ import { createCombatAudio } from './fx/combat-audio'
 const WIND_TELL_SURGE = 2.5
 /** Wind audio lift while the Avatar State runs. */
 const AUDIO_SWELL = 0.45
-/** A quarter-second flash, long enough to catch peripherally, short enough not to
- * obscure the fight. */
-const HURT_FLASH_DECAY_PER_SECOND = 4
 
 function start(): void {
   if (!hasWebGL()) return showFallback(WEBGL_MESSAGE)

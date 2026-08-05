@@ -40,6 +40,15 @@ export interface ShakeConfig {
   hurtSeconds: number
 }
 
+/**
+ * How fast the hurt flash fades, in units of full-strength-per-second.
+ *
+ * A quarter-second flash, long enough to catch peripherally, short enough not to obscure
+ * the fight. Here rather than in `main.ts`, where it started, so that every value in this
+ * feel pass really is visible in a config file — the promise HANDOFF.md makes.
+ */
+export const HURT_FLASH_DECAY_PER_SECOND = 4
+
 export const DEFAULT_SHAKE_CONFIG: ShakeConfig = {
   slamMinAmplitude: 0.15,
   slamMaxAmplitude: 0.35,
