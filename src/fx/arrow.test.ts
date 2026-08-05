@@ -17,9 +17,9 @@ describe('the arrow view', () => {
   it('points along the flight', () => {
     const view = createArrowView()
     view.update(arrow(new Vector3(), new Vector3(1, 0, 0)))
-    view.object.updateMatrixWorld(true)
     // Forward is +Z in this project: Object3D.lookAt aligns local +Z, and only Camera
-    // and Light use -Z.
+    // and Light use -Z. lookAt sets `quaternion` directly and synchronously, so no
+    // updateMatrixWorld call is needed before reading it here.
     const forward = new Vector3(0, 0, 1).applyQuaternion(view.object.quaternion)
     expect(forward.x).toBeCloseTo(1, 3)
     expect(forward.y).toBeCloseTo(0, 3)
@@ -45,11 +45,24 @@ describe('the arrow view', () => {
     view.dispose()
   })
 
-  it('survives a zero velocity without producing NaN', () => {
+  it('keeps its last heading when velocity drops to zero', () => {
+    // A zero velocity gives lookAt nothing to aim at. Checking that the resulting
+    // quaternion is merely finite proves nothing here: three.js's own Matrix4.lookAt
+    // falls back to a default heading when eye and target coincide, rather than to NaN,
+    // so a finite-quaternion assertion passes whether or not the arrow view guards
+    // against this case. The property actually worth guarding is that the arrow keeps
+    // pointing where it was going, instead of snapping to that fallback axis.
     const view = createArrowView()
+    view.update(arrow(new Vector3(1, 2, 3), new Vector3(0, 1, -1).normalize()))
+    const heading = view.object.quaternion.clone()
+
     const still = { ...arrow(new Vector3(1, 2, 3), new Vector3(0, 0, -1)), velocity: new Vector3() }
     view.update(still)
-    expect(Number.isFinite(view.object.quaternion.w)).toBe(true)
+
+    expect(view.object.quaternion.x).toBeCloseTo(heading.x)
+    expect(view.object.quaternion.y).toBeCloseTo(heading.y)
+    expect(view.object.quaternion.z).toBeCloseTo(heading.z)
+    expect(view.object.quaternion.w).toBeCloseTo(heading.w)
     expect(view.object.position.x).toBeCloseTo(1)
     view.dispose()
   })
