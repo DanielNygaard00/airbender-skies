@@ -59,3 +59,28 @@ export const DEFAULT_SHAKE_CONFIG: ShakeConfig = {
   hurtAmplitude: 0.22,
   hurtSeconds: 0.2,
 }
+
+export interface AimTellConfig {
+  /** How far ahead of the player the direction marker sits, in metres. */
+  markerDistance: number
+  markerSize: number
+  /** Peak opacity of the cone preview. */
+  previewOpacity: number
+  /** Multiplies the preview's opacity while the gust is on cooldown. */
+  dimmedFactor: number
+}
+
+/**
+ * The aim tell.
+ *
+ * `markerDistance` is well inside the gust's 12-unit reach so the marker reads as "you are
+ * pointing this way" rather than as a range indicator. `previewOpacity` is under half of
+ * `gust-cone.ts`'s 0.34 fill, because a permanent indicator as loud as the move it previews
+ * would swamp the move.
+ */
+export const DEFAULT_AIM_TELL_CONFIG: AimTellConfig = {
+  markerDistance: 3,
+  markerSize: 0.55,
+  previewOpacity: 0.14,
+  dimmedFactor: 0.4,
+}
