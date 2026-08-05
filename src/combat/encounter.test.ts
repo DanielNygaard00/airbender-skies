@@ -826,20 +826,128 @@ describe('a mixed patrol', () => {
     // stepping loop itself. This test does, with an outcome that needs no arithmetic to
     // read: a live archer at 2 units is inside both its own strikeRange (22) and the
     // spear's (3), so a hardcoded spear lookup and the real per-kind one both send it into
-    // a wind-up and a release -- but the archer's attack is a projectile, so a correct
-    // release reports firedProjectile and leaves damageToPlayer at 0. Arrows are not in the
-    // fight until the next task, so the player taking zero damage from an archer standing
-    // at melee range is the correct outcome here, not a missing feature. A wrongly
-    // hardcoded spear config would instead run a melee release at this distance and hit.
+    // a wind-up and a release.
+    //
+    // Now that arrows are wired into the fight (see "arrows in the fight" below), both
+    // configs eventually hit the player, so a bare playerHit check no longer tells the two
+    // apart -- this needed updating once this task landed, exactly as the removed version
+    // of this comment anticipated. What still tells them apart: a spear's release deals
+    // melee damage on the very same frame the wind-up completes, while an archer's release
+    // only looses an arrow that frame -- the hit lands a few frames later, once the arrow
+    // has flown the 2 units. A wrongly hardcoded spear lookup collapses that gap to zero.
     const spawns: EnemySpawn[] = [{ id: 'archer-1', position: new Vector3(0, 0, -2), kind: 'archer' }]
     let encounter = startEncounter(spawns, C)
-    let hit = false
+    let firedFrame = -1
+    let hitFrame = -1
     const duration = C.enemies.archer.windUpSeconds + C.enemies.archer.recoverSeconds
-    for (let t = 0; t < duration; t += 1 / 60) {
+    let frame = 0
+    for (let t = 0; t < duration; t += 1 / 60, frame++) {
       const step = stepEncounter(encounter, defaults, 1 / 60, C, DEPS)
       encounter = step.encounter
-      if (step.playerHit) hit = true
+      if (firedFrame < 0 && step.firedThisFrame.length > 0) firedFrame = frame
+      if (hitFrame < 0 && step.playerHit) hitFrame = frame
     }
-    expect(hit).toBe(false)
+    expect(firedFrame).toBeGreaterThanOrEqual(0)
+    expect(hitFrame).toBeGreaterThan(firedFrame)
+  })
+})
+
+describe('arrows in the fight', () => {
+  const ARCHER_ONLY: EnemySpawn[] = [
+    { id: 'archer-1', position: new Vector3(0, 0, -10), kind: 'archer' },
+  ]
+  const deps = { ...DEPS, spawns: [], patrol: { respawnRange: 40 } }
+
+  /** Run until the archer looses its first arrow, or give up. */
+  function untilFired(seconds = 6) {
+    let encounter = startEncounter(ARCHER_ONLY, C)
+    const frames = Math.round(seconds * 60)
+    for (let i = 0; i < frames; i++) {
+      const step = stepEncounter(encounter, defaults, 1 / 60, C, deps)
+      encounter = step.encounter
+      if (step.firedThisFrame.length > 0) return { encounter, step, frame: i }
+    }
+    throw new Error('the archer never fired')
+  }
+
+  it('starts with no arrows', () => {
+    expect(startEncounter(ARCHER_ONLY, C).projectiles).toEqual([])
+  })
+
+  it('reports a shot and puts an arrow in the air', () => {
+    const { encounter, step } = untilFired()
+    expect(step.firedThisFrame.length).toBe(1)
+    expect(encounter.projectiles.length).toBe(1)
+    // The reported id is the projectile's, not the archer's.
+    expect(step.firedThisFrame[0]).toBe(encounter.projectiles[0]?.id)
+    expect(step.firedThisFrame[0]).not.toBe('archer-1')
+  })
+
+  it('gives every arrow a distinct id', () => {
+    let { encounter } = untilFired()
+    const ids = new Set(encounter.projectiles.map((p) => p.id))
+    for (let i = 0; i < 600; i++) {
+      const step = stepEncounter(encounter, defaults, 1 / 60, C, deps)
+      encounter = step.encounter
+      for (const id of step.firedThisFrame) {
+        expect(ids.has(id), `id ${id} was reused`).toBe(false)
+        ids.add(id)
+      }
+    }
+    // Several shots over ten seconds, given the archer's cycle.
+    expect(ids.size).toBeGreaterThan(2)
+  })
+
+  it('does not advance an arrow on the frame it is fired', () => {
+    // Stepping before spawning, so a new arrow does not appear already metres out.
+    const { encounter } = untilFired()
+    const arrow = encounter.projectiles[0]
+    if (!arrow) throw new Error('no arrow')
+    expect(arrow.age).toBe(0)
+  })
+
+  it('eventually hurts a player standing in front of it', () => {
+    let encounter = startEncounter(ARCHER_ONLY, C)
+    let hit = false
+    for (let i = 0; i < 900; i++) {
+      const step = stepEncounter(encounter, defaults, 1 / 60, C, deps)
+      encounter = step.encounter
+      if (step.playerHit) { hit = true; break }
+    }
+    expect(hit).toBe(true)
+  })
+
+  it('lets a slipstream dodge an arrow, and pays Focus for it', () => {
+    // Free leverage: arrow damage joins the same total the spears feed, so the existing
+    // invulnerability and the existing damageAvoided flag both apply with no new code.
+    let encounter = startEncounter(ARCHER_ONLY, C)
+    let avoided = false
+    let everHit = false
+    for (let i = 0; i < 900; i++) {
+      const step = stepEncounter(
+        encounter, { ...defaults, playerInvulnerable: true }, 1 / 60, C, deps,
+      )
+      encounter = step.encounter
+      if (step.damageAvoided) avoided = true
+      if (step.playerHit) everHit = true
+    }
+    expect(avoided).toBe(true)
+    expect(everHit).toBe(false)
+  })
+
+  it('clears the arrows when the patrol restores', () => {
+    // An arrow loosed by a fight that is over must not strike a player who walks back to
+    // a fresh patrol.
+    const withPatrol = { ...DEPS, spawns: ARCHER_ONLY, patrol: { respawnRange: 40 } }
+    const { encounter } = untilFired()
+    const downed = {
+      ...encounter,
+      enemies: encounter.enemies.map((e) => ({ ...e, health: { ...e.health, current: 0 } })),
+    }
+    expect(downed.projectiles.length).toBeGreaterThan(0)
+    const away = { ...defaults, playerPosition: new Vector3(0, 0, -500) }
+    const step = stepEncounter(downed, away, 1 / 60, C, withPatrol)
+    expect(step.restoredThisFrame.length).toBe(1)
+    expect(step.encounter.projectiles).toEqual([])
   })
 })
