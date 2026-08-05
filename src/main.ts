@@ -147,16 +147,24 @@ function start(): void {
   })
 
   // The one encounter: spear infantry on the home island.
-  let encounter = startEncounter(
-    HOME_PATROL.map((spawn) => ({
-      ...spawn,
-      // Dropped onto the ground rather than trusting the authored y.
-      position: spawn.position.clone().setY(
-        world.terrain.groundHeightAt(spawn.position.x, spawn.position.z) ?? spawn.position.y,
-      ),
-    })),
-    DEFAULT_COMBAT_CONFIG,
-  )
+  //
+  // Hoisted into a const and handed to both startEncounter and the fight's deps below,
+  // because the restore respawns from `deps.spawns` and there must be exactly one answer
+  // to where the patrol stands. Passing raw HOME_PATROL as the deps meant a restored
+  // soldier spawned at the authored `y: 0` while the initial three stood on the terrain:
+  // the home island is an icosphere at the origin, so ground at (26,-18) is roughly 30 m
+  // up, and a restored soldier appeared 30 m inside the island for `fall()` to snap out on
+  // its first step. Invisible only by luck — a 30 m correction exceeds the interpolator's
+  // snap distance, so the view collapsed instead of sliding — and a spawn point over lower
+  // terrain would have slid visibly up out of the ground.
+  const patrolSpawns = HOME_PATROL.map((spawn) => ({
+    ...spawn,
+    // Dropped onto the ground rather than trusting the authored y.
+    position: spawn.position.clone().setY(
+      world.terrain.groundHeightAt(spawn.position.x, spawn.position.z) ?? spawn.position.y,
+    ),
+  }))
+  let encounter = startEncounter(patrolSpawns, DEFAULT_COMBAT_CONFIG)
   const enemyViews = new Map(encounter.enemies.map((enemy) => {
     const view = createEnemyView()
     scene.add(view.object)
@@ -472,7 +480,9 @@ function start(): void {
       staffSwing,
     }, dt, fightConfig, {
       ground: world.terrain, worldFloorY: ARCHIPELAGO.worldFloorY,
-      spawns: HOME_PATROL, patrol: DEFAULT_PATROL_CONFIG,
+      // The same ground-adjusted array startEncounter was built from, never raw
+      // HOME_PATROL: a restored soldier has to stand where the original three did.
+      spawns: patrolSpawns, patrol: DEFAULT_PATROL_CONFIG,
     })
     encounter = fight.encounter
     // A restored soldier reuses its id, so its interpolator still holds wherever the
