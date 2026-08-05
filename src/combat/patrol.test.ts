@@ -3,6 +3,7 @@ import { Vector3 } from 'three'
 import { shouldRestorePatrol, type PatrolConfig } from './patrol'
 import { spawnEnemy, type Enemy, type EnemyConfig } from './enemy'
 import type { EnemySpawn } from './encounter'
+import { DEFAULT_COMBAT_CONFIG, DEFAULT_PATROL_CONFIG } from './config'
 
 const C: PatrolConfig = { respawnRange: 40 }
 
@@ -75,5 +76,22 @@ describe('when a patrol restores', () => {
     // Horizontal distance only, matching how aggroRange is measured in stepEnemy.
     const overhead = new Vector3(0, 300, 0)
     expect(shouldRestorePatrol(allDowned(), SPAWNS, overhead, C)).toBe(false)
+  })
+})
+
+describe('the shipped patrol tuning', () => {
+  it('keeps the respawn range clear of the enemy notice range, by a real margin', () => {
+    // Both config.ts and patrol.ts call this gap load-bearing: a fresh soldier must
+    // never appear already inside its own notice range, or the player turns around into
+    // a fight that spawned on top of them. Nothing pinned it until now, so either value
+    // could be retuned into the other's territory without a test objecting.
+    //
+    // Asserted as a relationship with a margin rather than against the literals 40 and
+    // 26, so retuning either one for feel stays free as long as the gap survives. The
+    // margin has to leave room for the restore frame itself: a restore fires the instant
+    // the player passes respawnRange, and the player can be walking back in, so "just
+    // outside aggroRange" is not enough separation.
+    expect(DEFAULT_PATROL_CONFIG.respawnRange)
+      .toBeGreaterThan(DEFAULT_COMBAT_CONFIG.enemy.aggroRange * 1.3)
   })
 })
