@@ -26,3 +26,27 @@ export const DEFAULT_HITSTOP_CONFIG: HitstopConfig = {
   slamMinSeconds: 0.04,
   slamMaxSeconds: 0.09,
 }
+
+export interface ShakeConfig {
+  /** A minimum-strength Pressure Wave. */
+  slamMinAmplitude: number
+  /** A full committed dive. */
+  slamMaxAmplitude: number
+  slamSeconds: number
+  downAmplitude: number
+  downSeconds: number
+  /** Above a down: the player's own damage is what they most need to notice. */
+  hurtAmplitude: number
+  hurtSeconds: number
+}
+
+export const DEFAULT_SHAKE_CONFIG: ShakeConfig = {
+  slamMinAmplitude: 0.15,
+  slamMaxAmplitude: 0.35,
+  slamSeconds: 0.25,
+  // Present but not disruptive: downs come in threes.
+  downAmplitude: 0.18,
+  downSeconds: 0.18,
+  hurtAmplitude: 0.22,
+  hurtSeconds: 0.2,
+}
