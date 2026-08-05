@@ -131,6 +131,33 @@ describe('hudModelFor focus', () => {
   })
 })
 
+describe('the stall warning', () => {
+  it('is nothing when the caller does not pass one', () => {
+    expect(hudModelFor(p()).stall).toBe(0)
+  })
+
+  it('passes a fraction through', () => {
+    expect(hudModelFor(p(), undefined, undefined, 0, 0.7).stall).toBeCloseTo(0.7)
+  })
+
+  it('clamps out of range values', () => {
+    expect(hudModelFor(p(), undefined, undefined, 0, 3).stall).toBe(1)
+    expect(hudModelFor(p(), undefined, undefined, 0, -1).stall).toBe(0)
+  })
+
+  it('turns a non-finite value into nothing rather than a broken colour', () => {
+    expect(hudModelFor(p(), undefined, undefined, 0, Number.NaN).stall).toBe(0)
+  })
+
+  it('does not disturb the hurt flash beside it', () => {
+    // Both are trailing optional numbers, which is exactly the shape where two arguments get
+    // swapped and nothing complains.
+    const model = hudModelFor(p(), undefined, undefined, 0.25, 0.75)
+    expect(model.hurtFlash).toBeCloseTo(0.25)
+    expect(model.stall).toBeCloseTo(0.75)
+  })
+})
+
 describe('the hurt flash', () => {
   it('is nothing when the caller does not pass one', () => {
     // Optional on purpose: every existing call site and test keeps working, which is

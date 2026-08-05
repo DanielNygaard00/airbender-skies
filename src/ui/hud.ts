@@ -3,6 +3,9 @@ import type { PlayerState } from '../core/types'
 /** Shown when a value is not finite, so the player never sees NaN. */
 const NO_VALUE = '—'
 
+/** The health bar's warm tint, reused so the HUD gains no new colour vocabulary. */
+const STALL_COLOUR = '#ff8f6b'
+
 export function formatAltitude(y: number): string {
   return Number.isFinite(y) ? `${Math.round(y)} m` : `${NO_VALUE} m`
 }
@@ -53,6 +56,8 @@ export interface HudModel {
   avatarActive: boolean
   /** 0 to 1: how hard the screen is flashing from a hit taken. */
   hurtFlash: number
+  /** 0 to 1: how far below stall speed the glider is. Always 0 on foot. */
+  stall: number
 }
 
 /**
@@ -64,6 +69,7 @@ export function hudModelFor(
   playerHealth?: { current: number; max: number },
   focus?: FocusReadout,
   hurtFlash = 0,
+  stall = 0,
 ): HudModel {
   const breath = breathFraction(state)
   const health = playerHealth && playerHealth.max > 0
@@ -88,6 +94,7 @@ export function hudModelFor(
     avatarCharge: fraction(focus?.avatarCharge ?? 0),
     avatarActive,
     hurtFlash: fraction(hurtFlash),
+    stall: fraction(stall),
   }
 }
 
@@ -162,6 +169,12 @@ export function createHud(parent: HTMLElement) {
     update(model: HudModel): void {
       altitude.textContent = model.altitude
       airspeed.textContent = model.airspeed
+      // Interpolated in the DOM rather than by swapping a class, so the warning arrives
+      // gradually as airspeed decays instead of snapping on at a threshold — a stall is a
+      // slide into trouble, and a binary light would misrepresent it.
+      airspeed.style.color = model.stall > 0
+        ? `color-mix(in srgb, #f3f6fb, ${STALL_COLOUR} ${Math.round(model.stall * 100)}%)`
+        : ''
       breathBar.style.opacity = model.showBreath ? '1' : '0'
       breathFill.style.transform = `scaleX(${model.breath})`
       healthBar.style.opacity = model.showHealth ? '1' : '0'
