@@ -31,3 +31,18 @@ export function trailOpacityForSpeed(airspeed: number): number {
     0, 1,
   )
 }
+
+/**
+ * Degrees of extra field of view at the peak of a dash.
+ *
+ * Well under `MAX_FOV_KICK`'s 14 for full glider speed: a dash should read as a
+ * burst, not as flight. On foot the field of view is otherwise pinned at
+ * `fovForSpeed(0)`, which is why a 26 m/s dash has no visual weight today.
+ */
+export const MAX_DASH_FOV_KICK = 6
+
+/** Additive on top of `fovForSpeed`, so a dash on landing does not fight it. */
+export function fovKickForDash(pulse: number): number {
+  if (!Number.isFinite(pulse)) return 0
+  return MAX_DASH_FOV_KICK * MathUtils.clamp(pulse, 0, 1)
+}

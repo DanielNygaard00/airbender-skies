@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   speedIntensity, fovForSpeed, windVolumeForSpeed, windPitchForSpeed, trailOpacityForSpeed,
   BASE_FOV, MAX_FOV_KICK, FX_SPEED_REFERENCE, TRAIL_SPEED_THRESHOLD,
+  fovKickForDash, MAX_DASH_FOV_KICK,
 } from './mapping'
 
 describe('speedIntensity', () => {
@@ -65,4 +66,37 @@ describe('trailOpacityForSpeed', () => {
   })
 
   it('never exceeds one', () => { expect(trailOpacityForSpeed(1000)).toBe(1) })
+})
+
+describe('the dash FOV kick', () => {
+  it('is nothing when no dash is running', () => {
+    expect(fovKickForDash(0)).toBe(0)
+  })
+
+  it('peaks at six degrees on the frame the dash fires', () => {
+    // A literal, not MAX_DASH_FOV_KICK: asserting the constant the code reads would
+    // pass for any value, including the 14 that full glider speed already uses.
+    expect(fovKickForDash(1)).toBeCloseTo(6)
+  })
+
+  it('scales with the pulse', () => {
+    expect(fovKickForDash(0.5)).toBeCloseTo(3)
+  })
+
+  it('stays well under the glider speed kick, so a dash is a burst not flight', () => {
+    expect(fovKickForDash(1)).toBeLessThan(MAX_FOV_KICK * 0.6)
+  })
+
+  it('composes additively with the speed FOV', () => {
+    // On foot fovForSpeed(0) is a constant 70, which is why a 26 m/s dash currently
+    // has no visual weight at all. The kick has to add to it rather than replace it,
+    // or a dash on landing would fight the speed FOV.
+    expect(fovForSpeed(0) + fovKickForDash(1)).toBeCloseTo(76)
+  })
+
+  it('clamps a pulse outside the range', () => {
+    expect(fovKickForDash(-1)).toBe(0)
+    expect(fovKickForDash(3)).toBeCloseTo(6)
+    expect(fovKickForDash(Number.NaN)).toBe(0)
+  })
 })
