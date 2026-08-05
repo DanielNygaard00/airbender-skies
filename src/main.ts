@@ -454,15 +454,20 @@ function start(): void {
 
     effects.advance(dt)
 
-    // Hoisted so the drawn cone and the resolved gust cannot read different configs.
-    // During the Avatar State the gust's reach and cooldown differ from the base config,
-    // and a cone drawn from the base one would misrepresent what the fight just did.
+    // Hoisted so every tell drawn below and the gust the fight resolves cannot read
+    // different configs. The Avatar State's boost is confined to the gust's damage,
+    // knockback and cooldown — none of which is a shape — so nothing drawn from this
+    // config differs from the base one today. Reading the boosted config anyway is what
+    // keeps that true for free if a future boost ever does reach a range or a half angle;
+    // see the comment on aimTell below.
     const fightConfig = boostedCombatConfig(
       DEFAULT_COMBAT_CONFIG, avatarActive, DEFAULT_AVATAR_STATE_CONFIG,
     )
 
-    // fightConfig.vortex, not the unboosted default, so the tell agrees with whatever
-    // the Avatar State is currently doing to the move's reach.
+    // fightConfig.vortex rather than the unboosted default, for that same defensive reason
+    // and no other: `boostedCombatConfig` does not touch the vortex at all, so this is the
+    // very same object as the default today. Reading it here is what makes the tell follow
+    // on its own if a boost ever does reach the vortex.
     chargeTell.update(dt, encounter.vortexHeldSeconds, fightConfig.vortex)
 
     // fightConfig, not the unboosted default, so the preview and the fired cone
