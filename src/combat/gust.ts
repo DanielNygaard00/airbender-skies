@@ -77,6 +77,11 @@ export function gustTargets(
  *
  * A separate name rather than a boolean parameter, because `gustTargets(o, f, e, c, true)`
  * at a call site says nothing about what the flag means.
+ *
+ * The preview itself asks `anyLiveGustTarget` below, which only needs a yes or no. This is
+ * the list form, kept because it is the right shape for anything that needs to know *who* —
+ * and because `gust.test.ts` checks the cheap answer against this one rather than restating
+ * the rule, which makes it the independent mechanism the boolean is held to.
  */
 export function liveGustTargets(
   origin: Vector3,
@@ -85,4 +90,31 @@ export function liveGustTargets(
   c: GustConfig,
 ): Enemy[] {
   return gustTargets(origin, forward, enemies, c).filter((enemy) => !isDowned(enemy.health))
+}
+
+/**
+ * Whether a gust thrown now would catch anyone still standing.
+ *
+ * The same rule as `liveGustTargets`, asked as a yes-or-no. The aim preview only needs to
+ * know whether to light up, and `liveGustTargets(...).length > 0` at the call site is a rule
+ * — "at least one" — expressed in `main.ts`, the one module with no tests. Here it is a rule
+ * in a tested module instead, and `main.ts` only wires.
+ *
+ * `.some` rather than the two `filter` passes the length check went through, because this
+ * runs every frame for the whole session and stops at the first live soldier in the cone
+ * instead of allocating two arrays to count them.
+ *
+ * `liveGustTargets` stays alongside it as the list form, and `gust.test.ts` compares this
+ * function against it on a range of arrangements rather than restating the rule — so the
+ * cheap answer is held to the expensive one.
+ */
+export function anyLiveGustTarget(
+  origin: Vector3,
+  forward: Vector3,
+  enemies: readonly Enemy[],
+  c: GustConfig,
+): boolean {
+  return enemies.some(
+    (enemy) => !isDowned(enemy.health) && inGust(origin, forward, enemy.position, c),
+  )
 }

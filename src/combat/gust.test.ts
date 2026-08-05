@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { inGust, gustImpulse, gustTargets, liveGustTargets, type GustConfig } from './gust'
+import {
+  inGust, gustImpulse, gustTargets, liveGustTargets, anyLiveGustTarget, type GustConfig,
+} from './gust'
 import { spawnEnemy, type Enemy, type EnemyConfig } from './enemy'
 
 const G: GustConfig = {
@@ -115,5 +117,72 @@ describe('only the soldiers still standing', () => {
     ]
     expect(liveGustTargets(ORIGIN, NORTH, group, G).map((e) => e.id))
       .toEqual(gustTargets(ORIGIN, NORTH, group, G).map((e) => e.id))
+  })
+})
+
+describe('whether a gust would catch anyone at all', () => {
+  it('says no with nobody in the fight', () => {
+    expect(anyLiveGustTarget(ORIGIN, NORTH, [], G)).toBe(false)
+  })
+
+  it('says yes for a live enemy inside the cone', () => {
+    expect(anyLiveGustTarget(ORIGIN, NORTH, [enemyAt(new Vector3(0, 0, -4))], G)).toBe(true)
+  })
+
+  it('says no for a live enemy outside the cone', () => {
+    expect(anyLiveGustTarget(ORIGIN, NORTH, [enemyAt(new Vector3(0, 0, 4))], G)).toBe(false)
+  })
+
+  it('says no for a downed enemy inside the cone', () => {
+    // The same distinction liveGustTargets draws, and the reason this is not simply a
+    // non-empty gustTargets: a preview that lights up for a body promises a hit that a gust
+    // cannot deliver.
+    const corpse = {
+      ...enemyAt(new Vector3(0, 0, -4)),
+      health: { current: 0, max: 1.5, sinceHit: 0 },
+    }
+    expect(anyLiveGustTarget(ORIGIN, NORTH, [corpse], G)).toBe(false)
+  })
+
+  it('finds the one live soldier in a crowd of corpses and distant enemies', () => {
+    // Ordered so the answer sits last, which is what catches a short-circuit that gave up
+    // rather than one that stopped early.
+    const downed = (id: string, at: Vector3) => ({
+      ...enemyAt(at, id), health: { current: 0, max: 1.5, sinceHit: 0 },
+    })
+    const crowd = [
+      downed('corpse-a', new Vector3(0, 0, -4)),
+      { ...enemyAt(new Vector3(0, 0, -400)), id: 'far' },
+      { ...enemyAt(new Vector3(0, 0, 5)), id: 'behind' },
+      downed('corpse-b', new Vector3(2, 0, -3)),
+      { ...enemyAt(new Vector3(-2, 0, -5)), id: 'live' },
+    ]
+    expect(anyLiveGustTarget(ORIGIN, NORTH, crowd, G)).toBe(true)
+  })
+
+  it('answers exactly what liveGustTargets being non-empty answers', () => {
+    // Derived rather than restated. This is the whole point of the function: `main.ts` used
+    // to ask `liveGustTargets(...).length > 0`, which put an "at least one" rule in the one
+    // module with no tests. The cheap answer must agree with the expensive one on every
+    // arrangement, or moving the rule here changed the preview's behaviour.
+    const live = (id: string, at: Vector3) => ({ ...enemyAt(at, id) })
+    const downed = (id: string, at: Vector3) => ({
+      ...enemyAt(at, id), health: { current: 0, max: 1.5, sinceHit: 0 },
+    })
+    const groups: Enemy[][] = [
+      [],
+      [live('a', new Vector3(0, 0, -4))],
+      [downed('a', new Vector3(0, 0, -4))],
+      [live('a', new Vector3(0, 0, 4))],
+      [downed('a', new Vector3(0, 0, -4)), live('b', new Vector3(1, 0, -4))],
+      [live('a', new Vector3(0, 0, -4)), downed('b', new Vector3(1, 0, -4))],
+      [downed('a', new Vector3(0, 0, -4)), live('b', new Vector3(0, 0, 400))],
+      [live('a', new Vector3(0, 0, -G.range - 1)), downed('b', new Vector3(0, 0, -2))],
+    ]
+    for (const group of groups) {
+      const ids = group.map((e) => e.id).join(',')
+      expect(anyLiveGustTarget(ORIGIN, NORTH, group, G), `group [${ids}]`)
+        .toBe(liveGustTargets(ORIGIN, NORTH, group, G).length > 0)
+    }
   })
 })

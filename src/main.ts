@@ -45,7 +45,7 @@ import { enableShadows } from './core/sun'
 import { createAvatar } from './player/avatar'
 import { createGlider } from './player/glider'
 import { createAimTell } from './fx/aim-tell'
-import { liveGustTargets } from './combat/gust'
+import { anyLiveGustTarget } from './combat/gust'
 import { stallSeverity } from './player/stall'
 import { animationFor, chargeSquashScale } from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
@@ -485,8 +485,7 @@ function start(): void {
     aimTell.update(
       player.position,
       player.forward,
-      liveGustTargets(player.position, player.forward, encounter.enemies, fightConfig.gust)
-        .length > 0,
+      anyLiveGustTarget(player.position, player.forward, encounter.enemies, fightConfig.gust),
       canGust(encounter),
       fightConfig.gust,
     )
