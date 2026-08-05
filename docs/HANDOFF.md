@@ -261,6 +261,25 @@ restarts the chain as an opener; and the gate now blocks a deploy at 3, 20 and 4
 swing and allows it at 80. Not yet checked by a human with a mouse: whether a 0.26s swing feels
 snappy and whether a second of no wing is a fair price.
 
+**Going down.** `src/player/down.ts` is the system `health.ts` was waiting for when it said
+standing a downed combatant back up is "a decision for a system above this one". Health at
+zero freezes the simulation for 1.5 seconds, fades to black, and stands the player back up at
+`lastGroundIslandId` at full health with Focus wiped — reusing `safeRespawn`, the same path
+falling out of the world already takes. The fight is left untouched, so respawning is a free
+heal and attrition-by-dying is technically viable; that was accepted rather than overlooked,
+because closing it means resetting an encounter and nothing else in this codebase resets.
+
+The beat is a pure timer with no scene in it, so all of its behaviour is in
+`down.test.ts` — including the non-finite guard, which fails *open*. A clamped timer would
+leave the player in a permanently frozen world with no input, and that is the only way this
+feature can break badly. The `main.ts` wiring has no test, as usual for that file; it was
+verified in the running game.
+
+There is no collapse animation — the model still ships only idle, walk, run, fall and glide,
+so the sink is driven through the squash channel that jump charging uses. A real clip is
+the obvious follow-up. Spec:
+[`docs/superpowers/specs/2026-08-05-player-down-design.md`](superpowers/specs/2026-08-05-player-down-design.md).
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
