@@ -1,11 +1,12 @@
 # Handoff
 
 Written 2026-07-31, updated 2026-08-04 for the enemy health bars, updated 2026-08-05
-for the impact feel and encounter lifecycle work. This is a recap for whoever picks the
+for the impact feel and encounter lifecycle work, and again 2026-08-05 for the aim tell and
+stall readability work. This is a recap for whoever picks the
 project up next, including a future session with no memory of the work below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 1097 tests across 76 files,
+**Repo state:** 1146 tests across 79 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -495,6 +496,114 @@ here for exactly this reason. The only derived value left in `main.ts` is the da
 rate, `1 / DEFAULT_GROUND_CONFIG.dashDurationSeconds`, which is not a tuning value at all — it
 falls out of the dash's real duration, and that is where it should stay.
 
+**The aim tell.** `src/fx/aim-tell.ts` gives the gust a preview instead of leaving its reach to
+be learned by throwing it at people. A ground chevron sits `markerDistance` (3 units) along
+`player.forward`, and a true 12-unit, 120-degree sector lights up — dimmed to 40% while the
+gust is on cooldown, invisible otherwise — the instant a live soldier is inside it. Both are
+parented to the scene, not to the avatar: the avatar's rotation is driven off the
+*interpolated* heading so it renders smoothly between simulation steps, and a tell for a hit
+volume has to read the value the hit itself reads, `player.forward`, or it can point somewhere
+the gust does not go. Spec at
+[`docs/superpowers/specs/2026-08-05-aiming-and-stall-readability-design.md`](superpowers/specs/2026-08-05-aiming-and-stall-readability-design.md).
+
+**`src/fx/sector.ts`** now owns the one true theta convention for a horizontal cone —
+`gust-cone.ts` and the aim preview both need to lay a `RingGeometry` flat and centre it on
+local +Z, and a second copy of the `-PI/2 - halfAngle` offset would drift out of step
+silently, because a rotated cone still looks like a cone. `gust-cone.test.ts`'s containment
+check against `inGust` remains the independent authority on whether the convention is right at
+all; `sector.test.ts` derives the flattening mapping itself from the rotation rather than
+importing the constant it is checking, so it cannot pass by construction.
+
+**`liveGustTargets`**, in `src/combat/gust.ts`, is `gustTargets` filtered to enemies that are
+not downed, and it has to be a separate function rather than a flag on the existing one:
+`gustTargets` deliberately includes downed enemies, because `stepEncounter` needs that to
+resolve a gust clipping a corpse without double-counting a kill, and the aim preview needs the
+opposite — a preview lit for a body already on the ground promises a hit the gust cannot
+deliver.
+
+**`stallSeverity`**, in `src/player/stall.ts`, is 0 while flying and ramps to 1 at rest,
+mirroring the `stallFactor` that `flightStep` already computes so the tell cannot disagree
+with the physics it describes. The trap it exists to close: airspeed is shown in both
+postures, and a walk (7 m/s) is already under the glider's stall speed (8). An ungated
+severity would read the stall colour while the player strolled around an island on foot. The
+gate — `state.mode !== 'glider'` returns 0 — lives in `stall.ts` itself rather than in the
+HUD, because the wing shudder needs the identical value and a gate duplicated at two call
+sites is a gate that can disagree with itself.
+
+**The wing shudder** composes inside `glider.ts`'s own `apply()`, for the same reason the
+staff sweep does: that function rewrites every wing and staff transform from `openness` every
+frame, and anything set from outside it is overwritten on the next one. The trap: its gate is
+`openness > 1e-3` — the *opposite* of the staff sweep's `openness < 1e-3` in the same
+function. The two conditions read easy to swap by accident, and swapping them has a real
+consequence: the sweep applies while the glider is stowed, because that is when the staff is a
+weapon; the shudder applies while it is open, because a stowed walking stick has no wing to
+flutter. `SHUDDER_AMPLITUDE` (0.09 rad) and `SHUDDER_FREQUENCY` (34 rad/s, ≈5.4 Hz) are plain
+trig on accumulated time, not `Math.random()`, for the reason `src/fx/shake.ts` already
+established: a random shudder cannot be asserted about.
+
+Confirmed in the running game, not just in tests, four of the five things this cycle claimed.
+Turning on the spot through five deltas including one crossing 180°, the marker's derived
+heading matched `player.forward` to within 1e-3 every time, and a gust fired dead-ahead at a
+soldier 3.16 m out knocked it back along exactly the pre-hit direction to the soldier — facing
+and resolved hit agree, the same relationship whose failure once shipped the glider-only
+`forward` bug recorded earlier in this document. The preview appeared only once a
+walked-toward soldier crossed inside 12 units (13.11 → 11.38 across one 0.25 s sample), and —
+the control that actually matters — it dropped from visible to hidden 3-4 frames after a
+soldier it was still centred on was downed, at a distance of 2-5 units, nowhere near leaving
+the cone: `liveGustTargets` is doing real work, not decoration. `preview.scale.x` read exactly
+`12` the frame before firing, and the fired cone's own baked `outerRadius` also read exactly
+`12` — not merely close. And the stall shudder was confirmed absent on foot at 40+ m/s of fall
+speed (a harder stress case than the brief asked for), present only in `glider` mode,
+oscillating at ≈5.46 Hz against the code's own claimed 5.41, with two pivots exactly mirrored
+(`p4 = -p0` on every sample) and a third pivot in the opposite phase, confirming the
+alternation is real rather than two coincidental wobbles.
+
+**The fifth claim was wrong, and the wrongness was caught by the verification pass doing its
+job.** The spec, the plan, and three source comments all asserted that the Avatar State widens
+the gust's cone, and used that to justify `aim-tell.ts` reading `fightConfig.gust` instead of a
+hard-coded default. Task 8's own Step 5 asked, on the strength of that claim, to confirm the
+preview's radius grows while the state is active — and it does not, because nothing does.
+`boostedCombatConfig` (`src/focus/effects.ts`) rebuilds the gust's `damage`, `knockback` and
+`cooldownSeconds` only; `range` and `halfAngle` pass through the spread (`...c.gust`)
+unchanged, and `AvatarStateConfig` has no field that could widen either one. This was proven
+live, not just read from source: with the Avatar State demonstrably active — the same shot
+one-shot a soldier, which only happens at the tripled damage — `preview.scale.x` and the fired
+cone's `outerRadius` both still read exactly `12`. The lesson worth keeping: a plan step that
+asks you to *measure* a claim is not a plan step that has *verified* the claim is even true.
+Nobody had checked this one against the code that supposedly implemented it until the in-game
+pass tried to reproduce it and found nothing to reproduce. Reading `fightConfig.gust` is still
+right and stays — the preview must draw whatever range it is handed rather than a value
+compiled into this module, which holds regardless of whether anything currently varies that
+range — but every comment that justified it by appeal to the Avatar State has been corrected
+to say so honestly instead of repeating the claim.
+
+**Whether the Avatar State should widen the gust is now an open design question, not a bug.**
+§4.5 calls the state "short, loud," and a wider sweep would fit that description at least as
+well as the damage and knockback multipliers already there do. Nothing currently asks for it
+and nothing here builds it — flagging it for whoever next touches `AvatarStateConfig` or the
+design document's §4.5.
+
+Two honest caveats on this pair. First, items 1 through 4 above were all measured on foot or in
+`ground` mode; glider-mode aiming was only exercised incidentally, while getting into position
+for item 5's Focus-building flight, and `forward` behaves differently there — it eases toward
+the look direction via `steerToward` rather than snapping instantly, which is what made the
+ground-mode turn-follow measurement exact and cheap in the first place. The marker and preview
+read the same `player.forward` field regardless of posture, so there is no reason to expect a
+difference, but the specific numbers above were not re-measured mid-bank in the air. Second,
+§2.2 of the design document asks for control softening alongside the shudder on a stall —
+"control softens, the wings shudder" — and this cycle deliberately built only the second half.
+Softening turn authority changes the flight model itself, and `baseTurnRate` and
+`weightShiftTurnRate` are already flagged elsewhere in this document as two of the most
+suspect unplayed values in the project. Readability was this cycle's job; how a stall should
+*feel* is a decision to make with a mouse in hand, not from this cycle's spec.
+
+**Every value in this cycle is a guess about feel, which no test can check** — the same caveat
+this document already carries for the movement, combat and impact-feel tuning above, extended
+to `src/fx/config.ts`'s `DEFAULT_AIM_TELL_CONFIG` (`markerDistance`, `markerSize`,
+`previewOpacity`, `dimmedFactor`) and `src/player/glider.ts`'s `SHUDDER_AMPLITUDE` and
+`SHUDDER_FREQUENCY`. The deliverable is that each is named in a module a test can import, not
+that any of them is right.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
@@ -558,9 +667,14 @@ Focus is the one exception, and only partly. Its build-arm-trigger-end cycle was
 exercised in the running game (see the visibility note below): a clean glide fills the
 bar in about 28 seconds, the arming pip appears at maximum, `E` engages free breath and
 the vignette on the trigger frame, the state runs its eight seconds, and falling out of
-the world costs about half the bar exactly once. What has *not* been observed in play is
-the wind-feature multiplier, and the boosted one-hit gust actually landing on a soldier.
-Nobody has played any of it with a mouse in their hand.
+the world costs about half the bar exactly once. The boosted one-hit gust has since landed
+on a soldier in the running game too, via the aiming-and-stall-readability cycle's
+verification pass: with the Avatar State active, a single gust downed a spear soldier
+outright, matching `0.5 × gustDamageMultiplier(3) = 1.5` against its full health. What has
+*still* not been observed in play is the wind-feature multiplier. Nobody has played any of
+it with a mouse in their hand — every observation of the Avatar State to date, including
+this one, comes from the synthetic-clock harness described under "Repo-specific traps"
+below, not from a human playing.
 
 **Combat has never had a hit landed by hand.** The patrol, the gust knockback and the
 downed state are unit-tested. Nobody has played it.
