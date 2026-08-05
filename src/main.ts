@@ -44,6 +44,9 @@ import { collectStep } from './player/shrine-collect'
 import { enableShadows } from './core/sun'
 import { createAvatar } from './player/avatar'
 import { createGlider } from './player/glider'
+import { createAimTell } from './fx/aim-tell'
+import { liveGustTargets } from './combat/gust'
+import { stallSeverity } from './player/stall'
 import { animationFor, chargeSquashScale } from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
 import { createHud, hudModelFor } from './ui/hud'
@@ -191,6 +194,14 @@ function start(): void {
   // Same attachment pattern as the aura: a child of avatar.object, not the model.
   avatar.object.add(guard.object)
 
+  // Parented to the scene, not the avatar, and deliberately so: the avatar is rotated in
+  // syncVisuals from the *interpolated* heading, but this tell must read the simulation's
+  // player.forward, which is the same value inGust tests. Parenting to the avatar would
+  // inherit the facing for free but would then be reading the wrong heading — a hit-volume
+  // tell has to agree with the hit, not with the smoothed visual.
+  const aimTell = createAimTell()
+  scene.add(aimTell.object)
+
   // BASE_URL, not a bare absolute path: vite.config.ts sets base to
   // '/airbender-skies/' for GitHub Pages, so "/models/..." would resolve in dev
   // and 404 only on the deployed site. Fire-and-forget on purpose — loadGLTF
@@ -337,6 +348,11 @@ function start(): void {
     player = controllerStep(player, state, dt, deps)
     if (avatarActive) player = refillBreath(player)
 
+    // One value, two consumers: the HUD readout and the wing shudder. stallSeverity applies
+    // the posture gate itself, so neither of them has to know that a walk is slower than
+    // stall speed.
+    const stall = stallSeverity(player, DEFAULT_FLIGHT_CONFIG)
+
     // Deliberately not `crashed` here, even though both flag a respawn. `crashed`
     // (fellOutOfWorld) only covers falling past the world floor, which is all the
     // Focus crash-drain below is meant to react to — draining Focus for a
@@ -420,7 +436,7 @@ function start(): void {
     const staffProgress = rawStaffProgress === null
       ? null
       : (player.staffChain % 2 === 0 ? 1 - rawStaffProgress : rawStaffProgress)
-    glider.update(dt, player.mode === 'glider', staffProgress)
+    glider.update(dt, player.mode === 'glider', staffProgress, stall)
     aura.update(dt, avatarActive)
     // Tracks the invulnerability window exactly, not the whole dash: the window is
     // the mechanic, so the shell must vanish the instant `isInvulnerable` goes false.
@@ -448,6 +464,17 @@ function start(): void {
     // fightConfig.vortex, not the unboosted default, so the tell agrees with whatever
     // the Avatar State is currently doing to the move's reach.
     chargeTell.update(dt, encounter.vortexHeldSeconds, fightConfig.vortex)
+
+    // fightConfig, not the unboosted default, so the preview widens with the Avatar State
+    // exactly as the fired cone does — the same reason chargeTell reads it.
+    aimTell.update(
+      player.position,
+      player.forward,
+      liveGustTargets(player.position, player.forward, encounter.enemies, fightConfig.gust)
+        .length > 0,
+      canGust(encounter),
+      fightConfig.gust,
+    )
 
     // Asked against the pre-step encounter, so the visual agrees with what stepEncounter
     // will actually do on this same frame rather than a frame late.
@@ -584,7 +611,7 @@ function start(): void {
       focus: focus.max > 0 ? focus.value / focus.max : 0,
       avatarCharge: armFraction(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
       avatarActive,
-    }, hurtFlash))
+    }, hurtFlash, stall))
 
     playerPositionLerp.record(player.position)
     playerForwardLerp.record(player.forward)
