@@ -1,5 +1,6 @@
 import { Vector3 } from 'three'
 import type { CombatConfig, EnemySpawn } from './encounter'
+import type { PatrolConfig } from './patrol'
 
 /**
  * Combat tuning.
@@ -118,3 +119,9 @@ export const HOME_PATROL: EnemySpawn[] = [
   { id: 'spear-2', position: new Vector3(34, 0, -8) },
   { id: 'spear-3', position: new Vector3(20, 0, -4) },
 ]
+
+/**
+ * Above the enemy's aggroRange of 26 by enough that a restored soldier can never
+ * appear already inside its own notice range.
+ */
+export const DEFAULT_PATROL_CONFIG: PatrolConfig = { respawnRange: 40 }

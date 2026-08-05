@@ -47,7 +47,10 @@ const near = () => startEncounter([{ id: 'a', position: new Vector3(0, 0, -2) }]
 // existed, so a flat floor well below anything the fight does keeps them
 // exercising the same horizontal behaviour rather than newly falling enemies.
 const flatGround = { groundHeightAt: () => 0 }
-const DEPS = { ground: flatGround, worldFloorY: -50 }
+// An empty spawn list, so shouldRestorePatrol always declines and every test in this
+// file that predates the respawn keeps exercising exactly what it used to. The
+// restore has its own deps, built in its own describe block.
+const DEPS = { ground: flatGround, worldFloorY: -50, spawns: [], patrol: { respawnRange: 40 } }
 
 /** A neutral frame of input: nothing pressed, nothing held. */
 const defaults: EncounterInput = {
@@ -561,7 +564,11 @@ describe('a removal by accident is reported apart from a knockdown', () => {
   // y = -g*dt^2 = -1/180 (~-0.0056) after one frame, and it takes 19 frames of free fall
   // to pass y = -1. -0.001 sits just above that first-frame position, so it crosses in
   // exactly the one step these tests step.
-  const voidDeps = { ground: { groundHeightAt: () => null }, worldFloorY: -0.001 }
+  const voidDeps = {
+    ground: { groundHeightAt: () => null }, worldFloorY: -0.001,
+    // Empty, same reasoning as DEPS: no spawns means the restore never fires here.
+    spawns: [], patrol: { respawnRange: 40 },
+  }
 
   it('reports a fallen enemy as lost', () => {
     const start = startEncounter([{ id: 'a', position: new Vector3(0, 0, -2) }], C)
@@ -601,5 +608,71 @@ describe('a removal by accident is reported apart from a knockdown', () => {
     const step = stepEncounter(near(), defaults, 1 / 60, C, DEPS)
     expect(step.lostThisFrame).toEqual([])
     expect(step.downedThisFrame).toEqual([])
+  })
+})
+
+describe('a cleared patrol comes back', () => {
+  const SPAWNS: EnemySpawn[] = [{ id: 'a', position: new Vector3(0, 0, -2) }]
+  const withPatrol = { ...DEPS, spawns: SPAWNS, patrol: { respawnRange: 40 } }
+
+  /** Gust the soldier down, standing next to it. */
+  function clear() {
+    let encounter = startEncounter(SPAWNS, C)
+    for (let i = 0; i < 240; i++) {
+      encounter = stepEncounter(
+        encounter, { ...defaults, gustPressed: true }, 1 / 60, C, withPatrol,
+      ).encounter
+    }
+    return encounter
+  }
+
+  it('does not come back while the player is standing over it', () => {
+    const cleared = clear()
+    const step = stepEncounter(cleared, defaults, 1 / 60, C, withPatrol)
+    expect(step.restoredThisFrame).toEqual([])
+    expect(isDowned(step.encounter.enemies[0]!.health)).toBe(true)
+  })
+
+  it('comes back at full health once the player has left', () => {
+    const cleared = clear()
+    const away = { ...defaults, playerPosition: new Vector3(0, 0, -500) }
+    const step = stepEncounter(cleared, away, 1 / 60, C, withPatrol)
+    expect(step.restoredThisFrame).toEqual(['a'])
+    const restored = step.encounter.enemies[0]
+    if (!restored) throw new Error('the patrol should have been restored')
+    expect(restored.health.current).toBe(C.enemy.maxHealth)
+    expect(isDowned(restored.health)).toBe(false)
+    expect(restored.position.z).toBeCloseTo(-2)
+  })
+
+  it('reports no phantom events on the frame it restores', () => {
+    // The ordering bug this guards. `wasDowned` is diffed at the top of stepEncounter,
+    // so replacing the enemy array before those lists are built would compare a fresh
+    // soldier against a downed one. Restoring last means the frame reports nothing.
+    const cleared = clear()
+    const away = { ...defaults, playerPosition: new Vector3(0, 0, -500) }
+    const step = stepEncounter(cleared, away, 1 / 60, C, withPatrol)
+    expect(step.downedThisFrame).toEqual([])
+    expect(step.lostThisFrame).toEqual([])
+    expect(step.hitThisFrame).toEqual([])
+  })
+
+  it('reports nothing on the frame after, having already restored', () => {
+    const cleared = clear()
+    const away = { ...defaults, playerPosition: new Vector3(0, 0, -500) }
+    const once = stepEncounter(cleared, away, 1 / 60, C, withPatrol)
+    const twice = stepEncounter(once.encounter, away, 1 / 60, C, withPatrol)
+    expect(twice.restoredThisFrame).toEqual([])
+    expect(twice.downedThisFrame).toEqual([])
+  })
+
+  it('leaves a fight with no spawns configured alone', () => {
+    // DEPS carries an empty spawns list, which is what keeps every pre-existing test
+    // in this file unaffected by the restore.
+    const cleared = clear()
+    const away = { ...defaults, playerPosition: new Vector3(0, 0, -500) }
+    const step = stepEncounter(cleared, away, 1 / 60, C, DEPS)
+    expect(step.restoredThisFrame).toEqual([])
+    expect(isDowned(step.encounter.enemies[0]!.health)).toBe(true)
   })
 })

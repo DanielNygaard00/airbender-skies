@@ -11,6 +11,7 @@ import {
 } from './pressure-wave'
 import { vortexCharge, vortexImpulse, vortexTargets, type VortexConfig } from './vortex'
 import { staffDamage, staffImpulse, staffTargets, type StaffArcConfig } from './staff-arc'
+import { shouldRestorePatrol, type PatrolConfig } from './patrol'
 import type { StaffSwing } from '../player/staff'
 
 /**
@@ -54,6 +55,15 @@ export interface EnemySpawn {
 export interface EncounterDeps {
   ground: GroundHeightQuery
   worldFloorY: number
+  /**
+   * Where this fight's soldiers stand when fresh.
+   *
+   * On the deps rather than on `Encounter`: a running fight is not a level
+   * definition, and this interface already means "what the fight needs from the
+   * world" as opposed to "what the player did this frame".
+   */
+  spawns: readonly EnemySpawn[]
+  patrol: PatrolConfig
 }
 
 export function startEncounter(spawns: readonly EnemySpawn[], c: CombatConfig): Encounter {
@@ -97,6 +107,15 @@ export interface EncounterStep {
    * split it would land in both lists and get paid for both.
    */
   lostThisFrame: string[]
+  /**
+   * Ids of the soldiers spawned back in this frame, because the whole patrol was
+   * down and the player had left.
+   *
+   * `main.ts` needs this to reset the position interpolators for those ids — without
+   * it a restored soldier's view would tween from wherever its body was left to its
+   * fresh spawn point instead of popping in there.
+   */
+  restoredThisFrame: string[]
   /** Enemies a gust connected with this frame, for feedback and for Focus. */
   hitThisFrame: string[]
   /** Enemies a Pressure Wave connected with this frame. Kept apart from hitThisFrame:
@@ -289,10 +308,21 @@ export function stepEncounter(
     .filter((enemy) => isDowned(enemy.health) && !wasDowned.has(enemy.id) && !lost.has(enemy.id))
     .map((enemy) => enemy.id)
 
+  // Last, deliberately. `wasDowned` is diffed at the top of this function, so
+  // replacing the enemy array any earlier would compare a fresh soldier against a
+  // downed one and report a phantom down or hit. Restoring here means the next frame
+  // starts from a healthy patrol and an empty wasDowned, which reports nothing.
+  let restoredThisFrame: string[] = []
+  if (shouldRestorePatrol(enemies, deps.spawns, input.playerPosition, deps.patrol)) {
+    enemies = deps.spawns.map((spawn) => spawnEnemy(spawn.id, spawn.position, c.enemy))
+    restoredThisFrame = enemies.map((enemy) => enemy.id)
+  }
+
   return {
     encounter: { enemies, playerHealth, gustCooldown, vortexHeldSeconds, vortexCooldown },
     downedThisFrame,
     lostThisFrame,
+    restoredThisFrame,
     hitThisFrame,
     slamHitThisFrame,
     staffHitThisFrame,

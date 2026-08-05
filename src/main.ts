@@ -14,7 +14,7 @@ import { placeShrines } from './world/shrine'
 import { windSampler, stillAir, type WindSample } from './world/wind'
 import { createWindTell } from './world/wind-tell'
 import { startEncounter, stepEncounter } from './combat/encounter'
-import { DEFAULT_COMBAT_CONFIG, HOME_PATROL } from './combat/config'
+import { DEFAULT_COMBAT_CONFIG, DEFAULT_PATROL_CONFIG, HOME_PATROL } from './combat/config'
 import { DEFAULT_FOCUS_CONFIG, DEFAULT_AVATAR_STATE_CONFIG } from './focus/config'
 import { emptyFocus, stepFocus, type FocusEvents } from './focus/focus'
 import { traversalRatePerSecond, fellOutOfWorld } from './focus/sources'
@@ -408,7 +408,10 @@ function start(): void {
         DEFAULT_SLIPSTREAM_CONFIG,
       ),
       staffSwing,
-    }, dt, fightConfig, { ground: world.terrain, worldFloorY: ARCHIPELAGO.worldFloorY })
+    }, dt, fightConfig, {
+      ground: world.terrain, worldFloorY: ARCHIPELAGO.worldFloorY,
+      spawns: HOME_PATROL, patrol: DEFAULT_PATROL_CONFIG,
+    })
     encounter = fight.encounter
     for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy, camera.quaternion)
 
