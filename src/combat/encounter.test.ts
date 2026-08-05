@@ -675,4 +675,33 @@ describe('a cleared patrol comes back', () => {
     expect(step.restoredThisFrame).toEqual([])
     expect(isDowned(step.encounter.enemies[0]!.health)).toBe(true)
   })
+
+  it('regression guard: a gust cannot land on the same frame the patrol restores', () => {
+    // Production's respawnRange (40, in DEFAULT_PATROL_CONFIG) sits beyond every
+    // weapon's reach -- gust's range of 12 included -- so the shipped tuning can never
+    // let a restore and a landing attack coincide on one frame; that gap is what makes
+    // leaving-and-returning safe in the first place. The respawnRange of 5 below exists
+    // solely to force the two to overlap so the restore-last ordering is actually
+    // observable by a test. Do not "fix" this back to 40: that would silently disarm
+    // the guard, since with 40 this test could never fail even with the ordering bug
+    // it exists to catch.
+    const closeRespawn = { ...withPatrol, patrol: { respawnRange: 5 } }
+    let encounter = clear()
+    // Holding gust down through clear() leaves its cooldown mid-cycle, not spent. Settle
+    // it fully before the frame under test, so the attack below is a live attempt to
+    // connect rather than one that silently no-ops on cooldown.
+    for (let i = 0; i < 60; i++) {
+      encounter = stepEncounter(encounter, defaults, 1 / 60, C, withPatrol).encounter
+    }
+    // 6 units out: past respawnRange (5), so the restore fires, but still inside gust's
+    // range (12) and cone, aimed straight down the spawn, so a gust this frame would
+    // otherwise connect.
+    const justBeyondButInGustRange = {
+      ...defaults, playerPosition: new Vector3(0, 0, 4), gustPressed: true,
+    }
+    const step = stepEncounter(encounter, justBeyondButInGustRange, 1 / 60, C, closeRespawn)
+    expect(step.restoredThisFrame).toEqual(['a'])
+    expect(step.hitThisFrame).toEqual([])
+    expect(step.downedThisFrame).toEqual([])
+  })
 })
