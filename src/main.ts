@@ -44,6 +44,9 @@ import { collectStep } from './player/shrine-collect'
 import { enableShadows } from './core/sun'
 import { createAvatar } from './player/avatar'
 import { createGlider } from './player/glider'
+import { createAimTell } from './fx/aim-tell'
+import { anyLiveGustTarget } from './combat/gust'
+import { stallSeverity } from './player/stall'
 import { animationFor, chargeSquashScale } from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
 import { createHud, hudModelFor } from './ui/hud'
@@ -190,6 +193,14 @@ function start(): void {
   const guard = createGuardShell()
   // Same attachment pattern as the aura: a child of avatar.object, not the model.
   avatar.object.add(guard.object)
+
+  // Parented to the scene, not the avatar, and deliberately so: the avatar is rotated in
+  // syncVisuals from the *interpolated* heading, but this tell must read the simulation's
+  // player.forward, which is the same value inGust tests. Parenting to the avatar would
+  // inherit the facing for free but would then be reading the wrong heading — a hit-volume
+  // tell has to agree with the hit, not with the smoothed visual.
+  const aimTell = createAimTell()
+  scene.add(aimTell.object)
 
   // BASE_URL, not a bare absolute path: vite.config.ts sets base to
   // '/airbender-skies/' for GitHub Pages, so "/models/..." would resolve in dev
@@ -402,6 +413,18 @@ function start(): void {
       })
     }
 
+    // One value, two consumers: the HUD readout and the wing shudder. stallSeverity applies
+    // the posture gate itself, so neither of them has to know that a walk is slower than
+    // stall speed.
+    //
+    // Read here rather than straight after the step, because `player` is reassigned twice
+    // between the two — by the slam bounce and by the shrine collection — and this must be
+    // the same velocity the HUD's airspeed number is formatted from. Computed earlier, a slam
+    // frame took the number from the post-bounce velocity and the warning colour from the
+    // pre-bounce one, so the readout reddened a frame out of step with itself. It has to stay
+    // above both consumers: `glider.update` below and the `hudModelFor` call after it.
+    const stall = stallSeverity(player, DEFAULT_FLIGHT_CONFIG)
+
     avatar.setAnimation(animationFor(player))
     avatar.setSquash(chargeSquashScale(player, deps.ground))
     followSun(player.position)
@@ -420,7 +443,7 @@ function start(): void {
     const staffProgress = rawStaffProgress === null
       ? null
       : (player.staffChain % 2 === 0 ? 1 - rawStaffProgress : rawStaffProgress)
-    glider.update(dt, player.mode === 'glider', staffProgress)
+    glider.update(dt, player.mode === 'glider', staffProgress, stall)
     aura.update(dt, avatarActive)
     // Tracks the invulnerability window exactly, not the whole dash: the window is
     // the mechanic, so the shell must vanish the instant `isInvulnerable` goes false.
@@ -438,16 +461,34 @@ function start(): void {
 
     effects.advance(dt)
 
-    // Hoisted so the drawn cone and the resolved gust cannot read different configs.
-    // During the Avatar State the gust's reach and cooldown differ from the base config,
-    // and a cone drawn from the base one would misrepresent what the fight just did.
+    // Hoisted so every tell drawn below and the gust the fight resolves cannot read
+    // different configs. The Avatar State's boost is confined to the gust's damage,
+    // knockback and cooldown — none of which is a shape — so nothing drawn from this
+    // config differs from the base one today. Reading the boosted config anyway is what
+    // keeps that true for free if a future boost ever does reach a range or a half angle;
+    // see the comment on aimTell below.
     const fightConfig = boostedCombatConfig(
       DEFAULT_COMBAT_CONFIG, avatarActive, DEFAULT_AVATAR_STATE_CONFIG,
     )
 
-    // fightConfig.vortex, not the unboosted default, so the tell agrees with whatever
-    // the Avatar State is currently doing to the move's reach.
+    // fightConfig.vortex rather than the unboosted default, for that same defensive reason
+    // and no other: `boostedCombatConfig` does not touch the vortex at all, so this is the
+    // very same object as the default today. Reading it here is what makes the tell follow
+    // on its own if a boost ever does reach the vortex.
     chargeTell.update(dt, encounter.vortexHeldSeconds, fightConfig.vortex)
+
+    // fightConfig, not the unboosted default, so the preview and the fired cone
+    // (`createGustCone` below, also fed `fightConfig.gust`) read one source and cannot
+    // diverge if a future boost ever does touch the gust's range or half angle — the same
+    // reason chargeTell reads it. Today's Avatar State does not: `boostedCombatConfig`
+    // (`src/focus/effects.ts`) only scales damage, knockback and cooldown.
+    aimTell.update(
+      player.position,
+      player.forward,
+      anyLiveGustTarget(player.position, player.forward, encounter.enemies, fightConfig.gust),
+      canGust(encounter),
+      fightConfig.gust,
+    )
 
     // Asked against the pre-step encounter, so the visual agrees with what stepEncounter
     // will actually do on this same frame rather than a frame late.
@@ -584,7 +625,7 @@ function start(): void {
       focus: focus.max > 0 ? focus.value / focus.max : 0,
       avatarCharge: armFraction(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
       avatarActive,
-    }, hurtFlash))
+    }, hurtFlash, stall))
 
     playerPositionLerp.record(player.position)
     playerForwardLerp.record(player.forward)

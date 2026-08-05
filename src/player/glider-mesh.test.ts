@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Box3 } from 'three'
+import { Box3, Object3D } from 'three'
 import { createGlider, PANELS_PER_SIDE } from './glider'
 
 function span(glider: ReturnType<typeof createGlider>) {
@@ -14,7 +14,7 @@ function span(glider: ReturnType<typeof createGlider>) {
 }
 
 function settle(glider: ReturnType<typeof createGlider>, deployed: boolean) {
-  for (let i = 0; i < 120; i++) glider.update(1 / 60, deployed, null)
+  for (let i = 0; i < 120; i++) glider.update(1 / 60, deployed, null, 0)
 }
 
 describe('createGlider assembly', () => {
@@ -144,7 +144,7 @@ describe('createGlider assembly', () => {
   it('never produces non-finite geometry mid-animation', () => {
     const glider = createGlider()
     for (let i = 0; i < 200; i++) {
-      glider.update(1 / 60, i % 40 < 20, null)
+      glider.update(1 / 60, i % 40 < 20, null, 0)
       const current = span(glider)
       for (const value of [current.x, current.y, current.z]) {
         expect(Number.isFinite(value)).toBe(true)
@@ -191,5 +191,142 @@ describe('the tail fin', () => {
     settle(glider, true)
     const finBox = new Box3().setFromObject(fin(glider))
     expect(finBox.max.y - finBox.min.y).toBeGreaterThan(0.2)
+  })
+})
+
+describe('the stall shudder', () => {
+  /** Panel pivot Y angles, which is what the shudder perturbs. */
+  function panelAngles(glider: { object: Object3D }): number[] {
+    const angles: number[] = []
+    glider.object.traverse((node) => {
+      if (node.name === 'wing-panel-pivot') angles.push(node.rotation.y)
+    })
+    return angles
+  }
+
+  it('holds the panels still while the wing is flying', () => {
+    const glider = createGlider()
+    for (let i = 0; i < 120; i++) glider.update(1 / 60, true, null, 0)
+    const first = panelAngles(glider)
+    for (let i = 0; i < 20; i++) glider.update(1 / 60, true, null, 0)
+    expect(panelAngles(glider)).toEqual(first)
+  })
+
+  it('moves the panels while stalling', () => {
+    const glider = createGlider()
+    for (let i = 0; i < 120; i++) glider.update(1 / 60, true, null, 0)
+    const settled = panelAngles(glider)
+    // Sampled across frames rather than probed once, because the shudder is an oscillation
+    // and a single sample can land on a zero crossing — the exact shape that shipped green
+    // and useless in this repo before.
+    let peak = 0
+    for (let i = 0; i < 40; i++) {
+      glider.update(1 / 60, true, null, 1)
+      const now = panelAngles(glider)
+      for (let p = 0; p < now.length; p++) {
+        peak = Math.max(peak, Math.abs((now[p] ?? 0) - (settled[p] ?? 0)))
+      }
+    }
+    // A real margin against the amplitude, not a bare `> 0`.
+    expect(peak).toBeGreaterThan(0.04)
+  })
+
+  it('shudders harder the worse the stall', () => {
+    const peakAt = (stall: number) => {
+      const glider = createGlider()
+      for (let i = 0; i < 120; i++) glider.update(1 / 60, true, null, 0)
+      const settled = panelAngles(glider)
+      let peak = 0
+      for (let i = 0; i < 40; i++) {
+        glider.update(1 / 60, true, null, stall)
+        const now = panelAngles(glider)
+        for (let p = 0; p < now.length; p++) {
+          peak = Math.max(peak, Math.abs((now[p] ?? 0) - (settled[p] ?? 0)))
+        }
+      }
+      return peak
+    }
+    expect(peakAt(1)).toBeGreaterThan(peakAt(0.3) * 1.5)
+  })
+
+  /**
+   * The shudder alone, isolated from the fan angles it is composed onto.
+   *
+   * Two gliders driven with an identical frame sequence and identical arguments apart from
+   * the stall: every other contribution to a pivot's angle is therefore the same in both, so
+   * the difference between them is exactly the flutter. Comparing a stalling glider against
+   * its own settled angles cannot work here, because the fan angles are still changing while
+   * the wing unfurls, which is the whole situation under test.
+   */
+  function flutterVsFold(frames: number, skip = 0): { flutter: number; fold: number } {
+    const shuddering = createGlider()
+    const calm = createGlider()
+    let flutter = 0
+    let fold = 0
+    for (let i = 0; i < skip + frames; i++) {
+      shuddering.update(1 / 60, true, null, 1)
+      calm.update(1 / 60, true, null, 0)
+      if (i < skip) continue
+      const shaken = panelAngles(shuddering)
+      const still = panelAngles(calm)
+      for (let p = 0; p < shaken.length; p++) {
+        flutter = Math.max(flutter, Math.abs((shaken[p] ?? 0) - (still[p] ?? 0)))
+        fold = Math.max(fold, Math.abs(still[p] ?? 0))
+      }
+    }
+    return { flutter, fold }
+  }
+
+  it('shudders far less while the wing is still folding than once it is open', () => {
+    // Reachable, not theoretical: on the frame the mode flips to glider, `deployed` and a high
+    // stall arrive together, so deploying at a jump apex with the airspeed already gone used to
+    // buzz leaves still stacked into a stick at the full open-wing amplitude.
+    //
+    // The first three frames of the roughly eighteen the open takes, against a window well
+    // after it finishes. A margin of five rather than a bare `<`: the wing is only a
+    // fourteenth of the way eased open across those frames, so anything close to parity means
+    // the amplitude is not following the fold at all.
+    const early = flutterVsFold(3).flutter
+    const open = flutterVsFold(40, 60).flutter
+    expect(early).toBeGreaterThan(0)
+    expect(early).toBeLessThan(open * 0.2)
+  })
+
+  it('never flutters a leaf further than the fold has already opened it', () => {
+    // The defect in its measurable form. Before the fold scaling, frame one of the open put
+    // 0.048 radians of flutter on panels open by 0.012 — the shudder was four times the wing
+    // doing it, which reads as a stick vibrating rather than as a wing losing lift. Compared
+    // per frame across the whole open, so no single lucky frame can carry it.
+    for (let frame = 1; frame <= 30; frame++) {
+      const { flutter, fold } = flutterVsFold(frame)
+      expect(flutter, `through frame ${frame}`).toBeLessThanOrEqual(fold)
+    }
+  })
+
+  it('leaves a stowed staff perfectly still, however bad the stall', () => {
+    // The gate here is the OPPOSITE of the staff sweep's. The sweep applies while the glider
+    // is stowed, because that is when the staff is a weapon. A stowed walking stick must not
+    // vibrate because the player happens to be moving slowly on foot.
+    const glider = createGlider()
+    for (let i = 0; i < 120; i++) glider.update(1 / 60, false, null, 0)
+    const stowed = panelAngles(glider)
+    const rotation = glider.object.rotation.clone()
+    for (let i = 0; i < 40; i++) glider.update(1 / 60, false, null, 1)
+    expect(panelAngles(glider)).toEqual(stowed)
+    expect(glider.object.rotation.x).toBeCloseTo(rotation.x, 10)
+    expect(glider.object.rotation.y).toBeCloseTo(rotation.y, 10)
+    expect(glider.object.rotation.z).toBeCloseTo(rotation.z, 10)
+  })
+
+  it('is deterministic, so two gliders shudder identically', () => {
+    // Trigonometric rather than random, for the same reason src/fx/shake.ts is: a random
+    // shudder cannot be asserted about at all.
+    const a = createGlider()
+    const b = createGlider()
+    for (let i = 0; i < 30; i++) {
+      a.update(1 / 60, true, null, 1)
+      b.update(1 / 60, true, null, 1)
+    }
+    expect(panelAngles(a)).toEqual(panelAngles(b))
   })
 })

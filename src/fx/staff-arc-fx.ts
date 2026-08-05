@@ -1,8 +1,9 @@
 import {
-  DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial, RingGeometry, Vector3,
+  DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial, Vector3,
 } from 'three'
 import type { ConeShape } from '../combat/cone'
 import type { Effect } from './effect'
+import { SECTOR_FLAT_ROTATION_X, sectorGeometry } from './sector'
 
 /**
  * The staff's swing, drawn at the exact reach and half-angle the fight resolved with.
@@ -22,7 +23,6 @@ const HEIGHT = 1
  * sweep reads as an impact rather than as bending air.
  */
 const FILL_OPACITY = 0.55
-const SEGMENTS = 48
 const TINT = 0xffa64d
 
 export function createStaffArc(origin: Vector3, forward: Vector3, shape: ConeShape): Effect {
@@ -37,17 +37,17 @@ export function createStaffArc(origin: Vector3, forward: Vector3, shape: ConeSha
     group.lookAt(group.position.clone().add(flat.normalize()))
   }
 
-  // RingGeometry is authored in XY with theta anticlockwise from +X. After the -90°
-  // rotation below, local +Z corresponds to pre-rotation -Y, i.e. theta = -PI/2, so the
-  // span is centred there. staff-arc-fx.test.ts's containment check is the authority on
-  // this: if it disagrees, this offset is what is wrong.
-  const thetaLength = 2 * shape.halfAngle
-  const thetaStart = -Math.PI / 2 - shape.halfAngle
-
+  // The flattening convention (RingGeometry authored in XY, theta anticlockwise from +X,
+  // centred on -PI/2 so it lands on local +Z once flattened) lives in ./sector, shared with
+  // the gust cone and the aim preview — a local copy of the offset would drift silently,
+  // since a rotated sector still looks like a sector. staff-arc-fx.test.ts's containment
+  // check against inCone remains the independent authority on whether that convention is
+  // right: if it disagrees, the offset in sector.ts is what is wrong.
+  //
   // Drawn at radius 1 and scaled by shape.range, so the drawn radius comes from the shape
   // rather than being baked into the geometry — an opener and a finisher share this
   // geometry construction and differ only by the scale applied below.
-  const fillGeometry = new RingGeometry(0, 1, SEGMENTS, 1, thetaStart, thetaLength)
+  const fillGeometry = sectorGeometry(shape.halfAngle, 0, 1)
   const fillMaterial = new MeshBasicMaterial({
     color: TINT, transparent: true, side: DoubleSide, depthWrite: false,
     opacity: FILL_OPACITY,
@@ -57,7 +57,7 @@ export function createStaffArc(origin: Vector3, forward: Vector3, shape: ConeSha
     depthTest: false,
   })
   const fill = new Mesh(fillGeometry, fillMaterial)
-  fill.rotation.x = -Math.PI / 2
+  fill.rotation.x = SECTOR_FLAT_ROTATION_X
   fill.scale.setScalar(shape.range)
   fill.userData.excludeFromShadows = true
 

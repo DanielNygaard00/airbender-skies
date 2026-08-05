@@ -386,7 +386,7 @@ describe('createAvatar with the real committed model', () => {
     avatar.setAnimation('glide')
     for (let i = 0; i < 60; i++) {
       avatar.update(1 / 60)
-      glider.update(1 / 60, true, null)
+      glider.update(1 / 60, true, null, 0)
     }
     avatar.object.updateMatrixWorld(true)
 
