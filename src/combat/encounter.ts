@@ -3,7 +3,8 @@ import {
   applyDamage, fullHealth, isDowned, stepHealth, type Health, type HealthConfig,
 } from './health'
 import {
-  hitEnemy, spawnEnemy, stepEnemy, type Enemy, type EnemyConfig, type GroundHeightQuery,
+  hitEnemy, spawnEnemy, stepEnemy,
+  type Enemy, type EnemyConfig, type EnemyKind, type GroundHeightQuery,
 } from './enemy'
 import { gustImpulse, gustTargets, type GustConfig } from './gust'
 import {
@@ -12,6 +13,7 @@ import {
 import { vortexCharge, vortexImpulse, vortexTargets, type VortexConfig } from './vortex'
 import { staffDamage, staffImpulse, staffTargets, type StaffArcConfig } from './staff-arc'
 import { shouldRestorePatrol, type PatrolConfig } from './patrol'
+import type { ProjectileConfig } from './projectile'
 import type { StaffSwing } from '../player/staff'
 
 /**
@@ -34,7 +36,15 @@ export interface Encounter {
 
 export interface CombatConfig {
   player: HealthConfig
-  enemy: EnemyConfig
+  /**
+   * One config per kind of soldier, rather than one config full stop.
+   *
+   * A Record keyed by `EnemyKind` rather than an array, so a missing kind is a
+   * typecheck error at the point the config is written rather than an undefined at the
+   * point a soldier spawns.
+   */
+  enemies: Record<EnemyKind, EnemyConfig>
+  projectile: ProjectileConfig
   gust: GustConfig
   pressureWave: PressureWaveConfig
   vortex: VortexConfig
@@ -44,6 +54,7 @@ export interface CombatConfig {
 export interface EnemySpawn {
   id: string
   position: Vector3
+  kind: EnemyKind
 }
 
 /**
@@ -68,7 +79,9 @@ export interface EncounterDeps {
 
 export function startEncounter(spawns: readonly EnemySpawn[], c: CombatConfig): Encounter {
   return {
-    enemies: spawns.map((spawn) => spawnEnemy(spawn.id, spawn.position, 'spear', c.enemy)),
+    enemies: spawns.map((spawn) => spawnEnemy(
+      spawn.id, spawn.position, spawn.kind, c.enemies[spawn.kind],
+    )),
     playerHealth: fullHealth(c.player),
     gustCooldown: 0,
     vortexHeldSeconds: 0,
@@ -300,7 +313,9 @@ export function stepEncounter(
   let damageToPlayer = 0
   const lostThisFrame: string[] = []
   enemies = enemies.map((enemy) => {
-    const step = stepEnemy(enemy, input.playerPosition, deps.ground, deps.worldFloorY, dt, c.enemy)
+    const step = stepEnemy(
+      enemy, input.playerPosition, deps.ground, deps.worldFloorY, dt, c.enemies[enemy.kind],
+    )
     damageToPlayer += step.damageToPlayer
     if (step.fellOutOfWorld) lostThisFrame.push(step.enemy.id)
     return step.enemy
@@ -334,7 +349,9 @@ export function stepEncounter(
 
   let restoredThisFrame: string[] = []
   if (shouldRestorePatrol(enemies, deps.spawns, input.playerPosition, deps.patrol)) {
-    enemies = deps.spawns.map((spawn) => spawnEnemy(spawn.id, spawn.position, 'spear', c.enemy))
+    enemies = deps.spawns.map((spawn) => spawnEnemy(
+      spawn.id, spawn.position, spawn.kind, c.enemies[spawn.kind],
+    ))
     restoredThisFrame = enemies.map((enemy) => enemy.id)
   }
 

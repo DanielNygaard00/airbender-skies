@@ -22,7 +22,7 @@ const C: PressureWaveConfig = {
 
 const ORIGIN = new Vector3(0, 0, 0)
 const at = (x: number, z: number): Enemy =>
-  spawnEnemy(`${x}:${z}`, new Vector3(x, 0, z), 'spear', DEFAULT_COMBAT_CONFIG.enemy)
+  spawnEnemy(`${x}:${z}`, new Vector3(x, 0, z), 'spear', DEFAULT_COMBAT_CONFIG.enemies.spear)
 
 describe('slamStrength', () => {
   it('is zero at the minimum impact and one at full', () => {
@@ -60,7 +60,7 @@ describe('waveDamage', () => {
     // The claim, stated against the enemy's health rather than against the damage
     // numbers the code reads. This threshold is the whole payoff of the move.
     const wave = DEFAULT_COMBAT_CONFIG.pressureWave
-    const health = DEFAULT_COMBAT_CONFIG.enemy.maxHealth
+    const health = DEFAULT_COMBAT_CONFIG.enemies.spear.maxHealth
     expect(waveDamage(1, wave)).toBeGreaterThanOrEqual(health)
     expect(waveDamage(0, wave)).toBeLessThan(health)
   })
@@ -90,7 +90,7 @@ describe('waveTargets', () => {
   })
 
   it('measures reach by horizontal distance alone, so height does not shelter anyone', () => {
-    const overhead = spawnEnemy('up', new Vector3(0, 40, 0), 'spear', DEFAULT_COMBAT_CONFIG.enemy)
+    const overhead = spawnEnemy('up', new Vector3(0, 40, 0), 'spear', DEFAULT_COMBAT_CONFIG.enemies.spear)
     // Caught, because the horizontal distance is zero. Pinned deliberately: it matches
     // how the gust measures reach, and every enemy in the game stands on the ground, so
     // a vertical test would be untested complexity. Revisit when a flying enemy exists.

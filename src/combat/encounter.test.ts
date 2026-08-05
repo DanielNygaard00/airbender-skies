@@ -9,15 +9,30 @@ import { DEFAULT_COMBAT_CONFIG } from './config'
 
 const C: CombatConfig = {
   player: { maxHealth: 5, outOfCombatSeconds: 4, regenPerSecond: 0.4 },
-  enemy: {
-    maxHealth: 1.5, outOfCombatSeconds: 4, regenPerSecond: 0,
-    moveSpeed: 4, strikeRange: 3, aggroRange: 30, windUpSeconds: 0.5, recoverSeconds: 0.6,
-    attack: { kind: 'melee', damage: 1 }, knockbackDamping: 3,
-    // Matches DEFAULT_COMBAT_CONFIG.enemy.gravity.
-    gravity: 20,
-    // Matches DEFAULT_COMBAT_CONFIG.enemy.snapDistance.
-    snapDistance: 1.2,
+  enemies: {
+    spear: {
+      maxHealth: 1.5, outOfCombatSeconds: 4, regenPerSecond: 0,
+      moveSpeed: 4, strikeRange: 3, aggroRange: 30, windUpSeconds: 0.5, recoverSeconds: 0.6,
+      attack: { kind: 'melee', damage: 1 }, knockbackDamping: 3,
+      // Matches DEFAULT_COMBAT_CONFIG.enemies.spear.gravity.
+      gravity: 20,
+      // Matches DEFAULT_COMBAT_CONFIG.enemies.spear.snapDistance.
+      snapDistance: 1.2,
+    },
+    // Deliberately different from the spear on every tuning axis, and its
+    // strikeRange (22) is well past the 10 units a mixed-patrol fixture needs to
+    // stand back an archer, and distinct from the shipped config's 40 so a test
+    // that accidentally read the real config would be visible.
+    archer: {
+      maxHealth: 1, outOfCombatSeconds: 4, regenPerSecond: 0,
+      moveSpeed: 3, strikeRange: 22, aggroRange: 35, windUpSeconds: 0.6, recoverSeconds: 0.9,
+      attack: { kind: 'projectile', damage: 1, speed: 20 }, knockbackDamping: 3,
+      gravity: 20,
+      snapDistance: 1.2,
+    },
   },
+  // Not exercised by this file's own tests, but required by CombatConfig's shape.
+  projectile: { hitRadius: 0.9, maxSeconds: 4 },
   gust: { range: 12, halfAngle: Math.PI / 3, damage: 0.5, knockback: 26, cooldownSeconds: 0.5 },
   pressureWave: {
     minImpactSpeed: 10, fullImpactSpeed: 50, minRadius: 4, maxRadius: 12,
@@ -41,7 +56,7 @@ const C: CombatConfig = {
 
 const ORIGIN = new Vector3(0, 0, 0)
 const NORTH = new Vector3(0, 0, -1)
-const near = () => startEncounter([{ id: 'a', position: new Vector3(0, 0, -2) }], C)
+const near = () => startEncounter([{ id: 'a', position: new Vector3(0, 0, -2), kind: 'spear' }], C)
 
 // Flat, bottomless-pit-free ground: existing tests were written before gravity
 // existed, so a flat floor well below anything the fight does keeps them
@@ -80,7 +95,7 @@ describe('the fight runs', () => {
   })
 
   it('leaves a player alone who keeps their distance', () => {
-    const far = startEncounter([{ id: 'a', position: new Vector3(0, 0, -80) }], C)
+    const far = startEncounter([{ id: 'a', position: new Vector3(0, 0, -80), kind: 'spear' }], C)
     expect(run(2, {}, far).hits).toBe(0)
   })
 })
@@ -103,7 +118,7 @@ describe('gusting', () => {
     const winding = {
       ...base,
       enemies: base.enemies.map((enemy) => ({
-        ...enemy, stance: 'wind-up' as const, stanceTime: C.enemy.windUpSeconds - (1 / 60) / 2,
+        ...enemy, stance: 'wind-up' as const, stanceTime: C.enemies.spear.windUpSeconds - (1 / 60) / 2,
       })),
     }
     const gusted = stepEncounter(winding, { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
@@ -135,7 +150,7 @@ describe('gusting', () => {
     const fired = stepEncounter(near(), { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
     const settled = run(C.gust.cooldownSeconds, {}, fired.encounter).encounter
     const distance = Math.hypot(settled.enemies[0]!.position.x, settled.enemies[0]!.position.z)
-    expect(distance).toBeGreaterThan(C.enemy.strikeRange)
+    expect(distance).toBeGreaterThan(C.enemies.spear.strikeRange)
   })
 
   it('downs an enemy across a sustained fight, so the damage does accumulate', () => {
@@ -156,8 +171,8 @@ describe('gusting', () => {
 
   it('reports the enemies a gust connected with', () => {
     const encounter = startEncounter([
-      { id: 'a', position: new Vector3(0, 0, -2) },
-      { id: 'b', position: new Vector3(0, 0, -40) },
+      { id: 'a', position: new Vector3(0, 0, -2), kind: 'spear' },
+      { id: 'b', position: new Vector3(0, 0, -40), kind: 'spear' },
     ], C)
     const step = stepEncounter(encounter, { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
 
@@ -196,9 +211,9 @@ describe('slamming', () => {
   })
 
   it('leaves an enemy outside the blast alone', () => {
-    const far = startEncounter([{ id: 'a', position: new Vector3(0, 0, -60) }], C)
+    const far = startEncounter([{ id: 'a', position: new Vector3(0, 0, -60), kind: 'spear' }], C)
     const step = stepEncounter(far, slamAt(1), 1 / 60, C, DEPS)
-    expect(step.encounter.enemies[0]!.health.current).toBeCloseTo(C.enemy.maxHealth)
+    expect(step.encounter.enemies[0]!.health.current).toBeCloseTo(C.enemies.spear.maxHealth)
   })
 
   it('downs an enemy in one full-strength slam', () => {
@@ -216,7 +231,7 @@ describe('slamming', () => {
   })
 
   it('hits enemies behind the player, unlike a gust', () => {
-    const behind = startEncounter([{ id: 'b', position: new Vector3(0, 0, 2) }], C)
+    const behind = startEncounter([{ id: 'b', position: new Vector3(0, 0, 2), kind: 'spear' }], C)
     const step = stepEncounter(behind, slamAt(1), 1 / 60, C, DEPS)
     expect(step.slamHitThisFrame).toEqual(['b'])
   })
@@ -244,7 +259,7 @@ describe('slamming', () => {
   it('changes nothing on a frame with no slam', () => {
     const step = stepEncounter(near(), defaults, 1 / 60, C, DEPS)
     expect(step.slamHitThisFrame).toEqual([])
-    expect(step.encounter.enemies[0]!.health.current).toBeCloseTo(C.enemy.maxHealth)
+    expect(step.encounter.enemies[0]!.health.current).toBeCloseTo(C.enemies.spear.maxHealth)
   })
 
   it('interrupts a wind-up instead of trading with it', () => {
@@ -256,7 +271,7 @@ describe('slamming', () => {
     const winding = {
       ...base,
       enemies: base.enemies.map((enemy) => ({
-        ...enemy, stance: 'wind-up' as const, stanceTime: C.enemy.windUpSeconds - (1 / 60) / 2,
+        ...enemy, stance: 'wind-up' as const, stanceTime: C.enemies.spear.windUpSeconds - (1 / 60) / 2,
       })),
     }
     const slammed = stepEncounter(winding, slamAt(0.3), 1 / 60, C, DEPS)
@@ -321,7 +336,7 @@ describe('a vortex', () => {
 
   it('lifts a caught enemy and spends the cooldown', () => {
     const step = chargeAndRelease(
-      DEFAULT_COMBAT_CONFIG.vortex.maxChargeSeconds, [{ id: 'a', position: new Vector3(3, 0, 0) }],
+      DEFAULT_COMBAT_CONFIG.vortex.maxChargeSeconds, [{ id: 'a', position: new Vector3(3, 0, 0), kind: 'spear' }],
     )
     const enemy = step.encounter.enemies[0]
     if (!enemy) throw new Error('expected an enemy')
@@ -335,18 +350,18 @@ describe('a vortex', () => {
     // vortexFired is asserted too: without it, this test would pass just as well
     // against a vortex that never fired at all, which proves nothing about the move.
     const step = chargeAndRelease(
-      DEFAULT_COMBAT_CONFIG.vortex.maxChargeSeconds, [{ id: 'a', position: new Vector3(3, 0, 0) }],
+      DEFAULT_COMBAT_CONFIG.vortex.maxChargeSeconds, [{ id: 'a', position: new Vector3(3, 0, 0), kind: 'spear' }],
     )
     const enemy = step.encounter.enemies[0]
     if (!enemy) throw new Error('expected an enemy')
     expect(step.vortexFired).not.toBeNull()
-    expect(enemy.health.current).toBeCloseTo(DEFAULT_COMBAT_CONFIG.enemy.maxHealth, 5)
+    expect(enemy.health.current).toBeCloseTo(DEFAULT_COMBAT_CONFIG.enemies.spear.maxHealth, 5)
   })
 
   it('cancels for free below the minimum charge', () => {
     const step = chargeAndRelease(
       DEFAULT_COMBAT_CONFIG.vortex.minChargeSeconds / 2,
-      [{ id: 'a', position: new Vector3(3, 0, 0) }],
+      [{ id: 'a', position: new Vector3(3, 0, 0), kind: 'spear' }],
     )
     const enemy = step.encounter.enemies[0]
     if (!enemy) throw new Error('expected an enemy')
@@ -361,7 +376,7 @@ describe('a vortex', () => {
     // earlier version of this test in this file used a fixture that never reached
     // wind-up, so it passed against a move that interrupted nothing.
     let encounter = startEncounter(
-      [{ id: 'a', position: new Vector3(2, 0, 0) }], DEFAULT_COMBAT_CONFIG,
+      [{ id: 'a', position: new Vector3(2, 0, 0), kind: 'spear' }], DEFAULT_COMBAT_CONFIG,
     )
     for (let t = 0; t < 1; t += 1 / 60) {
       encounter = stepEncounter(encounter, defaults, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS).encounter
@@ -382,7 +397,7 @@ describe('a vortex', () => {
 
   it('cannot charge while on cooldown', () => {
     const fired = chargeAndRelease(
-      DEFAULT_COMBAT_CONFIG.vortex.maxChargeSeconds, [{ id: 'a', position: new Vector3(3, 0, 0) }],
+      DEFAULT_COMBAT_CONFIG.vortex.maxChargeSeconds, [{ id: 'a', position: new Vector3(3, 0, 0), kind: 'spear' }],
     )
     const held = stepEncounter(
       fired.encounter, { ...defaults, vortexHeld: true }, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
@@ -407,7 +422,7 @@ describe('invulnerability', () => {
   /** Step until the enemy's strike would land, returning every step. */
   const untilStrike = (invulnerable: boolean) => {
     let encounter = startEncounter(
-      [{ id: 'a', position: new Vector3(1, 0, 0) }], DEFAULT_COMBAT_CONFIG,
+      [{ id: 'a', position: new Vector3(1, 0, 0), kind: 'spear' }], DEFAULT_COMBAT_CONFIG,
     )
     const steps = []
     // At this range the enemy is in strike range from frame one, so wind-up,
@@ -415,7 +430,7 @@ describe('invulnerability', () => {
     // window has to land inside that first recovery and stop short of the next
     // wind-up, or the exact stopping point would depend on which phase of a later
     // cycle a hardcoded duration happens to land in.
-    const enemyC = DEFAULT_COMBAT_CONFIG.enemy
+    const enemyC = DEFAULT_COMBAT_CONFIG.enemies.spear
     const duration = enemyC.windUpSeconds + enemyC.recoverSeconds / 2
     for (let t = 0; t < duration; t += 1 / 60) {
       const step = stepEncounter(
@@ -474,31 +489,31 @@ describe('a staff swing', () => {
   )
 
   it('damages an enemy in the arc and reports the hit', () => {
-    const step = swing(false, [{ id: 'a', position: new Vector3(0, 0, -2) }])
+    const step = swing(false, [{ id: 'a', position: new Vector3(0, 0, -2), kind: 'spear' }])
     const enemy = step.encounter.enemies[0]
     if (!enemy) throw new Error('expected an enemy')
     expect(enemy.health.current).toBeCloseTo(
-      DEFAULT_COMBAT_CONFIG.enemy.maxHealth - DEFAULT_COMBAT_CONFIG.staffArc.openerDamage, 5,
+      DEFAULT_COMBAT_CONFIG.enemies.spear.maxHealth - DEFAULT_COMBAT_CONFIG.staffArc.openerDamage, 5,
     )
     expect(step.staffHitThisFrame).toEqual(['a'])
   })
 
   it('leaves an enemy outside the arc alone', () => {
-    const step = swing(false, [{ id: 'a', position: new Vector3(0, 0, 20) }])
+    const step = swing(false, [{ id: 'a', position: new Vector3(0, 0, 20), kind: 'spear' }])
     expect(step.staffHitThisFrame).toEqual([])
   })
 
   it('hits a whole group with one swing', () => {
     const step = swing(false, [
-      { id: 'a', position: new Vector3(-1.5, 0, -1.5) },
-      { id: 'b', position: new Vector3(0, 0, -2) },
-      { id: 'c', position: new Vector3(1.5, 0, -1.5) },
+      { id: 'a', position: new Vector3(-1.5, 0, -1.5), kind: 'spear' },
+      { id: 'b', position: new Vector3(0, 0, -2), kind: 'spear' },
+      { id: 'c', position: new Vector3(1.5, 0, -1.5), kind: 'spear' },
     ])
     expect(step.staffHitThisFrame.sort()).toEqual(['a', 'b', 'c'])
   })
 
   it('hits harder on the finisher', () => {
-    const spawns = [{ id: 'a', position: new Vector3(0, 0, -2) }]
+    const spawns: EnemySpawn[] = [{ id: 'a', position: new Vector3(0, 0, -2), kind: 'spear' }]
     const opener = swing(false, spawns).encounter.enemies[0]
     const finisher = swing(true, spawns).encounter.enemies[0]
     if (!opener || !finisher) throw new Error('expected enemies')
@@ -508,7 +523,7 @@ describe('a staff swing', () => {
   it('keeps its hits apart from gust connects and slam hits', () => {
     // Each of the three feeds a differently tuned Focus grant, so folding them together
     // would pay the wrong rate.
-    const step = swing(false, [{ id: 'a', position: new Vector3(0, 0, -2) }])
+    const step = swing(false, [{ id: 'a', position: new Vector3(0, 0, -2), kind: 'spear' }])
     expect(step.hitThisFrame).toEqual([])
     expect(step.slamHitThisFrame).toEqual([])
   })
@@ -517,7 +532,7 @@ describe('a staff swing', () => {
     // Stepped into a genuine wind-up first rather than assumed: a fixture that never
     // reaches one would pass against a swing that interrupts nothing.
     let encounter = startEncounter(
-      [{ id: 'a', position: new Vector3(0, 0, -2) }], DEFAULT_COMBAT_CONFIG,
+      [{ id: 'a', position: new Vector3(0, 0, -2), kind: 'spear' }], DEFAULT_COMBAT_CONFIG,
     )
     for (let t = 0; t < 1; t += 1 / 60) {
       encounter = stepEncounter(encounter, defaults, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS).encounter
@@ -538,9 +553,9 @@ describe('a staff swing', () => {
     // out of the opener's range on their own. That would make the assertion below
     // pass on distance alone, with the isDowned guard never in the loop.
     const hitsToDown = Math.ceil(
-      DEFAULT_COMBAT_CONFIG.enemy.maxHealth / DEFAULT_COMBAT_CONFIG.staffArc.finisherDamage,
+      DEFAULT_COMBAT_CONFIG.enemies.spear.maxHealth / DEFAULT_COMBAT_CONFIG.staffArc.finisherDamage,
     )
-    const spawns = [{ id: 'a', position: new Vector3(0, 0, -2) }]
+    const spawns: EnemySpawn[] = [{ id: 'a', position: new Vector3(0, 0, -2), kind: 'spear' }]
     let encounter = startEncounter(spawns, DEFAULT_COMBAT_CONFIG)
     for (let i = 0; i < hitsToDown; i++) {
       encounter = stepEncounter(
@@ -571,7 +586,7 @@ describe('a removal by accident is reported apart from a knockdown', () => {
   }
 
   it('reports a fallen enemy as lost', () => {
-    const start = startEncounter([{ id: 'a', position: new Vector3(0, 0, -2) }], C)
+    const start = startEncounter([{ id: 'a', position: new Vector3(0, 0, -2), kind: 'spear' }], C)
     const step = stepEncounter(start, defaults, 1 / 60, C, voidDeps)
     expect(step.lostThisFrame).toEqual(['a'])
   })
@@ -581,7 +596,7 @@ describe('a removal by accident is reported apart from a knockdown', () => {
     // across the step, so a fallen enemy lands in it as well -- and Focus would grant
     // both downGain and accidentDownGain for one soldier. A test that only checks
     // `lostThisFrame` passes while that is live, which is why this asserts both.
-    const start = startEncounter([{ id: 'a', position: new Vector3(0, 0, -2) }], C)
+    const start = startEncounter([{ id: 'a', position: new Vector3(0, 0, -2), kind: 'spear' }], C)
     const step = stepEncounter(start, defaults, 1 / 60, C, voidDeps)
     expect(step.lostThisFrame).toEqual(['a'])
     expect(step.downedThisFrame).toEqual([])
@@ -589,7 +604,7 @@ describe('a removal by accident is reported apart from a knockdown', () => {
 
   it('reports a gusted enemy as downed and not as lost', () => {
     // The other direction: the split must not have moved ordinary knockdowns.
-    let encounter = startEncounter([{ id: 'a', position: new Vector3(0, 0, -2) }], C)
+    let encounter = startEncounter([{ id: 'a', position: new Vector3(0, 0, -2), kind: 'spear' }], C)
     const downs: string[] = []
     const losses: string[] = []
     for (let i = 0; i < 240; i++) {
@@ -612,7 +627,7 @@ describe('a removal by accident is reported apart from a knockdown', () => {
 })
 
 describe('a cleared patrol comes back', () => {
-  const SPAWNS: EnemySpawn[] = [{ id: 'a', position: new Vector3(0, 0, -2) }]
+  const SPAWNS: EnemySpawn[] = [{ id: 'a', position: new Vector3(0, 0, -2), kind: 'spear' }]
   const withPatrol = { ...DEPS, spawns: SPAWNS, patrol: { respawnRange: 40 } }
 
   /** Gust the soldier down, standing next to it. */
@@ -640,7 +655,7 @@ describe('a cleared patrol comes back', () => {
     expect(step.restoredThisFrame).toEqual(['a'])
     const restored = step.encounter.enemies[0]
     if (!restored) throw new Error('the patrol should have been restored')
-    expect(restored.health.current).toBe(C.enemy.maxHealth)
+    expect(restored.health.current).toBe(C.enemies.spear.maxHealth)
     expect(isDowned(restored.health)).toBe(false)
     expect(restored.position.z).toBeCloseTo(-2)
   })
@@ -751,5 +766,43 @@ describe('a cleared patrol comes back', () => {
     // fix above would have traded one wrong position for another.
     const step = stepEncounter(near(), defaults, 1 / 60, C, DEPS)
     expect(step.enemiesBeforeRestore).toEqual(step.encounter.enemies)
+  })
+})
+
+describe('a mixed patrol', () => {
+  const MIXED: EnemySpawn[] = [
+    { id: 'spear-1', position: new Vector3(0, 0, -2), kind: 'spear' },
+    { id: 'archer-1', position: new Vector3(0, 0, -20), kind: 'archer' },
+  ]
+
+  it('spawns each soldier as its own kind', () => {
+    const encounter = startEncounter(MIXED, C)
+    expect(encounter.enemies.map((e) => e.kind)).toEqual(['spear', 'archer'])
+  })
+
+  it('gives each kind its own health', () => {
+    // The two configs differ, so this catches both being built from one of them.
+    const encounter = startEncounter(MIXED, C)
+    const [spear, archer] = encounter.enemies
+    if (!spear || !archer) throw new Error('fixture')
+    expect(spear.health.max).toBeCloseTo(C.enemies.spear.maxHealth)
+    expect(archer.health.max).toBeCloseTo(C.enemies.archer.maxHealth)
+    // And a margin, so a config where the two happen to match would not pass vacuously.
+    expect(archer.health.max).toBeLessThan(spear.health.max * 0.95)
+  })
+
+  it('restores each soldier as its own kind', () => {
+    // The restore builds fresh enemies from the spawn list, so it has to read the kind
+    // there too rather than defaulting everything to a spear.
+    const withPatrol = { ...DEPS, spawns: MIXED, patrol: { respawnRange: 40 } }
+    let encounter = startEncounter(MIXED, C)
+    encounter = {
+      ...encounter,
+      enemies: encounter.enemies.map((e) => ({ ...e, health: { ...e.health, current: 0 } })),
+    }
+    const away = { ...defaults, playerPosition: new Vector3(0, 0, -500) }
+    const step = stepEncounter(encounter, away, 1 / 60, C, withPatrol)
+    expect(step.restoredThisFrame.length).toBe(2)
+    expect(step.encounter.enemies.map((e) => e.kind)).toEqual(['spear', 'archer'])
   })
 })

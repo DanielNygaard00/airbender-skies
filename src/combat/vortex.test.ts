@@ -5,7 +5,7 @@ import { spawnEnemy, horizontalDistance } from './enemy'
 import { DEFAULT_COMBAT_CONFIG } from './config'
 
 const V = DEFAULT_COMBAT_CONFIG.vortex
-const E = DEFAULT_COMBAT_CONFIG.enemy
+const E = DEFAULT_COMBAT_CONFIG.enemies.spear
 const ORIGIN = new Vector3(0, 0, 0)
 const at = (x: number, z: number) => new Vector3(x, 0, z)
 const enemyAt = (id: string, x: number, z: number) => spawnEnemy(id, at(x, z), 'spear', E)

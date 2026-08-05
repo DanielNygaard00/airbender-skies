@@ -20,8 +20,8 @@ const ENEMY_CONFIG: EnemyConfig = {
 // other, which makes `every` and `some` agree on every input this file can feed
 // shouldRestorePatrol -- and the quantifier test below could not fail.
 const SPAWNS: EnemySpawn[] = [
-  { id: 'a', position: new Vector3(0, 0, 0) },
-  { id: 'b', position: new Vector3(100, 0, 0) },
+  { id: 'a', position: new Vector3(0, 0, 0), kind: 'spear' },
+  { id: 'b', position: new Vector3(100, 0, 0), kind: 'spear' },
 ]
 
 const standing = (): Enemy[] =>
@@ -92,6 +92,6 @@ describe('the shipped patrol tuning', () => {
     // the player passes respawnRange, and the player can be walking back in, so "just
     // outside aggroRange" is not enough separation.
     expect(DEFAULT_PATROL_CONFIG.respawnRange)
-      .toBeGreaterThan(DEFAULT_COMBAT_CONFIG.enemy.aggroRange * 1.3)
+      .toBeGreaterThan(DEFAULT_COMBAT_CONFIG.enemies.spear.aggroRange * 1.3)
   })
 })

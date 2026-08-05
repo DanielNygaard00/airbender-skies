@@ -13,9 +13,9 @@ const E: EnemyConfig = {
   strikeRange: 3, aggroRange: 30, windUpSeconds: 0.5, recoverSeconds: 0.6,
   attack: { kind: 'melee', damage: 1 },
   knockbackDamping: 3,
-  // Matches DEFAULT_COMBAT_CONFIG.enemy.gravity.
+  // Matches DEFAULT_COMBAT_CONFIG.enemies.spear.gravity.
   gravity: 20,
-  // Matches DEFAULT_COMBAT_CONFIG.enemy.snapDistance.
+  // Matches DEFAULT_COMBAT_CONFIG.enemies.spear.snapDistance.
   snapDistance: 1.2,
 }
 
