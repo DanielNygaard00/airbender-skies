@@ -249,6 +249,60 @@ describe('the stall shudder', () => {
     expect(peakAt(1)).toBeGreaterThan(peakAt(0.3) * 1.5)
   })
 
+  /**
+   * The shudder alone, isolated from the fan angles it is composed onto.
+   *
+   * Two gliders driven with an identical frame sequence and identical arguments apart from
+   * the stall: every other contribution to a pivot's angle is therefore the same in both, so
+   * the difference between them is exactly the flutter. Comparing a stalling glider against
+   * its own settled angles cannot work here, because the fan angles are still changing while
+   * the wing unfurls, which is the whole situation under test.
+   */
+  function flutterVsFold(frames: number, skip = 0): { flutter: number; fold: number } {
+    const shuddering = createGlider()
+    const calm = createGlider()
+    let flutter = 0
+    let fold = 0
+    for (let i = 0; i < skip + frames; i++) {
+      shuddering.update(1 / 60, true, null, 1)
+      calm.update(1 / 60, true, null, 0)
+      if (i < skip) continue
+      const shaken = panelAngles(shuddering)
+      const still = panelAngles(calm)
+      for (let p = 0; p < shaken.length; p++) {
+        flutter = Math.max(flutter, Math.abs((shaken[p] ?? 0) - (still[p] ?? 0)))
+        fold = Math.max(fold, Math.abs(still[p] ?? 0))
+      }
+    }
+    return { flutter, fold }
+  }
+
+  it('shudders far less while the wing is still folding than once it is open', () => {
+    // Reachable, not theoretical: on the frame the mode flips to glider, `deployed` and a high
+    // stall arrive together, so deploying at a jump apex with the airspeed already gone used to
+    // buzz leaves still stacked into a stick at the full open-wing amplitude.
+    //
+    // The first three frames of the roughly eighteen the open takes, against a window well
+    // after it finishes. A margin of five rather than a bare `<`: the wing is only a
+    // fourteenth of the way eased open across those frames, so anything close to parity means
+    // the amplitude is not following the fold at all.
+    const early = flutterVsFold(3).flutter
+    const open = flutterVsFold(40, 60).flutter
+    expect(early).toBeGreaterThan(0)
+    expect(early).toBeLessThan(open * 0.2)
+  })
+
+  it('never flutters a leaf further than the fold has already opened it', () => {
+    // The defect in its measurable form. Before the fold scaling, frame one of the open put
+    // 0.048 radians of flutter on panels open by 0.012 — the shudder was four times the wing
+    // doing it, which reads as a stick vibrating rather than as a wing losing lift. Compared
+    // per frame across the whole open, so no single lucky frame can carry it.
+    for (let frame = 1; frame <= 30; frame++) {
+      const { flutter, fold } = flutterVsFold(frame)
+      expect(flutter, `through frame ${frame}`).toBeLessThanOrEqual(fold)
+    }
+  })
+
   it('leaves a stowed staff perfectly still, however bad the stall', () => {
     // The gate here is the OPPOSITE of the staff sweep's. The sweep applies while the glider
     // is stowed, because that is when the staff is a weapon. A stowed walking stick must not

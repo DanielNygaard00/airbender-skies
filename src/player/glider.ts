@@ -105,8 +105,9 @@ const SWEEP_ARC = MathUtils.degToRad(150)
  * The stall shudder.
  *
  * Amplitude is roughly an eighth of one panel's `FAN_SPREAD` share, so a full stall flutters
- * the leaves rather than flapping them. The frequency is about 5.4 cycles a second: fast
- * enough to read as a shudder rather than as a wobble.
+ * the leaves rather than flapping them. That figure is the fully-open amplitude: `apply()`
+ * scales it by the fold state, so a half-open wing shudders half as far. The frequency is
+ * about 5.4 cycles a second: fast enough to read as a shudder rather than as a wobble.
  */
 const SHUDDER_AMPLITUDE = 0.09
 const SHUDDER_FREQUENCY = 34
@@ -208,10 +209,19 @@ export function createGlider(): {
     // actually open. Note the gate is the OPPOSITE of the sweep's above: a sweep happens
     // while the staff is stowed and a weapon, a shudder while it is open and a wing.
     //
+    // Scaled by `eased`, the same fold state the fan angles above are built from, so the
+    // shudder can never be larger than the wing doing it. Without that factor it fired at
+    // full amplitude on leaves still stacked into a stick: deploying at a jump apex hands
+    // this a high stall on the very frame the mode flips, and frame one of the open put
+    // 0.048 radians of flutter on panels open by 0.012 — four times the fold state, for
+    // about three of the eighteen frames the wing takes to unfurl. The stow direction was
+    // always safe, since the mode flips to ground first and the posture gate zeroes stall.
+    //
     // Deterministic from an accumulated time, not Math.random(), for the same reason
     // src/fx/shake.ts is trigonometric: a random shudder cannot be asserted about.
     if (stall > 0 && openness > 1e-3) {
-      const flutter = Math.sin(shudderTime * SHUDDER_FREQUENCY) * SHUDDER_AMPLITUDE * stall
+      const flutter =
+        Math.sin(shudderTime * SHUDDER_FREQUENCY) * SHUDDER_AMPLITUDE * stall * eased
       for (const { pivot, index, side } of panels) {
         // Alternating by index so neighbouring leaves fight each other, which reads as a
         // flutter. Moving them all together would read as one more fan movement.
