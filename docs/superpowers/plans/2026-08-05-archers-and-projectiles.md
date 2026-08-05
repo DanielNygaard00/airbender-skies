@@ -1574,9 +1574,18 @@ The headline claim. Deploy, climb well above the spears' 26 units, and confirm a
 
 Hover above an archer and read a loosed arrow's velocity. Its y component must be positive and substantial, not near zero — a flattened aim is the specific bug the 3D branch exists to prevent.
 
-- [ ] **Step 3: A spear still cannot reach up**
+- [ ] **Step 3: A spear's reach is unchanged, and is still measured horizontally**
 
-The other half, and the regression that matters most: stand 2 units from a spear soldier and 20 up, and confirm it does not damage you. If it does, Task 1 broke the horizontal path.
+The regression that matters most — but note the correction below, because this step was originally worded backwards.
+
+"A spear cannot reach up" was sloppy shorthand for "a spear's reach is not measured in 3D". Measuring horizontally means height is **ignored**, not that height protects you. So a spear standing 2 units from a player who is 20 units overhead *does* hit them, and Task 1 has a test asserting exactly that, because it is the pre-existing behaviour this cycle must not change.
+
+What to verify, in both directions:
+
+- Stand 2 units from a spear soldier and 20 units up. It **should** damage you — height is ignored. That matches `enemy.test.ts`'s "still thrusts at a player almost directly overhead".
+- Stand 10 units away at ground level, outside its 3.2 reach. It should **not** damage you, and should close the distance instead.
+
+Together those pin that the melee path still measures horizontal distance and nothing else. A version of this step that expected height to protect the player would report a failure against correct code.
 
 - [ ] **Step 4: Arrows are visible, and hidden by terrain**
 
