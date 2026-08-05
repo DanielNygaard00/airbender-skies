@@ -10,7 +10,7 @@ const C: PatrolConfig = { respawnRange: 40 }
 const ENEMY_CONFIG: EnemyConfig = {
   maxHealth: 1.5, outOfCombatSeconds: 6, regenPerSecond: 0,
   moveSpeed: 4.2, strikeRange: 3.2, aggroRange: 26, windUpSeconds: 0.55,
-  recoverSeconds: 0.7, strikeDamage: 1, knockbackDamping: 2.6,
+  recoverSeconds: 0.7, attack: { kind: 'melee', damage: 1 }, knockbackDamping: 2.6,
   gravity: 20, snapDistance: 1.2,
 }
 
@@ -25,7 +25,7 @@ const SPAWNS: EnemySpawn[] = [
 ]
 
 const standing = (): Enemy[] =>
-  SPAWNS.map((s) => spawnEnemy(s.id, s.position, ENEMY_CONFIG))
+  SPAWNS.map((s) => spawnEnemy(s.id, s.position, 'spear', ENEMY_CONFIG))
 
 const allDowned = (): Enemy[] =>
   standing().map((e) => ({ ...e, health: { ...e.health, current: 0 }, stance: 'downed' as const }))

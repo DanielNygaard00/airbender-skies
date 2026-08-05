@@ -26,7 +26,7 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     aggroRange: 26,
     windUpSeconds: 0.55,
     recoverSeconds: 0.7,
-    strikeDamage: 1,
+    attack: { kind: 'melee', damage: 1 },
     knockbackDamping: 2.6,
     // Matches DEFAULT_GROUND_CONFIG's gravity, so a lifted soldier falls at the
     // same rate the player does.

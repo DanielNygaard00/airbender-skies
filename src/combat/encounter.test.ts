@@ -12,7 +12,7 @@ const C: CombatConfig = {
   enemy: {
     maxHealth: 1.5, outOfCombatSeconds: 4, regenPerSecond: 0,
     moveSpeed: 4, strikeRange: 3, aggroRange: 30, windUpSeconds: 0.5, recoverSeconds: 0.6,
-    strikeDamage: 1, knockbackDamping: 3,
+    attack: { kind: 'melee', damage: 1 }, knockbackDamping: 3,
     // Matches DEFAULT_COMBAT_CONFIG.enemy.gravity.
     gravity: 20,
     // Matches DEFAULT_COMBAT_CONFIG.enemy.snapDistance.

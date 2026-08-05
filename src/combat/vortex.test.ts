@@ -8,7 +8,7 @@ const V = DEFAULT_COMBAT_CONFIG.vortex
 const E = DEFAULT_COMBAT_CONFIG.enemy
 const ORIGIN = new Vector3(0, 0, 0)
 const at = (x: number, z: number) => new Vector3(x, 0, z)
-const enemyAt = (id: string, x: number, z: number) => spawnEnemy(id, at(x, z), E)
+const enemyAt = (id: string, x: number, z: number) => spawnEnemy(id, at(x, z), 'spear', E)
 
 describe('vortexCharge', () => {
   it('is 0 at the start and 1 at the cap', () => {

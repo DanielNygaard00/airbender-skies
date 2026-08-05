@@ -10,7 +10,8 @@ const G: GustConfig = {
 }
 const E: EnemyConfig = {
   maxHealth: 3, outOfCombatSeconds: 4, regenPerSecond: 0.4, moveSpeed: 4,
-  strikeRange: 3, aggroRange: 30, windUpSeconds: 0.5, recoverSeconds: 0.6, strikeDamage: 1,
+  strikeRange: 3, aggroRange: 30, windUpSeconds: 0.5, recoverSeconds: 0.6,
+  attack: { kind: 'melee', damage: 1 },
   knockbackDamping: 3,
   // Matches DEFAULT_COMBAT_CONFIG.enemy.gravity.
   gravity: 20,
@@ -23,7 +24,7 @@ const NORTH = new Vector3(0, 0, -1)
 
 /** A live enemy at a given position, with a default id — override it with a spread when a test needs a distinct one. */
 function enemyAt(position: Vector3, id = 'enemy'): Enemy {
-  return spawnEnemy(id, position, E)
+  return spawnEnemy(id, position, 'spear', E)
 }
 
 describe('the gust cone', () => {
@@ -50,9 +51,9 @@ describe('the gust cone', () => {
 
   it('catches several targets at once', () => {
     const enemies = [
-      spawnEnemy('a', new Vector3(0, 0, -5), E),
-      spawnEnemy('b', new Vector3(-3, 0, -5), E),
-      spawnEnemy('c', new Vector3(0, 0, 8), E),
+      spawnEnemy('a', new Vector3(0, 0, -5), 'spear', E),
+      spawnEnemy('b', new Vector3(-3, 0, -5), 'spear', E),
+      spawnEnemy('c', new Vector3(0, 0, 8), 'spear', E),
     ]
     expect(gustTargets(ORIGIN, NORTH, enemies, G).map((e) => e.id)).toEqual(['a', 'b'])
   })

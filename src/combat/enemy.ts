@@ -12,6 +12,27 @@ import { applyDamage, isDowned, type Health, type HealthConfig } from './health'
 export type Stance = 'advance' | 'wind-up' | 'recover' | 'downed'
 
 /**
+ * Which soldier this is.
+ *
+ * Identity, not behaviour — the behaviour lives in `EnemyAttack` below. Kept separate
+ * because the view layer and the per-kind config lookup both need to know *which* type
+ * they are looking at, and two types could one day share an attack shape.
+ */
+export type EnemyKind = 'spear' | 'archer'
+
+/**
+ * What a release produces.
+ *
+ * The spear's thrust and the archer's shot are the same four beats — advance, wind up,
+ * release, recover — so there is one state machine and this says what the release does.
+ * A discriminated union of whole enemies would be the right answer if the design
+ * document's six types diverged sharply, but four of them do not exist yet.
+ */
+export type EnemyAttack =
+  | { kind: 'melee'; damage: number }
+  | { kind: 'projectile'; damage: number; speed: number }
+
+/**
  * Just the ground height, and nothing else.
  *
  * `TerrainQuery` also carries `raycastDown`, which stepping an enemy has no use for.
@@ -24,6 +45,8 @@ export interface GroundHeightQuery {
 
 export interface Enemy {
   id: string
+  /** Which soldier this is. The caller uses it to pick the right config. */
+  kind: EnemyKind
   position: Vector3
   /** Which way it is facing, for its own animation and strike direction. */
   facing: Vector3
@@ -62,8 +85,11 @@ export interface EnemyConfig extends HealthConfig {
   windUpSeconds: number
   /** Vulnerable window after striking. */
   recoverSeconds: number
-  /** Damage one spear thrust does. */
-  strikeDamage: number
+  /**
+   * What this soldier's release does. Damage lives here rather than beside it, so a
+   * projectile's damage is not split between the enemy and the arrow it fires.
+   */
+  attack: EnemyAttack
   /** How fast knockback bleeds away, per second. */
   knockbackDamping: number
   /** Matches the world's own gravity in DEFAULT_GROUND_CONFIG. */
@@ -81,9 +107,12 @@ export interface EnemyConfig extends HealthConfig {
   snapDistance: number
 }
 
-export function spawnEnemy(id: string, position: Vector3, c: EnemyConfig): Enemy {
+export function spawnEnemy(
+  id: string, position: Vector3, kind: EnemyKind, c: EnemyConfig,
+): Enemy {
   return {
     id,
+    kind,
     position: position.clone(),
     facing: new Vector3(0, 0, -1),
     stance: 'advance',
@@ -108,7 +137,19 @@ export interface EnemyStep {
    * is every frame after the first.
    */
   fellOutOfWorld: boolean
+  /**
+   * A shot loosed this frame, or null.
+   *
+   * Reported rather than resolved for the same reason `damageToPlayer` is: this function
+   * advances one enemy and knows nothing about the projectile list or the player's
+   * health. Carries only origin and direction — speed and damage come from the config
+   * the caller already holds, so nothing is decided twice.
+   */
+  firedProjectile: { origin: Vector3; direction: Vector3 } | null
 }
+
+/** Chest height, so an arrow leaves the archer rather than the ground it stands on. */
+const SHOT_HEIGHT = 1.1
 
 function horizontalTo(from: Vector3, to: Vector3): Vector3 {
   const flat = new Vector3(to.x - from.x, 0, to.z - from.z)
@@ -196,6 +237,7 @@ export function stepEnemy(
       },
       damageToPlayer: 0,
       fellOutOfWorld: false,
+      firedProjectile: null,
     }
   }
 
@@ -212,6 +254,7 @@ export function stepEnemy(
       },
       damageToPlayer: 0,
       fellOutOfWorld: true,
+      firedProjectile: null,
     }
   }
 
@@ -221,6 +264,7 @@ export function stepEnemy(
       enemy: { ...enemy, ...moved, stance: 'downed', stanceTime: enemy.stanceTime + dt },
       damageToPlayer: 0,
       fellOutOfWorld: false,
+      firedProjectile: null,
     }
   }
 
@@ -237,13 +281,22 @@ export function stepEnemy(
       },
       damageToPlayer: 0,
       fellOutOfWorld: false,
+      firedProjectile: null,
     }
   }
 
   const toPlayer = horizontalTo(moved.position, playerPosition)
-  const distance = horizontalDistance(moved.position, playerPosition)
+  // A spear cannot reach up and an arrow can, so the two measure differently. This is
+  // the only place the two types genuinely diverge, and it is the whole reason an archer
+  // pressures altitude: measured horizontally, a player hovering directly overhead sits
+  // at distance 0 and would be inside any range, so climbing would stop being an escape.
+  const ranged = c.attack.kind === 'projectile'
+  const distance = ranged
+    ? moved.position.distanceTo(playerPosition)
+    : horizontalDistance(moved.position, playerPosition)
   const stanceTime = enemy.stanceTime + dt
   let damageToPlayer = 0
+  let firedProjectile: EnemyStep['firedProjectile'] = null
   let stance: Stance = enemy.stance
   let position = moved.position
   let time = stanceTime
@@ -256,14 +309,25 @@ export function stepEnemy(
       stance = 'wind-up'
       time = 0
     } else {
-      // Closes only horizontally: it is infantry, it does not chase into the sky.
+      // Closes only horizontally, whichever type it is: infantry does not chase into the
+      // sky, and an archer does not need to — it shoots upward instead.
       position = moved.position.clone().addScaledVector(toPlayer, c.moveSpeed * dt)
     }
   } else if (enemy.stance === 'wind-up') {
     if (stanceTime >= c.windUpSeconds) {
-      // The hit lands only if the player is still in reach — which is what makes
-      // the telegraph a real dodge window rather than decoration.
-      if (distance <= c.strikeRange) damageToPlayer = c.strikeDamage
+      // The release lands only if the player is still in reach — which is what makes the
+      // telegraph a real dodge window rather than decoration.
+      if (distance <= c.strikeRange) {
+        if (c.attack.kind === 'melee') {
+          damageToPlayer = c.attack.damage
+        } else {
+          // Aimed in 3D, unlike `facing` below: the arrow has to climb to a hovering
+          // player. Shot from the soldier's chest rather than its feet, since the
+          // position is at ground level.
+          const origin = moved.position.clone().setY(moved.position.y + SHOT_HEIGHT)
+          firedProjectile = { origin, direction: playerPosition.clone().sub(origin).normalize() }
+        }
+      }
       stance = 'recover'
       time = 0
     }
@@ -277,6 +341,7 @@ export function stepEnemy(
       ...enemy, ...moved, position, facing: toPlayer, stance, stanceTime: time,
     },
     damageToPlayer,
+    firedProjectile,
     fellOutOfWorld: false,
   }
 }

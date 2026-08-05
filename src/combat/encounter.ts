@@ -68,7 +68,7 @@ export interface EncounterDeps {
 
 export function startEncounter(spawns: readonly EnemySpawn[], c: CombatConfig): Encounter {
   return {
-    enemies: spawns.map((spawn) => spawnEnemy(spawn.id, spawn.position, c.enemy)),
+    enemies: spawns.map((spawn) => spawnEnemy(spawn.id, spawn.position, 'spear', c.enemy)),
     playerHealth: fullHealth(c.player),
     gustCooldown: 0,
     vortexHeldSeconds: 0,
@@ -334,7 +334,7 @@ export function stepEncounter(
 
   let restoredThisFrame: string[] = []
   if (shouldRestorePatrol(enemies, deps.spawns, input.playerPosition, deps.patrol)) {
-    enemies = deps.spawns.map((spawn) => spawnEnemy(spawn.id, spawn.position, c.enemy))
+    enemies = deps.spawns.map((spawn) => spawnEnemy(spawn.id, spawn.position, 'spear', c.enemy))
     restoredThisFrame = enemies.map((enemy) => enemy.id)
   }
 

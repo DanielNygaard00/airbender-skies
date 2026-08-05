@@ -6,7 +6,7 @@ import { DEFAULT_COMBAT_CONFIG } from './config'
 
 const C = DEFAULT_COMBAT_CONFIG.enemy
 const CAMERA = new Quaternion().setFromEuler(new Euler(-0.4, 1.2, 0))
-const enemyAt = (x: number, z: number): Enemy => spawnEnemy('a', new Vector3(x, 0, z), C)
+const enemyAt = (x: number, z: number): Enemy => spawnEnemy('a', new Vector3(x, 0, z), 'spear', C)
 const damaged = (enemy: Enemy): Enemy => hitEnemy(enemy, C.maxHealth / 2, new Vector3())
 const downed = (enemy: Enemy): Enemy => hitEnemy(enemy, C.maxHealth, new Vector3())
 
