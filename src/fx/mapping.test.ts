@@ -118,13 +118,21 @@ describe('the combat voices', () => {
     }
   })
 
-  it('makes a hit taken the loudest thing in the fight', () => {
-    // The player's own damage is the event they most need to notice, and today it has
-    // no feedback of any kind.
+  it('makes a hit taken the loudest thing in the fight, by a real margin', () => {
+    // The player's own damage is the event they most need to notice, and before this
+    // cycle it had no feedback of any kind.
+    //
+    // Strictly greater, and by a margin, in the same multiplicative style as the two
+    // finisher tests above. With `toBeGreaterThanOrEqual` and no margin, retuning `hurt`
+    // down to `down`'s 0.36 — a dead tie, where the event that matters most no longer
+    // stands out at all — kept this test green. 1.1 rather than those tests' 1.2 because
+    // the loudest rival, `down` at 0.36, sits 11% below `hurt`'s 0.4: this asserts the
+    // gap that is actually mixed, and tightening the mix further is a tuning decision,
+    // not something to smuggle in through a test.
     const others = [
       COMBAT_LEVELS.gust, COMBAT_LEVELS.swing, COMBAT_LEVELS.finisher,
       COMBAT_LEVELS.impact, COMBAT_LEVELS.down,
     ]
-    expect(COMBAT_LEVELS.hurt).toBeGreaterThanOrEqual(Math.max(...others))
+    expect(COMBAT_LEVELS.hurt).toBeGreaterThan(Math.max(...others) * 1.1)
   })
 })
