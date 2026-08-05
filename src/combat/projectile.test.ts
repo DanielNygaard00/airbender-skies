@@ -47,7 +47,8 @@ describe('flight', () => {
 
 describe('ending', () => {
   it('hits a player it reaches, and reports the damage once', () => {
-    // 2 units ahead at 20 units/sec is 6 frames out. Verified: 20/60 = 0.333 a frame.
+    // 2 units ahead at 20 units/sec, but hitRadius 1 eats one of those units - the
+    // arrow only has to close the other one. (2 - 1) / 0.333 is 3 frames out, not 6.
     let p = arrow()
     let hits = 0
     let total = 0
@@ -130,17 +131,18 @@ describe('ending', () => {
   })
 
   it('hits a player standing on the ground rather than being swallowed by it', () => {
-    // The case that distinguishes the two end conditions. An arrow arriving at a player
-    // who is standing at ground level: testing the ground first reports nothing, testing
-    // the player first reports the hit. A player in mid-air cannot tell them apart.
-    let p = spawnProjectile('a1', new Vector3(0, 0.2, 0), NORTH, 0.4, 20)
-    let total = 0
-    for (let i = 0; i < 30; i++) {
-      const step = stepProjectile(p, new Vector3(0, 0.2, -2), flatGround, DT, C)
-      total += step.damageToPlayer
-      if (!step.projectile) break
-      p = step.projectile
-    }
-    expect(total).toBeCloseTo(0.4)
+    // The only fixture that can pin this ordering: a level shot can't, because a level
+    // arrow's y never changes, so it is never at or below flatGround's height of 0 and
+    // the ground condition is false every frame regardless of check order - that was
+    // the bug in the previous version of this test, which could not fail no matter which
+    // check ran first. A downward shot arriving at a player standing exactly on the
+    // ground makes both conditions true on the same frame: one step of 0.333 units at
+    // this speed puts the arrow at y ~= -0.133, which is both within hitRadius 1 of a
+    // player at y=0 and at or below the ground at 0. Testing the player first reports
+    // the hit; testing the ground first would report nothing and drop the arrow silently.
+    const p = spawnProjectile('a1', new Vector3(0, 0.2, 0), new Vector3(0, -1, 0), 0.4, 20)
+    const step = stepProjectile(p, new Vector3(0, 0, 0), flatGround, DT, C)
+    expect(step.damageToPlayer).toBeCloseTo(0.4)
+    expect(step.projectile).toBe(null)
   })
 })
