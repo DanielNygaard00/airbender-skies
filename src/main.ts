@@ -272,7 +272,27 @@ function start(): void {
     // The accumulator needs no special handling: createStepper decrements it around
     // every update call regardless of what that call does, so an early return cannot
     // bank time and discharge it on resume.
-    if (isFrozen(hitstop)) return
+    if (isFrozen(hitstop)) {
+      // The interpolators do need handling, though, and this is the whole reason the
+      // freeze is not simply a `return`. The early return skips the record() calls at the
+      // end of this function, but createStepper goes on draining its accumulator, so
+      // `alpha` keeps sawtoothing across [0,1) while each previous/current pair stays
+      // pinned to the last live step. sample(alpha) therefore blends back and forth across
+      // that step's displacement for the entire freeze — a full-strength slam's last
+      // recorded step spans about 0.75 m vertically, and camera.lookAt(sampledPosition)
+      // rotates with it, on top of the deliberate shake, so it reads as extra shake rather
+      // than as a bug. reset() collapses each pair, so sample() returns current unblended
+      // at any alpha: dead still, which is what a hitstop is.
+      //
+      // Every frozen frame, not once on entry. reset() is idempotent while nothing
+      // records — previous is already current after the first call — so repeating it costs
+      // three vector copies plus one per enemy, and the alternative is a second piece of
+      // freeze state in this file that can fall out of step with `hitstop` itself.
+      playerPositionLerp.reset()
+      playerForwardLerp.reset()
+      for (const lerp of enemyPositionLerps.values()) lerp.reset()
+      return
+    }
 
     const state = input.sample()
 

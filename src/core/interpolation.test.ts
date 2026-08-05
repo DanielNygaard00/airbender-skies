@@ -60,6 +60,34 @@ describe('createInterpolatedVector', () => {
     expect(lerp.sample(0, new Vector3()).x).toBe(5)
   })
 
+  it('returns current at every alpha after a reset, so a freeze holds still', () => {
+    // What a hitstop leans on. main.ts stops recording while frozen but createStepper
+    // keeps draining its accumulator, so alpha goes on sawtoothing across [0,1) against a
+    // pinned previous/current pair — and without a reset the visual would oscillate across
+    // the last live step's displacement for the whole freeze. Alpha-independence is the
+    // property, not just the alpha-zero case above.
+    const lerp = createInterpolatedVector()
+    lerp.record(new Vector3(1, 2, 3))
+    lerp.record(new Vector3(4, 8, 12))
+    lerp.reset()
+    for (const alpha of [0, 0.25, 0.5, 0.75, 0.999, 1]) {
+      expect(lerp.sample(alpha, new Vector3()).toArray(), `alpha ${alpha}`)
+        .toEqual([4, 8, 12])
+    }
+  })
+
+  it('resets idempotently, so repeating it on every frozen frame changes nothing', () => {
+    // main.ts calls reset() on every frozen frame rather than tracking the frame the
+    // freeze began, on the grounds that repeating it is a no-op while nothing records.
+    const lerp = createInterpolatedVector()
+    lerp.record(new Vector3(1, 0, 0))
+    lerp.record(new Vector3(5, 0, 0))
+    lerp.reset()
+    lerp.reset()
+    lerp.reset()
+    expect(lerp.sample(0.5, new Vector3()).x).toBe(5)
+  })
+
   it('writes into and returns the out vector', () => {
     const lerp = createInterpolatedVector()
     lerp.record(new Vector3(1, 2, 3))
