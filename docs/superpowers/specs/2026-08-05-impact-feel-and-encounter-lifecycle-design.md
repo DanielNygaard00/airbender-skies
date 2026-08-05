@@ -410,20 +410,25 @@ freeze, and cannot pass by accident.
 ### The fixture breakage, stated up front
 
 Adding a field to a shared struct breaks every hand-built fixture for it, and the file list of
-a plan in this repo has failed to predict that eight times. So, explicitly:
+a plan in this repo has failed to predict that eight times. So it was checked rather than
+assumed this time, and the blast radius turns out to be small — because the fixtures in the
+files that matter are already built by spreading a default:
 
-- `EnemyStep.fellOutOfWorld` breaks every fixture in `src/combat/enemy.test.ts` and every
-  place `encounter.test.ts` builds an enemy step.
-- `FocusEvents.accidents` breaks every fixture in `src/focus/focus.test.ts` and
-  `src/focus/sources.test.ts`.
-- `HudModel.hurtFlash` breaks every fixture in `src/ui/hud.test.ts`, and possibly
-  `src/ui/guide/panel.test.ts` if it builds one.
-- `EncounterStep.lostThisFrame` breaks any test asserting the whole step object rather than a
-  field.
+- **`FocusEvents.accidents` breaks nothing in the tests.** `focus.test.ts` builds events as
+  `{ ...noFocusEvents(), ...over.events }`, so adding the field to `noFocusEvents()` covers it.
+  `sources.test.ts` never builds a `FocusEvents` at all. Only `src/main.ts`'s literal needs it.
+- **`EncounterDeps.spawns` and `.patrol` cost one line.** `encounter.test.ts` has a single
+  `const DEPS` at line 50, used by all 36 `stepEncounter` calls.
+- **`EnemyStep.fellOutOfWorld`, `EncounterStep.lostThisFrame`, `HudModel.hurtFlash` break
+  nothing.** All three are *outputs*. No test builds one, and no test asserts a whole step with
+  `toEqual`, so widening them is invisible to the suite. `hudModelFor` additionally takes
+  `hurtFlash` as an optional argument, so its existing call sites are untouched.
 
-`HudModel.hurtFlash` is the one that can be made non-breaking, by giving `hudModelFor` an
-optional argument. The other three cannot: they are outputs, and a fixture that builds one has
-to build all of it.
+The one that carries real risk is `EncounterDeps`, and not because of compilation. Adding
+`spawns` to the shared `DEPS` would make the respawn rule live inside 36 tests that were written
+before it existed, several of which down an enemy. So `DEPS` gets an **empty** spawn list, which
+`shouldRestorePatrol` declines unconditionally, and the respawn tests build their own deps. If a
+pre-existing test changes behaviour anyway, that is a finding rather than a fixture problem.
 
 ## Out of scope
 
