@@ -130,3 +130,22 @@ describe('hudModelFor focus', () => {
     expect(model.avatarActive).toBe(false)
   })
 })
+
+describe('hudModelFor fade', () => {
+  it('is clear when no fade is given', () => {
+    expect(hudModelFor(p()).fade).toBe(0)
+  })
+
+  it('passes a mid fade through', () => {
+    expect(hudModelFor(p(), undefined, undefined, 0.4).fade).toBeCloseTo(0.4)
+  })
+
+  it('clamps a fade above one', () => {
+    expect(hudModelFor(p(), undefined, undefined, 4).fade).toBe(1)
+  })
+
+  it('never lets a non-finite fade reach the DOM', () => {
+    // Same rule the focus fractions follow: opacity is written straight into a style.
+    expect(hudModelFor(p(), undefined, undefined, NaN).fade).toBe(0)
+  })
+})

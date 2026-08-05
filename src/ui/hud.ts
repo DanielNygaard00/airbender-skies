@@ -51,6 +51,8 @@ export interface HudModel {
   /** 0 to 1: progress toward arming the Avatar State. */
   avatarCharge: number
   avatarActive: boolean
+  /** 0 to 1: how black the full-screen overlay is. */
+  fade: number
 }
 
 /**
@@ -61,6 +63,7 @@ export function hudModelFor(
   state: PlayerState,
   playerHealth?: { current: number; max: number },
   focus?: FocusReadout,
+  fade = 0,
 ): HudModel {
   const breath = breathFraction(state)
   const health = playerHealth && playerHealth.max > 0
@@ -84,6 +87,7 @@ export function hudModelFor(
     showFocus: focusValue > 0 || avatarActive,
     avatarCharge: fraction(focus?.avatarCharge ?? 0),
     avatarActive,
+    fade: fraction(fade),
   }
 }
 
@@ -114,6 +118,8 @@ const STYLE = `
 .hud-vignette { position: fixed; inset: 0; pointer-events: none; opacity: 0;
   transition: opacity .35s; box-shadow: inset 0 0 180px 40px rgba(255,214,102,.55); }
 .hud-vignette.is-on { opacity: 1; }
+.hud-fade { position: fixed; inset: 0; background: #000; pointer-events: none;
+  opacity: 0; }
 .hud-hint { margin-top: 8px; font-size: 12px; opacity: .45; }
 `
 
@@ -135,6 +141,7 @@ export function createHud(parent: HTMLElement) {
     <div class="hud-breath"><div class="hud-breath-fill"></div></div>
     <div class="hud-hint">H — guide</div>
     <div class="hud-vignette"></div>
+    <div class="hud-fade"></div>
   `
   parent.append(root)
 
@@ -149,6 +156,7 @@ export function createHud(parent: HTMLElement) {
   const armBar = root.querySelector('.hud-arm') as HTMLElement
   const armFill = root.querySelector('.hud-arm-fill') as HTMLElement
   const vignette = root.querySelector('.hud-vignette') as HTMLElement
+  const fade = root.querySelector('.hud-fade') as HTMLElement
 
   return {
     update(model: HudModel): void {
@@ -166,6 +174,7 @@ export function createHud(parent: HTMLElement) {
       armBar.style.opacity = model.avatarCharge > 0 && !model.avatarActive ? '1' : '0'
       armFill.style.transform = `scaleX(${model.avatarCharge})`
       vignette.classList.toggle('is-on', model.avatarActive)
+      fade.style.opacity = String(model.fade)
     },
     dispose(): void {
       root.remove()
