@@ -102,6 +102,16 @@ const DEPLOYED_ROTATION = new Vector3(DEPLOYED_PITCH, 0, 0)
 const SWEEP_ARC = MathUtils.degToRad(150)
 
 /**
+ * The stall shudder.
+ *
+ * Amplitude is roughly an eighth of one panel's `FAN_SPREAD` share, so a full stall flutters
+ * the leaves rather than flapping them. The frequency is about 5.4 cycles a second: fast
+ * enough to read as a shudder rather than as a wobble.
+ */
+const SHUDDER_AMPLITUDE = 0.09
+const SHUDDER_FREQUENCY = 34
+
+/**
  * One fan leaf: a long thin triangle running out along +X from the pivot, widening
  * slightly in Z at its tip so the open fan reads as a membrane rather than spokes.
  */
@@ -132,7 +142,7 @@ function createFinGeometry(): BufferGeometry {
 
 export function createGlider(): {
   object: Object3D
-  update(dt: number, deployed: boolean, swing: number | null): void
+  update(dt: number, deployed: boolean, swing: number | null, stall: number): void
   openness(): number
 } {
   const object = new Group()
@@ -157,6 +167,7 @@ export function createGlider(): {
     object.add(root)
     for (let index = 0; index < PANELS_PER_SIDE; index++) {
       const pivot = new Group()
+      pivot.name = 'wing-panel-pivot'
       const panel = new Mesh(createPanelGeometry(), fabricMaterial)
       panel.scale.x = side
       pivot.add(panel)
@@ -171,6 +182,8 @@ export function createGlider(): {
 
   let openness = 0
   let swing: number | null = null
+  let stall = 0
+  let shudderTime = 0
 
   function apply(): void {
     const eased = easeOpenness(openness)
@@ -191,6 +204,20 @@ export function createGlider(): {
       // leaf sits at zero and they stack into a stick along the staff.
       pivot.rotation.y = panelAngle(index, PANELS_PER_SIDE, openness, FAN_SPREAD) * side
     }
+    // Composed after the fan angles rather than replacing them, and only while the wing is
+    // actually open. Note the gate is the OPPOSITE of the sweep's above: a sweep happens
+    // while the staff is stowed and a weapon, a shudder while it is open and a wing.
+    //
+    // Deterministic from an accumulated time, not Math.random(), for the same reason
+    // src/fx/shake.ts is trigonometric: a random shudder cannot be asserted about.
+    if (stall > 0 && openness > 1e-3) {
+      const flutter = Math.sin(shudderTime * SHUDDER_FREQUENCY) * SHUDDER_AMPLITUDE * stall
+      for (const { pivot, index, side } of panels) {
+        // Alternating by index so neighbouring leaves fight each other, which reads as a
+        // flutter. Moving them all together would read as one more fan movement.
+        pivot.rotation.y += flutter * (index % 2 === 0 ? 1 : -1) * side
+      }
+    }
     // The fin unfurls with the wings rather than standing proud of a folded staff.
     fin.scale.setScalar(eased)
   }
@@ -198,9 +225,11 @@ export function createGlider(): {
 
   return {
     object,
-    update(dt: number, deployed: boolean, swingProgress: number | null): void {
+    update(dt: number, deployed: boolean, swingProgress: number | null, stallSeverity: number): void {
       openness = advanceOpenness(openness, deployed, dt, OPEN_SECONDS)
       swing = swingProgress
+      stall = Number.isFinite(stallSeverity) ? MathUtils.clamp(stallSeverity, 0, 1) : 0
+      shudderTime += dt
       apply()
     },
     openness: () => openness,
