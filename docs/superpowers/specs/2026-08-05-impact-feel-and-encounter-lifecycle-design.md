@@ -55,8 +55,11 @@ line is part of this work.
 frozen, which is a real freeze rather than a second notion of frozen threaded through the
 fight.
 
-**Hitstop fires on heavy events only** — a staff finisher connect, a slam connect, a down.
-Never on a gust: a move with a 0.45s cooldown that hitches on every use is nausea, not weight.
+**Hitstop fires on heavy events only** — a staff finisher connect, any slam, a down. A slam
+needs no connect: its impact is with the ground, so it lands whether or not a soldier was
+standing in the blast, which is why the shockwave ring and the Focus grant both fire
+unconditionally as well. Never on a gust: a move with a 0.45s cooldown that hitches on every
+use is nausea, not weight.
 
 **Shake is a render-time offset.** It never enters the simulation and never enters the
 camera's own smoothed state.

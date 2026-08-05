@@ -267,8 +267,11 @@ attack, no feedback at all for being hit. `src/fx/hitstop.ts` is the freeze: `tr
 is **longest-wins, never additive**, because a real hit fires several triggers on one frame — a
 finisher that downs a soldier is two, a slam into three soldiers is four — and summing them
 would turn a good hit into a visible stall. It fires on heavy events only (a staff finisher
-connect, a slam connect, a down); never on a gust, because a 0.45s-cooldown move that hitches on
-every use is nausea, not weight. `src/fx/config.ts` holds `DEFAULT_HITSTOP_CONFIG`:
+connect, *any* slam, a down); never on a gust, because a 0.45s-cooldown move that hitches on
+every use is nausea, not weight. A slam deliberately needs no connect — its impact is with the
+ground, so it lands whether or not a soldier was standing in the blast, which is the same reason
+the shockwave ring and the slam's Focus grant both fire unconditionally.
+`src/fx/config.ts` holds `DEFAULT_HITSTOP_CONFIG`:
 `finisherSeconds: 0.05`, `downSeconds: 0.07`, `slamMinSeconds: 0.04` to `slamMaxSeconds: 0.09`
 scaling with the slam's own impact strength.
 
@@ -280,6 +283,29 @@ edge pending, and it fires on the first live frame instead. Also worth recording
 "fixes" it: `createStepper` in `src/core/loop.ts` decrements its accumulator around every
 `update` call regardless of what that call does, so an early-returning `update` cannot bank time
 and discharge it on resume — the freeze does not need to account for the stepper at all.
+
+The early return does need to account for the *interpolators*, though, and this was missed the
+first time. Returning early skips the `record()` calls at the end of `update`, but the stepper
+goes on draining its accumulator, so `alpha` keeps sawtoothing across `[0,1)` while each
+`InterpolatedVector`'s previous/current pair stays pinned to the last live step —
+`sample(alpha)` then blends back and forth across that step's displacement for the whole freeze.
+On a full-strength slam the last recorded step spans about 0.75 m vertically, and
+`camera.lookAt(sampledPosition)` rotates with it on top of the deliberate shake, which is
+exactly why it read as *extra shake* rather than as a bug. `update` now calls
+`InterpolatedVector.reset()` on the player position lerp, the player forward lerp and every
+enemy position lerp before returning, on every frozen frame — `reset` is idempotent while
+nothing records, so repeating it is cheaper than carrying a second piece of freeze state that
+can fall out of step with `hitstop`. Note that the in-game measurement below ("bit-identical
+for 4 consecutive frames") could not have caught this: its synthetic-clock harness advances a
+fixed delta per frame, which holds `alpha` constant.
+
+**A hitstop is invisible below roughly 20 FPS**, and that is inherent rather than fixable. The
+freeze is measured in simulation time, and `createStepper` runs up to `MAX_STEPS_PER_FRAME` (5)
+simulation steps inside a single rendered frame — so a lag frame consumes 5 × 16.7ms = 83ms of
+simulation, swallowing a whole 70ms `downSeconds` freeze between two rendered images. The player
+sees no pause at all. Any simulation-time freeze has this property; the alternative is a
+wall-clock freeze that would stop *rendering* too, which is worse. It degrades gracefully — the
+shake, the hurt flash and the audio all still fire — so it is documented, not worked around.
 
 `src/fx/shake.ts` is the camera kick: a decaying pair of sines at different frequencies rather
 than `Math.random()`, so it can be asserted about rather than merely eyeballed. Two rules in it
@@ -299,6 +325,15 @@ A plan defect caught during implementation, worth recording as a trap in its own
 called for, because that bound is on the vector's length, not on each axis alone. Both axes are
 now divided by `√2` (`Math.SQRT2` in the source) so "amplitude" genuinely means the camera's
 maximum displacement, not a per-axis figure that overshoots it diagonally.
+
+A known cosmetic edge, left alone deliberately: **opening the guide panel mid-shake leaves
+`camera.position` frozen up to 0.35 units off-centre** for as long as the panel is up. The guide
+branch of `frame()` renders directly and never calls `syncVisuals`, which is where `stepShake`
+advances — so the shake stops decaying with a non-zero offset still added to the camera, and the
+view sits slightly askew behind the panel until the panel closes and the decay resumes. 0.35 is
+`slamMaxAmplitude`, the worst case. Not worth stepping the shake from the guide branch, which
+would mean either duplicating the offset application or running `syncVisuals` for a paused
+world; it self-corrects on close.
 
 Confirmed in the running game, not just in tests: landing a gust that downed a weakened soldier
 froze `avatar.position` bit-identically for **4 consecutive driven frames** (0.0667s, matching
@@ -362,6 +397,24 @@ interpolator would blend the view from wherever the old body fell to the fresh s
 sliding across the map — including climbing up out of the void for a soldier that fell out of the
 world.
 
+Two more traps, both found by review after the feature was already green, both about the restore
+being the one thing in the frame that replaces the enemy array. First, `main.ts` must read
+`fight.enemiesBeforeRestore` — not `encounter.enemies` — when it needs a position for anything
+in this frame's event lists. Every one of those lists is computed *before* the restore (it has
+to be, per the ordering trap above), so on a frame that both reports a down and restores the
+patrol, `encounter.enemies` holds fresh soldiers at their spawn points and no longer knows where
+the body fell. It is reachable: soldiers chase inside `aggroRange` 26, so kiting the last one 45+
+units out with the other two already down downs it *and* satisfies the restore condition on the
+same frame — and the down spark was drawn back on the patrol ground while the freeze, the shake
+and the thud fired around a player 45 units away. Second, the spawn array handed to
+`startEncounter` and the one handed to `deps.spawns` must be **the same array**. They were not:
+the initial three were dropped onto the terrain and the deps got raw `HOME_PATROL`, whose entries
+all carry `y: 0`, so a *restored* soldier spawned about 30 m inside the home island (an icosphere
+at the origin — ground at `(26, -18)` is roughly 30 m up) for `fall()` to snap out on its first
+step. That was invisible only by luck, since a 30 m correction exceeds the interpolator's snap
+distance and the view collapses instead of sliding; over lower terrain it would have slid visibly
+up out of the ground. `main.ts` now builds one `patrolSpawns` const and passes it to both.
+
 A test-coverage trap worth recording on its own: the restore-ordering guard above could not be
 caught by any test running at production tuning, because `respawnRange` (40) exceeds every
 weapon's reach, so a restore and a landing attack can never coincide in a real config. There is
@@ -410,7 +463,19 @@ drain and traversal gain, which swamps a 5-point signal. One such window showed 
 +36.9 for what was actually two simultaneous accidents plus unrelated traversal gain; another
 showed a net delta of 0 because the gain drained back out before it could be read. The magnitude
 claim rests on the unit test and the `downGain: 14` / `accidentDownGain: 5` constants themselves,
-not on a matching in-game number. **The five voices, the dash FOV kick, and the hurt flash were
+not on a matching in-game number.
+
+That same fall length is a real design problem, not only a measurement one: **the accident's
+Focus arrives roughly 8 seconds after the act that earned it.** `accidentDownGain` is paid on the
+frame the enemy crosses `worldFloorY`, which is `-600` in `ARCHIPELAGO`, and under gravity 20 a
+fall from island height takes `√(2 × 600 / 20)` ≈ 7.7 seconds to get there. §4.6's *magnitude*
+rule is satisfied — an accident pays less than a knockdown — but its feedback is disconnected
+from the player's action: by the time the meter moves, the gust that walked a soldier off a cliff
+is eight seconds and several other events in the past, so the player has no way to learn which
+one paid. This is also the real reason the in-game pass could not isolate the delta above. Worth
+revisiting alongside the other half of §4.6: paying at the moment the enemy leaves the ground
+unsupported, rather than at the floor crossing, would connect the grant to the act — at the cost
+of paying for falls that a lucky updraft rescues. **The five voices, the dash FOV kick, and the hurt flash were
 not verified in the running game at all** — the in-game verification pass covered the freeze, the
 shake, the staff spark, the patrol restore, and the accident-versus-down mechanism, and those
 three were not among the items it checked.
@@ -419,8 +484,16 @@ three were not among the items it checked.
 document already carries for the movement and combat tuning below, extended to
 `hitstop.*Seconds`, every `shake` amplitude and duration, `hurtFlash`'s decay rate,
 `fovKickForDash`'s peak, `patrol.respawnRange`, and `accidentDownGain`. The deliverable is that
-they are all visible and tunable in one place (`src/fx/config.ts`, `src/combat/config.ts`,
-`src/focus/config.ts`), not that any of them are right.
+each of them is named in a module a test can import, and none of them is buried in `main.ts`:
+`src/fx/config.ts` (the hitstop table, the shake table, `HURT_FLASH_DECAY_PER_SECOND`),
+`src/fx/mapping.ts` (`MAX_DASH_FOV_KICK`, and `COMBAT_LEVELS` for the audio mix),
+`src/combat/config.ts` (`DEFAULT_PATROL_CONFIG`) and `src/focus/config.ts`
+(`accidentDownGain`). Not that any of them are right.
+
+`HURT_FLASH_DECAY_PER_SECOND` in particular started life as a `const` in `main.ts` and was moved
+here for exactly this reason. The only derived value left in `main.ts` is the dash kick's decay
+rate, `1 / DEFAULT_GROUND_CONFIG.dashDurationSeconds`, which is not a tuning value at all — it
+falls out of the dash's real duration, and that is where it should stay.
 
 ## What has NOT been built
 
