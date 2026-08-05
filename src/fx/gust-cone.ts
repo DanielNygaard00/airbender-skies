@@ -25,8 +25,13 @@ const HEIGHT = 1
  * sky, so even where the effect drew, nothing read. Found only by playing — the geometry
  * tests all passed throughout. Raised and cooled toward cyan so the effect separates from
  * both the ground and the sky.
+ *
+ * The fill is exported because the aim preview is required to be quieter than the cone it
+ * previews, and `aim-tell.test.ts` checks that relationship against this value. Pinned to a
+ * literal there instead, the guard would keep passing against a stale number the moment this
+ * one was retuned — which is precisely the retune it exists to catch.
  */
-const FILL_OPACITY = 0.34
+export const FILL_OPACITY = 0.34
 const ARC_OPACITY = 0.9
 /** Arc thickness as a fraction of its own radius. */
 const ARC_THICKNESS = 0.16

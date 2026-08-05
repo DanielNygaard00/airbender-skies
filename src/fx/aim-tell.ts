@@ -75,6 +75,8 @@ export function createAimTell(c: AimTellConfig = DEFAULT_AIM_TELL_CONFIG): AimTe
   })
   const marker = new Mesh(markerGeometry, markerMaterial)
   marker.name = 'aim-marker'
+  // Set once. `c` is captured for the lifetime of the tell and nothing else touches this
+  // offset, so rewriting it every frame in `update` only dirtied the matrix for no change.
   marker.position.z = c.markerDistance
   marker.userData.excludeFromShadows = true
   object.add(marker)
@@ -120,8 +122,6 @@ export function createAimTell(c: AimTellConfig = DEFAULT_AIM_TELL_CONFIG): AimTe
         target.copy(object.position).add(flat)
         object.lookAt(target)
       }
-
-      marker.position.z = c.markerDistance
 
       preview.visible = targeted
       if (targeted) {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Mesh, Vector3 } from 'three'
 import { createAimTell } from './aim-tell'
+import { FILL_OPACITY as GUST_CONE_FILL_OPACITY } from './gust-cone'
 import { DEFAULT_AIM_TELL_CONFIG } from './config'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 import { inCone } from '../combat/cone'
@@ -92,9 +93,15 @@ describe('the cone preview', () => {
   })
 
   it('is quieter than the fired cone it previews', () => {
-    // gust-cone.ts draws its fill at 0.34. A persistent indicator as loud as the one-shot
-    // would swamp it, and the fired cone is the louder statement.
-    expect(DEFAULT_AIM_TELL_CONFIG.previewOpacity).toBeLessThan(0.34 * 0.6)
+    // A persistent indicator as loud as the one-shot would swamp it, and the fired cone is the
+    // louder statement. Compared against the fired cone's real fill opacity, imported rather
+    // than written out: this test previously held the literal 0.34, so retuning the cone's
+    // fill would have left the guard passing against a number the game no longer used.
+    //
+    // Relational rather than a fixed figure on purpose. The claim genuinely is about two
+    // opacities standing in a particular relation, not about either one's value, so pinning a
+    // literal would be pinning the wrong thing.
+    expect(DEFAULT_AIM_TELL_CONFIG.previewOpacity).toBeLessThan(GUST_CONE_FILL_OPACITY * 0.6)
   })
 
   it('draws the cone at the gust the caller hands it, not a fixed one', () => {
