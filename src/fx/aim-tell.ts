@@ -7,16 +7,15 @@ import { SECTOR_FLAT_ROTATION_X, sectorGeometry } from './sector'
 import { DEFAULT_AIM_TELL_CONFIG, type AimTellConfig } from './config'
 
 /**
- * Just above the ground, so a flat shape is not sitting exactly on the terrain it draws over.
+ * Just above the ground.
  *
- * Kept a hair's width rather than a visible height: both materials below already set
- * `depthTest: false`, which is what actually keeps this drawn over sloping terrain, so this
- * offset only has to break exact coplanarity. A visible offset would leak into the marker's
- * world Y regardless of heading, since the group's `lookAt` never tilts off pure yaw — and
- * that would read as the tell drifting upward with a climbing glider, which is exactly the
- * bug "ignores the vertical part of the heading" exists to catch.
+ * Not for z-fighting — both materials below set `depthTest: false`, so the GPU never compares
+ * these fragments against the depth buffer and z-fighting cannot happen regardless of this
+ * value. This is about the camera angle instead: at the shallow angle this game mostly plays
+ * at, a flat shape sitting exactly at the player's feet is a shape seen edge-on, the same
+ * reason `createVortexChargeTell` lifts its ring by 0.5.
  */
-const HEIGHT = 0.002
+const HEIGHT = 0.08
 const TINT = 0x7fe4ff
 const MARKER_OPACITY = 0.5
 

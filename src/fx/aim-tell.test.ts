@@ -47,11 +47,17 @@ describe('the marker', () => {
 
   it('ignores the vertical part of the heading', () => {
     // In the glider `forward` climbs and dives, but inGust tests a flattened heading, so a
-    // marker that tilted with the nose would point somewhere the gust does not go.
+    // marker that tilted with the nose would point somewhere the gust does not go. Compared
+    // against a level heading rather than against a literal 0: the tell sits `HEIGHT` above
+    // the player regardless of pitch, and that ground clearance is not what this test is
+    // about. What it is about is whether pitch leaks into the marker's height at all — a
+    // level and a climbing heading must land the marker at the same world Y.
     const tell = createAimTell()
+    tell.update(ORIGIN, NORTH, false, true, GUST)
+    const level = parts(tell).marker.getWorldPosition(new Vector3())
     tell.update(ORIGIN, new Vector3(0, 0.9, -0.4).normalize(), false, true, GUST)
-    const world = parts(tell).marker.getWorldPosition(new Vector3())
-    expect(world.y).toBeCloseTo(0, 2)
+    const climbing = parts(tell).marker.getWorldPosition(new Vector3())
+    expect(climbing.y).toBeCloseTo(level.y, 2)
     tell.dispose()
   })
 })
