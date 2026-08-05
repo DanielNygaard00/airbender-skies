@@ -1,11 +1,11 @@
 # Handoff
 
-Written 2026-07-31, updated 2026-08-04 for the enemy health bars. This is a recap
-for whoever picks the project up next, including a future session with no memory of the
-work below.
+Written 2026-07-31, updated 2026-08-04 for the enemy health bars, updated 2026-08-05
+for the impact feel and encounter lifecycle work. This is a recap for whoever picks the
+project up next, including a future session with no memory of the work below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 1022 tests across 71 files,
+**Repo state:** 1097 tests across 76 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -261,6 +261,240 @@ restarts the chain as an opener; and the gate now blocks a deploy at 3, 20 and 4
 swing and allows it at 80. Not yet checked by a human with a mouse: whether a 0.26s swing feels
 snappy and whether a second of no wing is a fair price.
 
+**Impact feel: the freeze and the shake.** Every attack in the game resolved correctly and
+almost none of them could be felt — no hitstop, no camera kick, no hit spark on the newest
+attack, no feedback at all for being hit. `src/fx/hitstop.ts` is the freeze: `triggerHitstop`
+is **longest-wins, never additive**, because a real hit fires several triggers on one frame — a
+finisher that downs a soldier is two, a slam into three soldiers is four — and summing them
+would turn a good hit into a visible stall. It fires on heavy events only (a staff finisher
+connect, *any* slam, a down); never on a gust, because a 0.45s-cooldown move that hitches on
+every use is nausea, not weight. A slam deliberately needs no connect — its impact is with the
+ground, so it lands whether or not a soldier was standing in the blast, which is the same reason
+the shockwave ring and the slam's Focus grant both fire unconditionally.
+`src/fx/config.ts` holds `DEFAULT_HITSTOP_CONFIG`:
+`finisherSeconds: 0.05`, `downSeconds: 0.07`, `slamMinSeconds: 0.04` to `slamMaxSeconds: 0.09`
+scaling with the slam's own impact strength.
+
+The load-bearing detail is in `main.ts`: **`update` steps the hitstop and, while frozen, returns
+before `input.sample()`.** `src/core/input.ts` documents `sample()` as clearing the action edge
+on read, so sampling and then discarding the frame would silently eat any press made during the
+freeze — a click landing inside a 60ms hitstop would just not happen. Returning first leaves the
+edge pending, and it fires on the first live frame instead. Also worth recording so nobody
+"fixes" it: `createStepper` in `src/core/loop.ts` decrements its accumulator around every
+`update` call regardless of what that call does, so an early-returning `update` cannot bank time
+and discharge it on resume — the freeze does not need to account for the stepper at all.
+
+The early return does need to account for the *interpolators*, though, and this was missed the
+first time. Returning early skips the `record()` calls at the end of `update`, but the stepper
+goes on draining its accumulator, so `alpha` keeps sawtoothing across `[0,1)` while each
+`InterpolatedVector`'s previous/current pair stays pinned to the last live step —
+`sample(alpha)` then blends back and forth across that step's displacement for the whole freeze.
+On a full-strength slam the last recorded step spans about 0.75 m vertically, and
+`camera.lookAt(sampledPosition)` rotates with it on top of the deliberate shake, which is
+exactly why it read as *extra shake* rather than as a bug. `update` now calls
+`InterpolatedVector.reset()` on the player position lerp, the player forward lerp and every
+enemy position lerp before returning, on every frozen frame — `reset` is idempotent while
+nothing records, so repeating it is cheaper than carrying a second piece of freeze state that
+can fall out of step with `hitstop`. Note that the in-game measurement below ("bit-identical
+for 4 consecutive frames") could not have caught this: its synthetic-clock harness advances a
+fixed delta per frame, which holds `alpha` constant.
+
+**A hitstop is invisible below roughly 20 FPS**, and that is inherent rather than fixable. The
+freeze is measured in simulation time, and `createStepper` runs up to `MAX_STEPS_PER_FRAME` (5)
+simulation steps inside a single rendered frame — so a lag frame consumes 5 × 16.7ms = 83ms of
+simulation, swallowing a whole 70ms `downSeconds` freeze between two rendered images. The player
+sees no pause at all. Any simulation-time freeze has this property; the alternative is a
+wall-clock freeze that would stop *rendering* too, which is worse. It degrades gracefully — the
+shake, the hurt flash and the audio all still fire — so it is documented, not worked around.
+
+`src/fx/shake.ts` is the camera kick: a decaying pair of sines at different frequencies rather
+than `Math.random()`, so it can be asserted about rather than merely eyeballed. Two rules in it
+are easy to undo by accident. The offset is added to `camera.position` in `syncVisuals` and is
+**never** written back into `cameraPosition`, the module-level smoothed follow state — write it
+back and the exponential smoothing integrates the shake, and the camera drifts away from the
+player instead of vibrating around him. And `lookAt` keeps targeting the unshaken
+`sampledPosition`; shaking the look target too would rotate the view around the shake instead of
+translating it, which reads as the world tilting rather than the camera being hit. It is stepped
+in `syncVisuals` with `frameDt`, not in `update`, specifically so it keeps animating *through* a
+freeze — a freeze with a shaking camera is the impact; a still freeze followed by a shake is two
+separate events, because `update` is exactly what the freeze stops.
+
+A plan defect caught during implementation, worth recording as a trap in its own right:
+`shakeOffset`'s two axes each swing at `sin × amplitude`, and the vector the pair forms can reach
+`amplitude × √2` when both peak together — which failed the amplitude-bound test the design
+called for, because that bound is on the vector's length, not on each axis alone. Both axes are
+now divided by `√2` (`Math.SQRT2` in the source) so "amplitude" genuinely means the camera's
+maximum displacement, not a per-axis figure that overshoots it diagonally.
+
+A known cosmetic edge, left alone deliberately: **opening the guide panel mid-shake leaves
+`camera.position` frozen up to 0.35 units off-centre** for as long as the panel is up. The guide
+branch of `frame()` renders directly and never calls `syncVisuals`, which is where `stepShake`
+advances — so the shake stops decaying with a non-zero offset still added to the camera, and the
+view sits slightly askew behind the panel until the panel closes and the decay resumes. 0.35 is
+`slamMaxAmplitude`, the worst case. Not worth stepping the shake from the guide branch, which
+would mean either duplicating the offset application or running `syncVisuals` for a paused
+world; it self-corrects on close.
+
+Confirmed in the running game, not just in tests: landing a gust that downed a weakened soldier
+froze `avatar.position` bit-identically for **4 consecutive driven frames** (0.0667s, matching
+`downSeconds: 0.07` almost exactly) while `W` was held the whole time, and a `Space` keydown
+dispatched mid-freeze was not dropped — it fired the instant the freeze ended, producing a real
+jump arc starting on the very frame movement resumed. Over the same event, `camera.position`
+moved non-monotonically (up/down/up/down) for the freeze's duration and about six frames after,
+then settled into clean camera-follow; the smoothed follow state's resting offset from the
+player was compared before this event (`horizontal radius 6.978`) and after it, once the player
+had landed and gone still again (`7.005`) — within 0.4% of each other, which is the check that
+the shake did not leak into `cameraPosition` and permanently shift the camera.
+
+**The hurt flash.** `HudModel` gains `hurtFlash: number` and `src/ui/hud.ts` draws a `.hud-hurt`
+overlay, red rather than the existing gold `.hud-vignette`. It deliberately has **no CSS
+transition**, unlike `.hud-vignette` right next to it (`transition: opacity .35s`), because the
+decay is driven from the simulation via `stepPulse` in `src/fx/pulse.ts` — a CSS transition would
+fight that decay and smear the flash past its own timer instead of cutting cleanly with it.
+`stepPulse` is the same function the dash FOV kick decays through, one fewer near-duplicate timer
+than the original design sketched.
+
+**The staff spark, and the bug it fixes.** `src/fx/impact-targets.ts` now owns the union of the
+fight's four connect lists (gust, slam, staff, downed) and the rule that a down overrides a
+connect for the same enemy — an enemy in both lists gets a down burst, not a hit burst. Before
+this module existed, `main.ts` built that union from the gust and slam lists only, so
+`staffHitThisFrame` fed Focus and nothing else: **the staff was the only attack in the game with
+no hit spark**, on top of being the newest one. This stayed hidden because a staff swing that
+downed a soldier still sparked, through the separate `downedThisFrame` loop, which is what made a
+staff *connect* that didn't down look like it was working.
+
+**The dash FOV kick.** `fovKickForDash` in `src/fx/mapping.ts` adds up to 6 degrees, additive on
+top of `fovForSpeed`, decaying to zero across the dash. On foot the field of view was pinned at
+`fovForSpeed(0)` — a constant — so a 26 m/s ground dash had no visual weight at all; 6 degrees is
+deliberately well under `MAX_FOV_KICK`'s existing 14 for full glider speed, so a dash reads as a
+burst rather than as flight.
+
+**Five synthesised voices.** `src/fx/combat-audio.ts` gives the fight sound for the first time —
+gust, swing, impact, down, hurt — all procedural, no asset files, built the same shape as the
+existing `src/fx/audio.ts` (lazy `AudioContext`, a `try`/`catch` that warns and continues
+silently, a `dispose()`). It is untested for the same reason `audio.ts` is: there is no
+`AudioContext` in the Vitest node environment, and mocking one would only test the mock. The
+relative mix — how loud each voice sits against the others — lives in `mapping.ts`'s
+`COMBAT_LEVELS`, which is pure data and is the part of this feature that can actually be wrong
+without anyone noticing until they listen.
+
+**The patrol respawn.** `src/combat/patrol.ts` is what makes a fight repeatable instead of a
+one-shot budget: before this, three soldiers going down ended combat for the session, and every
+value in the feel pass above became untestable a second time without a page reload.
+`shouldRestorePatrol` restores when every soldier is down and the player is beyond
+`respawnRange` (40) of every spawn point. Restoring while the player is far away *is*
+leave-and-return, with no second piece of state to desynchronise from the enemy list — no
+arm-on-leaving, fire-on-returning machine. The 40-against-`aggroRange`-26 gap is the point: a
+fresh soldier must never appear already inside its own notice range, or the player turns around
+into a fight that spawned on top of them.
+
+Two traps here cost real time. The restore call in `stepEncounter` runs at the very **end** of
+the function, after `downedThisFrame` and `lostThisFrame` are computed, because `wasDowned` is
+diffed at the *top* of `stepEncounter` — restoring earlier would compare a fresh, healthy soldier
+against the downed one it replaced and report a phantom hit for the frame. And `main.ts` must
+delete `enemyPositionLerps` for every restored id, because ids are reused: without that, a stale
+interpolator would blend the view from wherever the old body fell to the fresh spawn point,
+sliding across the map — including climbing up out of the void for a soldier that fell out of the
+world.
+
+Two more traps, both found by review after the feature was already green, both about the restore
+being the one thing in the frame that replaces the enemy array. First, `main.ts` must read
+`fight.enemiesBeforeRestore` — not `encounter.enemies` — when it needs a position for anything
+in this frame's event lists. Every one of those lists is computed *before* the restore (it has
+to be, per the ordering trap above), so on a frame that both reports a down and restores the
+patrol, `encounter.enemies` holds fresh soldiers at their spawn points and no longer knows where
+the body fell. It is reachable: soldiers chase inside `aggroRange` 26, so kiting the last one 45+
+units out with the other two already down downs it *and* satisfies the restore condition on the
+same frame — and the down spark was drawn back on the patrol ground while the freeze, the shake
+and the thud fired around a player 45 units away. Second, the spawn array handed to
+`startEncounter` and the one handed to `deps.spawns` must be **the same array**. They were not:
+the initial three were dropped onto the terrain and the deps got raw `HOME_PATROL`, whose entries
+all carry `y: 0`, so a *restored* soldier spawned about 30 m inside the home island (an icosphere
+at the origin — ground at `(26, -18)` is roughly 30 m up) for `fall()` to snap out on its first
+step. That was invisible only by luck, since a 30 m correction exceeds the interpolator's snap
+distance and the view collapses instead of sliding; over lower terrain it would have slid visibly
+up out of the ground. `main.ts` now builds one `patrolSpawns` const and passes it to both.
+
+A test-coverage trap worth recording on its own: the restore-ordering guard above could not be
+caught by any test running at production tuning, because `respawnRange` (40) exceeds every
+weapon's reach, so a restore and a landing attack can never coincide in a real config. There is
+now a regression-guard test in `src/combat/encounter.test.ts` using a deliberately small
+test-local `respawnRange` of 5 against the gust's range of 12, specifically so the two *can*
+coincide. **Do not "fix" that fixture back to 40** — it would silently disarm the guard it exists
+to run. The test's own comment says so.
+
+Confirmed in the running game, not just in tests: downed all three home-patrol soldiers, moved
+43-63 units away (comfortably past `respawnRange`'s 40, on two independent trials), and read the
+restored enemies' exact positions off the live scene graph — `(26, 10.87, -18)`, `(34, 10.19,
+-8)`, `(20, 11.50, -4)`, an exact x/z match to `HOME_PATROL`'s spawn coordinates with y dropped
+onto real terrain height (not the authored `y: 0`), while the actual fallen bodies had been
+scattered elsewhere entirely (e.g. `(9.11, -8.93)`, `(15.83, -15.63)`, `(11.15, 3.42)`) moments
+before. Reproduced twice with identical results.
+
+**Section 4.6's first half.** `EnemyStep` gains `fellOutOfWorld`, true only on the transition
+frame an enemy passes `worldFloorY` while still alive — every other return, including the parked
+branch for a body already down and below the floor, reports `false`, so the flag never latches.
+`EncounterStep` gains `lostThisFrame`, and `downedThisFrame` **excludes** every id in it — without
+that subtraction, an enemy that falls out of the world would land in both lists and be paid twice
+for one removal. `FocusEvents` gains `accidents`, paid at `accidentDownGain: 5` in
+`src/focus/config.ts`, against the existing `downGain: 14` for an in-place knockdown — roughly a
+third, "just below `dodgeGain`'s 8" per the spec's own reasoning. This is the first time the
+Focus meter has had an opinion about *how* an enemy was removed, and it is the first half of
+§4.6's non-lethality scoring; see "What has NOT been built" above for the half that is still
+open. Spec at
+[`docs/superpowers/specs/2026-08-05-impact-feel-and-encounter-lifecycle-design.md`](superpowers/specs/2026-08-05-impact-feel-and-encounter-lifecycle-design.md).
+
+Confirmed in the running game, not just in tests: weakened a soldier to 0.5hp and read the HUD's
+own rendered `.hud-focus-fill` `scaleX` (not the internal `Focus.value`) across the exact driven
+frame a gust both connected with and downed it — `scaleX` moved `0.00904 → 0.26507`, a Focus
+delta of **+25.6** in one frame, matching `gustConnectGain (6) + downGain (14) = 20` scaled by an
+active chain-ramp multiplier (`chainRampMax: 1.8`; 20 × 1.28 ≈ 25.6). Separately, an aggro-chased
+soldier was led over a real island edge under its own AI with zero damage dealt to it, and its
+health-bar stayed a normal positive value for the entire ~13-16 second fall before flipping to
+the downed sentinel at the exact frame its `y` crossed `worldFloorY` — confirming the mechanism
+fires only while the enemy is genuinely still alive at the crossing. Reproduced three times.
+
+Two honest caveats on this pair, and they should not be softened. **The accident's Focus gain has
+no clean measured per-event delta to set against the +25.6 above.** The mechanism was confirmed
+in play exactly as described, but the fall itself takes on the order of 800-950 driven frames to
+cross the world floor, and batch-driving in chunks large enough to be practical always overshot
+the exact transition frame — so every "before/after" read spans several seconds of ordinary idle
+drain and traversal gain, which swamps a 5-point signal. One such window showed a raw delta of
++36.9 for what was actually two simultaneous accidents plus unrelated traversal gain; another
+showed a net delta of 0 because the gain drained back out before it could be read. The magnitude
+claim rests on the unit test and the `downGain: 14` / `accidentDownGain: 5` constants themselves,
+not on a matching in-game number.
+
+That same fall length is a real design problem, not only a measurement one: **the accident's
+Focus arrives roughly 8 seconds after the act that earned it.** `accidentDownGain` is paid on the
+frame the enemy crosses `worldFloorY`, which is `-600` in `ARCHIPELAGO`, and under gravity 20 a
+fall from island height takes `√(2 × 600 / 20)` ≈ 7.7 seconds to get there. §4.6's *magnitude*
+rule is satisfied — an accident pays less than a knockdown — but its feedback is disconnected
+from the player's action: by the time the meter moves, the gust that walked a soldier off a cliff
+is eight seconds and several other events in the past, so the player has no way to learn which
+one paid. This is also the real reason the in-game pass could not isolate the delta above. Worth
+revisiting alongside the other half of §4.6: paying at the moment the enemy leaves the ground
+unsupported, rather than at the floor crossing, would connect the grant to the act — at the cost
+of paying for falls that a lucky updraft rescues. **The five voices, the dash FOV kick, and the hurt flash were
+not verified in the running game at all** — the in-game verification pass covered the freeze, the
+shake, the staff spark, the patrol restore, and the accident-versus-down mechanism, and those
+three were not among the items it checked.
+
+**Every value in this cycle is a guess about feel, which no test can check** — same caveat this
+document already carries for the movement and combat tuning below, extended to
+`hitstop.*Seconds`, every `shake` amplitude and duration, `hurtFlash`'s decay rate,
+`fovKickForDash`'s peak, `patrol.respawnRange`, and `accidentDownGain`. The deliverable is that
+each of them is named in a module a test can import, and none of them is buried in `main.ts`:
+`src/fx/config.ts` (the hitstop table, the shake table, `HURT_FLASH_DECAY_PER_SECOND`),
+`src/fx/mapping.ts` (`MAX_DASH_FOV_KICK`, and `COMBAT_LEVELS` for the audio mix),
+`src/combat/config.ts` (`DEFAULT_PATROL_CONFIG`) and `src/focus/config.ts`
+(`accidentDownGain`). Not that any of them are right.
+
+`HURT_FLASH_DECAY_PER_SECOND` in particular started life as a `const` in `main.ts` and was moved
+here for exactly this reason. The only derived value left in `main.ts` is the dash kick's decay
+rate, `1 / DEFAULT_GROUND_CONFIG.dashDurationSeconds`, which is not a tuning value at all — it
+falls out of the dash's real duration, and that is where it should stay.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
@@ -274,10 +508,20 @@ From the design document, in rough order of how much is missing:
   also has Focus spend on elemental heavy moves, and those are unbuilt. Two of its listed
   build sources are also missing: redirected projectiles needs archers, and damage
   avoided at close range needs a near-miss test.
-- **§4.6 non-lethality scoring.** Downing an enemy grants Focus, but nothing yet grants
-  *more* for a non-lethal removal than for an environmental accident, because enemies
-  have no fall physics — every down is already a gust. The distinction waits for enemies
-  that can be blown off a ledge.
+- **§4.6's second half.** Non-lethality scoring now pays a knockdown more than an
+  environmental accident (see "Section 4.6's first half" above), but the rest of the
+  section is still open: a small number of scripted moments that let the player break
+  non-lethality on purpose, with Focus generation degrading for the rest of the
+  encounter as the cost. That needs an act structure this game does not have yet, and
+  only one accident type — the world floor — exists to be scored in the first place;
+  water, a crushing prop, or one soldier's blast downing another are all still
+  unbuilt.
+
+  *(This bullet previously said enemies have no fall physics and that every down is
+  already a gust. That was wrong even before this cycle started reading it: enemies
+  gained gravity in the Vortex/Slipstream work, and `stepEnemy` already downs one that
+  passes `worldFloorY`. Recorded here per this document's own convention — state what
+  was wrong and why, not just the fix.)*
 - **Story-locking the Avatar State.** §4.5 says it is story-locked early on; there is no
   act structure yet, so it is available from the start.
 - **§3.3 region archetypes and §3.1 strata.** One archipelago exists; the six
@@ -285,6 +529,13 @@ From the design document, in rough order of how much is missing:
 - **§5 progression.** No acts, no unlock gating.
 - **§2.4 payload.** No companions to carry.
 - **Wall-riding** from §2.1. Blocked on a real limitation, not on effort: see below.
+- **Standing the player back up.** A pre-existing hole this cycle's playtesting exposed,
+  not part of this cycle's work: once the player's own health reaches 0, it stays at 0
+  for the rest of the session. `stepHealth` in `src/combat/health.ts` deliberately never
+  regenerates off the floor, with a comment deferring the decision to "a system above
+  this one" — and no such system exists in `main.ts`. `respawn` and `safeRespawn` in
+  `src/player/controller.ts` already handle the fall-out-of-world case and are probably
+  what to reuse for it.
 
 ## Blockers and constraints worth knowing before you start
 
@@ -405,12 +656,17 @@ In the order I would take them:
 1. **Play it.** Nothing here has been played. An hour with the live build will find
    more than the next feature will add, and will tell you which of the tuning values
    above are wrong.
-2. **Build §4.6's non-lethality scoring.** Downing an enemy already grants Focus, but
-   nothing yet grants *more* for a non-lethal removal than for an environmental
-   accident, because enemies have no fall physics — every down is already a gust.
-   Pressure Wave's knockback is now strong enough to blow a soldier off a ledge, so the
-   missing piece is giving enemies fall physics and paying that removal more than an
-   in-place knockdown.
+2. **§4.6's non-lethality scoring is built now.** A knockdown pays `downGain: 14`; a
+   soldier lost to a fall over the world floor pays `accidentDownGain: 5`, about a
+   third. This item previously said the missing piece was giving enemies fall physics
+   and "paying that removal more than an in-place knockdown" — both halves were wrong.
+   Enemies already had fall physics from the Vortex/Slipstream work, and the design
+   document lists a ledge fall among the *non-lethal* downs, so it is the accident that
+   should pay less, not more, which is the opposite of what this line said. What is
+   still open from §4.6: the scripted moments that let a player break non-lethality on
+   purpose (needs an act structure that does not exist yet), and every accident type
+   besides the world floor — water, a crushing prop, one soldier's blast downing
+   another are all still unbuilt.
 3. **Add a second enemy type.** Archers pressure altitude, which is the axis the whole
    flight model is about, and they would make the existing hover and dodge meaningful.
 4. **Then either** the terrain API change that unblocks wall-riding, **or** a second

@@ -14,7 +14,7 @@ import { placeShrines } from './world/shrine'
 import { windSampler, stillAir, type WindSample } from './world/wind'
 import { createWindTell } from './world/wind-tell'
 import { startEncounter, stepEncounter } from './combat/encounter'
-import { DEFAULT_COMBAT_CONFIG, HOME_PATROL } from './combat/config'
+import { DEFAULT_COMBAT_CONFIG, DEFAULT_PATROL_CONFIG, HOME_PATROL } from './combat/config'
 import { DEFAULT_FOCUS_CONFIG, DEFAULT_AVATAR_STATE_CONFIG } from './focus/config'
 import { emptyFocus, stepFocus, type FocusEvents } from './focus/focus'
 import { traversalRatePerSecond, fellOutOfWorld } from './focus/sources'
@@ -51,7 +51,17 @@ import { createGuide, guideModelFor } from './ui/guide/panel'
 import { canGust, canVortex } from './combat/encounter'
 import { isArmed } from './focus/avatar-state'
 import { createWindAudio } from './fx/audio'
-import { fovForSpeed } from './fx/mapping'
+import { fovForSpeed, fovKickForDash } from './fx/mapping'
+import {
+  noHitstop, isFrozen, triggerHitstop, stepHitstop, slamHitstopSeconds,
+} from './fx/hitstop'
+import { noShake, triggerShake, stepShake, shakeOffset, slamShakeAmplitude } from './fx/shake'
+import {
+  DEFAULT_HITSTOP_CONFIG, DEFAULT_SHAKE_CONFIG, HURT_FLASH_DECAY_PER_SECOND,
+} from './fx/config'
+import { stepPulse } from './fx/pulse'
+import { impactTargets } from './fx/impact-targets'
+import { createCombatAudio } from './fx/combat-audio'
 
 /** How much faster the mote clouds drift while the Avatar State runs. */
 const WIND_TELL_SURGE = 2.5
@@ -89,6 +99,13 @@ function start(): void {
   let lastWind: WindSample = stillAir()
   /** Every live one-shot effect. The pool owns removal and disposal. */
   const effects = createEffectPool(scene)
+
+  let hitstop = noHitstop()
+  let shake = noShake()
+  let hurtFlash = 0
+  let dashKick = 0
+  const shakeVec = new Vector3()
+  const combatAudio = createCombatAudio()
 
   // Shrine markers: a spinning octahedron each, hidden once collected.
   const shrineGroup = new Group()
@@ -129,16 +146,24 @@ function start(): void {
   })
 
   // The one encounter: spear infantry on the home island.
-  let encounter = startEncounter(
-    HOME_PATROL.map((spawn) => ({
-      ...spawn,
-      // Dropped onto the ground rather than trusting the authored y.
-      position: spawn.position.clone().setY(
-        world.terrain.groundHeightAt(spawn.position.x, spawn.position.z) ?? spawn.position.y,
-      ),
-    })),
-    DEFAULT_COMBAT_CONFIG,
-  )
+  //
+  // Hoisted into a const and handed to both startEncounter and the fight's deps below,
+  // because the restore respawns from `deps.spawns` and there must be exactly one answer
+  // to where the patrol stands. Passing raw HOME_PATROL as the deps meant a restored
+  // soldier spawned at the authored `y: 0` while the initial three stood on the terrain:
+  // the home island is an icosphere at the origin, so ground at (26,-18) is roughly 30 m
+  // up, and a restored soldier appeared 30 m inside the island for `fall()` to snap out on
+  // its first step. Invisible only by luck — a 30 m correction exceeds the interpolator's
+  // snap distance, so the view collapsed instead of sliding — and a spawn point over lower
+  // terrain would have slid visibly up out of the ground.
+  const patrolSpawns = HOME_PATROL.map((spawn) => ({
+    ...spawn,
+    // Dropped onto the ground rather than trusting the authored y.
+    position: spawn.position.clone().setY(
+      world.terrain.groundHeightAt(spawn.position.x, spawn.position.z) ?? spawn.position.y,
+    ),
+  }))
+  let encounter = startEncounter(patrolSpawns, DEFAULT_COMBAT_CONFIG)
   const enemyViews = new Map(encounter.enemies.map((enemy) => {
     const view = createEnemyView()
     scene.add(view.object)
@@ -199,7 +224,12 @@ function start(): void {
     }))
   })
   const wind = createWindAudio()
-  canvas.addEventListener('click', () => wind.start(), { once: true })
+  // Both need a user gesture to unblock audio, and this is the one the wind audio
+  // already waits for, so the combat voices ride along on the same click.
+  canvas.addEventListener('click', () => {
+    wind.start()
+    combatAudio.start()
+  }, { once: true })
 
   const baseWindAt = windSampler(ARCHIPELAGO.winds ?? [])
 
@@ -238,6 +268,39 @@ function start(): void {
   const sampledEnemy = new Vector3()
 
   function update(dt: number): void {
+    hitstop = stepHitstop(hitstop, dt)
+    // Returns before input.sample(), and that order is the whole trick. input.ts
+    // documents sample() as "Call exactly once per frame: reading clears the action
+    // edge", so sampling and then discarding would eat any press made during the
+    // freeze -- a click landing inside a 60ms hitstop simply would not happen.
+    // Returning first leaves the edge pending in the tracker, and it fires on the
+    // first live frame.
+    //
+    // The accumulator needs no special handling: createStepper decrements it around
+    // every update call regardless of what that call does, so an early return cannot
+    // bank time and discharge it on resume.
+    if (isFrozen(hitstop)) {
+      // The interpolators do need handling, though, and this is the whole reason the
+      // freeze is not simply a `return`. The early return skips the record() calls at the
+      // end of this function, but createStepper goes on draining its accumulator, so
+      // `alpha` keeps sawtoothing across [0,1) while each previous/current pair stays
+      // pinned to the last live step. sample(alpha) therefore blends back and forth across
+      // that step's displacement for the entire freeze — a full-strength slam's last
+      // recorded step spans about 0.75 m vertically, and camera.lookAt(sampledPosition)
+      // rotates with it, on top of the deliberate shake, so it reads as extra shake rather
+      // than as a bug. reset() collapses each pair, so sample() returns current unblended
+      // at any alpha: dead still, which is what a hitstop is.
+      //
+      // Every frozen frame, not once on entry. reset() is idempotent while nothing
+      // records — previous is already current after the first call — so repeating it costs
+      // three vector copies plus one per enemy, and the alternative is a second piece of
+      // freeze state in this file that can fall out of step with `hitstop` itself.
+      playerPositionLerp.reset()
+      playerForwardLerp.reset()
+      for (const lerp of enemyPositionLerps.values()) lerp.reset()
+      return
+    }
+
     const state = input.sample()
 
     // Read before controllerStep: it resolves a fall internally and hands back an
@@ -293,7 +356,11 @@ function start(): void {
       effects.add(createDashTrail(
         beforeStep.position, player.velocity, player.dashesUsed, DEFAULT_GROUND_CONFIG,
       ))
+      dashKick = 1
     }
+    // Decays over roughly the dash's own duration, so the kick is gone by the time the
+    // burst is.
+    dashKick = stepPulse(dashKick, dt, 1 / DEFAULT_GROUND_CONFIG.dashDurationSeconds)
 
     // A Slipstream fired iff its elapsed timer went from null to running this frame,
     // the same before/after comparison the dash trail above uses. The origin is where
@@ -386,6 +453,7 @@ function start(): void {
     // will actually do on this same frame rather than a frame late.
     if (state.gustPressed && canGust(encounter)) {
       effects.add(createGustCone(player.position, player.forward, fightConfig.gust))
+      combatAudio.gust()
     }
 
     // staffShape(staffSwing.finisher, fightConfig.staffArc): the same call stepEncounter is
@@ -394,6 +462,7 @@ function start(): void {
       effects.add(createStaffArc(
         player.position, player.forward, staffShape(staffSwing.finisher, fightConfig.staffArc),
       ))
+      combatAudio.swing(staffSwing.finisher)
     }
 
     const fight = stepEncounter(encounter, {
@@ -408,8 +477,18 @@ function start(): void {
         DEFAULT_SLIPSTREAM_CONFIG,
       ),
       staffSwing,
-    }, dt, fightConfig, { ground: world.terrain, worldFloorY: ARCHIPELAGO.worldFloorY })
+    }, dt, fightConfig, {
+      ground: world.terrain, worldFloorY: ARCHIPELAGO.worldFloorY,
+      // The same ground-adjusted array startEncounter was built from, never raw
+      // HOME_PATROL: a restored soldier has to stand where the original three did.
+      spawns: patrolSpawns, patrol: DEFAULT_PATROL_CONFIG,
+    })
     encounter = fight.encounter
+    // A restored soldier reuses its id, so its interpolator still holds wherever the
+    // body fell. Left alone the view would blend from there to the spawn point --
+    // sliding across the map, or climbing up out of the void for one that fell off the
+    // world. Dropping the entry makes the next record start clean.
+    for (const id of fight.restoredThisFrame) enemyPositionLerps.delete(id)
     for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy, camera.quaternion)
 
     // Drawn at the true vortexRadius for the same reason the gust cone is drawn at its
@@ -420,20 +499,62 @@ function start(): void {
       ))
     }
 
-    // A down and a connect both name an enemy that went down this frame, because the two
-    // lists are computed at different moments. The down is the louder statement, so it
-    // wins and the connect is dropped.
-    const downedNow = new Set(fight.downedThisFrame)
-    const positionOf = (id: string) => encounter.enemies.find((e) => e.id === id)?.position
-    for (const id of new Set([...fight.hitThisFrame, ...fight.slamHitThisFrame])) {
-      if (downedNow.has(id)) continue
+    // impactTargets owns the union and the rule that a down beats a connect. It lives
+    // in a tested module because this file has none, and because the staff was added
+    // to the fight without being added to the loop that used to live here.
+    // fight.enemiesBeforeRestore, never `encounter.enemies`: the burst lists below are all
+    // computed inside stepEncounter before the patrol restore runs, and `encounter` was
+    // just reassigned to the post-restore array. On a frame that both downs the last
+    // soldier and restores the patrol -- kite one 45 units out with the other two already
+    // down, and gust it there -- the post-restore array holds fresh soldiers at their
+    // spawn points, so the down spark would be drawn back on the patrol ground while the
+    // freeze, the shake and the thud all fire around a player 45 units away.
+    const positionOf = (id: string) =>
+      fight.enemiesBeforeRestore.find((e) => e.id === id)?.position
+    const bursts = impactTargets({
+      hits: fight.hitThisFrame,
+      slamHits: fight.slamHitThisFrame,
+      staffHits: fight.staffHitThisFrame,
+      downed: fight.downedThisFrame,
+    })
+    for (const id of bursts.hits) {
       const at = positionOf(id)
       if (at) effects.add(createImpact(at, 'hit'))
     }
-    for (const id of fight.downedThisFrame) {
+    for (const id of bursts.downs) {
       const at = positionOf(id)
       if (at) effects.add(createImpact(at, 'down'))
     }
+    if (bursts.hits.length > 0) combatAudio.impact()
+    if (bursts.downs.length > 0) combatAudio.down()
+
+    // Heavy events only. Never a gust: a move with a 0.45s cooldown that hitches on
+    // every use is nausea, not weight.
+    if (staffSwing?.finisher && fight.staffHitThisFrame.length > 0) {
+      hitstop = triggerHitstop(hitstop, DEFAULT_HITSTOP_CONFIG.finisherSeconds)
+    }
+    if (bursts.downs.length > 0) {
+      hitstop = triggerHitstop(hitstop, DEFAULT_HITSTOP_CONFIG.downSeconds)
+      shake = triggerShake(
+        shake, DEFAULT_SHAKE_CONFIG.downAmplitude, DEFAULT_SHAKE_CONFIG.downSeconds,
+      )
+    }
+    if (slam) {
+      hitstop = triggerHitstop(hitstop, slamHitstopSeconds(slam.strength, DEFAULT_HITSTOP_CONFIG))
+      shake = triggerShake(
+        shake,
+        slamShakeAmplitude(slam.strength, DEFAULT_SHAKE_CONFIG),
+        DEFAULT_SHAKE_CONFIG.slamSeconds,
+      )
+    }
+    if (fight.playerHit) {
+      hurtFlash = 1
+      shake = triggerShake(
+        shake, DEFAULT_SHAKE_CONFIG.hurtAmplitude, DEFAULT_SHAKE_CONFIG.hurtSeconds,
+      )
+      combatAudio.hurt()
+    }
+    hurtFlash = stepPulse(hurtFlash, dt, HURT_FLASH_DECAY_PER_SECOND)
 
     const events: FocusEvents = {
       gustConnects: fight.hitThisFrame.length,
@@ -443,6 +564,7 @@ function start(): void {
       fellOutOfWorld: crashed,
       damageAvoided: fight.damageAvoided,
       staffConnects: fight.staffHitThisFrame.length,
+      accidents: fight.lostThisFrame.length,
     }
     const inWind = lastWind.accel.lengthSq() > 1e-6 || lastWind.liftScale !== 1
     focus = stepFocus(focus, {
@@ -462,7 +584,7 @@ function start(): void {
       focus: focus.max > 0 ? focus.value / focus.max : 0,
       avatarCharge: armFraction(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
       avatarActive,
-    }))
+    }, hurtFlash))
 
     playerPositionLerp.record(player.position)
     playerForwardLerp.record(player.forward)
@@ -512,9 +634,22 @@ function start(): void {
       world.terrain,
     )
     cameraPosition = smoothTowards(cameraPosition, desired, profile.smoothing, frameDt)
-    camera.position.copy(cameraPosition)
+    // Stepped here rather than in update(), with real frame time: shake is a
+    // render-time offset, so it keeps animating through a hitstop. A freeze with a
+    // shaking camera is the impact; a freeze that holds still and then shakes is two
+    // separate events, which is what stepping it in update() would produce, because
+    // update() is exactly what the freeze stops.
+    shake = stepShake(shake, frameDt)
+    // Added to the transform, never written back into cameraPosition. That is the
+    // smoothed state smoothTowards reads and writes every frame, so integrating the
+    // shake into it would make the camera drift away from the player rather than
+    // vibrate around him. lookAt keeps targeting the unshaken sampledPosition too:
+    // shaking the target rotates the view instead of translating it, which reads as
+    // the world tilting.
+    camera.position.copy(cameraPosition).add(shakeOffset(shake, shakeVec))
     camera.lookAt(sampledPosition)
-    camera.fov = player.mode === 'glider' ? fovForSpeed(player.velocity.length()) : fovForSpeed(0)
+    camera.fov = (player.mode === 'glider' ? fovForSpeed(player.velocity.length()) : fovForSpeed(0))
+      + fovKickForDash(dashKick)
     camera.updateProjectionMatrix()
   }
 

@@ -46,6 +46,16 @@ export interface FocusConfig {
   dodgeGain: number
   /** Focus per enemy a staff swing connected with. */
   staffConnectGain: number
+  /**
+   * Focus for an enemy removed by environmental accident, as opposed to put down.
+   *
+   * Section 4.6: "Enemies removed non-lethally grant more Focus than enemies removed
+   * by environmental accident, so the generous play is also the strong play." The
+   * document lists "blown off a ledge into water" among the non-lethal downs, so a
+   * fall into empty air is the accident, and it pays less than `downGain`. Not zero:
+   * the threat is gone and the player caused it.
+   */
+  accidentDownGain: number
 }
 
 /** What happened this frame that Focus cares about. */
@@ -62,6 +72,8 @@ export interface FocusEvents {
   damageAvoided: boolean
   /** Enemies a staff swing connected with. */
   staffConnects: number
+  /** Enemies removed by environmental accident — today, by leaving the world. */
+  accidents: number
 }
 
 export interface FocusInput {
@@ -77,7 +89,7 @@ export interface FocusInput {
 export function noFocusEvents(): FocusEvents {
   return {
     gustConnects: 0, downs: 0, slamStrength: 0, playerHit: false, fellOutOfWorld: false,
-    damageAvoided: false, staffConnects: 0,
+    damageAvoided: false, staffConnects: 0, accidents: 0,
   }
 }
 
@@ -133,6 +145,7 @@ export function stepFocus(
     + events.downs * c.downGain
     + events.slamStrength * c.slamGainAtFullImpact
     + events.staffConnects * c.staffConnectGain
+    + events.accidents * c.accidentDownGain
     + (events.damageAvoided ? c.dodgeGain : 0)) * ramp
 
   return { value: MathUtils.clamp(value, 0, focus.max), max: focus.max, chainTime }

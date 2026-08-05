@@ -23,6 +23,7 @@ const C: FocusConfig = {
   crashDrain: 50,
   dodgeGain: 8,
   staffConnectGain: 3,
+  accidentDownGain: 4,
 }
 
 const focusAt = (value: number, chainTime = 0): Focus => ({ value, max: C.maxFocus, chainTime })
@@ -244,5 +245,38 @@ describe('focus from the staff', () => {
     // A gust pays once per enemy at range and off cooldown; the staff pays three times a
     // combo at melee range. Per-hit parity would make the staff the way to farm the meter.
     expect(C.staffConnectGain).toBeLessThan(C.gustConnectGain)
+  })
+})
+
+describe('a removal by accident pays less than a knockdown', () => {
+  it('pays the accident gain for one soldier lost over the edge', () => {
+    // A literal. `expect(gained).toBe(C.accidentDownGain)` passes for any value,
+    // including downGain itself, which is the exact bug this field exists to prevent.
+    const next = stepFocus(focusAt(0, 0), input({ events: { accidents: 1 } }), 1 / 60, C)
+    expect(next.value).toBeCloseTo(4, 5)
+  })
+
+  it('pays materially less than a knockdown', () => {
+    // A margin, not a bare `>`. The design rule is that the generous play is the
+    // strong play, which a fraction of a percent would not deliver.
+    const down = stepFocus(focusAt(0, 0), input({ events: { downs: 1 } }), 1 / 60, C)
+    const accident = stepFocus(focusAt(0, 0), input({ events: { accidents: 1 } }), 1 / 60, C)
+    expect(accident.value).toBeLessThan(down.value * 0.6)
+  })
+
+  it('pays per soldier', () => {
+    const next = stepFocus(focusAt(0, 0), input({ events: { accidents: 3 } }), 1 / 60, C)
+    expect(next.value).toBeCloseTo(12, 5)
+  })
+
+  it('rides the chain ramp like every other gain', () => {
+    const cold = stepFocus(focusAt(0, 0), input({ events: { accidents: 1 } }), 1 / 60, C)
+    const hot = stepFocus(focusAt(0, 30), input({ events: { accidents: 1 } }), 1 / 60, C)
+    expect(hot.value).toBeGreaterThan(cold.value * 1.2)
+  })
+
+  it('pays nothing when nothing was lost', () => {
+    const next = stepFocus(focusAt(0, 0), input({ events: { accidents: 0 } }), 1 / 60, C)
+    expect(next.value).toBeCloseTo(0, 5)
   })
 })

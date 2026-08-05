@@ -47,7 +47,10 @@ const near = () => startEncounter([{ id: 'a', position: new Vector3(0, 0, -2) }]
 // existed, so a flat floor well below anything the fight does keeps them
 // exercising the same horizontal behaviour rather than newly falling enemies.
 const flatGround = { groundHeightAt: () => 0 }
-const DEPS = { ground: flatGround, worldFloorY: -50 }
+// An empty spawn list, so shouldRestorePatrol always declines and every test in this
+// file that predates the respawn keeps exercising exactly what it used to. The
+// restore has its own deps, built in its own describe block.
+const DEPS = { ground: flatGround, worldFloorY: -50, spawns: [], patrol: { respawnRange: 40 } }
 
 /** A neutral frame of input: nothing pressed, nothing held. */
 const defaults: EncounterInput = {
@@ -551,5 +554,202 @@ describe('a staff swing', () => {
       1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
     )
     expect(again.staffHitThisFrame).toEqual([])
+  })
+})
+
+describe('a removal by accident is reported apart from a knockdown', () => {
+  // Ground that is not there, and a floor just below the first frame's fall, so one
+  // step takes the soldier out of the world. worldFloorY of -1 (matching DEPS's shape)
+  // would not do it: with gravity 20 and dt 1/60, semi-implicit Euler puts the enemy at
+  // y = -g*dt^2 = -1/180 (~-0.0056) after one frame, and it takes 19 frames of free fall
+  // to pass y = -1. -0.001 sits just above that first-frame position, so it crosses in
+  // exactly the one step these tests step.
+  const voidDeps = {
+    ground: { groundHeightAt: () => null }, worldFloorY: -0.001,
+    // Empty, same reasoning as DEPS: no spawns means the restore never fires here.
+    spawns: [], patrol: { respawnRange: 40 },
+  }
+
+  it('reports a fallen enemy as lost', () => {
+    const start = startEncounter([{ id: 'a', position: new Vector3(0, 0, -2) }], C)
+    const step = stepEncounter(start, defaults, 1 / 60, C, voidDeps)
+    expect(step.lostThisFrame).toEqual(['a'])
+  })
+
+  it('does not also report it as downed', () => {
+    // The double-pay bug. `downedThisFrame` is computed by diffing the downed set
+    // across the step, so a fallen enemy lands in it as well -- and Focus would grant
+    // both downGain and accidentDownGain for one soldier. A test that only checks
+    // `lostThisFrame` passes while that is live, which is why this asserts both.
+    const start = startEncounter([{ id: 'a', position: new Vector3(0, 0, -2) }], C)
+    const step = stepEncounter(start, defaults, 1 / 60, C, voidDeps)
+    expect(step.lostThisFrame).toEqual(['a'])
+    expect(step.downedThisFrame).toEqual([])
+  })
+
+  it('reports a gusted enemy as downed and not as lost', () => {
+    // The other direction: the split must not have moved ordinary knockdowns.
+    let encounter = startEncounter([{ id: 'a', position: new Vector3(0, 0, -2) }], C)
+    const downs: string[] = []
+    const losses: string[] = []
+    for (let i = 0; i < 240; i++) {
+      const step = stepEncounter(
+        encounter, { ...defaults, gustPressed: true }, 1 / 60, C, DEPS,
+      )
+      downs.push(...step.downedThisFrame)
+      losses.push(...step.lostThisFrame)
+      encounter = step.encounter
+    }
+    expect(downs).toEqual(['a'])
+    expect(losses).toEqual([])
+  })
+
+  it('reports nothing on a quiet frame', () => {
+    const step = stepEncounter(near(), defaults, 1 / 60, C, DEPS)
+    expect(step.lostThisFrame).toEqual([])
+    expect(step.downedThisFrame).toEqual([])
+  })
+})
+
+describe('a cleared patrol comes back', () => {
+  const SPAWNS: EnemySpawn[] = [{ id: 'a', position: new Vector3(0, 0, -2) }]
+  const withPatrol = { ...DEPS, spawns: SPAWNS, patrol: { respawnRange: 40 } }
+
+  /** Gust the soldier down, standing next to it. */
+  function clear() {
+    let encounter = startEncounter(SPAWNS, C)
+    for (let i = 0; i < 240; i++) {
+      encounter = stepEncounter(
+        encounter, { ...defaults, gustPressed: true }, 1 / 60, C, withPatrol,
+      ).encounter
+    }
+    return encounter
+  }
+
+  it('does not come back while the player is standing over it', () => {
+    const cleared = clear()
+    const step = stepEncounter(cleared, defaults, 1 / 60, C, withPatrol)
+    expect(step.restoredThisFrame).toEqual([])
+    expect(isDowned(step.encounter.enemies[0]!.health)).toBe(true)
+  })
+
+  it('comes back at full health once the player has left', () => {
+    const cleared = clear()
+    const away = { ...defaults, playerPosition: new Vector3(0, 0, -500) }
+    const step = stepEncounter(cleared, away, 1 / 60, C, withPatrol)
+    expect(step.restoredThisFrame).toEqual(['a'])
+    const restored = step.encounter.enemies[0]
+    if (!restored) throw new Error('the patrol should have been restored')
+    expect(restored.health.current).toBe(C.enemy.maxHealth)
+    expect(isDowned(restored.health)).toBe(false)
+    expect(restored.position.z).toBeCloseTo(-2)
+  })
+
+  it('reports no phantom events on the frame it restores', () => {
+    // The ordering bug this guards. `wasDowned` is diffed at the top of stepEncounter,
+    // so replacing the enemy array before those lists are built would compare a fresh
+    // soldier against a downed one. Restoring last means the frame reports nothing.
+    const cleared = clear()
+    const away = { ...defaults, playerPosition: new Vector3(0, 0, -500) }
+    const step = stepEncounter(cleared, away, 1 / 60, C, withPatrol)
+    expect(step.downedThisFrame).toEqual([])
+    expect(step.lostThisFrame).toEqual([])
+    expect(step.hitThisFrame).toEqual([])
+  })
+
+  it('reports nothing on the frame after, having already restored', () => {
+    const cleared = clear()
+    const away = { ...defaults, playerPosition: new Vector3(0, 0, -500) }
+    const once = stepEncounter(cleared, away, 1 / 60, C, withPatrol)
+    const twice = stepEncounter(once.encounter, away, 1 / 60, C, withPatrol)
+    expect(twice.restoredThisFrame).toEqual([])
+    expect(twice.downedThisFrame).toEqual([])
+  })
+
+  it('leaves a fight with no spawns configured alone', () => {
+    // DEPS carries an empty spawns list, which is what keeps every pre-existing test
+    // in this file unaffected by the restore.
+    const cleared = clear()
+    const away = { ...defaults, playerPosition: new Vector3(0, 0, -500) }
+    const step = stepEncounter(cleared, away, 1 / 60, C, DEPS)
+    expect(step.restoredThisFrame).toEqual([])
+    expect(isDowned(step.encounter.enemies[0]!.health)).toBe(true)
+  })
+
+  it('regression guard: a gust cannot land on the same frame the patrol restores', () => {
+    // Production's respawnRange (40, in DEFAULT_PATROL_CONFIG) sits beyond every
+    // weapon's reach -- gust's range of 12 included -- so the shipped tuning can never
+    // let a restore and a landing attack coincide on one frame; that gap is what makes
+    // leaving-and-returning safe in the first place. The respawnRange of 5 below exists
+    // solely to force the two to overlap so the restore-last ordering is actually
+    // observable by a test. Do not "fix" this back to 40: that would silently disarm
+    // the guard, since with 40 this test could never fail even with the ordering bug
+    // it exists to catch.
+    const closeRespawn = { ...withPatrol, patrol: { respawnRange: 5 } }
+    let encounter = clear()
+    // Holding gust down through clear() leaves its cooldown mid-cycle, not spent. Settle
+    // it fully before the frame under test, so the attack below is a live attempt to
+    // connect rather than one that silently no-ops on cooldown.
+    for (let i = 0; i < 60; i++) {
+      encounter = stepEncounter(encounter, defaults, 1 / 60, C, withPatrol).encounter
+    }
+    // 6 units out: past respawnRange (5), so the restore fires, but still inside gust's
+    // range (12) and cone, aimed straight down the spawn, so a gust this frame would
+    // otherwise connect.
+    const justBeyondButInGustRange = {
+      ...defaults, playerPosition: new Vector3(0, 0, 4), gustPressed: true,
+    }
+    const step = stepEncounter(encounter, justBeyondButInGustRange, 1 / 60, C, closeRespawn)
+    expect(step.restoredThisFrame).toEqual(['a'])
+    expect(step.hitThisFrame).toEqual([])
+    expect(step.downedThisFrame).toEqual([])
+  })
+
+  it('reports where the body fell on a frame that both downs and restores', () => {
+    // Reachable in the shipped game: a soldier chases while the player is inside
+    // aggroRange, so one can be led far from its spawn point, and with the rest of the
+    // patrol already down, downing that last one 45+ units out satisfies the restore
+    // condition on the very same frame. `encounter.enemies` is then the post-restore
+    // array -- fresh soldiers standing at their spawns -- while `downedThisFrame` names
+    // the body that fell somewhere else entirely, so a caller drawing a down spark from
+    // `encounter.enemies` draws it on the patrol ground rather than at the kill.
+    //
+    // A respawnRange of 5 (test-local, like the guard above) is what lets one frame do
+    // both: at production's 40 no attack reaches far enough for a down and a restore to
+    // coincide, which is exactly why this needed a fixture of its own.
+    const closeRespawn = { ...withPatrol, patrol: { respawnRange: 5 } }
+    const start = startEncounter(SPAWNS, C)
+    // 6 units back from the spawn: past respawnRange (5) so the restore fires, and well
+    // inside a full-strength wave's 12 radius so the slam downs the soldier outright
+    // (maxDamage 2.5 against 1.5 health) on this one frame.
+    const slamFromBeyond = {
+      ...defaults, playerPosition: new Vector3(0, 0, 4), slam: { strength: 1 },
+    }
+    const step = stepEncounter(start, slamFromBeyond, 1 / 60, C, closeRespawn)
+
+    // The premise: one frame, both events.
+    expect(step.downedThisFrame).toEqual(['a'])
+    expect(step.restoredThisFrame).toEqual(['a'])
+
+    const fallen = step.enemiesBeforeRestore.find((enemy) => enemy.id === 'a')
+    if (!fallen) throw new Error('the downed soldier should still be reported')
+    expect(isDowned(fallen.health)).toBe(true)
+    // Knocked away from the player, so the body is further out than the spawn's z of -2.
+    expect(fallen.position.z).toBeLessThan(-2)
+
+    // And the fight itself carries the fresh soldier, standing at its spawn.
+    const fresh = step.encounter.enemies[0]
+    if (!fresh) throw new Error('the patrol should have been restored')
+    expect(isDowned(fresh.health)).toBe(false)
+    expect(fresh.position.z).toBeCloseTo(-2)
+  })
+
+  it('reports the same enemies before and after on a frame that does not restore', () => {
+    // The other half of the contract: `enemiesBeforeRestore` is only interesting on a
+    // restore frame, so on every other frame a caller reading it must see exactly what
+    // the fight carries. Otherwise the two sources would disagree all the time and the
+    // fix above would have traded one wrong position for another.
+    const step = stepEncounter(near(), defaults, 1 / 60, C, DEPS)
+    expect(step.enemiesBeforeRestore).toEqual(step.encounter.enemies)
   })
 })

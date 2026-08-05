@@ -36,6 +36,9 @@ export const DEFAULT_FOCUS_CONFIG: FocusConfig = {
   // Below gustConnectGain (6): a wide arc on three soldiers pays three times, and it pays
   // at melee range where the risk is already its own reward.
   staffConnectGain: 3,
+  // Roughly a third of downGain's 14, and just below dodgeGain's 8: losing a soldier
+  // over the edge still pays, but putting one down is clearly the better line.
+  accidentDownGain: 5,
 }
 
 /**

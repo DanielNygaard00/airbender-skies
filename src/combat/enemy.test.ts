@@ -322,6 +322,58 @@ describe('walking downhill', () => {
   })
 })
 
+describe('reporting an environmental removal', () => {
+  // Just above the floor, so a single frame of free fall from rest is enough to cross
+  // it — the exact margin depends on this file's own gravity and dt, not the doc.
+  const BRINK = FLOOR + 0.001
+
+  it('reports nothing on an ordinary grounded frame', () => {
+    const step = stepEnemy(spawnEnemy('a', AT(0, 20), C), AT(0, -10), flatGround, FLOOR, 1 / 60, C)
+    expect(step.fellOutOfWorld).toBe(false)
+  })
+
+  it('reports nothing while merely falling, above the floor', () => {
+    const falling = { ...spawnEnemy('a', AT(0, 20), C), position: new Vector3(0, 0, 0), grounded: false }
+    const step = stepEnemy(falling, AT(0, -10), emptyAir, FLOOR, 1 / 60, C)
+    expect(step.fellOutOfWorld).toBe(false)
+    expect(isDowned(step.enemy.health)).toBe(false)
+  })
+
+  it('reports the removal on the frame it crosses the floor, and downs it', () => {
+    const brink = { ...spawnEnemy('a', AT(0, 20), C), position: new Vector3(0, BRINK, 0), grounded: false }
+    const step = stepEnemy(brink, AT(0, -10), emptyAir, FLOOR, 1 / 60, C)
+    expect(step.fellOutOfWorld).toBe(true)
+    expect(isDowned(step.enemy.health)).toBe(true)
+  })
+
+  it('reports it exactly once, not on every frame afterwards', () => {
+    // The latching bug this test exists for: a flag that stays true pays Focus every
+    // frame for one event, and a parked body sits below the floor forever.
+    let current = { ...spawnEnemy('a', AT(0, 20), C), position: new Vector3(0, BRINK, 0), grounded: false }
+    const reports: boolean[] = []
+    for (let i = 0; i < 20; i++) {
+      const step = stepEnemy(current, AT(0, -10), emptyAir, FLOOR, 1 / 60, C)
+      reports.push(step.fellOutOfWorld)
+      current = step.enemy
+    }
+    expect(reports.filter(Boolean).length).toBe(1)
+    expect(reports[0]).toBe(true)
+  })
+
+  it('does not report a body that was already downed before it fell', () => {
+    // It was removed by a gust and already paid for. Reporting the fall as well would
+    // pay twice for one soldier.
+    const corpse = {
+      ...spawnEnemy('a', AT(0, 20), C),
+      position: new Vector3(0, BRINK, 0),
+      grounded: false,
+      health: { current: 0, max: 1.5, sinceHit: 0 },
+    }
+    const step = stepEnemy(corpse, AT(0, -10), emptyAir, FLOOR, 1 / 60, C)
+    expect(step.fellOutOfWorld).toBe(false)
+  })
+})
+
 describe('the ground snap does not grab a body from mid-air', () => {
   it('does not snap onto the ground early after a big lift', () => {
     // What the was-grounded guard exists to protect: a Vortex lifts an already-

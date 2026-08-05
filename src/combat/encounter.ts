@@ -11,6 +11,7 @@ import {
 } from './pressure-wave'
 import { vortexCharge, vortexImpulse, vortexTargets, type VortexConfig } from './vortex'
 import { staffDamage, staffImpulse, staffTargets, type StaffArcConfig } from './staff-arc'
+import { shouldRestorePatrol, type PatrolConfig } from './patrol'
 import type { StaffSwing } from '../player/staff'
 
 /**
@@ -54,6 +55,15 @@ export interface EnemySpawn {
 export interface EncounterDeps {
   ground: GroundHeightQuery
   worldFloorY: number
+  /**
+   * Where this fight's soldiers stand when fresh.
+   *
+   * On the deps rather than on `Encounter`: a running fight is not a level
+   * definition, and this interface already means "what the fight needs from the
+   * world" as opposed to "what the player did this frame".
+   */
+  spawns: readonly EnemySpawn[]
+  patrol: PatrolConfig
 }
 
 export function startEncounter(spawns: readonly EnemySpawn[], c: CombatConfig): Encounter {
@@ -87,6 +97,40 @@ export interface EncounterStep {
   encounter: Encounter
   /** Enemies knocked down this frame, for feedback and for scoring later. */
   downedThisFrame: string[]
+  /**
+   * Enemies that went down by falling out of the world this frame, kept apart from
+   * downedThisFrame.
+   *
+   * Section 4.6 pays a non-lethal removal more Focus than an environmental accident, so
+   * the two have to be reported as disjoint sets rather than one flag folded into the
+   * other -- an enemy that falls out of the world is also newly downed, and without the
+   * split it would land in both lists and get paid for both.
+   */
+  lostThisFrame: string[]
+  /**
+   * Ids of the soldiers spawned back in this frame, because the whole patrol was
+   * down and the player had left.
+   *
+   * `main.ts` needs this to reset the position interpolators for those ids — without
+   * it a restored soldier's view would tween from wherever its body was left to its
+   * fresh spawn point instead of popping in there.
+   */
+  restoredThisFrame: string[]
+  /**
+   * The enemies as this frame's simulation left them, before any restore replaced them.
+   *
+   * The only array that agrees with `downedThisFrame`, `lostThisFrame` and the three
+   * connect lists about where a soldier was. Those lists are all computed before the
+   * restore -- they have to be, because `wasDowned` is diffed at the top of the step --
+   * so on a frame that both reports a down and restores the patrol, `encounter.enemies`
+   * holds fresh soldiers standing at their spawn points and has no record of where the
+   * body fell. A caller drawing a down burst from `encounter.enemies` puts it on the
+   * patrol ground while the player is 45 units away watching nothing happen.
+   *
+   * Identical to `encounter.enemies` on every frame that does not restore, which is
+   * almost all of them; it exists for the frame where the two differ.
+   */
+  enemiesBeforeRestore: readonly Enemy[]
   /** Enemies a gust connected with this frame, for feedback and for Focus. */
   hitThisFrame: string[]
   /** Enemies a Pressure Wave connected with this frame. Kept apart from hitThisFrame:
@@ -254,9 +298,11 @@ export function stepEncounter(
   }
 
   let damageToPlayer = 0
+  const lostThisFrame: string[] = []
   enemies = enemies.map((enemy) => {
     const step = stepEnemy(enemy, input.playerPosition, deps.ground, deps.worldFloorY, dt, c.enemy)
     damageToPlayer += step.damageToPlayer
+    if (step.fellOutOfWorld) lostThisFrame.push(step.enemy.id)
     return step.enemy
   })
 
@@ -267,13 +313,37 @@ export function stepEncounter(
   const hurt = applied > 0 ? applyDamage(encounter.playerHealth, applied) : encounter.playerHealth
   const playerHealth = stepHealth(hurt, dt, c.player)
 
+  // Subtracted, not merely reported alongside. `downedThisFrame` is a diff of the
+  // downed set across the step, so an enemy that left the world appears in both -- and
+  // Focus would pay downGain and accidentDownGain for the same soldier. The codebase
+  // has met this overlap once already: `main.ts` drops a connect for an enemy that
+  // also went down this frame. Same shape, same fix.
+  const lost = new Set(lostThisFrame)
   const downedThisFrame = enemies
-    .filter((enemy) => isDowned(enemy.health) && !wasDowned.has(enemy.id))
+    .filter((enemy) => isDowned(enemy.health) && !wasDowned.has(enemy.id) && !lost.has(enemy.id))
     .map((enemy) => enemy.id)
+
+  // Last, deliberately. `wasDowned` is diffed at the top of this function, so
+  // replacing the enemy array any earlier would compare a fresh soldier against a
+  // downed one and report a phantom down or hit. Restoring here means the next frame
+  // starts from a healthy patrol and an empty wasDowned, which reports nothing.
+  // Held onto before the restore can overwrite `enemies`, because every event list this
+  // function reports was computed against this array and nothing downstream can
+  // reconstruct it afterwards.
+  const enemiesBeforeRestore = enemies
+
+  let restoredThisFrame: string[] = []
+  if (shouldRestorePatrol(enemies, deps.spawns, input.playerPosition, deps.patrol)) {
+    enemies = deps.spawns.map((spawn) => spawnEnemy(spawn.id, spawn.position, c.enemy))
+    restoredThisFrame = enemies.map((enemy) => enemy.id)
+  }
 
   return {
     encounter: { enemies, playerHealth, gustCooldown, vortexHeldSeconds, vortexCooldown },
     downedThisFrame,
+    lostThisFrame,
+    restoredThisFrame,
+    enemiesBeforeRestore,
     hitThisFrame,
     slamHitThisFrame,
     staffHitThisFrame,
