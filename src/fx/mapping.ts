@@ -61,6 +61,8 @@ export const COMBAT_LEVELS = {
   impact: 0.3,
   down: 0.36,
   hurt: 0.4,
+  /** An archer loosing. Louder than a staff swing, since it is a warning; below hurt. */
+  bowRelease: 0.24,
 } as const
 
 export function swingLevel(finisher: boolean): number {

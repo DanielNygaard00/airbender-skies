@@ -98,6 +98,11 @@ export function createCombatAudio() {
       thud(COMBAT_LEVELS.hurt * 0.8, 0.22, 220, 35)
     },
 
+    /** A short bright snap, higher and shorter than a staff swing: a string releasing. */
+    bowRelease(): void {
+      burst(COMBAT_LEVELS.bowRelease, 0.1, 4200, 900)
+    },
+
     dispose(): void {
       void context?.close()
       context = null

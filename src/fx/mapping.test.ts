@@ -136,3 +136,25 @@ describe('the combat voices', () => {
     expect(COMBAT_LEVELS.hurt).toBeGreaterThan(Math.max(...others) * 1.1)
   })
 })
+
+describe('the bow release', () => {
+  it('is audible', () => {
+    expect(COMBAT_LEVELS.bowRelease).toBeGreaterThan(0.05)
+  })
+
+  it('does not clip', () => {
+    expect(COMBAT_LEVELS.bowRelease).toBeLessThanOrEqual(0.5)
+  })
+
+  it('is quieter than the player being hurt', () => {
+    // A hit taken stays the loudest thing in the fight; an enemy's telegraph is a
+    // warning, not an alarm. A margin, not a bare comparison.
+    expect(COMBAT_LEVELS.bowRelease).toBeLessThan(COMBAT_LEVELS.hurt * 0.85)
+  })
+
+  it('is loud enough to notice from behind', () => {
+    // It is the only warning an archer out of shot gives, so it must not be the
+    // quietest thing in the mix either.
+    expect(COMBAT_LEVELS.bowRelease).toBeGreaterThan(COMBAT_LEVELS.swing)
+  })
+})
