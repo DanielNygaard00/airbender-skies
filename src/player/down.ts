@@ -90,3 +90,17 @@ export function collapseSquash(down: Down | null, c: DownConfig): number {
   const t = MathUtils.clamp(down.elapsed / c.fadeOutSeconds, 0, 1)
   return 1 - (1 - COLLAPSE_SCALE) * t
 }
+
+/**
+ * Whether the respawn has already landed — the fade in half of the beat.
+ *
+ * Shares the `fadeOutSeconds` boundary with `fadeOpacity` and `collapseSquash` rather
+ * than letting a caller re-derive it, so the three cannot disagree about when the
+ * player is back on their feet. Before this boundary the world is meant to look
+ * frozen, which is the point of the beat; from it onward, everything is behind full
+ * black and has to settle into the recovered state before the black lifts.
+ */
+export function hasRespawned(down: Down | null, c: DownConfig): boolean {
+  if (!down || !Number.isFinite(down.elapsed)) return true
+  return down.elapsed >= c.fadeOutSeconds
+}

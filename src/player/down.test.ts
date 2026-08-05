@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  COLLAPSE_SCALE, collapseSquash, fadeOpacity, startDown, stepDown, type Down,
+  COLLAPSE_SCALE, collapseSquash, fadeOpacity, hasRespawned, startDown, stepDown, type Down,
 } from './down'
 import { DEFAULT_DOWN_CONFIG as D } from '../core/config'
 
@@ -115,5 +115,23 @@ describe('collapseSquash', () => {
 
   it('is full height for a non-finite timer', () => {
     expect(collapseSquash({ elapsed: NaN }, D)).toBe(1)
+  })
+})
+
+describe('hasRespawned', () => {
+  it('is true when nobody is down', () => {
+    expect(hasRespawned(null, D)).toBe(true)
+  })
+
+  it('is false before the fade out reaches the boundary', () => {
+    expect(hasRespawned({ elapsed: D.fadeOutSeconds - 1e-6 }, D)).toBe(false)
+  })
+
+  it('is true on the frame the respawn lands', () => {
+    expect(hasRespawned({ elapsed: D.fadeOutSeconds }, D)).toBe(true)
+  })
+
+  it('is true for a non-finite timer, matching stepDown\'s fail-open direction', () => {
+    expect(hasRespawned({ elapsed: NaN }, D)).toBe(true)
   })
 })

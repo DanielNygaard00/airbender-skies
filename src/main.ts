@@ -46,7 +46,7 @@ import {
 } from './player/controller'
 import { collectStep } from './player/shrine-collect'
 import {
-  collapseSquash, fadeOpacity, startDown, stepDown, type Down,
+  collapseSquash, fadeOpacity, hasRespawned, startDown, stepDown, type Down,
 } from './player/down'
 import { enableShadows } from './core/sun'
 import { createAvatar } from './player/avatar'
@@ -254,8 +254,9 @@ function start(): void {
    * behaviour is a second thing to keep true.
    *
    * The fight is deliberately left alone. Enemies keep their damage, positions and
-   * stances; the island spawn sits outside their aggroRange, so the patrol drops its
-   * aggro on its own and the player walks back in.
+   * stances exactly as the beat found them, so the patrol may well still be aggroed
+   * on the walk back in — the cost of going down is that walk plus the wiped Focus,
+   * not a guaranteed clean reset.
    */
   function recover(): void {
     player = safeRespawn(player, deps)
@@ -297,10 +298,37 @@ function start(): void {
     if (down) {
       const step = stepDown(down, dt, DEFAULT_DOWN_CONFIG)
       down = step.down
+      // Primed before recover(), not after: recover()'s camera snap reads this to place
+      // the camera, and InputTracker accumulates yaw/pitch on every mousemove regardless
+      // of whether anything samples it. Left stale, the snap would use whatever direction
+      // was current the instant the player went down, and the camera would swing onto the
+      // real orientation on the first normal frame instead of behind the black.
+      lookDirection.copy(state.lookDirection)
       if (step.respawnNow) recover()
       avatar.setSquash(collapseSquash(down, DEFAULT_DOWN_CONFIG))
-      // The one thing that keeps moving. The 'down' burst is the punctuation of the event,
-      // not the world carrying on.
+      // Before the respawn lands, the world is meant to look frozen — that is the whole
+      // point of the beat, so nothing below advances. Once it lands, everything is behind
+      // full black and has to settle into the recovered state before the black lifts, or
+      // the fade-in reveals a glider deployed on a standing avatar, a still-boosted wind
+      // roar, a shadow aimed at the death spot, and enemy health bars facing a camera
+      // orientation that no longer exists. `avatar.update(dt)` is deliberately not among
+      // these: the frozen animation pose is the point, and the clip name changing to
+      // 'idle' is enough for it to land in the right state once movement resumes.
+      if (hasRespawned(down, DEFAULT_DOWN_CONFIG)) {
+        glider.update(dt, player.mode === 'glider', null)
+        aura.update(dt, avatarActive)
+        guard.update(dt, false)
+        // fightConfig is computed further down in the normal path and is not in scope
+        // here. DEFAULT_COMBAT_CONFIG.vortex stands in for it safely: avatarActive is
+        // false after recover(), so the boosted and unboosted configs agree at this point.
+        chargeTell.update(dt, 0, DEFAULT_COMBAT_CONFIG.vortex)
+        avatar.setAnimation(animationFor(player))
+        wind.update(0, 0)
+        followSun(player.position)
+        for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy, camera.quaternion)
+      }
+      // The one thing that always keeps moving. The 'down' burst is the punctuation of
+      // the event, not the world carrying on.
       effects.advance(dt)
       hud.update(hudModelFor(player, encounter.playerHealth, {
         focus: focus.max > 0 ? focus.value / focus.max : 0,
@@ -551,6 +579,14 @@ function start(): void {
     if (!down && isDowned(encounter.playerHealth)) {
       down = startDown()
       effects.add(createImpact(player.position, 'down'))
+      // The frozen branch returns before any record() call below runs, so without this
+      // every buffer stays one simulation step apart for the whole beat while alpha keeps
+      // sweeping 0..1 every rendered frame — above 60Hz the "frozen" avatar and every enemy
+      // visibly oscillate between two positions instead of holding still. reset() collapses
+      // each pair onto its current value so sampling returns a still image.
+      playerPositionLerp.reset()
+      playerForwardLerp.reset()
+      for (const lerp of enemyPositionLerps.values()) lerp.reset()
     }
   }
 
