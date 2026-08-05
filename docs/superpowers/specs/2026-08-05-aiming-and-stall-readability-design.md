@@ -288,8 +288,11 @@ Checked rather than assumed, as the last cycle's plan learned to do:
 - `HudModel.stall` is an output. No test builds a `HudModel` literal — `hud.test.ts` calls
   `hudModelFor` throughout — so widening it breaks nothing, and `hudModelFor` takes the new
   input from `PlayerState`, which it already has.
-- `glider.update`'s fourth argument is required, so **every existing call breaks**: `main.ts`
-  and `glider-mesh.test.ts`. That is deliberate — an optional argument would let a future
+- `glider.update`'s fourth argument is required, so **every existing call breaks — four calls
+  across three files**: `src/main.ts:423`, `src/player/glider-mesh.test.ts:17` and `:147`, and
+  `src/player/avatar.test.ts:389`. The last of those was missed on a first pass and found only
+  by grepping for callers while planning, which is why the plan enumerates them by line rather
+  than by file. Requiring the argument is deliberate — an optional one would let a future
   caller silently lose the tell — and it is the same trade the `swing` argument made.
 - `liveGustTargets` and everything in `sector.ts` and `stall.ts` are additive.
 
