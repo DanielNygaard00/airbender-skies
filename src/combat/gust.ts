@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import { type Enemy } from './enemy'
 import { inCone } from './cone'
+import { isDowned } from './health'
 
 /**
  * Gust: fast, low damage, high knockback.
@@ -64,4 +65,24 @@ export function gustTargets(
   c: GustConfig,
 ): Enemy[] {
   return enemies.filter((enemy) => inGust(origin, forward, enemy.position, c))
+}
+
+/**
+ * Everyone a gust would catch who is still standing.
+ *
+ * `gustTargets` deliberately does not filter downed enemies — `stepEncounter` applies that
+ * filter itself so that "connected" means a live soldier took the hit rather than a body
+ * being blown around the island. The aim preview needs the same distinction: a preview that
+ * lights up for a corpse promises something a gust cannot deliver.
+ *
+ * A separate name rather than a boolean parameter, because `gustTargets(o, f, e, c, true)`
+ * at a call site says nothing about what the flag means.
+ */
+export function liveGustTargets(
+  origin: Vector3,
+  forward: Vector3,
+  enemies: readonly Enemy[],
+  c: GustConfig,
+): Enemy[] {
+  return gustTargets(origin, forward, enemies, c).filter((enemy) => !isDowned(enemy.health))
 }

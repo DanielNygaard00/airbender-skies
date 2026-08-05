@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { inGust, gustImpulse, gustTargets, type GustConfig } from './gust'
-import { spawnEnemy, type EnemyConfig } from './enemy'
+import { inGust, gustImpulse, gustTargets, liveGustTargets, type GustConfig } from './gust'
+import { spawnEnemy, type Enemy, type EnemyConfig } from './enemy'
 
 const G: GustConfig = {
   range: 12, halfAngle: Math.PI / 3, damage: 0.5, knockback: 26, cooldownSeconds: 0.5,
@@ -18,6 +18,11 @@ const E: EnemyConfig = {
 
 const ORIGIN = new Vector3(0, 0, 0)
 const NORTH = new Vector3(0, 0, -1)
+
+/** A live enemy at a given position, with a default id — override it with a spread when a test needs a distinct one. */
+function enemyAt(position: Vector3, id = 'enemy'): Enemy {
+  return spawnEnemy(id, position, E)
+}
 
 describe('the gust cone', () => {
   it('catches a target straight ahead', () => {
@@ -71,5 +76,44 @@ describe('the gust impulse', () => {
 
   it('survives a target standing exactly on the caster', () => {
     expect(gustImpulse(ORIGIN, ORIGIN.clone(), G).length()).toBeGreaterThan(0)
+  })
+})
+
+describe('only the soldiers still standing', () => {
+  it('includes a live enemy inside the cone', () => {
+    const live = enemyAt(new Vector3(0, 0, -4))
+    expect(liveGustTargets(ORIGIN, NORTH, [live], G).map((e) => e.id)).toEqual([live.id])
+  })
+
+  it('excludes a downed enemy inside the cone', () => {
+    // The whole reason this function exists next to gustTargets. A preview that lights up
+    // for a body is a preview that lies about what a gust would achieve.
+    const corpse = { ...enemyAt(new Vector3(0, 0, -4)), health: { current: 0, max: 1.5, sinceHit: 0 } }
+    expect(liveGustTargets(ORIGIN, NORTH, [corpse], G)).toEqual([])
+  })
+
+  it('excludes a live enemy outside the cone', () => {
+    const behind = enemyAt(new Vector3(0, 0, 4))
+    expect(liveGustTargets(ORIGIN, NORTH, [behind], G)).toEqual([])
+  })
+
+  it('keeps only the live ones from a mixed group', () => {
+    const live = enemyAt(new Vector3(0, 0, -4))
+    const corpse = { ...enemyAt(new Vector3(1, 0, -4)), id: 'corpse', health: { current: 0, max: 1.5, sinceHit: 0 } }
+    const far = { ...enemyAt(new Vector3(0, 0, -400)), id: 'far' }
+    const caught = liveGustTargets(ORIGIN, NORTH, [live, corpse, far], G).map((e) => e.id)
+    expect(caught).toEqual([live.id])
+  })
+
+  it('agrees with gustTargets when nobody is down', () => {
+    // Derived rather than restated: with every enemy healthy the two must return the same
+    // set, which pins that this function adds a filter and changes nothing else.
+    const group = [
+      enemyAt(new Vector3(0, 0, -4)),
+      { ...enemyAt(new Vector3(3, 0, -5)), id: 'b' },
+      { ...enemyAt(new Vector3(0, 0, 6)), id: 'behind' },
+    ]
+    expect(liveGustTargets(ORIGIN, NORTH, group, G).map((e) => e.id))
+      .toEqual(gustTargets(ORIGIN, NORTH, group, G).map((e) => e.id))
   })
 })
