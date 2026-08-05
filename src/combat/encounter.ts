@@ -87,6 +87,16 @@ export interface EncounterStep {
   encounter: Encounter
   /** Enemies knocked down this frame, for feedback and for scoring later. */
   downedThisFrame: string[]
+  /**
+   * Enemies that went down by falling out of the world this frame, kept apart from
+   * downedThisFrame.
+   *
+   * Section 4.6 pays a non-lethal removal more Focus than an environmental accident, so
+   * the two have to be reported as disjoint sets rather than one flag folded into the
+   * other -- an enemy that falls out of the world is also newly downed, and without the
+   * split it would land in both lists and get paid for both.
+   */
+  lostThisFrame: string[]
   /** Enemies a gust connected with this frame, for feedback and for Focus. */
   hitThisFrame: string[]
   /** Enemies a Pressure Wave connected with this frame. Kept apart from hitThisFrame:
@@ -254,9 +264,11 @@ export function stepEncounter(
   }
 
   let damageToPlayer = 0
+  const lostThisFrame: string[] = []
   enemies = enemies.map((enemy) => {
     const step = stepEnemy(enemy, input.playerPosition, deps.ground, deps.worldFloorY, dt, c.enemy)
     damageToPlayer += step.damageToPlayer
+    if (step.fellOutOfWorld) lostThisFrame.push(step.enemy.id)
     return step.enemy
   })
 
@@ -267,13 +279,20 @@ export function stepEncounter(
   const hurt = applied > 0 ? applyDamage(encounter.playerHealth, applied) : encounter.playerHealth
   const playerHealth = stepHealth(hurt, dt, c.player)
 
+  // Subtracted, not merely reported alongside. `downedThisFrame` is a diff of the
+  // downed set across the step, so an enemy that left the world appears in both -- and
+  // Focus would pay downGain and accidentDownGain for the same soldier. The codebase
+  // has met this overlap once already: `main.ts` drops a connect for an enemy that
+  // also went down this frame. Same shape, same fix.
+  const lost = new Set(lostThisFrame)
   const downedThisFrame = enemies
-    .filter((enemy) => isDowned(enemy.health) && !wasDowned.has(enemy.id))
+    .filter((enemy) => isDowned(enemy.health) && !wasDowned.has(enemy.id) && !lost.has(enemy.id))
     .map((enemy) => enemy.id)
 
   return {
     encounter: { enemies, playerHealth, gustCooldown, vortexHeldSeconds, vortexCooldown },
     downedThisFrame,
+    lostThisFrame,
     hitThisFrame,
     slamHitThisFrame,
     staffHitThisFrame,

@@ -553,3 +553,53 @@ describe('a staff swing', () => {
     expect(again.staffHitThisFrame).toEqual([])
   })
 })
+
+describe('a removal by accident is reported apart from a knockdown', () => {
+  // Ground that is not there, and a floor just below the first frame's fall, so one
+  // step takes the soldier out of the world. worldFloorY of -1 (matching DEPS's shape)
+  // would not do it: with gravity 20 and dt 1/60, semi-implicit Euler puts the enemy at
+  // y = -g*dt^2 = -1/180 (~-0.0056) after one frame, and it takes 19 frames of free fall
+  // to pass y = -1. -0.001 sits just above that first-frame position, so it crosses in
+  // exactly the one step these tests step.
+  const voidDeps = { ground: { groundHeightAt: () => null }, worldFloorY: -0.001 }
+
+  it('reports a fallen enemy as lost', () => {
+    const start = startEncounter([{ id: 'a', position: new Vector3(0, 0, -2) }], C)
+    const step = stepEncounter(start, defaults, 1 / 60, C, voidDeps)
+    expect(step.lostThisFrame).toEqual(['a'])
+  })
+
+  it('does not also report it as downed', () => {
+    // The double-pay bug. `downedThisFrame` is computed by diffing the downed set
+    // across the step, so a fallen enemy lands in it as well -- and Focus would grant
+    // both downGain and accidentDownGain for one soldier. A test that only checks
+    // `lostThisFrame` passes while that is live, which is why this asserts both.
+    const start = startEncounter([{ id: 'a', position: new Vector3(0, 0, -2) }], C)
+    const step = stepEncounter(start, defaults, 1 / 60, C, voidDeps)
+    expect(step.lostThisFrame).toEqual(['a'])
+    expect(step.downedThisFrame).toEqual([])
+  })
+
+  it('reports a gusted enemy as downed and not as lost', () => {
+    // The other direction: the split must not have moved ordinary knockdowns.
+    let encounter = startEncounter([{ id: 'a', position: new Vector3(0, 0, -2) }], C)
+    const downs: string[] = []
+    const losses: string[] = []
+    for (let i = 0; i < 240; i++) {
+      const step = stepEncounter(
+        encounter, { ...defaults, gustPressed: true }, 1 / 60, C, DEPS,
+      )
+      downs.push(...step.downedThisFrame)
+      losses.push(...step.lostThisFrame)
+      encounter = step.encounter
+    }
+    expect(downs).toEqual(['a'])
+    expect(losses).toEqual([])
+  })
+
+  it('reports nothing on a quiet frame', () => {
+    const step = stepEncounter(near(), defaults, 1 / 60, C, DEPS)
+    expect(step.lostThisFrame).toEqual([])
+    expect(step.downedThisFrame).toEqual([])
+  })
+})
