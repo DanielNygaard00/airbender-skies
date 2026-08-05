@@ -804,5 +804,42 @@ describe('a mixed patrol', () => {
     const step = stepEncounter(encounter, away, 1 / 60, C, withPatrol)
     expect(step.restoredThisFrame.length).toBe(2)
     expect(step.encounter.enemies.map((e) => e.kind)).toEqual(['spear', 'archer'])
+
+    // The kind check above passes even if the restore forwards the right `kind` to
+    // `spawnEnemy` while reading the wrong `EnemyConfig` for it -- `kind` and `config`
+    // are independent arguments there. Same health check as "gives each kind its own
+    // health", against the restored soldiers rather than the freshly spawned ones, so a
+    // restored archer coming back with the spear's health (or aggro, or attack) cannot
+    // pass silently.
+    const [spear, archer] = step.encounter.enemies
+    if (!spear || !archer) throw new Error('fixture')
+    expect(spear.health.max).toBeCloseTo(C.enemies.spear.maxHealth)
+    expect(archer.health.max).toBeCloseTo(C.enemies.archer.maxHealth)
+    expect(archer.health.max).toBeLessThan(spear.health.max * 0.95)
+  })
+
+  it("lets the stepping loop use each enemy's own kind, not just its own config", () => {
+    // "gives each kind its own health" only calls startEncounter, and the restore test
+    // above zeroes health before stepping, which sends stepEnemy down the already-downed
+    // branch -- one that reads only gravity, knockbackDamping and snapDistance, identical
+    // between the two fixture kinds here. Neither exercises the per-kind lookup inside the
+    // stepping loop itself. This test does, with an outcome that needs no arithmetic to
+    // read: a live archer at 2 units is inside both its own strikeRange (22) and the
+    // spear's (3), so a hardcoded spear lookup and the real per-kind one both send it into
+    // a wind-up and a release -- but the archer's attack is a projectile, so a correct
+    // release reports firedProjectile and leaves damageToPlayer at 0. Arrows are not in the
+    // fight until the next task, so the player taking zero damage from an archer standing
+    // at melee range is the correct outcome here, not a missing feature. A wrongly
+    // hardcoded spear config would instead run a melee release at this distance and hit.
+    const spawns: EnemySpawn[] = [{ id: 'archer-1', position: new Vector3(0, 0, -2), kind: 'archer' }]
+    let encounter = startEncounter(spawns, C)
+    let hit = false
+    const duration = C.enemies.archer.windUpSeconds + C.enemies.archer.recoverSeconds
+    for (let t = 0; t < duration; t += 1 / 60) {
+      const step = stepEncounter(encounter, defaults, 1 / 60, C, DEPS)
+      encounter = step.encounter
+      if (step.playerHit) hit = true
+    }
+    expect(hit).toBe(false)
   })
 })
