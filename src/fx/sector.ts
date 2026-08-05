@@ -3,10 +3,14 @@ import { RingGeometry } from 'three'
 /**
  * The shape of a horizontal cone, as geometry.
  *
- * Extracted from `gust-cone.ts` because the aim preview draws the same sector and a second
- * copy of the theta offset below would drift — silently, since a rotated cone still looks
- * like a cone. `gust-cone.test.ts`'s containment check against `inGust` remains the
- * independent authority on whether the convention here is right.
+ * Extracted from `gust-cone.ts` because a second copy of the theta offset below would drift —
+ * silently, since a rotated cone still looks like a cone. Every partial sector in the game
+ * builds its geometry here: the gust cone, the aim preview and the staff arc. The full rings
+ * (`shockwave.ts`, `vortex-ring.ts`, `vortex-charge.ts`) span a whole turn and so have no
+ * theta offset to get wrong.
+ *
+ * `gust-cone.test.ts`'s containment check against `inGust` and `staff-arc-fx.test.ts`'s
+ * against `inCone` are two independent authorities on whether the convention here is right.
  */
 export const SECTOR_SEGMENTS = 48
 
