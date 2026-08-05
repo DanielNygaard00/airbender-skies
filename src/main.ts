@@ -273,6 +273,17 @@ function start(): void {
       desiredCameraPosition(player.position, lookDirection, profileFor(player.mode)),
       world.terrain,
     )
+    // Re-primed here because the frozen branch returns before update()'s own
+    // record() calls, and syncVisuals is not gated on `down` — the stepper renders
+    // every frame regardless. Left stale, the fade-in would reveal the avatar back at
+    // the death spot and smoothTowards would drag the camera off the snap above.
+    // reset() after record(), not record() alone: record()'s own snap only collapses
+    // the pair past DEFAULT_SNAP_DISTANCE, which a respawn near the island centre
+    // would not clear.
+    playerPositionLerp.record(player.position)
+    playerPositionLerp.reset()
+    playerForwardLerp.record(player.forward)
+    playerForwardLerp.reset()
   }
 
   function update(dt: number): void {

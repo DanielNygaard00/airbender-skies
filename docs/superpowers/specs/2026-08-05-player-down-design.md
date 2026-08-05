@@ -236,8 +236,13 @@ the fade-in at `GROUND_PROFILE.smoothing` of 9, but "converges in time" is a pro
 depends on two tuning constants in different files agreeing, and a snap behind full black is
 free.
 
-Position interpolation needs nothing: `record()` already collapses jumps past
-`DEFAULT_SNAP_DISTANCE`, and any respawn shorter than that blends invisibly behind the black.
+Position interpolation must be re-primed. The frozen branch returns before `update()`'s own
+`record()` calls, and `syncVisuals` is not gated on the beat — `createStepper` renders every
+frame regardless. Left alone, the fade-in reveals the avatar still standing at the death spot
+while `smoothTowards` drags the camera off the snap, then everything pops when the beat ends.
+`recover()` therefore calls `record()` and then `reset()` on both the position and forward
+buffers. `reset()` rather than relying on `record()`'s own `DEFAULT_SNAP_DISTANCE` collapse,
+because a respawn near the island centre would not clear that distance.
 
 ### `src/ui/hud.ts` (changed)
 
