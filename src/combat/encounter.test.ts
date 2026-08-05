@@ -704,4 +704,52 @@ describe('a cleared patrol comes back', () => {
     expect(step.hitThisFrame).toEqual([])
     expect(step.downedThisFrame).toEqual([])
   })
+
+  it('reports where the body fell on a frame that both downs and restores', () => {
+    // Reachable in the shipped game: a soldier chases while the player is inside
+    // aggroRange, so one can be led far from its spawn point, and with the rest of the
+    // patrol already down, downing that last one 45+ units out satisfies the restore
+    // condition on the very same frame. `encounter.enemies` is then the post-restore
+    // array -- fresh soldiers standing at their spawns -- while `downedThisFrame` names
+    // the body that fell somewhere else entirely, so a caller drawing a down spark from
+    // `encounter.enemies` draws it on the patrol ground rather than at the kill.
+    //
+    // A respawnRange of 5 (test-local, like the guard above) is what lets one frame do
+    // both: at production's 40 no attack reaches far enough for a down and a restore to
+    // coincide, which is exactly why this needed a fixture of its own.
+    const closeRespawn = { ...withPatrol, patrol: { respawnRange: 5 } }
+    const start = startEncounter(SPAWNS, C)
+    // 6 units back from the spawn: past respawnRange (5) so the restore fires, and well
+    // inside a full-strength wave's 12 radius so the slam downs the soldier outright
+    // (maxDamage 2.5 against 1.5 health) on this one frame.
+    const slamFromBeyond = {
+      ...defaults, playerPosition: new Vector3(0, 0, 4), slam: { strength: 1 },
+    }
+    const step = stepEncounter(start, slamFromBeyond, 1 / 60, C, closeRespawn)
+
+    // The premise: one frame, both events.
+    expect(step.downedThisFrame).toEqual(['a'])
+    expect(step.restoredThisFrame).toEqual(['a'])
+
+    const fallen = step.enemiesBeforeRestore.find((enemy) => enemy.id === 'a')
+    if (!fallen) throw new Error('the downed soldier should still be reported')
+    expect(isDowned(fallen.health)).toBe(true)
+    // Knocked away from the player, so the body is further out than the spawn's z of -2.
+    expect(fallen.position.z).toBeLessThan(-2)
+
+    // And the fight itself carries the fresh soldier, standing at its spawn.
+    const fresh = step.encounter.enemies[0]
+    if (!fresh) throw new Error('the patrol should have been restored')
+    expect(isDowned(fresh.health)).toBe(false)
+    expect(fresh.position.z).toBeCloseTo(-2)
+  })
+
+  it('reports the same enemies before and after on a frame that does not restore', () => {
+    // The other half of the contract: `enemiesBeforeRestore` is only interesting on a
+    // restore frame, so on every other frame a caller reading it must see exactly what
+    // the fight carries. Otherwise the two sources would disagree all the time and the
+    // fix above would have traded one wrong position for another.
+    const step = stepEncounter(near(), defaults, 1 / 60, C, DEPS)
+    expect(step.enemiesBeforeRestore).toEqual(step.encounter.enemies)
+  })
 })

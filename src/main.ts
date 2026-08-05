@@ -473,7 +473,15 @@ function start(): void {
     // impactTargets owns the union and the rule that a down beats a connect. It lives
     // in a tested module because this file has none, and because the staff was added
     // to the fight without being added to the loop that used to live here.
-    const positionOf = (id: string) => encounter.enemies.find((e) => e.id === id)?.position
+    // fight.enemiesBeforeRestore, never `encounter.enemies`: the burst lists below are all
+    // computed inside stepEncounter before the patrol restore runs, and `encounter` was
+    // just reassigned to the post-restore array. On a frame that both downs the last
+    // soldier and restores the patrol -- kite one 45 units out with the other two already
+    // down, and gust it there -- the post-restore array holds fresh soldiers at their
+    // spawn points, so the down spark would be drawn back on the patrol ground while the
+    // freeze, the shake and the thud all fire around a player 45 units away.
+    const positionOf = (id: string) =>
+      fight.enemiesBeforeRestore.find((e) => e.id === id)?.position
     const bursts = impactTargets({
       hits: fight.hitThisFrame,
       slamHits: fight.slamHitThisFrame,

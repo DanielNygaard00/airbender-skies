@@ -116,6 +116,21 @@ export interface EncounterStep {
    * fresh spawn point instead of popping in there.
    */
   restoredThisFrame: string[]
+  /**
+   * The enemies as this frame's simulation left them, before any restore replaced them.
+   *
+   * The only array that agrees with `downedThisFrame`, `lostThisFrame` and the three
+   * connect lists about where a soldier was. Those lists are all computed before the
+   * restore -- they have to be, because `wasDowned` is diffed at the top of the step --
+   * so on a frame that both reports a down and restores the patrol, `encounter.enemies`
+   * holds fresh soldiers standing at their spawn points and has no record of where the
+   * body fell. A caller drawing a down burst from `encounter.enemies` puts it on the
+   * patrol ground while the player is 45 units away watching nothing happen.
+   *
+   * Identical to `encounter.enemies` on every frame that does not restore, which is
+   * almost all of them; it exists for the frame where the two differ.
+   */
+  enemiesBeforeRestore: readonly Enemy[]
   /** Enemies a gust connected with this frame, for feedback and for Focus. */
   hitThisFrame: string[]
   /** Enemies a Pressure Wave connected with this frame. Kept apart from hitThisFrame:
@@ -312,6 +327,11 @@ export function stepEncounter(
   // replacing the enemy array any earlier would compare a fresh soldier against a
   // downed one and report a phantom down or hit. Restoring here means the next frame
   // starts from a healthy patrol and an empty wasDowned, which reports nothing.
+  // Held onto before the restore can overwrite `enemies`, because every event list this
+  // function reports was computed against this array and nothing downstream can
+  // reconstruct it afterwards.
+  const enemiesBeforeRestore = enemies
+
   let restoredThisFrame: string[] = []
   if (shouldRestorePatrol(enemies, deps.spawns, input.playerPosition, deps.patrol)) {
     enemies = deps.spawns.map((spawn) => spawnEnemy(spawn.id, spawn.position, c.enemy))
@@ -323,6 +343,7 @@ export function stepEncounter(
     downedThisFrame,
     lostThisFrame,
     restoredThisFrame,
+    enemiesBeforeRestore,
     hitThisFrame,
     slamHitThisFrame,
     staffHitThisFrame,
