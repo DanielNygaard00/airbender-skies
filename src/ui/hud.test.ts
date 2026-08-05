@@ -149,12 +149,14 @@ describe('the stall warning', () => {
     expect(hudModelFor(p(), undefined, undefined, 0, Number.NaN).stall).toBe(0)
   })
 
-  it('does not disturb the hurt flash beside it', () => {
-    // Both are trailing optional numbers, which is exactly the shape where two arguments get
-    // swapped and nothing complains.
-    const model = hudModelFor(p(), undefined, undefined, 0.25, 0.75)
+  it('does not disturb the hurt flash or the fade beside it', () => {
+    // All three are trailing optional numbers, which is exactly the shape where two
+    // arguments get swapped and nothing complains. Three distinct values in one call, so
+    // any transposition shows up here rather than on screen.
+    const model = hudModelFor(p(), undefined, undefined, 0.25, 0.75, 0.5)
     expect(model.hurtFlash).toBeCloseTo(0.25)
     expect(model.stall).toBeCloseTo(0.75)
+    expect(model.fade).toBeCloseTo(0.5)
   })
 })
 
@@ -176,5 +178,24 @@ describe('the hurt flash', () => {
 
   it('turns a non-finite flash into nothing rather than into a broken opacity', () => {
     expect(hudModelFor(p(), undefined, undefined, Number.NaN).hurtFlash).toBe(0)
+  })
+})
+
+describe('the downed fade', () => {
+  it('is clear when no fade is given', () => {
+    expect(hudModelFor(p()).fade).toBe(0)
+  })
+
+  it('passes a mid fade through', () => {
+    expect(hudModelFor(p(), undefined, undefined, 0, 0, 0.4).fade).toBeCloseTo(0.4)
+  })
+
+  it('clamps a fade above one', () => {
+    expect(hudModelFor(p(), undefined, undefined, 0, 0, 4).fade).toBe(1)
+  })
+
+  it('never lets a non-finite fade reach the DOM', () => {
+    // Same rule the focus fractions follow: opacity is written straight into a style.
+    expect(hudModelFor(p(), undefined, undefined, 0, 0, NaN).fade).toBe(0)
   })
 })

@@ -68,6 +68,8 @@ export interface HudModel {
   hurtFlash: number
   /** 0 to 1: how far below stall speed the glider is. Always 0 on foot. */
   stall: number
+  /** 0 to 1: how black the full-screen overlay is. */
+  fade: number
 }
 
 /**
@@ -78,8 +80,12 @@ export function hudModelFor(
   state: PlayerState,
   playerHealth?: { current: number; max: number },
   focus?: FocusReadout,
+  // Three trailing optional numbers in a row, which is the shape where a caller
+  // silently swaps two and nothing complains. The test file pins all three together
+  // in one assertion for exactly that reason.
   hurtFlash = 0,
   stall = 0,
+  fade = 0,
 ): HudModel {
   const breath = breathFraction(state)
   const health = playerHealth && playerHealth.max > 0
@@ -105,6 +111,7 @@ export function hudModelFor(
     avatarActive,
     hurtFlash: fraction(hurtFlash),
     stall: fraction(stall),
+    fade: fraction(fade),
   }
 }
 
@@ -137,6 +144,8 @@ const STYLE = `
 .hud-vignette.is-on { opacity: 1; }
 .hud-hurt { position: fixed; inset: 0; pointer-events: none; opacity: 0;
   box-shadow: inset 0 0 220px 60px rgba(198,40,40,.75); }
+.hud-fade { position: fixed; inset: 0; background: #000; pointer-events: none;
+  opacity: 0; }
 .hud-hint { margin-top: 8px; font-size: 12px; opacity: .45; }
 `
 
@@ -159,6 +168,10 @@ export function createHud(parent: HTMLElement) {
     <div class="hud-hint">H — guide</div>
     <div class="hud-vignette"></div>
     <div class="hud-hurt"></div>
+    <!-- Last, so the blackout covers the hurt flash and the vignette rather than
+         letting a red pulse or a gold rim bleed through a screen that is meant to
+         be fully black. -->
+    <div class="hud-fade"></div>
   `
   parent.append(root)
 
@@ -174,6 +187,7 @@ export function createHud(parent: HTMLElement) {
   const armFill = root.querySelector('.hud-arm-fill') as HTMLElement
   const vignette = root.querySelector('.hud-vignette') as HTMLElement
   const hurt = root.querySelector('.hud-hurt') as HTMLElement
+  const fade = root.querySelector('.hud-fade') as HTMLElement
 
   return {
     update(model: HudModel): void {
@@ -199,6 +213,7 @@ export function createHud(parent: HTMLElement) {
       armFill.style.transform = `scaleX(${model.avatarCharge})`
       vignette.classList.toggle('is-on', model.avatarActive)
       hurt.style.opacity = String(model.hurtFlash)
+      fade.style.opacity = String(model.fade)
     },
     dispose(): void {
       root.remove()

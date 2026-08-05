@@ -4,7 +4,8 @@ import { createStepper } from './core/loop'
 import { createInterpolatedVector, type InterpolatedVector } from './core/interpolation'
 import { InputTracker } from './core/input'
 import {
-  DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG, DEFAULT_STAFF_CONFIG,
+  DEFAULT_DOWN_CONFIG, DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG,
+  DEFAULT_STAFF_CONFIG,
 } from './core/config'
 import { loadSave, writeSave } from './core/save'
 import { loadGLTF } from './core/assets'
@@ -15,6 +16,7 @@ import { windSampler, stillAir, type WindSample } from './world/wind'
 import { createWindTell } from './world/wind-tell'
 import { startEncounter, stepEncounter } from './combat/encounter'
 import { DEFAULT_COMBAT_CONFIG, DEFAULT_PATROL_CONFIG, HOME_PATROL } from './combat/config'
+import { fullHealth, isDowned } from './combat/health'
 import { DEFAULT_FOCUS_CONFIG, DEFAULT_AVATAR_STATE_CONFIG } from './focus/config'
 import { emptyFocus, stepFocus, type FocusEvents } from './focus/focus'
 import { traversalRatePerSecond, fellOutOfWorld } from './focus/sources'
@@ -39,8 +41,13 @@ import { createEnemyView } from './combat/enemy-mesh'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
 import { canSlipstream, isInvulnerable, dodgeHeading } from './player/slipstream'
-import { controllerStep, staffStep, willRespawn, type ControllerDeps } from './player/controller'
+import {
+  controllerStep, safeRespawn, staffStep, willRespawn, type ControllerDeps,
+} from './player/controller'
 import { collectStep } from './player/shrine-collect'
+import {
+  collapseSquash, fadeOpacity, hasRespawned, startDown, stepDown, type Down,
+} from './player/down'
 import { enableShadows } from './core/sun'
 import { createAvatar } from './player/avatar'
 import { createGlider } from './player/glider'
@@ -98,6 +105,8 @@ function start(): void {
   let focus = emptyFocus(DEFAULT_FOCUS_CONFIG)
   let avatarState = restingAvatarState()
   let avatarActive = false
+  /** The beat between going down and standing back up, or null while playing. */
+  let down: Down | null = null
   /** The unsurged sample from the last windAt call, so the surge cannot feed itself. */
   let lastWind: WindSample = stillAir()
   /** Every live one-shot effect. The pool owns removal and disposal. */
@@ -278,6 +287,47 @@ function start(): void {
   const sampledForward = new Vector3()
   const sampledEnemy = new Vector3()
 
+  /**
+   * Stand the player back up, at the moment the screen is fully black.
+   *
+   * Health is restored with the existing `fullHealth` rather than a new `revive` in
+   * `health.ts`: it already returns exactly the right pool, and a second name for one
+   * behaviour is a second thing to keep true.
+   *
+   * The fight is deliberately left alone. Enemies keep their damage, positions and
+   * stances exactly as the beat found them, so the patrol may well still be aggroed
+   * on the walk back in — the cost of going down is that walk plus the wiped Focus,
+   * not a guaranteed clean reset.
+   */
+  function recover(): void {
+    player = safeRespawn(player, deps)
+    encounter = { ...encounter, playerHealth: fullHealth(DEFAULT_COMBAT_CONFIG.player) }
+    focus = emptyFocus(DEFAULT_FOCUS_CONFIG)
+    avatarState = restingAvatarState()
+    avatarActive = false
+    // Snapped, not smoothed. smoothTowards would converge across the fade in at
+    // GROUND_PROFILE's smoothing of 9, but "converges in time" depends on two tuning
+    // constants in different files agreeing, and a snap behind full black is free.
+    // Composed the same way syncVisuals composes them, so the snapped position is one
+    // the smoothing would have been allowed to reach rather than a seat inside a hillside.
+    cameraPosition = pullInForTerrain(
+      player.position,
+      desiredCameraPosition(player.position, lookDirection, profileFor(player.mode)),
+      world.terrain,
+    )
+    // Re-primed here because the frozen branch returns before update()'s own
+    // record() calls, and syncVisuals is not gated on `down` — the stepper renders
+    // every frame regardless. Left stale, the fade-in would reveal the avatar back at
+    // the death spot and smoothTowards would drag the camera off the snap above.
+    // reset() after record(), not record() alone: record()'s own snap only collapses
+    // the pair past DEFAULT_SNAP_DISTANCE, which a respawn near the island centre
+    // would not clear.
+    playerPositionLerp.record(player.position)
+    playerPositionLerp.reset()
+    playerForwardLerp.record(player.forward)
+    playerForwardLerp.reset()
+  }
+
   function update(dt: number): void {
     hitstop = stepHitstop(hitstop, dt)
     // Returns before input.sample(), and that order is the whole trick. input.ts
@@ -313,6 +363,60 @@ function start(): void {
     }
 
     const state = input.sample()
+
+    // The whole simulation holds while the beat runs, the same way frame() holds it while
+    // the guide panel is open. No controllerStep, no stepEncounter, no Focus: the pose
+    // freezes mid-stride, which is the point. `state` is sampled and thrown away above,
+    // which drains the input edges — a jump held through the blackout must not fire on the
+    // other side.
+    if (down) {
+      const step = stepDown(down, dt, DEFAULT_DOWN_CONFIG)
+      down = step.down
+      // Primed before recover(), not after: recover()'s camera snap reads this to place
+      // the camera, and InputTracker accumulates yaw/pitch on every mousemove regardless
+      // of whether anything samples it. Left stale, the snap would use whatever direction
+      // was current the instant the player went down, and the camera would swing onto the
+      // real orientation on the first normal frame instead of behind the black.
+      lookDirection.copy(state.lookDirection)
+      if (step.respawnNow) recover()
+      avatar.setSquash(collapseSquash(down, DEFAULT_DOWN_CONFIG))
+      // Before the respawn lands, the world is meant to look frozen — that is the whole
+      // point of the beat, so nothing below advances. Once it lands, everything is behind
+      // full black and has to settle into the recovered state before the black lifts, or
+      // the fade-in reveals a glider deployed on a standing avatar, a still-boosted wind
+      // roar, a shadow aimed at the death spot, and enemy health bars facing a camera
+      // orientation that no longer exists. `avatar.update(dt)` is deliberately not among
+      // these: the frozen animation pose is the point, and the clip name changing to
+      // 'idle' is enough for it to land in the right state once movement resumes.
+      if (hasRespawned(down, DEFAULT_DOWN_CONFIG)) {
+        // Stall severity 0: the wing is being stowed on a player standing on the ground,
+        // and a shudder on a folding staff would read as damage rather than as a stall.
+        glider.update(dt, player.mode === 'glider', null, 0)
+        aura.update(dt, avatarActive)
+        guard.update(dt, false)
+        // fightConfig is computed further down in the normal path and is not in scope
+        // here. DEFAULT_COMBAT_CONFIG.vortex stands in for it safely: avatarActive is
+        // false after recover(), so the boosted and unboosted configs agree at this point.
+        chargeTell.update(dt, 0, DEFAULT_COMBAT_CONFIG.vortex)
+        avatar.setAnimation(animationFor(player))
+        wind.update(0, 0)
+        followSun(player.position)
+        for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy, camera.quaternion)
+      }
+      // The one thing that always keeps moving. The 'down' burst is the punctuation of
+      // the event, not the world carrying on.
+      effects.advance(dt)
+      hud.update(hudModelFor(player, encounter.playerHealth, {
+        focus: focus.max > 0 ? focus.value / focus.max : 0,
+        avatarCharge: armFraction(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
+        avatarActive,
+        // hurtFlash and stall are both zero here: the hit that put the player down has
+        // already flashed on the frame before the beat, and a stall warning behind a
+        // black screen is noise. Passed explicitly rather than left to default, because
+        // the fade has to land in the third slot of three trailing optional numbers.
+      }, 0, 0, fadeOpacity(down, DEFAULT_DOWN_CONFIG)))
+      return
+    }
 
     // Read before controllerStep: it resolves a fall internally and hands back an
     // already-respawned state, so there is nothing left to observe afterwards.
@@ -636,6 +740,22 @@ function start(): void {
         enemyPositionLerps.set(enemy.id, lerp)
       }
       lerp.record(enemy.position)
+    }
+
+    // Detected last, so the killing hit still pays its ordinary damageDrain and impact
+    // effect on this frame: one normal step, then the beat. The 'down' burst is the same
+    // one an enemy gets, because §4.6 says both sides of the fight go down rather than die.
+    if (!down && isDowned(encounter.playerHealth)) {
+      down = startDown()
+      effects.add(createImpact(player.position, 'down'))
+      // The frozen branch returns before any record() call below runs, so without this
+      // every buffer stays one simulation step apart for the whole beat while alpha keeps
+      // sweeping 0..1 every rendered frame — above 60Hz the "frozen" avatar and every enemy
+      // visibly oscillate between two positions instead of holding still. reset() collapses
+      // each pair onto its current value so sampling returns a still image.
+      playerPositionLerp.reset()
+      playerForwardLerp.reset()
+      for (const lerp of enemyPositionLerps.values()) lerp.reset()
     }
   }
 

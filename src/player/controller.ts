@@ -107,8 +107,11 @@ export function respawn(state: PlayerState, deps: ControllerDeps): PlayerState {
  * Respawn, then verify the result. spawnPointFor is injected, so a caller bug
  * could hand us a non-finite position; without this check the corrupted state
  * would be returned and re-corrupted every frame thereafter.
+ *
+ * Exported because going down uses the same recovery as falling out of the world does.
+ * Two triggers, one mechanism — and both want this guard, not the unguarded `respawn`.
  */
-function safeRespawn(state: PlayerState, deps: ControllerDeps): PlayerState {
+export function safeRespawn(state: PlayerState, deps: ControllerDeps): PlayerState {
   const respawned = respawn(state, deps)
   if (isFinitePlayer(respawned)) return respawned
   console.warn('spawnPointFor returned a non-finite position; falling back to the origin.')

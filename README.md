@@ -39,6 +39,8 @@ A patrol of spear infantry holds the east side of the home island. They pressure
 they close, they telegraph, and standing still costs health. Gust knocks them back and interrupts a
 strike, but it barely hurts them — enemies are downed, never killed, and a downed soldier stays
 lying where the air put them.
+It cuts both ways: run your own health out and you go down too, waking up back at the island
+with a full bar of health, an empty bar of Focus, and the patrol exactly as you left it.
 
 Height is a weapon. Hold `Ctrl` through a landing and the fall becomes a Pressure Wave — a
 ring of air that goes out in every direction, with no facing to aim and nobody safe behind

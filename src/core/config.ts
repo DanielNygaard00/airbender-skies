@@ -123,3 +123,19 @@ export const DEFAULT_STAFF_CONFIG: StaffConfig = {
   continueSeconds: 0.3,
   recoverySeconds: 0.4,
 }
+
+import type { DownConfig } from '../player/down'
+
+/**
+ * The beat between going down and standing back up.
+ *
+ * 1.5 seconds total. Long enough to register as an event, short enough not to read as a
+ * loading screen. The fade in is the longer half on purpose: coming back should feel
+ * slower than going down.
+ *
+ * Every value here is an argued guess. None of it has been played.
+ */
+export const DEFAULT_DOWN_CONFIG: DownConfig = {
+  fadeOutSeconds: 0.6,
+  fadeInSeconds: 0.9,
+}
