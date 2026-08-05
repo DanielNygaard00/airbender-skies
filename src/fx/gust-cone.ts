@@ -1,8 +1,9 @@
 import {
-  DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial, RingGeometry, Vector3,
+  DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial, Vector3,
 } from 'three'
 import type { GustConfig } from '../combat/gust'
 import type { Effect } from './effect'
+import { SECTOR_FLAT_ROTATION_X, sectorGeometry } from './sector'
 
 /**
  * The air a gust moves, drawn at the volume it actually affects.
@@ -29,7 +30,6 @@ const FILL_OPACITY = 0.34
 const ARC_OPACITY = 0.9
 /** Arc thickness as a fraction of its own radius. */
 const ARC_THICKNESS = 0.16
-const SEGMENTS = 48
 const TINT = 0x7fe4ff
 
 export function createGustCone(origin: Vector3, forward: Vector3, c: GustConfig): Effect {
@@ -44,14 +44,12 @@ export function createGustCone(origin: Vector3, forward: Vector3, c: GustConfig)
     group.lookAt(group.position.clone().add(flat.normalize()))
   }
 
-  // RingGeometry is authored in XY with theta anticlockwise from +X. After the -90°
-  // rotation below, local +Z corresponds to pre-rotation -Y, i.e. theta = -PI/2, so the
-  // span is centred there. gust-cone.test.ts's containment check is the authority on
-  // this: if it disagrees, this offset is what is wrong.
-  const thetaLength = 2 * c.halfAngle
-  const thetaStart = -Math.PI / 2 - c.halfAngle
-
-  const fillGeometry = new RingGeometry(0, c.range, SEGMENTS, 1, thetaStart, thetaLength)
+  // The flattening convention (RingGeometry authored in XY, theta anticlockwise from +X,
+  // centred on -PI/2 so it lands on local +Z once flattened) now lives in ./sector, shared
+  // with the aim preview. gust-cone.test.ts's containment check remains the authority on
+  // whether that convention is right: if it disagrees, the offset in sector.ts is what is
+  // wrong.
+  const fillGeometry = sectorGeometry(c.halfAngle, 0, c.range)
   const fillMaterial = new MeshBasicMaterial({
     color: TINT, transparent: true, side: DoubleSide, depthWrite: false,
     opacity: FILL_OPACITY,
@@ -63,20 +61,18 @@ export function createGustCone(origin: Vector3, forward: Vector3, c: GustConfig)
     depthTest: false,
   })
   const fill = new Mesh(fillGeometry, fillMaterial)
-  fill.rotation.x = -Math.PI / 2
+  fill.rotation.x = SECTOR_FLAT_ROTATION_X
   fill.userData.excludeFromShadows = true
 
   // A unit arc scaled at runtime, so travelling outward costs a scale rather than a
   // geometry rebuild sixty times a second.
-  const arcGeometry = new RingGeometry(
-    1 - ARC_THICKNESS, 1, SEGMENTS, 1, thetaStart, thetaLength,
-  )
+  const arcGeometry = sectorGeometry(c.halfAngle, 1 - ARC_THICKNESS, 1)
   const arcMaterial = new MeshBasicMaterial({
     color: TINT, transparent: true, side: DoubleSide, depthWrite: false,
     opacity: ARC_OPACITY, depthTest: false,
   })
   const arc = new Mesh(arcGeometry, arcMaterial)
-  arc.rotation.x = -Math.PI / 2
+  arc.rotation.x = SECTOR_FLAT_ROTATION_X
   arc.userData.excludeFromShadows = true
 
   // Order matters to the tests and to the reader: the fill carries the true radius.
