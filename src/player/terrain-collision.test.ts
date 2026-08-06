@@ -8,7 +8,7 @@ import {
   DEFAULT_SLIPSTREAM_CONFIG, DEFAULT_STAFF_CONFIG,
 } from '../core/config'
 import { spawnPointFor } from './state'
-import { controllerStep, type ControllerDeps } from './controller'
+import { controllerStep, willRespawn, type ControllerDeps } from './controller'
 import type { InputState, PlayerState } from '../core/types'
 
 /**
@@ -111,6 +111,14 @@ describe('a walker cannot walk through an island', () => {
     const ground = terrain.groundHeightAt(startX, offsetZ)
     expect(ground, 'the walk should start on real ground').not.toBe(null)
 
+    // The spire's real underside, not a nominal position.y - height: the geometry is
+    // noise-perturbed and squashed asymmetrically top-to-bottom (TOP_FLATTEN vs
+    // BOTTOM_STRETCH in island.ts), so the actual lowest vertex has to be measured off the
+    // built mesh rather than assumed from the level definition's radius/height.
+    const spireMesh = new Mesh(createIslandGeometry(spire))
+    spireMesh.geometry.computeBoundingBox()
+    const underside = spire.position.y + spireMesh.geometry.boundingBox!.min.y
+
     let state: PlayerState = {
       mode: 'ground',
       position: new Vector3(startX, ground!, offsetZ),
@@ -126,6 +134,19 @@ describe('a walker cannot walk through an island', () => {
     }
     const walk = (frames: number) => {
       for (let frame = 0; frame < frames; frame++) {
+        // Checked before each step, not after: `controllerStep` calls `willRespawn` at
+        // its own top and, if it is true, hands back `respawn()`'s output -- a position
+        // above ground. The exact failure this task exists to fix (falling through the
+        // island interior and past the world floor into a respawn) would leave
+        // `state.position.y` looking perfectly healthy one line later, so asserting on
+        // position after the fact can never catch it. `willRespawn` is exported from
+        // controller.ts for precisely this reason -- see its docblock.
+        expect(willRespawn(state, ARCHIPELAGO.worldFloorY), `frame ${frame}: about to respawn`)
+          .toBe(false)
+        // Belt and suspenders against the same failure: sinking into the mesh interior
+        // before a respawn would even trigger.
+        expect(state.position.y, `frame ${frame}: sank below the island's underside`)
+          .toBeGreaterThan(underside)
         state = controllerStep(
           state,
           input({ forward: 1, sprint: true, lookDirection: new Vector3(-1, 0, 0) }),
@@ -139,16 +160,17 @@ describe('a walker cannot walk through an island', () => {
     // with room either side; the wall's own normal has a z component, so a real deflection
     // shows up as sideways drift off that straight line -- the same signature the
     // ground-move unit test checks for a fake wall, now against real archipelago geometry.
+    // Measured directly against this implementation: 1.71 m of drift after 40 frames. The
+    // threshold below is set well under that measurement -- comfortably above the 0 drift
+    // a dead-straight, uncollided walk would show -- rather than at an arbitrary round
+    // number disconnected from what was actually observed.
     walk(40)
     expect(Math.abs(state.position.z - offsetZ), 'a real wall should have deflected the walk sideways')
-      .toBeGreaterThan(0.05)
+      .toBeGreaterThan(1)
 
-    // Keep walking. The failure this task exists to fix was not a wall stopping the
-    // player -- it was a downward ray, once inside the mesh, meeting only back faces and
-    // reporting no ground at all, dropping the player through the island and past the
-    // world floor into a respawn. Whatever path the deflection sends the walker on, that
-    // must not happen.
+    // Keep walking under the same per-frame guards above.
     walk(260)
-    expect(state.position.y).toBeGreaterThan(ARCHIPELAGO.worldFloorY)
+    expect(willRespawn(state, ARCHIPELAGO.worldFloorY)).toBe(false)
+    expect(state.position.y).toBeGreaterThan(underside)
   })
 })

@@ -397,7 +397,10 @@ describe('walking into a wall', () => {
   it('stays grounded while sliding along it', () => {
     // The deflection must not fight the ground snap. It adjusts only y, and only for a
     // player already grounded or descending onto a surface, so the two compose -- but
-    // that is an argument, and this is the test of it.
+    // that is an argument, and this is the test of it. `grounded` and `y` alone hold on
+    // open flat ground too, with no wall involved at all, so the wall-contact assertion
+    // below is load-bearing: without it this test cannot tell a walker actually held by
+    // the wall from one that never reached it.
     let s = player()
     for (let frame = 0; frame < 120; frame++) {
       s = groundStep(
@@ -405,6 +408,7 @@ describe('walking into a wall', () => {
         1 / 60, groundAndWall, G, COLLISION,
       )
     }
+    expect(s.position.x).toBeLessThan(5)
     expect(s.grounded).toBe(true)
     expect(s.position.y).toBeCloseTo(0, 6)
   })

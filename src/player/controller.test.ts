@@ -38,7 +38,14 @@ const groundAndWall: TerrainQuery = {
     }
     if (direction.x <= 1e-9) return null
     const travel = (20 - from.x) / direction.x
-    if (travel < 0 || travel > maxDistance) return null
+    if (travel < 0) return null
+    // `travel` above is a parametric multiple of the (unnormalised) direction vector, not
+    // a real distance. `maxDistance`, per the real raycast contract in terrain-query.ts, is
+    // a real Euclidean distance measured along the normalised direction -- resolveMovement
+    // calls in here with an unnormalised delta, so comparing the raw parametric value
+    // against maxDistance directly only happens to work while that delta is unit length.
+    // Scaling by the direction's length converts it to a real distance first.
+    if (travel * direction.length() > maxDistance) return null
     return {
       point: new Vector3(20, from.y + direction.y * travel, from.z + direction.z * travel),
       normal: new Vector3(-1, 0, 0),
