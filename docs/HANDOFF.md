@@ -814,20 +814,35 @@ reasoned about. Neither is a defect in the code that implements them — the fir
 decision that belongs to whoever plays the game, the second is a design question about how a
 soldier should behave in a case the current rule does not really cover.
 
-*`HOME_PATROL` opens fire at spawn, and `config.ts` says it does not.* Measured against the real
-terrain rather than a flat test plane: the player spawns at `(0, 13.87, 0)`, and after
-`main.ts` drops each patrol position onto the ground, `archer-2` stands at `(16, 9.86, -30)` — a
-3D distance of 34.24, inside its own 40-unit `strikeRange`. So it does not close first; it winds
-up on frame one and looses at t = 0.82 s. First hit at t = 1.80 s, and a player who loads the
-game and touches nothing is at zero health by t = 5.63 s. The same run with the two archers
-removed gives a first hit at t = 4.67 s and zero health at t = 9.73 s, so this is not new —
-`spear-3` at 20.53 units already did it — but this branch cuts time-to-first-hit by a factor of
-2.6. What is worth reading twice is the comment on `strikeRange` in `config.ts`, which says the
-value sits below `aggroRange` "so it closes before shooting rather than opening fire the instant
-it notices". That is true of the two numbers and false of the patrol: `HOME_PATROL` never
-produces the behaviour the comment describes, because two of its five spawns are already inside
-firing range of the spawn point. Fixing it means moving spawn positions or shortening
-`strikeRange`, and either is a feel decision — deliberately not made here.
+**`HOME_PATROL` used to open fire at spawn. It has been moved, and a test now pins it.**
+
+Measured against the real terrain rather than a flat test plane: the player spawns at
+`(0, 13.87, 0)`, and after each patrol position is dropped onto the ground, `archer-2` stood at
+`(16, 9.86, -30)` — a 3D distance of 34.24, inside its own 40-unit `strikeRange`. So it did not
+close first; it wound up on frame one and loosed at t = 0.82 s. First hit at t = 1.80 s, and a
+player who loaded the game and touched nothing was at zero health by t = 5.63 s. The same run
+with the archers removed gave a first hit at t = 4.67 s, so this was never new — `spear-3` at
+20.53 units against a 26-unit notice range had been advancing on the spawn since long before
+archers existed — but archers cut time-to-first-hit by a factor of 2.6 and made it obvious.
+
+The patrol now sits further out: spears at radius 34 to 36, archers at radius 55, all on the
+−Z side. Every soldier is outside its **own** notice range of the spawn point with at least 5
+units of margin, so nothing engages a motionless player, and the first arrow now waits until the
+player has walked roughly 15 units toward the group.
+
+`patrol-placement.test.ts` is the guard, and it needs the real island geometry rather than a
+fixture: a soldier's distance from the spawn depends on the terrain height under both, so the
+property cannot be read off the coordinates alone. It also pins that the archers stay behind the
+spears, that nobody sits close enough to the rim for ordinary knockback to delete them, and that
+somewhere on the home island is still beyond `respawnRange` of every spawn point — because
+pushing the patrol outward pushes that requirement outward too.
+
+Two things this deliberately did **not** change. `strikeRange` and `aggroRange` keep their
+values; the placement moved instead, because the archer's 48-unit notice range is what makes
+climbing stop being a win condition and is the last number that should be traded away. And
+`config.ts`'s claim that `strikeRange` sits below `aggroRange` "so it closes before shooting
+rather than opening fire the instant it notices" is now true of the patrol as well as of the two
+numbers — it was the mismatch between those two readings that hid the problem in the first place.
 
 *An archer directly beneath a hovering player twitches in place instead of repositioning.* At 45
 units straight up it is inside `aggroRange` (48) and outside `strikeRange` (40), so it takes the

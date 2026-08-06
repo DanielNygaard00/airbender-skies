@@ -145,19 +145,38 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
 }
 
 /**
- * Where the first fight lives: on the home island, near the spawn.
+ * Where the first fight lives: on the home island, out from the spawn.
  *
  * Three spears and two archers, with the archers further back, so the group has a shape
  * rather than being a blob. Section 4.4 builds encounters as combinations of types, and
  * this is the intended bind: close the distance and the spears punish you, hold back or
  * climb and the archers do.
+ *
+ * **Every soldier sits outside its own notice range of the player's spawn point**, so a
+ * player who loads the game and touches nothing is not engaged. `patrol-placement.test.ts`
+ * pins that against the real island geometry, because it is a property of these
+ * coordinates *and* the terrain under them and cannot be read off either alone.
+ *
+ * It was not always true. The archers first landed at 34 and 47 units out, against a
+ * 40-unit firing range and a 48-unit notice range measured in 3D — so one of them loosed
+ * an arrow 0.8 seconds after load and a motionless player reached zero health in about
+ * five. The spears had the same problem more mildly and for longer, which is why nobody
+ * noticed: `spear-3` sat 20 units out against a notice range of 26 and had been advancing
+ * on the spawn since long before archers existed.
+ *
+ * The radii are what matter, not the exact bearings: spears at roughly 34 to 36, archers
+ * at roughly 55. Both lines are on the −Z side, and the archers deliberately stop short of
+ * radius 60 — the island's ground runs out near 65, and a soldier parked much closer to the
+ * rim gets deleted by ordinary knockback, which turns every fight into free environmental
+ * removals. Avoid the +X+Z quadrant entirely past radius 56: the spire island is stacked
+ * overhead there and `groundHeightAt` returns its surface, hundreds of units up.
  */
 export const HOME_PATROL: EnemySpawn[] = [
-  { id: 'spear-1', position: new Vector3(26, 0, -18), kind: 'spear' },
-  { id: 'spear-2', position: new Vector3(34, 0, -8), kind: 'spear' },
-  { id: 'spear-3', position: new Vector3(20, 0, -4), kind: 'spear' },
-  { id: 'archer-1', position: new Vector3(40, 0, -24), kind: 'archer' },
-  { id: 'archer-2', position: new Vector3(16, 0, -30), kind: 'archer' },
+  { id: 'spear-1', position: new Vector3(26, 0, -22), kind: 'spear' },
+  { id: 'spear-2', position: new Vector3(34, 0, -12), kind: 'spear' },
+  { id: 'spear-3', position: new Vector3(18, 0, -30), kind: 'spear' },
+  { id: 'archer-1', position: new Vector3(40, 0, -38), kind: 'archer' },
+  { id: 'archer-2', position: new Vector3(18, 0, -52), kind: 'archer' },
 ]
 
 /**
