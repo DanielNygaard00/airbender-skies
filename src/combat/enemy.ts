@@ -384,7 +384,12 @@ export function stepEnemy(
           // Set at the start of the rise rather than the end: `facing` only updates in
           // the active branch below, so a soldier would otherwise push up aimed wherever
           // it fell and snap round on its first advance frame.
-          facing: horizontalTo(moved.position, playerPosition),
+          //
+          // Falls back to the heading already held, for the same reason the active branch
+          // below does: a player standing directly overhead gives no horizontal direction
+          // to turn towards, and a body pushing up under one should keep the heading it
+          // fell with rather than snap to a compass direction that means nothing.
+          facing: horizontalTo(moved.position, playerPosition) ?? enemy.facing,
         },
         damageToPlayer: 0,
         fellOutOfWorld: false,
