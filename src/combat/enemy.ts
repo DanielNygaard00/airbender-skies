@@ -1,4 +1,4 @@
-import { Vector3 } from 'three'
+import { MathUtils, Vector3 } from 'three'
 import { applyDamage, isDowned, type Health, type HealthConfig } from './health'
 
 /**
@@ -9,7 +9,7 @@ import { applyDamage, isDowned, type Health, type HealthConfig } from './health'
  * and it punishes standing still. That is the whole behaviour — it is not built to
  * be a fair duel, it is built to make holding one spot expensive.
  */
-export type Stance = 'advance' | 'wind-up' | 'recover' | 'downed'
+export type Stance = 'advance' | 'wind-up' | 'recover' | 'downed' | 'rising'
 
 /**
  * Which soldier this is.
@@ -54,6 +54,15 @@ export interface Enemy {
   /** Seconds spent in the current stance. */
   stanceTime: number
   health: Health
+  /**
+   * How many times this soldier has been taken to zero.
+   *
+   * Indexes the recovery ladder: each rise restores less than the last, and running off
+   * the end of `recoveryHealthFractions` is what makes a down permanent. Counts crossings
+   * only — knocking a rising soldier back down does not advance it, so descending the
+   * ladder always costs real damage.
+   */
+  downs: number
   /** Decaying horizontal push from a gust, a slam or a vortex. Horizontal only. */
   knockback: Vector3
   /** Ballistic vertical speed. Gravity acts on this; the ground snap ends it. */
@@ -105,6 +114,25 @@ export interface EnemyConfig extends HealthConfig {
    * body that was already on the ground stick to a slope or small drop underfoot.
    */
   snapDistance: number
+  /**
+   * Seconds flat on the ground before pushing back up.
+   *
+   * Deliberately not named `recoverSeconds`: that one already exists and means the
+   * vulnerable window after a strike. Two fields a syllable apart, both about recovering,
+   * is how a caller reaches for the wrong one.
+   */
+  downedSeconds: number
+  /** The push-up itself: long, visible, and a hit lands them straight back down. */
+  risingSeconds: number
+  /**
+   * Health on each successive rise, as a fraction of max.
+   *
+   * The array's length is how many recoveries a soldier gets: run off the end and the
+   * down is permanent, so the ladder's depth and its steps are one constant rather than
+   * two that can disagree. An empty array is meaningful rather than broken — nobody ever
+   * rises, which is exactly how this module behaved before recovery existed.
+   */
+  recoveryHealthFractions: readonly number[]
 }
 
 export function spawnEnemy(
@@ -118,6 +146,7 @@ export function spawnEnemy(
     stance: 'advance',
     stanceTime: 0,
     health: { current: c.maxHealth, max: c.maxHealth, sinceHit: c.outOfCombatSeconds },
+    downs: 0,
     knockback: new Vector3(),
     verticalVelocity: 0,
     grounded: true,
@@ -169,6 +198,43 @@ function horizontalTo(from: Vector3, to: Vector3): Vector3 | null {
 
 export function horizontalDistance(a: Vector3, b: Vector3): number {
   return Math.hypot(a.x - b.x, a.z - b.z)
+}
+
+/**
+ * How much health this soldier gets back on its next rise, or null when the ladder is
+ * spent and the down is permanent.
+ *
+ * One place owns the index arithmetic, so the check that starts a rise and the restore
+ * that ends it cannot disagree about which rung is next. Indexed at `downs - 1` because
+ * `downs` counts crossings and the first crossing earns the first rung.
+ *
+ * A non-positive rung is treated as the end of the ladder, same as a missing one, rather
+ * than `?? null` alone: a soldier restored to zero or negative health is still downed by
+ * `isDowned`'s own `<= 0`, so a rise that lands on such a rung could never complete —
+ * `stepEnemy` would cycle downed -> rising -> zero-health-still-downed forever, with no
+ * crossing to report and so no burst and no Focus. Treating it as absent instead makes
+ * the down permanent up front, which is what a soldier that can never actually rise
+ * amounts to anyway.
+ */
+export function nextRecoveryFraction(enemy: Enemy, c: EnemyConfig): number | null {
+  const fraction = c.recoveryHealthFractions[enemy.downs - 1]
+  return fraction !== undefined && fraction > 0 ? fraction : null
+}
+
+/** Worth aiming at: on its feet, or pushing back up onto them. */
+export function isTargetable(enemy: Enemy): boolean {
+  return !isDowned(enemy.health) || enemy.stance === 'rising'
+}
+
+/**
+ * How far through pushing back up, 0 to 1. Zero when not rising.
+ *
+ * Fails closed on a non-positive `risingSeconds` rather than dividing by it: the result is
+ * multiplied into a rotation, where a NaN corrupts the matrix instead of just looking wrong.
+ */
+export function risingProgress(enemy: Enemy, c: EnemyConfig): number {
+  if (enemy.stance !== 'rising' || !(c.risingSeconds > 0)) return 0
+  return MathUtils.clamp(enemy.stanceTime / c.risingSeconds, 0, 1)
 }
 
 interface Fallen {
@@ -261,6 +327,7 @@ export function stepEnemy(
       enemy: {
         ...enemy, ...moved,
         health: applyDamage(enemy.health, enemy.health.current),
+        downs: enemy.downs + 1,
         stance: 'downed', stanceTime: 0,
       },
       damageToPlayer: 0,
@@ -270,9 +337,64 @@ export function stepEnemy(
   }
 
   if (isDowned(enemy.health)) {
+    // Frozen while airborne: a body still falling out of a Vortex is not recovering, and
+    // without this it would land with the countdown already spent and rise on the spot.
+    const stanceTime = moved.grounded ? enemy.stanceTime + dt : enemy.stanceTime
+    const fraction = nextRecoveryFraction(enemy, c)
+
+    if (enemy.stance === 'rising') {
+      // The ladder cannot empty mid-rise — `downs` only moves on a crossing, and a rise
+      // only starts with a rung available — but lying back down is the safe answer if it
+      // ever did, because a rise that can never complete is a soldier stuck on one knee.
+      if (fraction !== null && stanceTime >= c.risingSeconds) {
+        return {
+          enemy: {
+            ...enemy, ...moved,
+            // Clamped: a mistuned fraction above 1 would otherwise leave the pool over
+            // max and the health bar overflowing its own frame.
+            health: {
+              ...enemy.health,
+              current: MathUtils.clamp(enemy.health.max * fraction, 0, enemy.health.max),
+              sinceHit: 0,
+            },
+            stance: 'advance',
+            stanceTime: 0,
+          },
+          damageToPlayer: 0,
+          fellOutOfWorld: false,
+          firedProjectile: null,
+        }
+      }
+      if (fraction !== null) {
+        // Still pushing up: inert, but targetable. A hit here goes through hitEnemy's
+        // ordinary path and puts the soldier straight back down.
+        return {
+          enemy: { ...enemy, ...moved, stance: 'rising', stanceTime },
+          damageToPlayer: 0,
+          fellOutOfWorld: false,
+          firedProjectile: null,
+        }
+      }
+    } else if (fraction !== null && moved.grounded && stanceTime >= c.downedSeconds) {
+      return {
+        enemy: {
+          ...enemy, ...moved,
+          stance: 'rising',
+          stanceTime: 0,
+          // Set at the start of the rise rather than the end: `facing` only updates in
+          // the active branch below, so a soldier would otherwise push up aimed wherever
+          // it fell and snap round on its first advance frame.
+          facing: horizontalTo(moved.position, playerPosition),
+        },
+        damageToPlayer: 0,
+        fellOutOfWorld: false,
+        firedProjectile: null,
+      }
+    }
+
     // Down, not gone: the body stays in the world — but it still falls, and settles.
     return {
-      enemy: { ...enemy, ...moved, stance: 'downed', stanceTime: enemy.stanceTime + dt },
+      enemy: { ...enemy, ...moved, stance: 'downed', stanceTime },
       damageToPlayer: 0,
       fellOutOfWorld: false,
       firedProjectile: null,
@@ -374,9 +496,14 @@ export function stepEnemy(
 /** Take a hit: damage, plus a push that decays. */
 export function hitEnemy(enemy: Enemy, damage: number, impulse: Vector3): Enemy {
   const health = applyDamage(enemy.health, damage)
+  // Crossings only. A hit on a body already at zero — which is what interrupting a rise
+  // is — must not advance the ladder, or a tap at the right moment would substitute for
+  // chipping through a whole health bar.
+  const wentDown = isDowned(health) && !isDowned(enemy.health)
   return {
     ...enemy,
     health,
+    downs: wentDown ? enemy.downs + 1 : enemy.downs,
     // Horizontal push and ballistic lift are different physics: damping a fall would
     // make a body float down, which is why they are separate fields now.
     knockback: enemy.knockback.clone().add(new Vector3(impulse.x, 0, impulse.z)),

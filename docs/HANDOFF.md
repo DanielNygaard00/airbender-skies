@@ -652,6 +652,12 @@ rather than the *last* is the right way round is an open question — §4.6 pays
 a non-lethal removal is the generous play, and the removal that sticks is the last one. It
 is a one-line filter if it is revisited. Spec:
 [`docs/superpowers/specs/2026-08-06-enemy-recovery-design.md`](superpowers/specs/2026-08-06-enemy-recovery-design.md).
+
+The ladder is per-kind config, so the archer carries it too — the same `downedSeconds: 18`,
+`risingSeconds: 1.2` and `[0.6, 0.3]` fractions as the spear, applied to its own smaller
+`maxHealth`. Nothing in the recovery logic is kind-specific; giving the archer a different
+countdown would be a tuning decision, and there is no argument for one yet.
+
 **Archers, and the axis that was missing.** Before this cycle, climbing was a win condition.
 Spear infantry notices at 26 units and closes only horizontally, and `stepEnemy` says outright
 that it does not chase into the sky, so getting above one ended any fight it was in. That single

@@ -36,11 +36,12 @@ line on it builds a hidden accumulator that makes the ball tighter and faster �
 give it back. Landing never stops you dead; you skim out of it.
 
 A patrol of spear infantry holds the east side of the home island. They pressure your spacing:
-they close, they telegraph, and standing still costs health. Gust knocks them back and interrupts a
-strike, but it barely hurts them — enemies are downed, never killed — but not for good. A soldier you put down will push
-itself back onto its feet after a while, and rejoin weaker than it was. Hit one while it
-is getting up and it goes straight back down, though that only buys you time: wearing a
-soldier out for good still means taking its health to nothing, three times over.
+they close, they telegraph, and standing still costs health. Gust knocks them back and
+interrupts a strike, but barely hurts them — enemies are downed, never killed, not for good. A
+soldier you put down will push itself back onto its feet after a while, and rejoin weaker than
+it was. Hit one while it is getting up and it goes straight back down, though that only buys
+you time: wearing a soldier out for good still means taking its health to nothing, three times
+over.
 It cuts both ways: run your own health out and you go down too, waking up back at the island
 with a full bar of health, an empty bar of Focus, and the patrol exactly as you left it.
 

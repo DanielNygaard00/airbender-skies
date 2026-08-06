@@ -23,6 +23,12 @@ function rig(view: { object: Object3D }): Group {
   return found
 }
 
+function bodyColour(view: { object: Object3D }): number {
+  const body = child(view, 'body')
+  if (!(body instanceof Mesh)) throw new Error('expected the body to be a Mesh')
+  return (body.material as MeshLambertMaterial).color.getHex()
+}
+
 describe('createEnemyView', () => {
   it('carries a health bar', () => {
     expect(createEnemyView('spear').object.getObjectByName('health-bar')).toBeDefined()
@@ -30,13 +36,13 @@ describe('createEnemyView', () => {
 
   it('hides the bar on a downed enemy', () => {
     const view = createEnemyView('spear')
-    view.sync(downed(enemyAt(0, 0)), CAMERA)
+    view.sync(downed(enemyAt(0, 0)), CAMERA, 0)
     expect(child(view, 'health-bar').visible).toBe(false)
   })
 
   it('shows the bar on a damaged one', () => {
     const view = createEnemyView('spear')
-    view.sync(damaged(enemyAt(0, 0)), CAMERA)
+    view.sync(damaged(enemyAt(0, 0)), CAMERA, 0)
     expect(child(view, 'health-bar').visible).toBe(true)
   })
 
@@ -46,7 +52,7 @@ describe('createEnemyView', () => {
     // would never actually face the camera.
     const view = createEnemyView('spear')
     const turned = { ...damaged(enemyAt(0, 0)), facing: new Vector3(1, 0, 0) }
-    view.sync(turned, CAMERA)
+    view.sync(turned, CAMERA, 0)
     const world = new Quaternion()
     child(view, 'health-bar').getWorldQuaternion(world)
     expect(world.angleTo(CAMERA)).toBeLessThan(1e-6)
@@ -54,25 +60,25 @@ describe('createEnemyView', () => {
 
   it('stands the soldier at its own position', () => {
     const view = createEnemyView('spear')
-    view.sync(enemyAt(3, -7), CAMERA)
+    view.sync(enemyAt(3, -7), CAMERA, 0)
     expect(view.object.position.toArray()).toEqual([3, 0, -7])
   })
 
   it('turns the soldier to face its heading', () => {
     const view = createEnemyView('spear')
-    view.sync({ ...enemyAt(0, 0), facing: new Vector3(1, 0, 0) }, CAMERA)
+    view.sync({ ...enemyAt(0, 0), facing: new Vector3(1, 0, 0) }, CAMERA, 0)
     expect(rig(view).rotation.y).toBeCloseTo(Math.PI / 2, 5)
   })
 
   it('lays a downed soldier flat', () => {
     const view = createEnemyView('spear')
-    view.sync(downed(enemyAt(0, 0)), CAMERA)
+    view.sync(downed(enemyAt(0, 0)), CAMERA, 0)
     expect(rig(view).rotation.x).toBeCloseTo(Math.PI / 2, 5)
   })
 
   it('stands a living soldier upright', () => {
     const view = createEnemyView('spear')
-    view.sync(enemyAt(0, 0), CAMERA)
+    view.sync(enemyAt(0, 0), CAMERA, 0)
     expect(rig(view).rotation.x).toBeCloseTo(0, 5)
   })
 
@@ -80,10 +86,57 @@ describe('createEnemyView', () => {
     // The dodge window depends on the player seeing this, so it is worth pinning.
     const view = createEnemyView('spear')
     const spear = child(view, 'spear')
-    view.sync({ ...enemyAt(0, 0), stance: 'wind-up' }, CAMERA)
+    view.sync({ ...enemyAt(0, 0), stance: 'wind-up' }, CAMERA, 0)
     const winding = spear.rotation.x
-    view.sync({ ...enemyAt(0, 0), stance: 'advance' }, CAMERA)
+    view.sync({ ...enemyAt(0, 0), stance: 'advance' }, CAMERA, 0)
     expect(winding).toBeLessThan(spear.rotation.x)
+  })
+})
+
+describe('a soldier pushing back up', () => {
+  const rising = (enemy: Enemy): Enemy => ({ ...downed(enemy), stance: 'rising' })
+
+  it('lies flat at the start of the push-up', () => {
+    const view = createEnemyView('spear')
+    view.sync(rising(enemyAt(0, 0)), CAMERA, 0)
+    expect(rig(view).rotation.x).toBeCloseTo(Math.PI / 2)
+  })
+
+  it('stands upright by the end of it', () => {
+    const view = createEnemyView('spear')
+    view.sync(rising(enemyAt(0, 0)), CAMERA, 1)
+    expect(rig(view).rotation.x).toBeCloseTo(0)
+  })
+
+  it('is part way up in between', () => {
+    const view = createEnemyView('spear')
+    view.sync(rising(enemyAt(0, 0)), CAMERA, 0.5)
+    const half = rig(view).rotation.x
+    expect(half).toBeGreaterThan(0)
+    expect(half).toBeLessThan(Math.PI / 2)
+  })
+
+  it('does not wear the wind-up colour', () => {
+    // WINDUP is the dodge telegraph. Wearing it for a rise would teach the player to
+    // dodge something that cannot hit them.
+    const view = createEnemyView('spear')
+    view.sync({ ...enemyAt(0, 0), stance: 'wind-up' }, CAMERA, 0)
+    const windUpColour = bodyColour(view)
+    view.sync(rising(enemyAt(0, 0)), CAMERA, 0.5)
+    expect(bodyColour(view)).not.toBe(windUpColour)
+  })
+
+  it('rises whichever kind it is', () => {
+    // The rise is driven by `rising` rather than by anything the prop knows about, so an
+    // archer has to push up the same way. Cheap to state, and it is the one place the
+    // two kinds could diverge without anything else in this file noticing.
+    const view = createEnemyView('archer')
+    const archer = spawnEnemy('a', new Vector3(), 'archer', DEFAULT_COMBAT_CONFIG.enemies.archer)
+    const flat = hitEnemy(archer, DEFAULT_COMBAT_CONFIG.enemies.archer.maxHealth, new Vector3())
+    view.sync({ ...flat, stance: 'rising' }, CAMERA, 0)
+    expect(rig(view).rotation.x).toBeCloseTo(Math.PI / 2)
+    view.sync({ ...flat, stance: 'rising' }, CAMERA, 1)
+    expect(rig(view).rotation.x).toBeCloseTo(0)
   })
 })
 
@@ -115,9 +168,9 @@ describe('the two kinds look different', () => {
     const view = createEnemyView('archer')
     const body = view.object.getObjectByName('body') as Mesh
     const material = body.material as MeshLambertMaterial
-    view.sync(archerAt('advance'), new Quaternion())
+    view.sync(archerAt('advance'), new Quaternion(), 0)
     const calm = material.color.getHex()
-    view.sync(archerAt('wind-up'), new Quaternion())
+    view.sync(archerAt('wind-up'), new Quaternion(), 0)
     const drawing = material.color.getHex()
     expect(drawing).not.toBe(calm)
   })
@@ -125,9 +178,9 @@ describe('the two kinds look different', () => {
   it('moves the bow on a draw', () => {
     const view = createEnemyView('archer')
     const bow = view.object.getObjectByName('bow') as Object3D
-    view.sync(archerAt('advance'), new Quaternion())
+    view.sync(archerAt('advance'), new Quaternion(), 0)
     const calm = bow.rotation.x
-    view.sync(archerAt('wind-up'), new Quaternion())
+    view.sync(archerAt('wind-up'), new Quaternion(), 0)
     // A real margin, not merely different: the draw has to be visible.
     expect(Math.abs(bow.rotation.x - calm)).toBeGreaterThan(0.3)
   })
@@ -147,9 +200,9 @@ describe('a downed soldier drops whatever it was holding', () => {
   it('lowers a downed spear', () => {
     const view = createEnemyView('spear')
     const spear = child(view, 'spear')
-    view.sync({ ...enemyAt(0, 0), stance: 'wind-up' }, CAMERA)
+    view.sync({ ...enemyAt(0, 0), stance: 'wind-up' }, CAMERA, 0)
     expect(Math.abs(spear.rotation.x)).toBeGreaterThan(0.3)
-    view.sync(downed(enemyAt(0, 0)), CAMERA)
+    view.sync(downed(enemyAt(0, 0)), CAMERA, 0)
     expect(spear.rotation.x).toBeCloseTo(0, 5)
   })
 
@@ -157,9 +210,9 @@ describe('a downed soldier drops whatever it was holding', () => {
     const view = createEnemyView('archer')
     const bow = child(view, 'bow')
     const archer = spawnEnemy('a', new Vector3(), 'archer', ARCHER_CONFIG)
-    view.sync({ ...archer, stance: 'wind-up' }, CAMERA)
+    view.sync({ ...archer, stance: 'wind-up' }, CAMERA, 0)
     expect(Math.abs(bow.rotation.x)).toBeGreaterThan(0.3)
-    view.sync(hitEnemy(archer, ARCHER_CONFIG.maxHealth, new Vector3()), CAMERA)
+    view.sync(hitEnemy(archer, ARCHER_CONFIG.maxHealth, new Vector3()), CAMERA, 0)
     expect(bow.rotation.x).toBeCloseTo(0, 5)
   })
 })

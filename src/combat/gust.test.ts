@@ -17,6 +17,7 @@ const E: EnemyConfig = {
   gravity: 20,
   // Matches DEFAULT_COMBAT_CONFIG.enemies.spear.snapDistance.
   snapDistance: 1.2,
+  downedSeconds: 18, risingSeconds: 1.2, recoveryHealthFractions: [0.6, 0.3],
 }
 
 const ORIGIN = new Vector3(0, 0, 0)
@@ -95,6 +96,19 @@ describe('only the soldiers still standing', () => {
     expect(liveGustTargets(ORIGIN, NORTH, [corpse], G)).toEqual([])
   })
 
+  it('includes a soldier pushing back up, because a gust would actually connect', () => {
+    // Health sits at zero through the whole rise (see enemy.ts), so this is exactly the
+    // shape `isDowned` alone could not tell apart from a corpse. `stepEncounter` resolves
+    // a hit on this soldier via `isTargetable`, so the preview has to agree or it would
+    // stay dark for a target the gust can actually reach.
+    const rising = {
+      ...enemyAt(new Vector3(0, 0, -4)),
+      health: { current: 0, max: 1.5, sinceHit: 0 },
+      stance: 'rising' as const,
+    }
+    expect(liveGustTargets(ORIGIN, NORTH, [rising], G).map((e) => e.id)).toEqual([rising.id])
+  })
+
   it('excludes a live enemy outside the cone', () => {
     const behind = enemyAt(new Vector3(0, 0, 4))
     expect(liveGustTargets(ORIGIN, NORTH, [behind], G)).toEqual([])
@@ -143,6 +157,17 @@ describe('whether a gust would catch anyone at all', () => {
       health: { current: 0, max: 1.5, sinceHit: 0 },
     }
     expect(anyLiveGustTarget(ORIGIN, NORTH, [corpse], G)).toBe(false)
+  })
+
+  it('says yes for a soldier pushing back up, so the reticle does not stay dark on a target the gust can reach', () => {
+    // main.ts feeds this straight into the aim tell. Health is zero for the whole rise, the
+    // same as a corpse's, so `isDowned` alone cannot tell them apart -- only `stance` can.
+    const rising = {
+      ...enemyAt(new Vector3(0, 0, -4)),
+      health: { current: 0, max: 1.5, sinceHit: 0 },
+      stance: 'rising' as const,
+    }
+    expect(anyLiveGustTarget(ORIGIN, NORTH, [rising], G)).toBe(true)
   })
 
   it('finds the one live soldier in a crowd of corpses and distant enemies', () => {

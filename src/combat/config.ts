@@ -31,6 +31,20 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
       knockbackDamping: 2.6,
       gravity: 20,
       snapDistance: 1.2,
+      /**
+       * Long enough that clearing a patrol feels like progress, short enough that the
+       * island does not go quiet while the player is still standing on it.
+       */
+      downedSeconds: 18,
+      // Well above the strike's windUpSeconds of 0.55: getting up is a bigger commitment
+      // than a spear thrust and should read as one.
+      risingSeconds: 1.2,
+      /**
+       * Against maxHealth 1.5 and the gust's 0.5 damage, these are three gusts, then two,
+       * then one — 1.5, then 0.9, then 0.45. The ladder is legible from playing it rather
+       * than from reading this, and each rung costs less of the player's time than the last.
+       */
+      recoveryHealthFractions: [0.6, 0.3],
     },
     /**
      * The archer. Section 4.4 gives it altitude to pressure, and its numbers are the
@@ -64,6 +78,16 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
       knockbackDamping: 2.6,
       gravity: 20,
       snapDistance: 1.2,
+      /**
+       * The same recovery ladder as the spear, deliberately. Nothing in the ladder is
+       * kind-specific — the fractions are of this archer's own maxHealth, so the rungs
+       * come to 1.2, then 0.72, then 0.36, which is the same three-gusts-then-two-then-one
+       * shape the spear's numbers produce. Giving the archer a different countdown would
+       * be a tuning decision, and there is no argument for one yet.
+       */
+      downedSeconds: 18,
+      risingSeconds: 1.2,
+      recoveryHealthFractions: [0.6, 0.3],
     },
   },
   /**
