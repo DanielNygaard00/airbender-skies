@@ -73,7 +73,10 @@ describe('when a patrol restores', () => {
   })
 
   it('ignores altitude, because flying over is not leaving', () => {
-    // Horizontal distance only, matching how aggroRange is measured in stepEnemy.
+    // Horizontal distance only. That matches how stepEnemy measures a spear's aggroRange,
+    // but not an archer's, which is 3D -- so this deliberately keeps a player hovering
+    // 300 units up from counting as gone, and the safety of a restore rests on
+    // respawnRange clearing every aggroRange rather than on the two agreeing.
     const overhead = new Vector3(0, 300, 0)
     expect(shouldRestorePatrol(allDowned(), SPAWNS, overhead, C)).toBe(false)
   })

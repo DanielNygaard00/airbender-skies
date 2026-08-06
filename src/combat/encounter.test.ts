@@ -5,7 +5,8 @@ import {
   type EnemySpawn,
 } from './encounter'
 import { isDowned } from './health'
-import { DEFAULT_COMBAT_CONFIG } from './config'
+import { horizontalDistance } from './enemy'
+import { DEFAULT_COMBAT_CONFIG, DEFAULT_PATROL_CONFIG, HOME_PATROL } from './config'
 
 const C: CombatConfig = {
   player: { maxHealth: 5, outOfCombatSeconds: 4, regenPerSecond: 0.4 },
@@ -766,6 +767,190 @@ describe('a cleared patrol comes back', () => {
     // fix above would have traded one wrong position for another.
     const step = stepEncounter(near(), defaults, 1 / 60, C, DEPS)
     expect(step.enemiesBeforeRestore).toEqual(step.encounter.enemies)
+  })
+})
+
+describe('a restore that lands inside an archer\'s notice range', () => {
+  // What goes wrong when respawnRange does not clear an archer's aggroRange, played out
+  // rather than asserted about the numbers. `shouldRestorePatrol` measures the player's
+  // distance horizontally, but `stepEnemy` measures a ranged soldier's aggroRange in 3D,
+  // so the two are only comparable when respawnRange is above every kind's aggroRange
+  // outright -- 3D distance is never less than horizontal, but it is equal whenever the
+  // player stands at the soldier's own altitude, so nothing about the 3D measurement
+  // buys the restore any margin it can rely on.
+  //
+  // A test-local respawnRange, deliberately below this fixture's archer aggroRange, in
+  // the same spirit as the two respawnRange-of-5 fixtures above: it forces the overlap
+  // so the failure mode stays observable here no matter how the shipped values are
+  // retuned. "the shipped patrol restores out of every notice range" below is the test
+  // that pins the shipped values; this one is the test that says what it is protecting
+  // against.
+  const ARCHER: EnemySpawn[] = [{ id: 'archer-1', position: new Vector3(0, 0, 0), kind: 'archer' }]
+  // Between the fixture archer's strikeRange (22) and its aggroRange (35), matching the
+  // shape the shipped config had: respawnRange used to sit at 40, between the archer's
+  // strikeRange of 40 and its aggroRange of 48.
+  const tooClose = {
+    ...DEPS, spawns: ARCHER, patrol: { respawnRange: 24 },
+  }
+  // 25 out along z and on the ground, at the archer's own altitude -- the case where 3D
+  // distance collapses onto horizontal distance. Past respawnRange (24), so the restore
+  // fires, and inside the archer's aggroRange (35), so the fresh soldier notices at once.
+  const justPastRespawnRange = { ...defaults, playerPosition: new Vector3(0, 0, 25) }
+
+  /** The archer, downed where it stands, so the patrol is ready to restore. */
+  function cleared() {
+    const encounter = startEncounter(ARCHER, C)
+    return {
+      ...encounter,
+      enemies: encounter.enemies.map((e) => ({ ...e, health: { ...e.health, current: 0 } })),
+    }
+  }
+
+  it('restores a soldier that is already inside its own notice range', () => {
+    const step = stepEncounter(cleared(), justPastRespawnRange, 1 / 60, C, tooClose)
+    expect(step.restoredThisFrame).toEqual(['archer-1'])
+
+    const restored = step.encounter.enemies[0]
+    if (!restored) throw new Error('the patrol should have been restored')
+    // The premise, stated as the two measurements that disagree: the player has left as
+    // far as the restore is concerned, and has not left at all as far as the archer is.
+    const spawn = ARCHER[0]!.position
+    expect(horizontalDistance(justPastRespawnRange.playerPosition, spawn))
+      .toBeGreaterThan(tooClose.patrol.respawnRange)
+    expect(justPastRespawnRange.playerPosition.distanceTo(restored.position))
+      .toBeLessThanOrEqual(C.enemies.archer.aggroRange)
+  })
+
+  it('does not fire on the restore frame itself, but does start closing the frame after', () => {
+    // Worth pinning because it is narrower than it sounds, and the narrowness is not a
+    // defence. Two things stop an arrow leaving on the restore frame: fresh soldiers are
+    // built after the enemy-stepping loop in stepEncounter, so they do not act at all on
+    // the frame they appear; and a release needs a completed wind-up from inside
+    // strikeRange, which respawnRange being above strikeRange rules out anyway. So the
+    // damage is deferred, not avoided -- the archer spends the delay walking in.
+    const restore = stepEncounter(cleared(), justPastRespawnRange, 1 / 60, C, tooClose)
+    expect(restore.firedThisFrame).toEqual([])
+    const before = restore.encounter.enemies[0]!.position.clone()
+
+    const next = stepEncounter(restore.encounter, justPastRespawnRange, 1 / 60, C, tooClose)
+    expect(next.firedThisFrame).toEqual([])
+    // Closing, not holding station: an archer outside aggroRange would stand still, so
+    // movement towards the player is the observable form of "it has noticed".
+    const after = next.encounter.enemies[0]!.position
+    expect(after.distanceTo(justPastRespawnRange.playerPosition))
+      .toBeLessThan(before.distanceTo(justPastRespawnRange.playerPosition))
+  })
+
+  it('puts an arrow in the air a second and a half later, at a player who just walked away', () => {
+    // The harm, end to end: the player cleared this patrol, walked past respawnRange, and
+    // is being shot at by a soldier that did not exist when they turned their back. The
+    // budget below is generous on purpose -- the point is that it happens at all and soon,
+    // not the exact frame -- but it is finite, so an archer that never closed would fail
+    // it rather than pass by never firing.
+    let encounter = stepEncounter(cleared(), justPastRespawnRange, 1 / 60, C, tooClose).encounter
+    let firedAfterSeconds = -1
+    for (let frame = 0; frame < 300 && firedAfterSeconds < 0; frame++) {
+      const step = stepEncounter(encounter, justPastRespawnRange, 1 / 60, C, tooClose)
+      encounter = step.encounter
+      if (step.firedThisFrame.length > 0) firedAfterSeconds = (frame + 1) / 60
+    }
+    expect(firedAfterSeconds).toBeGreaterThan(0)
+    expect(firedAfterSeconds).toBeLessThan(3)
+  })
+})
+
+describe('the shipped patrol restores out of every soldier\'s notice range', () => {
+  // The regression guard for the gap the archer opened. DEFAULT_PATROL_CONFIG.respawnRange
+  // shipped at 40 against an archer aggroRange of 48, so there were real player positions
+  // -- 1907 of them on the one-unit grid this test sweeps -- that satisfied the restore and
+  // put a fresh archer inside its own notice range at the same time. The block above plays
+  // out what that costs; this one asserts the shipped numbers make it unreachable.
+  //
+  // Swept rather than asserted at one hand-picked position, because a single position is
+  // pinned to today's HOME_PATROL layout and today's aggroRange, and would quietly stop
+  // testing anything if either were retuned. It is also stronger than comparing
+  // respawnRange against max(aggroRange) directly -- which patrol.test.ts already does --
+  // because it goes through stepEncounter, so it covers the two measurements actually
+  // disagreeing rather than the arithmetic relationship between the constants.
+  //
+  // On the ground plane at y = 0, which is the worst case: 3D distance is never below
+  // horizontal distance, and the two are equal exactly there, so any position that clears
+  // this at the soldiers' own altitude clears it at every altitude.
+  const PROD = DEFAULT_COMBAT_CONFIG
+  const deps = {
+    ground: flatGround, worldFloorY: -50, spawns: HOME_PATROL, patrol: DEFAULT_PATROL_CONFIG,
+  }
+
+  // The whole home patrol, downed where it stands, so every frame below is one frame away
+  // from a restore. Built once and reused: stepEncounter does not mutate what it is given,
+  // and rebuilding it inside the sweep would dominate the sweep's runtime.
+  const downed = (() => {
+    const encounter = startEncounter(HOME_PATROL, PROD)
+    return {
+      ...encounter,
+      enemies: encounter.enemies.map((e) => ({ ...e, health: { ...e.health, current: 0 } })),
+    }
+  })()
+
+  // The box the sweep covers: the spawn points, grown by whichever is wider of the widest
+  // notice range and the respawn range itself. The first term is what makes the box big
+  // enough to contain every position that could offend -- a soldier only notices a player
+  // inside its own aggroRange -- and the second is what keeps it big enough to contain
+  // positions that restore at all, so raising respawnRange cannot quietly empty the sweep.
+  // Derived from the config rather than written out, so retuning either keeps it correct.
+  const margin = 2 + Math.max(
+    DEFAULT_PATROL_CONFIG.respawnRange,
+    ...Object.values(PROD.enemies).map((enemy) => enemy.aggroRange),
+  )
+  const xs = HOME_PATROL.map((spawn) => spawn.position.x)
+  const zs = HOME_PATROL.map((spawn) => spawn.position.z)
+  const box = {
+    minX: Math.min(...xs) - margin, maxX: Math.max(...xs) + margin,
+    minZ: Math.min(...zs) - margin, maxZ: Math.max(...zs) + margin,
+  }
+
+  it('leaves no player position that both restores the patrol and is already noticed', () => {
+    const offenders: string[] = []
+
+    // A one-unit grid. The gap this guards was units wide when it was open -- 469 grid
+    // positions offended at the old respawnRange of 40 -- so the step does not have to be
+    // fine to see it, and a finer one only makes the sweep slower.
+    for (let x = box.minX; x <= box.maxX; x++) {
+      for (let z = box.minZ; z <= box.maxZ; z++) {
+        const player = new Vector3(x, 0, z)
+        const step = stepEncounter(
+          downed, { ...defaults, playerPosition: player }, 1 / 60, PROD, deps,
+        )
+        if (step.restoredThisFrame.length === 0) continue
+        for (const soldier of step.encounter.enemies) {
+          // 3D, the way stepEnemy measures a ranged soldier's aggroRange. For a spear it
+          // is the stricter of the two measurements, so reading it for both kinds cannot
+          // let a melee soldier through.
+          const distance = player.distanceTo(soldier.position)
+          const aggro = PROD.enemies[soldier.kind].aggroRange
+          if (distance <= aggro) {
+            offenders.push(
+              `player (${x}, 0, ${z}) restores ${soldier.id} (${soldier.kind}) at 3D ` +
+              `${distance.toFixed(2)}, inside its aggroRange of ${aggro}`,
+            )
+          }
+        }
+      }
+    }
+
+    expect(offenders).toEqual([])
+  })
+
+  it('sweeps somewhere a restore actually happens, so the guard is not vacuous', () => {
+    // Without this, a respawnRange raised past everything the sweep visits would pass the
+    // test above by never restoring anywhere -- the same way the empty spawns list in DEPS
+    // makes the restore invisible to most of this file. The far corner of the box is the
+    // position furthest from every spawn point, so if anything in there restores, it does.
+    const corner = new Vector3(box.minX, 0, box.minZ)
+    const step = stepEncounter(
+      downed, { ...defaults, playerPosition: corner }, 1 / 60, PROD, deps,
+    )
+    expect(step.restoredThisFrame.length).toBe(HOME_PATROL.length)
   })
 })
 

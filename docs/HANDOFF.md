@@ -682,6 +682,28 @@ being a win condition, this cycle's whole point, so it does not move, and the hy
 around it instead. The cost is real — a patrol restore now needs the player 66 units from every
 spawn point instead of 40, a longer walk, so respawns are rarer than they were.
 
+**The violation was confirmed by playing it out, not only by comparing the two constants.** The
+config-invariant test in `patrol.test.ts` asserts a relationship between numbers, which leaves
+open whether the gap was ever reachable in a real frame. Two blocks in `encounter.test.ts` close
+that. `the shipped patrol restores out of every soldier's notice range` sweeps the ground plane on
+a one-unit grid, and for every position where `stepEncounter` actually restores the home patrol it
+requires no restored soldier to be inside its own `aggroRange`, measured in 3D the way `stepEnemy`
+measures a ranged soldier's. At the old `respawnRange` of 40 that sweep reports 1907 offending
+positions, all of them `archer-2`; at 66 it reports none. The sweep replaces a hand-picked position
+on purpose — a single coordinate is pinned to today's `HOME_PATROL` layout and would quietly stop
+testing anything if the spawns or the ranges were retuned.
+
+`a restore that lands inside an archer's notice range` is the other half: it holds a test-local
+`respawnRange` below the fixture archer's `aggroRange`, in the same spirit as the two
+`respawnRange: 5` fixtures already in that file, so the failure mode stays observable no matter
+where the shipped values end up. What it shows is narrower than "the archer fires on the restore
+frame", and the narrowness is not a defence. Nothing can fire on that frame: fresh soldiers are
+built *after* the enemy-stepping loop, so they do not act at all on the frame they appear, and a
+release needs a completed wind-up from inside `strikeRange`, which `respawnRange` sitting above
+`strikeRange` rules out regardless. What the restored archer does instead is notice immediately and
+spend the wind-up walking in — with the shipped numbers at the old 40, an arrow was in the air about
+1.5 seconds after a restore the player triggered by walking away. Deferred, not avoided.
+
 **The free leverage: arrow damage joins the same `damageToPlayer` total the spears feed.**
 `stepEncounter` adds the frame's `projectileDamage` into `damageToPlayer` before computing
 `avoided = input.playerInvulnerable && damageToPlayer > 0`, so a Slipstream dodges an arrow
