@@ -53,17 +53,18 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
+      # Do not add a `timeout:` input here expecting it to help. On 2026-08-06 Pages was
+      # accepting deployments and taking longer than the action's ten-minute wait to process
+      # them, so `timeout: 1800000` was tried — the log shows the input being received and
+      # the action aborting after 602 seconds anyway. v4 ignores it. Waiting longer is not
+      # something this workflow can ask for.
+      #
+      # If deploys are timing out again, the useful facts are: a deployment left mid-flight
+      # blocks the next one; a re-run cannot clear it, because Pages keys a deployment by the
+      # commit SHA and a duplicate ID is cancelled within seconds; the manual unblock is
+      # `POST /repos/:owner/:repo/pages/deployments/:sha/cancel` followed by a fresh commit;
+      # and a run reporting failure does not always mean the deployment failed — check
+      # `GET /pages/deployments/:sha`, since a557c36 reported `succeed` after its own run
+      # had logged "Canceling Pages deployment".
       - id: deploy
         uses: actions/deploy-pages@v4
-        with:
-          # Default is 600000 (ten minutes), and on 2026-08-06 that was not enough: Pages
-          # accepted deployments and took longer than ten minutes to process them, so the
-          # action aborted and tried to cancel each one. The evidence that waiting is the
-          # right answer rather than retrying is a557c36, whose run logged "Canceling Pages
-          # deployment" and whose deployment nonetheless reports `succeed` — the abort was
-          # racing a deployment that completed anyway.
-          #
-          # Aborting is also worse than waiting, because a deployment left mid-flight blocks
-          # the next one, and a re-run cannot recover it: Pages keys a deployment by the
-          # commit SHA, so re-running creates a duplicate ID and is cancelled outright.
-          timeout: 1800000
