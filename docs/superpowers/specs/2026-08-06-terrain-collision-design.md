@@ -11,10 +11,21 @@ behaviour as a direct result.
 glider flying at 50 m/s straight at the `needle` island — radius 12, height 30 — enters at
 x 210 and leaves at x 112, still in glider mode, having crossed clean through a rock centred
 at x 150. A sideways ray from the same start point would have hit at 48.8 m, so the geometry
-is solid; nothing was asked. On foot the failure is worse than cosmetic: inside a mesh, the
-ground snap's downward ray meets back faces, a `FrontSide` material culls them, no hit is
-returned, and the player falls through the island interior, past the world floor, into a
-respawn.
+is solid; nothing was asked.
+
+On foot, a related mechanism exists but is a **latent hazard, not an observed failure** —
+an earlier draft of this document claimed walking into a hillside was currently a death, and
+that claim was wrong as stated. What is true: inside a mesh, the ground snap's downward ray
+meets back faces, a `FrontSide` material culls them, and no hit is returned. What does not
+follow: that a player walking around this archipelago ever reaches that state. Measured
+directly, 83 inward runs — all thirteen islands, eight bearings each, 400 frames at sprint,
+with collision disabled — produced zero respawns; the ground snap climbs every slope this
+island noise generates, regardless of steepness or speed. Arriving inside a mesh by a jump,
+a dash, a charged-jump landing, or a glide impact was not tested, so the honestly supportable
+claim is "no route found by ordinary walking," not "unreachable." The primitive below still
+closes the gap for the glider case above, and the walker's deflection is worth having as a
+guard against a hazard that is real even though no walking route to it was found — but it is
+not fixing an observed death.
 
 **The camera arm does not shorten.** `pullInForTerrain` lifts the camera when terrain shares
 its column, and [follow-cam.ts](../../../src/camera/follow-cam.ts) says outright why the
