@@ -2,19 +2,57 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { controllerStep, respawn, staffStep, type ControllerDeps } from './controller'
 import {
-  DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG, DEFAULT_STAFF_CONFIG,
+  DEFAULT_COLLISION_CONFIG, DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG,
+  DEFAULT_SLIPSTREAM_CONFIG, DEFAULT_STAFF_CONFIG,
 } from '../core/config'
 import { isSwinging, staffBusy, staffOf } from './staff'
 import type { InputState, PlayerState, TerrainQuery } from '../core/types'
 
 const flatGround: TerrainQuery = {
   groundHeightAt: () => 0,
-  raycastDown: (from, maxDistance) =>
-    from.y >= 0 && from.y - maxDistance <= 0
+  // Only answers downward casts. A fake that ignored `direction` would answer a
+  // horizontal collision sweep with a hit on the ground below, so a movement test in a
+  // flat fake world would start deflecting off phantom walls. The threshold is scaled by
+  // the direction's length, not compared against the unit vector: `raycast` accepts an
+  // unnormalised direction, and a fake that only recognised the unit down vector would
+  // answer `null` to a mostly-downward sweep the real one answers.
+  raycast: (from, direction, maxDistance) =>
+    direction.y < -0.9 * direction.length() && from.y >= 0 && from.y - maxDistance <= 0
       ? { point: new Vector3(from.x, 0, from.z), normal: new Vector3(0, 1, 0), islandId: 'flat' }
       : null,
 }
-const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycast: () => null }
+
+/**
+ * Flat ground at y=0 with a vertical wall facing -X at x = 20. The wall answers only
+ * non-downward casts, so the landing probe still sees ground and the collision sweep
+ * still sees the wall.
+ */
+const groundAndWall: TerrainQuery = {
+  groundHeightAt: () => 0,
+  raycast: (from, direction, maxDistance) => {
+    if (direction.y < -0.9 * direction.length()) {
+      return from.y >= 0 && from.y - maxDistance <= 0
+        ? { point: new Vector3(from.x, 0, from.z), normal: new Vector3(0, 1, 0), islandId: 'flat' }
+        : null
+    }
+    if (direction.x <= 1e-9) return null
+    const travel = (20 - from.x) / direction.x
+    if (travel < 0) return null
+    // `travel` above is a parametric multiple of the (unnormalised) direction vector, not
+    // a real distance. `maxDistance`, per the real raycast contract in terrain-query.ts, is
+    // a real Euclidean distance measured along the normalised direction -- resolveMovement
+    // calls in here with an unnormalised delta, so comparing the raw parametric value
+    // against maxDistance directly only happens to work while that delta is unit length.
+    // Scaling by the direction's length converts it to a real distance first.
+    if (travel * direction.length() > maxDistance) return null
+    return {
+      point: new Vector3(20, from.y + direction.y * travel, from.z + direction.z * travel),
+      normal: new Vector3(-1, 0, 0),
+      islandId: 'wall',
+    }
+  },
+}
 
 const deps = (
   terrain: TerrainQuery,
@@ -28,6 +66,7 @@ const deps = (
     spawnPointFor ?? ((id) => (id === 'flat' ? new Vector3(0, 0, 0) : new Vector3(1, 1, 1))),
   slipstream: DEFAULT_SLIPSTREAM_CONFIG,
   staff: DEFAULT_STAFF_CONFIG,
+  collision: DEFAULT_COLLISION_CONFIG,
 })
 
 const input = (over: Partial<InputState> = {}): InputState => ({
@@ -510,5 +549,48 @@ describe('the staff', () => {
     const broken = player({ position: new Vector3(Number.NaN, 0, 0), staffElapsed: 0.1 })
     const back = controllerStep(broken, input(), 1 / 60, deps(flatGround))
     expect(staffBusy(staffOf(back))).toBe(false)
+  })
+})
+
+describe('the glider does not pass through terrain', () => {
+  it('stops at a wall instead of crossing it', () => {
+    let state = player({
+      mode: 'glider', position: new Vector3(0, 100, 0),
+      velocity: new Vector3(60, 0, 0), forward: new Vector3(1, 0, 0), grounded: false,
+    })
+    for (let frame = 0; frame < 120; frame++) {
+      state = controllerStep(
+        state, input({ lookDirection: new Vector3(1, 0, 0) }), 1 / 60, deps(groundAndWall),
+      )
+    }
+    expect(state.position.x).toBeLessThan(20)
+  })
+
+  it('loses the speed going into the wall rather than keeping it', () => {
+    let state = player({
+      mode: 'glider', position: new Vector3(19, 100, 0),
+      velocity: new Vector3(60, 0, 0), forward: new Vector3(1, 0, 0), grounded: false,
+    })
+    state = controllerStep(
+      state, input({ lookDirection: new Vector3(1, 0, 0) }), 1 / 60, deps(groundAndWall),
+    )
+    expect(state.velocity.x).toBeLessThanOrEqual(0)
+  })
+
+  it('is untouched when nothing is in the way', () => {
+    // The change has to be confined to walls, or every flight measurement in this suite
+    // is now measuring something else.
+    const start = player({
+      mode: 'glider', position: new Vector3(0, 100, 0),
+      velocity: new Vector3(0, 0, -30), forward: new Vector3(0, 0, -1), grounded: false,
+    })
+    let withWall = start
+    let without = start
+    for (let frame = 0; frame < 60; frame++) {
+      const i = input({ lookDirection: new Vector3(0, 0, -1) })
+      withWall = controllerStep(withWall, i, 1 / 60, deps(groundAndWall))
+      without = controllerStep(without, i, 1 / 60, deps(flatGround))
+    }
+    expect(withWall.position.toArray()).toEqual(without.position.toArray())
   })
 })

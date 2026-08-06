@@ -95,6 +95,39 @@ export const DEFAULT_GROUND_CONFIG: GroundConfig = {
   dashRecoverySeconds: 0.7,
 }
 
+import type { CollisionConfig } from '../world/collision'
+
+/**
+ * Terrain collision.
+ *
+ * A body radius of 0.5 against the character's 1.8 height — the same reference
+ * `projectile.hitRadius` takes. Wide enough that the camera does not see through the body
+ * into rock, narrow enough to fit the gate islands' 60 m gap without feeling wide.
+ *
+ * `wallNormalY` of 0.5 is a surface past 60 degrees from horizontal. Below that the ground
+ * snap can already climb it: it probes from `eyeProbeHeight` 2 above the feet and accepts
+ * anything within `snapDistance` 1.2 of the ray.
+ *
+ * Both are argued guesses. Neither has been played.
+ */
+export const DEFAULT_COLLISION_CONFIG: CollisionConfig = {
+  radius: 0.5,
+  wallNormalY: 0.5,
+}
+
+export function validateCollisionConfig(c: CollisionConfig): void {
+  if (!(c.radius > 0)) {
+    throw new Error(`CollisionConfig.radius must be > 0, got ${c.radius}`)
+  }
+  if (!(c.wallNormalY > 0) || !(c.wallNormalY < 1)) {
+    throw new Error(
+      'CollisionConfig.wallNormalY must sit strictly between 0 and 1: at 0 nothing is a ' +
+      'wall and at 1 level ground is one, and either way collision stops being about ' +
+      `walls (got ${c.wallNormalY})`,
+    )
+  }
+}
+
 import type { SlipstreamConfig } from '../player/slipstream'
 
 /**

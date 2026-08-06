@@ -2,12 +2,12 @@
 
 Written 2026-07-31, updated 2026-08-04 for the enemy health bars, updated 2026-08-05
 for the impact feel and encounter lifecycle work, and again 2026-08-05 for the aim tell and
-stall readability work, and again 2026-08-06 for archers and projectiles. This is a recap
-for whoever picks the project up next, including a future session with no memory of the
-work below.
+stall readability work, and again 2026-08-06 for archers and projectiles, and again
+2026-08-06 for terrain collision. This is a recap for whoever picks the project up next,
+including a future session with no memory of the work below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 1200 tests across 81 files,
+**Repo state:** 1334 tests across 85 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -947,6 +947,141 @@ side. The other two were already green and are there to stay that way: it still 
 player out of range, and it still closes at full `moveSpeed` on a player genuinely off to one side,
 so the cap cannot quietly turn into an archer that never advances.
 
+**Terrain collision, and the general cast it needed.** Before this cycle `TerrainQuery`
+could only answer one question — what is directly below this point — through
+`groundHeightAt` and `raycastDown`, and three systems were missing behaviour as a direct
+result: the player passed through solid rock in both postures, the camera arm could not
+shorten through a wall between it and the player, and the air scooter's tier drop was
+unreachable because nothing could report a clip. One primitive fixes the first two; the
+third is still open (see below).
+
+`raycast(from, direction, maxDistance)` now replaces `raycastDown` on the `TerrainQuery`
+interface, and `raycastDown` becomes a free helper built over it in
+`src/world/terrain-query.ts`, unchanged in behaviour. Making the new method optional on
+the interface — so existing fakes could keep implementing only `raycastDown` — was
+considered and rejected: collision would then silently do nothing wherever a test double
+happened to omit it, which is the same class of silent narrowing that once let
+`patrol.test.ts` quietly shrink its own coverage. One capability, one implementation,
+required of everything that claims to be a `TerrainQuery`.
+
+`src/world/collision.ts`'s `resolveMovement` is pure functions over `Vector3` and a
+`TerrainQuery` — no scene access, the same contract `flight.ts` and `enemy.ts` already
+keep. It sweeps from the current position toward the destination and, on a hit, removes
+the velocity component going into the surface while keeping the rest, so a fast approach
+to a cliff skims along it rather than stopping dead. Only surfaces steeper than
+`wallNormalY` (0.5 — about 60 degrees off horizontal) count as a wall at all; anything
+flatter is ignored outright, deliberately, because ground already has two owners —
+`groundStep`'s snap, which climbs slopes and small drops, and the glider's landing
+probe — and a third opinion about where the ground is would eventually disagree with
+them. The body is held `radius` (0.5) off whatever it hits. Resolution runs two passes:
+one deflects off the near face of an inside corner and drives the body straight through
+the far face, and the second pass catches that; a third pass changes nothing measurable
+and costs a raycast every frame for it. The last pass does not slide toward the
+recomputed destination the way the first one does — it simply stops at the wall, because
+a slide destination on the final pass has nothing left to verify it isn't itself inside
+more geometry.
+
+The glider branch of `controllerStep` and `ground-move.ts`'s `groundStep` both resolve
+through it, in opposite positions in their own pipelines for the same underlying reason:
+`flightStep` produces a destination, collision resolves the path to it, and only then
+does the landing probe run against the resolved position, so a player can't land on the
+far side of a wall they should have hit; on foot, collision resolves after the position
+integrates from velocity and before the ground snap, so the snap — which only ever
+touches `y` — composes with a horizontal deflection instead of racing it.
+
+**Measured before and after, on the real archipelago.** Before: a glider flown at the
+`needle` island at 50 m/s entered at x 210 and left at x 112, clean through a rock
+centred at x 150 with radius 12, still in glider mode. A sideways ray cast from the same
+start point hit at 48.8 m, so the geometry was solid the whole time and nothing had ever
+asked. After, the crossing is the permanent integration guard in
+`terrain-collision.test.ts`, and neutralising `resolveMovement` inside that test
+reproduces x 112.27 — independent confirmation, run after the fact, that the guard
+actually exercises the crossing it claims to and that the original measurement was real.
+
+**The camera arm shortens instead of lifting.** `pullInForTerrain` used to lift the
+camera whenever terrain shared its column, unable to tell a wall between the camera and
+the player from a roof over both. It now casts from the player toward the desired camera
+position and, on a hit nearer than the arm's own length, places the camera at the hit
+point pulled back along the ray by a small skin (`CAMERA_SKIN`, 0.3), floored at
+`minDistance` — which **replaces** the lift rather than joining it, since keeping both
+would leave two opinions about where the camera belongs. The skin exists because
+`minDistance` alone was not enough: an earlier version of this cast placed the camera
+exactly on the hit surface, which puts that surface at distance zero from the camera,
+behind the near clip plane, and the player sees straight through it — the exact failure
+this cast was written to fix. Four existing tests that asserted the lift (a `.y`
+increase) were deliberately deleted and replaced with tests of the goal — the arm's
+shortened *distance* — rather than of the mechanism that used to produce it. That is an
+intended behaviour change, not a regression, and is recorded as such here so it doesn't
+read as one to a future `git log` skim.
+
+**A claim in the spec, the plan, and one commit message overstated what was found, and
+it is worth knowing which one.** All three said, in effect, that walking into a hillside
+was currently a death: that inside a mesh the ground snap's downward ray meets back
+faces, a `FrontSide` material culls them, and the player falls through the island
+interior and past the world floor into a respawn. Commit `2170495`'s own message says
+outright, "Walking into a hillside was a death." That mechanism is real — a downward ray
+cast from inside the `needle` and `home` meshes does return `null`, confirming back-face
+culling swallows the interior — but the walking route to it does not exist on this
+geometry: 83 inward runs, covering all thirteen islands from eight bearings each, 400
+frames at sprint with collision disabled, produced zero respawns. The ground snap climbs
+everything this noise generates, regardless of steepness or speed. What was not tried is
+arriving inside a mesh by a jump, a dash, a charged-jump landing, or a glide impact, so
+the honestly supportable claim is "no route found by ordinary walking," not
+"unreachable." It is a **latent hazard, not an observed failure**, and the spec's "The
+problem" section has been corrected to say that plainly. `2170495`'s commit message is
+left as written, not rewritten to match — this document's own convention is to state
+what was wrong and why rather than erase it, and a commit message is history rather than
+documentation — so take that one line with the correction above rather than at face value
+if you go looking.
+
+**The frame cost.** `resolveMovement`, run against the real thirteen-island geometry,
+costs 14.13 µs per call, beside the ground snap's own pre-existing `raycastDown` at
+14.78 µs per call — so collision roughly doubles a per-step terrain-query cost the game
+already paid every frame, and the addition comes to about 0.085% of a 60 Hz frame's
+16.7 ms budget. Frame rate is a non-issue here.
+
+**What the in-game verification did and did not establish, said plainly so it isn't
+overread.** It confirmed the game loads and renders with the branch checked out, the
+simulation genuinely advances (airspeed fell from 10 to 3 m/s across driven frames, HUD
+bars appeared and moved), and the console holds no errors. It did **not** establish the
+three interactive behaviours this cycle exists to fix — walking into rising ground,
+flying into an island's side, or the camera pulling in against a rock face — because the
+browser harness never obtains real OS focus on the tab, so pointer lock errors every
+time it's requested (confirmed directly: a `pointerlockerror` listener fired on every
+attempt), and `requestAnimationFrame` is throttled to zero in the backgrounded tab except
+for the handful of frames a screenshot call forces to paint. Mouse-look was unavailable
+for the entire session as a result, so the glider could not be reliably aimed at an
+island or even confirmed to deploy. Those three behaviours are instead covered by the
+real-geometry integration tests in `terrain-collision.test.ts` and `follow-cam.test.ts` —
+which is weaker evidence than a human actually playing it, and should be read as such.
+The game was not played to confirm this cycle's behaviour; the tests were.
+
+**What is still not handled.** Enemies and arrows have no lateral collision — they move
+horizontally and are ground-snapped every step, so passing through a wall was never
+observable in play, which is why this was cut from scope rather than missed. A player who
+starts a step already inside geometry stays stuck, because the outward ray meets the same
+culled back faces that make the interior invisible from below; reachable only by
+spawning inside a rock, which no level currently does. In a gap narrower than twice the
+body radius (1 unit), the resolved position can land inside the far wall — inherent to
+placing the body by a fixed radius offset with no depenetration pass to catch it, and the
+brief always described this as a known limitation rather than a bug to fix here. And the
+air scooter's `clipped` flag is still hardcoded `false`, at `ground-move.ts:76` — that was
+the case before this cycle for lack of any way to detect a wall at all; now that
+`resolveMovement` returns a real hit normal on contact, wiring that into the scooter's
+tier drop is a genuinely available next step rather than a blocked one.
+
+Two minors, deferred rather than fixed, worth a line each because a future reader may hit
+them. `pullInForTerrain`'s `kept = Math.max(minDistance, distance)` has no upper clamp to
+the arm's own length, so an arm shorter than `minDistance` would push the camera *past*
+its target instead of pulling it in — unreachable today because both call sites build the
+desired position from a camera profile's distance (7 and 12) against a `minDistance` of
+2, comfortably above either. And `resolveMovement`'s remaining-travel figure, used to size
+the second pass's sweep, measures the Euclidean distance from the first pass's stopping
+point to the origin rather than distance travelled along the original sweep direction,
+which overestimates by roughly 24% on a glancing hit — harmless today because the second
+pass re-sweeps regardless, but it sets that pass's budget more generously than the
+geometry actually calls for.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
@@ -988,7 +1123,10 @@ From the design document, in rough order of how much is missing:
   regions and the three-layer vertical structure do not.
 - **§5 progression.** No acts, no unlock gating.
 - **§2.4 payload.** No companions to carry.
-- **Wall-riding** from §2.1. Blocked on a real limitation, not on effort: see below.
+- **Wall-riding** from §2.1. Previously blocked on a real limitation — see below — that
+  the terrain collision cycle removed. `TerrainQuery` can now cast a lateral ray and
+  collision now reports the normal it hit, both of which wall-riding needs; nothing has
+  used either for that move yet.
 - **Standing the player back up.** A pre-existing hole this cycle's playtesting exposed,
   not part of this cycle's work: once the player's own health reaches 0, it stays at 0
   for the rest of the session. `stepHealth` in `src/combat/health.ts` deliberately never
@@ -999,10 +1137,14 @@ From the design document, in rough order of how much is missing:
 
 ## Blockers and constraints worth knowing before you start
 
-**Wall-riding needs a terrain API change.** `TerrainQuery` in `src/core/types.ts`
-exposes only `groundHeightAt` and `raycastDown`. There is no horizontal raycast, so
-there is no way to detect a wall to ride. Adding one means lateral raycasting against
-island geometry, which is its own piece of work.
+**Wall-riding no longer needs a terrain API change — that part shipped.** This used to
+say `TerrainQuery` exposed only `groundHeightAt` and `raycastDown`, both straight down,
+so there was no way to detect a wall to ride at all. The terrain collision cycle gave
+`TerrainQuery` a general `raycast(from, direction, maxDistance)` and built
+`src/world/collision.ts` on top of it, so a lateral cast against island geometry and a
+hit normal to ride along are both available now. What's still missing is the move
+itself — reading that normal into a riding state, with its own tuning for how long a
+ride lasts and what breaks it — which nothing in `src/player/` does yet.
 
 **Nothing in the movement or combat systems has been playtested.** Every tuning value
 is a considered guess, verified by unit tests and isolated renders but never by a
@@ -1113,6 +1255,25 @@ produced the claim will happily confirm it. Verify with a different method than 
 that made the assertion — measure geometry instead of reading a screenshot, read the
 committed file instead of trusting a console log, grep case-insensitively instead of
 trusting your own earlier grep.
+
+**The terrain collision cycle found five more assertions with exactly this failure mode,
+all in one plan.** The shape repeated twice: asserting a mechanism's side effect instead
+of its goal, or picking a threshold loose enough that both outcomes cleared it. A
+zero-direction guard and a direction-normalisation step each had a red-proof that passed
+whether the guard or the normalisation was there or not. A "keeps sliding rather than
+stopping dead" test asserted `z > 0.5`, which cannot tell a slid result (~6.76) from a
+stopped-dead one (exactly 5) — both clear that bar. A "stays grounded while sliding along
+it" test checked only `grounded` and `position.y`, neither of which a wall touches, so it
+passed on open ground with no wall involved at all. The worst was a
+walker-into-a-hillside integration test asserting `position.y > worldFloorY` to prove the
+player doesn't fall through an island — except `controllerStep` respawns a player who
+falls that far and hands back a position above ground on the very same call, so the
+assertion stays green through exactly the bug it was written to name. Every one of the
+five was first spotted by someone actually reading the committed test and asking what it
+could and couldn't distinguish, not by trusting the plan's own justification for why it
+would work — and every fix was then confirmed by running the neutralisation and watching
+the suite actually redden, rather than by re-reading the new assertion and judging it
+plausible.
 
 ## Suggested next steps
 

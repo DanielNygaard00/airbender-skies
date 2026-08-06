@@ -21,6 +21,18 @@ export function profileFor(mode: PlayerState['mode']): CamProfile {
   return mode === 'glider' ? GLIDER_PROFILE : GROUND_PROFILE
 }
 
+/**
+ * How far short of a hit surface the camera stops.
+ *
+ * Placing the camera exactly on the surface puts that surface at distance zero from the
+ * camera — behind the near clip plane — so the near-plane clip carves a hole in it and
+ * the player sees straight through, which is the exact failure `pullInForTerrain` exists
+ * to fix. This is not `minDistance`: `minDistance` is a floor on distance from the player,
+ * unrelated to the near plane, and does not by itself keep the camera off a surface that
+ * sits further from the player than `minDistance` but still closer than this skin.
+ */
+const CAMERA_SKIN = 0.3
+
 /** Where the camera wants to sit, before smoothing or terrain collision. */
 export function desiredCameraPosition(
   target: Vector3, lookDirection: Vector3, profile: CamProfile,
@@ -39,38 +51,36 @@ export function smoothTowards(
 }
 
 /**
- * Lift the camera when terrain would sit between it and the player.
+ * Pull the camera in when terrain stands between it and the player.
  *
- * This is an approximation, bounded by what `TerrainQuery` can answer.
- * `groundHeightAt` reports the highest surface in a column, so it cannot say
- * whether that surface is between the camera and the player or merely somewhere
- * overhead. Two consequences worth knowing:
+ * This used to lift the camera out of any column that contained terrain, because
+ * `groundHeightAt` reports the highest surface in a column and cannot say whether that
+ * surface is between the camera and the player or merely overhead. That ambiguity is gone:
+ * `TerrainQuery.raycast` answers the question directly, so the arm shortens to the first
+ * surface along it.
  *
- *  - When the player is at or below that surface, the terrain is above them
- *    both and lifting would pin the camera to a roof with the player out of
- *    frame, so we leave the camera where it is.
- *  - The arm still does not shorten when it would pass through a terrain wall,
- *    which is what the spec asks for. Doing that needs a general segment cast
- *    (`TerrainQuery.raycast(from, direction, maxDistance)`), which does not
- *    exist yet. Until it does, the camera is permissive rather than wrong.
+ * No wall test here, unlike movement. The camera should be pushed out of any geometry, a
+ * ceiling and the ground included — where movement leaves ground to the ground snap and
+ * the landing probe, the camera has no other owner.
+ *
+ * The camera stops `CAMERA_SKIN` short of the hit, not on it, so the surface stays in
+ * front of the near clip plane instead of behind it. `minDistance` wins over that when
+ * the surface sits close enough that skinning back from it would land inside
+ * `minDistance` of the player. Deliberate: a camera jammed into the character's head is
+ * worse than a camera briefly clipping a wall.
  */
 export function pullInForTerrain(
   target: Vector3, desired: Vector3, terrain: TerrainQuery, minDistance = 2,
 ): Vector3 {
-  const ground = terrain.groundHeightAt(desired.x, desired.z)
-  if (ground === null || desired.y > ground + minDistance) return desired.clone()
-  if (target.y <= ground) return desired.clone()
+  const arm = new Vector3().subVectors(desired, target)
+  const length = arm.length()
+  // The camera is already on the player. There is no arm to shorten and no direction to
+  // shorten it along.
+  if (!(length > 1e-6)) return desired.clone()
 
-  const lifted = desired.clone()
-  lifted.y = ground + minDistance
-  const toTarget = target.clone().sub(lifted)
-  if (toTarget.lengthSq() < 1e-12) {
-    // The lifted camera landed exactly on the player. Any direction will do;
-    // back off along world +Z so the result stays a sane distance away.
-    return target.clone().add(new Vector3(0, 0, minDistance))
-  }
-  if (toTarget.length() < minDistance) {
-    return target.clone().addScaledVector(toTarget.normalize(), -minDistance)
-  }
-  return lifted
+  const hit = terrain.raycast(target, arm, length)
+  if (!hit) return desired.clone()
+
+  const kept = Math.max(minDistance, target.distanceTo(hit.point) - CAMERA_SKIN)
+  return target.clone().addScaledVector(arm.divideScalar(length), kept)
 }

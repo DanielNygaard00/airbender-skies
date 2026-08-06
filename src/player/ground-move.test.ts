@@ -1,18 +1,58 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { groundStep, desiredVelocity, horizontalForward } from './ground-move'
-import { DEFAULT_GROUND_CONFIG as G } from '../core/config'
+import { DEFAULT_GROUND_CONFIG as G, DEFAULT_COLLISION_CONFIG as COLLISION } from '../core/config'
 import type { InputState, PlayerState, TerrainQuery } from '../core/types'
 
 /** Flat ground at y=0 everywhere, so movement can be reasoned about exactly. */
 const flatGround: TerrainQuery = {
   groundHeightAt: () => 0,
-  raycastDown: (from, maxDistance) =>
-    from.y >= 0 && from.y - maxDistance <= 0
+  // Only answers downward casts. A fake that ignored `direction` would answer a
+  // horizontal collision sweep with a hit on the ground below, so a movement test in a
+  // flat fake world would start deflecting off phantom walls. The threshold is scaled by
+  // the direction's length, not compared against the unit vector: `raycast` accepts an
+  // unnormalised direction, and a fake that only recognised the unit down vector would
+  // answer `null` to a mostly-downward sweep the real one answers.
+  raycast: (from, direction, maxDistance) =>
+    direction.y < -0.9 * direction.length() && from.y >= 0 && from.y - maxDistance <= 0
       ? { point: new Vector3(from.x, 0, from.z), normal: new Vector3(0, 1, 0), islandId: 'flat' }
       : null,
 }
-const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycast: () => null }
+
+/**
+ * Flat ground at y=0 with a vertical wall facing -X at x = 5. Downward casts see the
+ * ground, everything else sees the wall.
+ */
+const groundAndWall: TerrainQuery = {
+  groundHeightAt: () => 0,
+  raycast: (from, direction, maxDistance) => {
+    // Scaled by the direction's length, same reasoning as flatGround and step above:
+    // `raycast` accepts an unnormalised direction, and a fake that only recognised the
+    // unit down vector would answer `null` to a mostly-downward sweep the real one answers.
+    if (direction.y < -0.9 * direction.length()) {
+      return from.y >= 0 && from.y - maxDistance <= 0
+        ? { point: new Vector3(from.x, 0, from.z), normal: new Vector3(0, 1, 0), islandId: 'flat' }
+        : null
+    }
+    if (direction.x <= 1e-9) return null
+    const travel = (5 - from.x) / direction.x
+    if (travel < 0) return null
+    // `travel` above is a parametric multiple of the (unnormalised) direction vector, not
+    // a real distance. `maxDistance`, per the real raycast contract in terrain-query.ts, is
+    // a real Euclidean distance measured along the normalised direction -- resolveMovement
+    // calls in here with an unnormalised delta, so comparing the raw parametric value
+    // against maxDistance directly would silently miss the wall for exactly the approach
+    // speeds this test uses. Scaling by the direction's length converts it to a real
+    // distance first.
+    if (travel * direction.length() > maxDistance) return null
+    return {
+      point: new Vector3(5, from.y + direction.y * travel, from.z + direction.z * travel),
+      normal: new Vector3(-1, 0, 0),
+      islandId: 'wall',
+    }
+  },
+}
 
 const input = (over: Partial<InputState> = {}): InputState => ({
   lookDirection: new Vector3(0, 0, -1), forward: 0, strafe: 0,
@@ -70,14 +110,14 @@ describe('desiredVelocity', () => {
 
 describe('groundStep', () => {
   it('stays grounded standing still on flat ground', () => {
-    const s = groundStep(player(), input(), 1 / 60, flatGround, G)
+    const s = groundStep(player(), input(), 1 / 60, flatGround, G, COLLISION)
     expect(s.grounded).toBe(true)
     expect(s.position.y).toBeCloseTo(0, 6)
   })
 
   it('jumps on release of a quick tap', () => {
     const tapped = groundStep(
-      player(), input({ actionPressed: true, actionReleased: true }), 1 / 60, flatGround, G,
+      player(), input({ actionPressed: true, actionReleased: true }), 1 / 60, flatGround, G, COLLISION,
     )
     expect(tapped.velocity.y).toBe(G.jumpSpeed)
   })
@@ -86,34 +126,34 @@ describe('groundStep', () => {
     const airborne = player({
       position: new Vector3(0, 50, 0), grounded: false, airJumpsUsed: G.maxAirJumps,
     })
-    expect(groundStep(airborne, input({ actionPressed: true }), 1 / 60, voidWorld, G).velocity.y)
+    expect(groundStep(airborne, input({ actionPressed: true }), 1 / 60, voidWorld, G, COLLISION).velocity.y)
       .toBeLessThan(0)
   })
 
   it('falls when there is no ground below', () => {
-    const s = groundStep(player({ grounded: false }), input(), 1 / 60, voidWorld, G)
+    const s = groundStep(player({ grounded: false }), input(), 1 / 60, voidWorld, G, COLLISION)
     expect(s.grounded).toBe(false)
     expect(s.position.y).toBeLessThan(0)
   })
 
   it('records which island it is standing on', () => {
-    expect(groundStep(player(), input(), 1 / 60, flatGround, G).lastGroundIslandId).toBe('flat')
+    expect(groundStep(player(), input(), 1 / 60, flatGround, G, COLLISION).lastGroundIslandId).toBe('flat')
   })
 
   it('does not mutate the state it is given', () => {
     const s = player()
-    groundStep(s, input({ forward: 1 }), 1 / 60, flatGround, G)
+    groundStep(s, input({ forward: 1 }), 1 / 60, flatGround, G, COLLISION)
     expect(s.position.toArray()).toEqual([0, 0, 0])
   })
 
   it('walking off an edge begins a fall', () => {
-    const s = groundStep(player(), input({ forward: 1 }), 1 / 60, voidWorld, G)
+    const s = groundStep(player(), input({ forward: 1 }), 1 / 60, voidWorld, G, COLLISION)
     expect(s.grounded).toBe(false)
   })
 
   it('aims where the player is looking', () => {
     const s = groundStep(
-      player(), input({ forward: 1, lookDirection: new Vector3(1, 0, 0) }), 1 / 60, flatGround, G,
+      player(), input({ forward: 1, lookDirection: new Vector3(1, 0, 0) }), 1 / 60, flatGround, G, COLLISION,
     )
     expect(s.forward.x).toBeCloseTo(1, 5)
   })
@@ -122,7 +162,7 @@ describe('groundStep', () => {
     // The gust's cone is tested against player.forward, so a player who turns on the spot
     // and blasts must blast where they turned to. Velocity cannot supply this: it is zero
     // at exactly the moment the aim matters most.
-    const s = groundStep(player(), input({ lookDirection: new Vector3(-1, 0, 0) }), 1 / 60, flatGround, G)
+    const s = groundStep(player(), input({ lookDirection: new Vector3(-1, 0, 0) }), 1 / 60, flatGround, G, COLLISION)
     expect(s.velocity.lengthSq()).toBeLessThan(1e-8)
     expect(s.forward.x).toBeCloseTo(-1, 5)
   })
@@ -134,19 +174,19 @@ describe('groundStep', () => {
     // or not the aim is recomputed, which would make it prove nothing.
     const s = groundStep(
       player({ forward: new Vector3(0, 0.5, -1).normalize() }),
-      input({ lookDirection: new Vector3(0, 1, -1).normalize() }), 1 / 60, flatGround, G,
+      input({ lookDirection: new Vector3(0, 1, -1).normalize() }), 1 / 60, flatGround, G, COLLISION,
     )
     expect(s.forward.y).toBe(0)
   })
 
   it('a jump rises then returns to the ground', () => {
     let s = groundStep(
-      player(), input({ actionPressed: true, actionReleased: true }), 1 / 60, flatGround, G,
+      player(), input({ actionPressed: true, actionReleased: true }), 1 / 60, flatGround, G, COLLISION,
     )
     expect(s.velocity.y).toBeGreaterThan(0)
     let peak = s.position.y
     for (let i = 0; i < 200; i++) {
-      s = groundStep(s, input(), 1 / 60, flatGround, G)
+      s = groundStep(s, input(), 1 / 60, flatGround, G, COLLISION)
       peak = Math.max(peak, s.position.y)
     }
     expect(peak).toBeGreaterThan(1)
@@ -158,11 +198,11 @@ describe('groundStep', () => {
     // Apex should be jumpSpeed^2 / (2*gravity) ≈ 2.0 m. The old snap-from-a-
     // distance behavior capped the visible arc roughly at apex - snapDistance.
     let s = groundStep(
-      player(), input({ actionPressed: true, actionReleased: true }), 1 / 60, flatGround, G,
+      player(), input({ actionPressed: true, actionReleased: true }), 1 / 60, flatGround, G, COLLISION,
     )
     let peak = 0
     for (let i = 0; i < 200; i++) {
-      s = groundStep(s, input(), 1 / 60, flatGround, G)
+      s = groundStep(s, input(), 1 / 60, flatGround, G, COLLISION)
       peak = Math.max(peak, s.position.y)
     }
     const expectedApex = (G.jumpSpeed * G.jumpSpeed) / (2 * G.gravity)
@@ -174,14 +214,14 @@ describe('groundStep', () => {
     const falling = player({
       position: new Vector3(0, 50, 0), grounded: false, velocity: new Vector3(0, -10, 0),
     })
-    const s = groundStep(falling, input({ actionPressed: true }), 1 / 60, voidWorld, G)
+    const s = groundStep(falling, input({ actionPressed: true }), 1 / 60, voidWorld, G, COLLISION)
     expect(s.velocity.y).toBe(G.airJumpSpeed)
     expect(s.airJumpsUsed).toBe(1)
   })
 
   it('a charged release jumps higher than a tap', () => {
     const charged = player({ chargeTime: G.chargeMaxSeconds })
-    const s = groundStep(charged, input({ actionReleased: true }), 1 / 60, flatGround, G)
+    const s = groundStep(charged, input({ actionReleased: true }), 1 / 60, flatGround, G, COLLISION)
     expect(s.velocity.y).toBeGreaterThan(G.jumpSpeed)
   })
 
@@ -192,7 +232,7 @@ describe('groundStep', () => {
     const settle = (over: Partial<InputState>, state = player()) => {
       let s = state
       for (let t = 0; t < 1.5; t += 1 / 60) {
-        s = groundStep(s, input({ forward: 1, ...over }), 1 / 60, flatGround, G)
+        s = groundStep(s, input({ forward: 1, ...over }), 1 / 60, flatGround, G, COLLISION)
       }
       return Math.hypot(s.velocity.x, s.velocity.z)
     }
@@ -209,7 +249,7 @@ describe('groundStep', () => {
       position: new Vector3(0, 0.05, 0), grounded: false,
       velocity: new Vector3(0, -10, 0), airJumpsUsed: 1,
     })
-    const s = groundStep(aboutToLand, input(), 1 / 60, flatGround, G)
+    const s = groundStep(aboutToLand, input(), 1 / 60, flatGround, G, COLLISION)
     expect(s.grounded).toBe(true)
     expect(s.airJumpsUsed).toBe(0)
   })
@@ -219,7 +259,7 @@ describe('groundStep', () => {
     const midFall = player({
       position: new Vector3(0, 1.0, 0), grounded: false, velocity: new Vector3(0, -3, 0),
     })
-    const s = groundStep(midFall, input(), 1 / 60, flatGround, G)
+    const s = groundStep(midFall, input(), 1 / 60, flatGround, G, COLLISION)
     expect(s.grounded).toBe(false)
     expect(s.position.y).toBeGreaterThan(0.5)
   })
@@ -228,12 +268,14 @@ describe('groundStep', () => {
     // Walking (grounded) with ground 0.5 m below: slope-stick must survive.
     const step: TerrainQuery = {
       groundHeightAt: () => -0.5,
-      raycastDown: (from, maxDistance) =>
-        from.y >= -0.5 && from.y - maxDistance <= -0.5
+      // Only answers downward casts, same reasoning as flatGround above, including the
+      // length-scaled threshold for an unnormalised direction.
+      raycast: (from, direction, maxDistance) =>
+        direction.y < -0.9 * direction.length() && from.y >= -0.5 && from.y - maxDistance <= -0.5
           ? { point: new Vector3(from.x, -0.5, from.z), normal: new Vector3(0, 1, 0), islandId: 'flat' }
           : null,
     }
-    const s = groundStep(player(), input({ forward: 1 }), 1 / 60, step, G)
+    const s = groundStep(player(), input({ forward: 1 }), 1 / 60, step, G, COLLISION)
     expect(s.grounded).toBe(true)
     expect(s.position.y).toBeCloseTo(-0.5, 6)
   })
@@ -243,7 +285,7 @@ describe('groundStep', () => {
     const aboutToLand = player({
       position: new Vector3(0, 0.1, 0), grounded: false, velocity: new Vector3(0, -20, 0),
     })
-    const s = groundStep(aboutToLand, input(), 1 / 60, flatGround, G)
+    const s = groundStep(aboutToLand, input(), 1 / 60, flatGround, G, COLLISION)
     expect(s.grounded).toBe(true)
     expect(s.position.y).toBeCloseTo(0, 6)
     expect(s.velocity.y).toBe(0)
@@ -254,14 +296,14 @@ describe('the air scooter on the ground', () => {
   const settle = (over: Partial<InputState>, seconds = 2, from = player()) => {
     let s = from
     for (let t = 0; t < seconds; t += 1 / 60) {
-      s = groundStep(s, input({ forward: 1, ...over }), 1 / 60, flatGround, G)
+      s = groundStep(s, input({ forward: 1, ...over }), 1 / 60, flatGround, G, COLLISION)
     }
     return s
   }
 
   /** Toggle the scooter on exactly once, then hold a line. */
   const mount = () =>
-    groundStep(player(), input({ forward: 1, scooterPressed: true }), 1 / 60, flatGround, G)
+    groundStep(player(), input({ forward: 1, scooterPressed: true }), 1 / 60, flatGround, G, COLLISION)
 
   it('rides substantially faster than running once toggled on', () => {
     // A bare greater-than passed here even with both speed factors neutralised,
@@ -295,7 +337,7 @@ describe('the air scooter on the ground', () => {
 describe('the air blast dash', () => {
   it('bursts the character along its heading', () => {
     const still = player()
-    const dashed = groundStep(still, input({ dashPressed: true }), 1 / 60, flatGround, G)
+    const dashed = groundStep(still, input({ dashPressed: true }), 1 / 60, flatGround, G, COLLISION)
     expect(Math.hypot(dashed.velocity.x, dashed.velocity.z)).toBeGreaterThan(G.runSpeed)
   })
 
@@ -304,7 +346,7 @@ describe('the air blast dash', () => {
     let bursts = 0
     for (let i = 0; i < 6; i++) {
       const before = Math.hypot(s.velocity.x, s.velocity.z)
-      s = groundStep(s, input({ dashPressed: true }), 1 / 60, flatGround, G)
+      s = groundStep(s, input({ dashPressed: true }), 1 / 60, flatGround, G, COLLISION)
       if (Math.hypot(s.velocity.x, s.velocity.z) > before + G.dashSpeed / 2) bursts++
     }
     // The literal three, not G.maxDashChain: comparing against the config the code
@@ -316,16 +358,75 @@ describe('the air blast dash', () => {
 
 describe('the air-assisted run', () => {
   it('accelerates softly rather than snapping to speed', () => {
-    const first = groundStep(player(), input({ forward: 1 }), 1 / 60, flatGround, G)
+    const first = groundStep(player(), input({ forward: 1 }), 1 / 60, flatGround, G, COLLISION)
     expect(Math.hypot(first.velocity.x, first.velocity.z)).toBeLessThan(G.walkSpeed * 0.5)
   })
 
   it('slides on stops instead of halting dead', () => {
     let s = player()
     for (let t = 0; t < 2; t += 1 / 60) {
-      s = groundStep(s, input({ forward: 1 }), 1 / 60, flatGround, G)
+      s = groundStep(s, input({ forward: 1 }), 1 / 60, flatGround, G, COLLISION)
     }
-    const released = groundStep(s, input({ forward: 0 }), 1 / 60, flatGround, G)
+    const released = groundStep(s, input({ forward: 0 }), 1 / 60, flatGround, G, COLLISION)
     expect(Math.hypot(released.velocity.x, released.velocity.z)).toBeGreaterThan(0)
+  })
+})
+
+describe('walking into a wall', () => {
+  it('does not pass through it', () => {
+    let s = player()
+    for (let frame = 0; frame < 300; frame++) {
+      s = groundStep(
+        s, input({ forward: 1, lookDirection: new Vector3(1, 0, 0), sprint: true }),
+        1 / 60, groundAndWall, G, COLLISION,
+      )
+    }
+    expect(s.position.x).toBeLessThan(5)
+  })
+
+  it('still slides along it rather than sticking', () => {
+    // Running into a corner-ward wall at 45 degrees should carry on down the wall.
+    let s = player()
+    for (let frame = 0; frame < 120; frame++) {
+      s = groundStep(
+        s, input({ forward: 1, lookDirection: new Vector3(1, 0, 1).normalize(), sprint: true }),
+        1 / 60, groundAndWall, G, COLLISION,
+      )
+    }
+    expect(s.position.x).toBeLessThan(5)
+    expect(s.position.z).toBeGreaterThan(5)
+  })
+
+  it('stays grounded while sliding along it', () => {
+    // The deflection must not fight the ground snap. It adjusts only y, and only for a
+    // player already grounded or descending onto a surface, so the two compose -- but
+    // that is an argument, and this is the test of it. `grounded` and `y` alone hold on
+    // open flat ground too, with no wall involved at all, so a mere `position.x < 5` here
+    // would only duplicate the non-penetration check the first test already makes. What
+    // this test is actually about is *contact*: walking straight into the wall settles the
+    // body exactly at `5 - COLLISION.radius` (measured: by frame 30 of 120, and it holds
+    // there, velocity zeroed, for the rest of the run) -- which is the one value a walker
+    // that never reached the wall could not produce.
+    let s = player()
+    for (let frame = 0; frame < 120; frame++) {
+      s = groundStep(
+        s, input({ forward: 1, lookDirection: new Vector3(1, 0, 0), sprint: true }),
+        1 / 60, groundAndWall, G, COLLISION,
+      )
+    }
+    expect(s.position.x).toBeCloseTo(5 - COLLISION.radius, 6)
+    expect(s.grounded).toBe(true)
+    expect(s.position.y).toBeCloseTo(0, 6)
+  })
+
+  it('leaves a walker with no wall near them exactly where they were', () => {
+    let withWall = player()
+    let without = player()
+    for (let frame = 0; frame < 60; frame++) {
+      const i = input({ forward: 1, lookDirection: new Vector3(-1, 0, 0), sprint: true })
+      withWall = groundStep(withWall, i, 1 / 60, groundAndWall, G, COLLISION)
+      without = groundStep(without, i, 1 / 60, flatGround, G, COLLISION)
+    }
+    expect(withWall.position.toArray()).toEqual(without.position.toArray())
   })
 })

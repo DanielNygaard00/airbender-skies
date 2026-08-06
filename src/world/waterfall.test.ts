@@ -16,11 +16,18 @@ const def = (over: Partial<WaterfallDef> = {}): WaterfallDef => ({
 
 const solid: TerrainQuery = {
   groundHeightAt: () => 25,
-  raycastDown: (from) => ({
-    point: new Vector3(from.x, 25, from.z), normal: new Vector3(0, 1, 0), islandId: 'home',
-  }),
+  // Only answers downward casts. A fake that ignored `direction` would answer a
+  // horizontal collision sweep with a hit on the ground below, so a movement test in a
+  // flat fake world would start deflecting off phantom walls. The threshold is scaled by
+  // the direction's length, not compared against the unit vector: `raycast` accepts an
+  // unnormalised direction, and a fake that only recognised the unit down vector would
+  // answer `null` to a mostly-downward sweep the real one answers.
+  raycast: (from, direction) =>
+    direction.y < -0.9 * direction.length()
+      ? { point: new Vector3(from.x, 25, from.z), normal: new Vector3(0, 1, 0), islandId: 'home' }
+      : null,
 }
-const empty: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+const empty: TerrainQuery = { groundHeightAt: () => null, raycast: () => null }
 
 describe('advanceScroll', () => {
   it('advances with time', () => {
@@ -93,7 +100,7 @@ describe('waterfallAnchor rim retry', () => {
       const reach = Math.hypot(x - island.position.x, z - island.position.z)
       return reach <= island.radius * 0.78 ? 25 : null
     },
-    raycastDown: () => null,
+    raycast: () => null,
   }
 
   it('steps inward and finds ground when the outermost rim point misses', () => {
@@ -109,7 +116,7 @@ describe('waterfallAnchor rim retry', () => {
   })
 
   it('still returns null when there is no ground at any inset', () => {
-    const noGroundAnywhere: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+    const noGroundAnywhere: TerrainQuery = { groundHeightAt: () => null, raycast: () => null }
     expect(waterfallAnchor(island, def(), noGroundAnywhere)).toBeNull()
   })
 

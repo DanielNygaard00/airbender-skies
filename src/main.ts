@@ -4,8 +4,8 @@ import { createStepper } from './core/loop'
 import { createInterpolatedVector, type InterpolatedVector } from './core/interpolation'
 import { InputTracker } from './core/input'
 import {
-  DEFAULT_DOWN_CONFIG, DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG,
-  DEFAULT_STAFF_CONFIG,
+  DEFAULT_COLLISION_CONFIG, DEFAULT_DOWN_CONFIG, DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG,
+  DEFAULT_SLIPSTREAM_CONFIG, DEFAULT_STAFF_CONFIG, validateCollisionConfig, validateFlightConfig,
 } from './core/config'
 import { loadSave, writeSave } from './core/save'
 import { loadGLTF } from './core/assets'
@@ -87,6 +87,11 @@ function start(): void {
   if (!(canvas instanceof HTMLCanvasElement)) {
     return showFallback('Could not find the game canvas.')
   }
+
+  // A bad tuning value fails here, at startup, rather than surfacing later as a stall
+  // that never resolves, a hover that drains no breath, or a wall that no longer deflects.
+  validateFlightConfig(DEFAULT_FLIGHT_CONFIG)
+  validateCollisionConfig(DEFAULT_COLLISION_CONFIG)
 
   let world: World
   try {
@@ -269,6 +274,7 @@ function start(): void {
     spawnPointFor: spawnPointFor(ARCHIPELAGO, world.terrain),
     slipstream: DEFAULT_SLIPSTREAM_CONFIG,
     staff: DEFAULT_STAFF_CONFIG,
+    collision: DEFAULT_COLLISION_CONFIG,
     // Surged for the Avatar State on the way out, and the unsurged sample kept so the
     // Focus rate reads the real air. Otherwise the surge feeds itself: the state boosts
     // the wind, and the boosted wind pays more Focus.
