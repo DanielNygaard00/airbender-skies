@@ -21,7 +21,8 @@ import type { Enemy } from './enemy'
  */
 export interface EnemyView {
   object: Object3D
-  sync(enemy: Enemy, cameraQuaternion: Quaternion): void
+  /** `rising` is 0-to-1 progress through a push-up, from `risingProgress`. */
+  sync(enemy: Enemy, cameraQuaternion: Quaternion, rising: number): void
 }
 
 const BODY = 0x8d6b4a
@@ -52,11 +53,25 @@ export function createEnemyView(): EnemyView {
 
   return {
     object,
-    sync(enemy: Enemy, cameraQuaternion: Quaternion): void {
+    sync(enemy: Enemy, cameraQuaternion: Quaternion, rising: number): void {
       object.position.copy(enemy.position)
       // Ahead of the downed branch below: the bar's own rule already covers being
       // downed, so there is one place that decides when a bar shows.
       healthBar.update(enemy.health, cameraQuaternion)
+
+      if (enemy.stance === 'rising') {
+        // Flat at 0, upright at 1. The rotation carries the whole read: the colour stays
+        // BODY, because WINDUP exists so the player can time a dodge, and wearing it here
+        // would teach them to dodge something that cannot hit them.
+        rig.rotation.set(
+          (Math.PI / 2) * (1 - rising),
+          Math.atan2(enemy.facing.x, enemy.facing.z),
+          0,
+        )
+        bodyMaterial.color.setHex(BODY)
+        spear.rotation.set(0, 0, 0)
+        return
+      }
 
       if (isDowned(enemy.health)) {
         // Down, not gone: the body stays in the world, lying where it was put.

@@ -15,6 +15,7 @@ import { placeShrines } from './world/shrine'
 import { windSampler, stillAir, type WindSample } from './world/wind'
 import { createWindTell } from './world/wind-tell'
 import { startEncounter, stepEncounter } from './combat/encounter'
+import { risingProgress } from './combat/enemy'
 import { DEFAULT_COMBAT_CONFIG, DEFAULT_PATROL_CONFIG, HOME_PATROL } from './combat/config'
 import { fullHealth, isDowned } from './combat/health'
 import { DEFAULT_FOCUS_CONFIG, DEFAULT_AVATAR_STATE_CONFIG } from './focus/config'
@@ -401,7 +402,9 @@ function start(): void {
         avatar.setAnimation(animationFor(player))
         wind.update(0, 0)
         followSun(player.position)
-        for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy, camera.quaternion)
+        for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(
+          enemy, camera.quaternion, risingProgress(enemy, DEFAULT_COMBAT_CONFIG.enemy),
+        )
       }
       // The one thing that always keeps moving. The 'down' burst is the punctuation of
       // the event, not the world carrying on.
@@ -634,7 +637,9 @@ function start(): void {
     // sliding across the map, or climbing up out of the void for one that fell off the
     // world. Dropping the entry makes the next record start clean.
     for (const id of fight.restoredThisFrame) enemyPositionLerps.delete(id)
-    for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(enemy, camera.quaternion)
+    for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(
+      enemy, camera.quaternion, risingProgress(enemy, DEFAULT_COMBAT_CONFIG.enemy),
+    )
 
     // Drawn at the true vortexRadius for the same reason the gust cone is drawn at its
     // true hit volume — a pull that reaches outside the visible ring reads as a bug.
@@ -703,7 +708,9 @@ function start(): void {
 
     const events: FocusEvents = {
       gustConnects: fight.hitThisFrame.length,
-      downs: fight.downedThisFrame.length,
+      // firstDownsThisFrame, not downedThisFrame: the impact bursts below still fire for
+      // every down, but only the first one a soldier suffers pays Focus.
+      downs: fight.firstDownsThisFrame.length,
       slamStrength: slam?.strength ?? 0,
       playerHit: fight.playerHit,
       fellOutOfWorld: crashed,
