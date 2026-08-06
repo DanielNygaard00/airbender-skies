@@ -2,11 +2,12 @@
 
 Written 2026-07-31, updated 2026-08-04 for the enemy health bars, updated 2026-08-05
 for the impact feel and encounter lifecycle work, and again 2026-08-05 for the aim tell and
-stall readability work. This is a recap for whoever picks the
-project up next, including a future session with no memory of the work below.
+stall readability work, and again 2026-08-06 for archers and projectiles. This is a recap
+for whoever picks the project up next, including a future session with no memory of the
+work below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 1146 tests across 79 files,
+**Repo state:** 1200 tests across 81 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -604,19 +605,149 @@ to `src/fx/config.ts`'s `DEFAULT_AIM_TELL_CONFIG` (`markerDistance`, `markerSize
 `SHUDDER_FREQUENCY`. The deliverable is that each is named in a module a test can import, not
 that any of them is right.
 
+**Archers, and the axis that was missing.** Before this cycle, climbing was a win condition.
+Spear infantry notices at 26 units and closes only horizontally, and `stepEnemy` says outright
+that it does not chase into the sky, so getting above one ended any fight it was in. That single
+fact quietly undercut three systems that already existed and were already tested: the
+Slipstream's 0.11s dodge window had nothing to beat but a slow spear thrust, the hover was the
+single most expensive thing Breath could buy with nothing that needed buying it for, and the
+staff's no-glider gate — the design document's own "central risk decision" — cost nothing at
+all, because on the ground against slow infantry there was never a reason to want the wing.
+Archers fix all three by existing, which is worth stating before any implementation detail below.
+
+`src/combat/enemy.ts` gains `EnemyKind` (`'spear' | 'archer'` — identity: which view and which
+config lookup apply) and `EnemyAttack` (`{ kind: 'melee'; damage }` or `{ kind: 'projectile';
+damage; speed }` — a description of what a release produces). Both soldiers run the same
+four-beat state machine — advance, wind up, release, recover — and `EnemyAttack` describes the
+release rather than forking the machine, because the design document's enemy contract lists six
+types and only two exist yet. A discriminated union of whole enemies would be the right call if
+the types diverged sharply; today it would be a large refactor of the combat core built on a
+guess about four types that are not written.
+
+**The one branch that genuinely diverges: a projectile attacker measures both notice and commit
+in 3D.** `stepEnemy` picks `moved.position.distanceTo(playerPosition)` for `c.attack.kind ===
+'projectile'` and `horizontalDistance(...)` otherwise, and uses that one `distance` for both
+`aggroRange` and `strikeRange`. Measured horizontally, a player hovering directly overhead sits
+at distance 0 and is inside any range at all — climbing would stop being an escape from an
+archer too, and the whole type would deliver nothing. This is the only place the two kinds'
+logic actually forks; everything else runs through the same function unmodified.
+
+**The trap: `Enemy.facing` stays horizontal, because `enemy-mesh.ts` reads it through
+`Math.atan2(facing.x, facing.z)`.** The aim is genuinely 3D — `firedProjectile.direction` is
+`playerPosition.clone().sub(origin).normalize()`, with a real y component — but `facing`, which
+only ever feeds that one `atan2` call to pose the model's yaw, is still `horizontalTo(...)`, flat
+by construction. On level ground the two point the same way and nothing looks wrong; they are
+not the same value, and must not be conflated, or a future change to how the model is posed will
+silently assume an aim it does not have.
+
+**A second trap, and the one most likely to mislead a future reader: "a spear cannot reach up"
+is wrong.** Horizontal reach means height is **ignored**, not protective — a spear 2 units away
+*does* hit a player 20 units overhead, and `enemy.test.ts`'s "still thrusts at a player almost
+directly overhead" asserts exactly that as behaviour this cycle preserved, not broke. This
+cycle's own plan got that backwards: an early draft of the in-game verification step asked to
+confirm a spear 2 units away and 20 units up does *not* damage the player, which contradicts that
+same test and was caught only because the in-game pass declined to report a failure against code
+it had just re-read and found correct. The plan was corrected (commit `0075332`) to check both
+directions — height ignored at 2 units, out of reach at 10 — instead of the wrong one. Recording
+the correction here, since it is exactly the sort of thing a future reader, working from instinct
+rather than the test, would "fix" into a bug.
+
+**Arrows.** `src/combat/projectile.ts`'s `Projectile` is straight-line with no gravity — a
+falling arrow needs an archer that leads a moving target, which is a later config addition if
+the flat flight ever feels wrong, not a redesign. `Encounter` (`src/combat/encounter.ts`) owns
+`projectiles: Projectile[]` and `nextProjectileId`, a counter rather than `Math.random()`, for
+the same reason the rest of this codebase's ids are counters: the effects layer keys a view off
+them, and this project's tests cannot tolerate an unrepeatable value.
+
+**The ordering constraint: arrows step before new ones spawn.** `stepEncounter` advances
+`encounter.projectiles` before the enemy loop that fires this frame's new ones, and the comment
+at the top of the function calls this out as load-bearing, not incidental: get it backwards and
+an arrow advances on the very frame it is fired, appearing already a metre or two from the bow.
+
+**The restore clears the projectiles.** The same branch in `stepEncounter` that respawns the
+enemy array on `shouldRestorePatrol` also resets `projectiles` to `[]`, because an arrow loosed
+by a fight that is now over would otherwise still be live when the player walks back into a
+fresh patrol — striking someone who was never shot at by anything currently on the map.
+
+**The free leverage: arrow damage joins the same `damageToPlayer` total the spears feed.**
+`stepEncounter` adds the frame's `projectileDamage` into `damageToPlayer` before computing
+`avoided = input.playerInvulnerable && damageToPlayer > 0`, so a Slipstream dodges an arrow
+exactly as it dodges a spear thrust, and `damageAvoided` grants Focus for it with no
+arrow-specific code anywhere.
+
+**`createEnemyView(kind)`** (`src/combat/enemy-mesh.ts`) builds either soldier off the same rig.
+The spear's node name, geometry, position and rotation amounts are all unchanged from before this
+cycle, because other tests in the file find it by name (`'spear'`) rather than by index, and
+changing any of those would silently break a lookup elsewhere. The bow is a `TorusGeometry` arc
+rather than a cone, named `'bow'`, and rotates less on a wind-up than the spear does — a draw
+reads differently from a cock-back at distance.
+
+**`src/fx/arrow.ts` uses `depthTest: true`, deliberately unlike every attack tell in `src/fx/`.**
+A gust cone and a staff arc are drawn with `depthTest: false` because they show the player
+something they did; an arrow visible through a hill would show the player something they should
+not be able to see — the same reasoning already recorded for the enemy health bars.
+
+**The `bowRelease` voice** (`src/fx/combat-audio.ts`, `COMBAT_LEVELS.bowRelease: 0.24`) fires on
+the shot, not the impact. The release is the telegraph — an archer's wind-up is what makes the
+attack dodgeable at all, and a sound on release gives the player a cue independent of whether
+they happen to be looking at the soldier right then. An archer standing behind the player is
+otherwise completely silent until the arrow lands. Spec at
+[`docs/superpowers/specs/2026-08-05-archers-and-projectiles-design.md`](superpowers/specs/2026-08-05-archers-and-projectiles-design.md).
+
+Confirmed in the running game, not just in tests, three of six items an in-game pass checked.
+Climbing above a spear's old 26-unit ceiling no longer ends a fight: at 30.85 units above a live
+archer (3D distance 36.7, inside its 40-unit strike range) the player was still taking hits,
+health having already dropped from 1.0 to 0.2, and only past the archer's own 48-unit
+`aggroRange` did new arrows stop spawning and health begin to regenerate. An archer genuinely
+aims up: an in-flight arrow's own view position, sampled on two consecutive frames and
+differenced independently of the simulation's `Projectile.velocity` field, gave a velocity of
+`(-16.24, +2.62, +29.74)` — magnitude 33.99 against a configured speed of 34 — with a positive,
+substantial y component rather than the near-zero one a flattened aim would produce. And arrow
+views do not leak: over 7,500 driven frames (125 simulated seconds) of continuous archer fire,
+the live count of `arrow-shaft` meshes in the scene never exceeded 1.
+
+Three more confirmed only in part. A spear at 10 units is confirmed out of reach in play —
+closing at 4.09 m/s against a configured 4.2, no damage until the gap crossed under the 3.2
+`strikeRange` — but the 2-units-and-20-up case above (height ignored, not protective) was never
+reached in play; holding a fixed small horizontal offset near a specific soldier while also
+holding 40 units of altitude was not achieved in the time available, and that half rests on the
+unit test alone. Arrow views exist with `depthTest: true`, read directly off a live in-flight
+object rather than from source — but occlusion behind an actual hill was never seen, the same
+caveat the health bars still carry. And a Slipstream protected the player's health against a
+matched control — 1.0 held through a shot whose undodged twin cost 0.2 — but the accompanying
+Focus grant read 0 where roughly 0.08 of the bar was expected. The code path was then read
+directly and is correct: `encounter.ts` folds arrow damage into `damageToPlayer` before computing
+`avoided`, and the chain runs on into `dodgeGain` exactly as it does for a spear; a unit test
+asserts the flag. This is recorded as a claim verified by test and by reading, but not observed
+in play — not a defect. +8 against a 100-point meter is 0.08 of the bar, easily masked by idle
+drain or a stale HUD read on the one attempt this pass had time for.
+
+Every tuning value in this cycle is an unplayed guess, same as the rest of this document's
+tuning — but unlike most of this project's guesses, these are about *pressure* rather than feel,
+so an hour of play will move them a long way. The archer's `aggroRange` of 48 most of all: it is
+the number that decides whether climbing still wins.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
 
-- **The rest of §4 combat.** Air Wall, and the three borrowed elements (water, earth, fire)
-  with their radial switch. Five of the six enemy types in the enemy contract. Aerial combat
-  as a distinct posture. Air Wall is blocked rather than merely unbuilt: its function is
-  deflecting projectiles at an angle to return fire, and nothing in the game shoots yet, so
-  it needs archers first.
+- **The rest of §4 combat.** The three borrowed elements (water, earth, fire) with their
+  radial switch. Four of the six enemy types in the enemy contract — spear and archer now
+  exist, and this cycle makes each remaining type an addition to a working pattern rather
+  than a rewrite of it, which is most of its value beyond the fight itself. Aerial combat
+  as a distinct posture.
+
+  *(This bullet previously listed Air Wall here too and called it blocked, because its
+  function is deflecting a projectile at an angle to return fire and nothing in the game
+  shot yet. Something shoots now. Air Wall is unblocked and is a natural next cycle.)*
 - **§4.5's elemental Focus sink.** Focus and the Avatar State exist, but the document
-  also has Focus spend on elemental heavy moves, and those are unbuilt. Two of its listed
-  build sources are also missing: redirected projectiles needs archers, and damage
-  avoided at close range needs a near-miss test.
+  also has Focus spend on elemental heavy moves, and those are unbuilt. One of its listed
+  build sources, damage avoided at close range, still needs a near-miss test.
+
+  *(This bullet previously said the other missing build source, redirected projectiles,
+  needed archers. Archers exist now; what redirected projectiles actually needs is Air
+  Wall's deflection, which is unblocked for the same reason the bullet above is — both are
+  the natural next cycle.)*
 - **§4.6's second half.** Non-lethality scoring now pays a knockdown more than an
   environmental accident (see "Section 4.6's first half" above), but the rest of the
   section is still open: a small number of scripted moments that let the player break
@@ -781,8 +912,11 @@ In the order I would take them:
    purpose (needs an act structure that does not exist yet), and every accident type
    besides the world floor — water, a crushing prop, one soldier's blast downing
    another are all still unbuilt.
-3. **Add a second enemy type.** Archers pressure altitude, which is the axis the whole
-   flight model is about, and they would make the existing hover and dodge meaningful.
+3. **Archers are built now.** They pressure altitude, which is the axis the whole flight
+   model is about — see "Archers, and the axis that was missing" above for what changed
+   and what is still just an unplayed guess. What they unblock is Air Wall and §4.5's
+   redirected-projectile Focus source; both are natural candidates for whichever cycle
+   comes after playing this one.
 4. **Then either** the terrain API change that unblocks wall-riding, **or** a second
    region from §3.3 to prove the world structure generalises.
 
