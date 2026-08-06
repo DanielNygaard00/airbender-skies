@@ -84,6 +84,7 @@ export function dodgeHeading(
   lookDirection: Vector3,
   forwardAxis: number,
   strafeAxis: number,
+  bank: number,
 ): Vector3 {
   // In the glider the movement keys mean something else: W is airbending thrust and S is
   // a flare. Reading them as translation made holding S dodge *backwards* for an input
@@ -94,13 +95,19 @@ export function dodgeHeading(
   // choosing the side and a default side when nothing is held. Perpendicular to the
   // flight path by construction, for any heading, because `gliderRight` is an axis of a
   // frame built on `forward` -- which is what beats something coming straight at you, and
-  // is what the guide panel has told players the move does all along. It rolls with the
-  // bank, so a banked glider's dodge is not horizontal.
+  // is what the guide panel has told players the move does all along.
+  //
+  // `bank` is the glider's actual roll -- the same value `flightStep` derives as
+  // `input.strafe * 0.6` for lift -- passed through rather than fixed at zero, so a dodge
+  // thrown while banked rolls with the wing and picks up the vertical component that
+  // implies: bank into a dive and the lateral break carries you down with it as well as
+  // sideways. Level (bank 0) the break stays exactly horizontal, which is the deliberate
+  // baseline, not an oversight -- wings level, no roll to carry a vertical component on.
   //
   // A default side rather than a fallback to the heading: falling back to forward made
   // the no-bank press -- the common one -- a free 30 m/s boost.
   if (mode === 'glider') {
-    const right = gliderRight(gliderForward, 0)
+    const right = gliderRight(gliderForward, bank)
     return strafeAxis < 0 ? right.negate() : right
   }
   return slipstreamHeading(lookDirection, forwardAxis, strafeAxis)

@@ -505,7 +505,10 @@ function start(): void {
     if (player.slipstreamElapsed !== null && beforeStep.slipstreamElapsed === null) {
       effects.add(createSlipstreamTrail(
         beforeStep.position,
-        dodgeHeading(player.mode, player.forward, state.lookDirection, state.forward, state.strafe),
+        dodgeHeading(
+          player.mode, player.forward, state.lookDirection, state.forward, state.strafe,
+          state.strafe * 0.6,
+        ),
         DEFAULT_SLIPSTREAM_CONFIG,
       ))
     }

@@ -281,7 +281,13 @@ export function controllerStep(
     input.slipstreamPressed,
     // Posture-aware: on foot the movement keys are walk and strafe, but in the glider
     // they are thrust and bank, so `dodgeHeading` reads only what means direction there.
-    dodgeHeading(next.mode, next.forward, input.lookDirection, input.forward, input.strafe),
+    dodgeHeading(
+      next.mode, next.forward, input.lookDirection, input.forward, input.strafe,
+      // The same 0.6 flightStep uses to turn strafe into bank a few lines up. Not shared
+      // through a constant because it doesn't read naturally as one here, but the two
+      // literals are meant to move together if bank responsiveness is ever retuned.
+      input.strafe * 0.6,
+    ),
     // Read after the posture branches, so this is the breath the branch settled: the
     // glider's drain from thrust or hover, or the ground branch's regeneration. A
     // pre-step value would let a player spend breath the same frame they ran out of it.
