@@ -669,6 +669,19 @@ enemy array on `shouldRestorePatrol` also resets `projectiles` to `[]`, because 
 by a fight that is now over would otherwise still be live when the player walks back into a
 fresh patrol — striking someone who was never shot at by anything currently on the map.
 
+**The respawn-range invariant broke against the archer, and got fixed at the archer's number,
+not the respawn range's.** `respawnRange` must clear every enemy kind's `aggroRange` by a real
+margin, or a restored soldier can appear already inside its own notice range and the player
+turns around into a fight that spawned on top of them. The archer's `aggroRange` of 48 shipped
+against the earlier `respawnRange` of 40 with nothing objecting — an 8-unit violation — because
+the regression test for this exact invariant checked only `enemies.spear.aggroRange`, a literal
+left behind when `CombatConfig.enemy` became a per-kind `Record`. `DEFAULT_PATROL_CONFIG.respawnRange`
+is now 66, clearing the archer's 48 by the same 1.3 margin the test enforces (48 × 1.3 = 62.4).
+The fixed point is the archer's `aggroRange`, not `respawnRange`: 48 is what makes climbing stop
+being a win condition, this cycle's whole point, so it does not move, and the hygiene value moves
+around it instead. The cost is real — a patrol restore now needs the player 66 units from every
+spawn point instead of 40, a longer walk, so respawns are rarer than they were.
+
 **The free leverage: arrow damage joins the same `damageToPlayer` total the spears feed.**
 `stepEncounter` adds the frame's `projectileDamage` into `damageToPlayer` before computing
 `avoided = input.playerInvulnerable && damageToPlayer > 0`, so a Slipstream dodges an arrow

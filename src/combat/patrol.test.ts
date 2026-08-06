@@ -80,7 +80,7 @@ describe('when a patrol restores', () => {
 })
 
 describe('the shipped patrol tuning', () => {
-  it('keeps the respawn range clear of the enemy notice range, by a real margin', () => {
+  it('keeps the respawn range clear of every enemy notice range, by a real margin', () => {
     // Both config.ts and patrol.ts call this gap load-bearing: a fresh soldier must
     // never appear already inside its own notice range, or the player turns around into
     // a fight that spawned on top of them. Nothing pinned it until now, so either value
@@ -91,7 +91,17 @@ describe('the shipped patrol tuning', () => {
     // margin has to leave room for the restore frame itself: a restore fires the instant
     // the player passes respawnRange, and the player can be walking back in, so "just
     // outside aggroRange" is not enough separation.
-    expect(DEFAULT_PATROL_CONFIG.respawnRange)
-      .toBeGreaterThan(DEFAULT_COMBAT_CONFIG.enemies.spear.aggroRange * 1.3)
+    //
+    // Iterated over every kind in DEFAULT_COMBAT_CONFIG.enemies rather than pinned to
+    // `.spear`, because that literal is exactly what broke this test once already: when
+    // CombatConfig.enemy became a per-kind Record, a mechanical rename inserted `.spear.`
+    // here, and the archer -- at 48, wider than the spear's 26 -- became invisible to it.
+    // A respawnRange of 40 shipped against an archer of 48 with nothing objecting. Keying
+    // off the Record means a future third kind is covered automatically, without needing
+    // this test edited again.
+    for (const [kind, enemy] of Object.entries(DEFAULT_COMBAT_CONFIG.enemies)) {
+      expect(DEFAULT_PATROL_CONFIG.respawnRange, `kind: ${kind}`)
+        .toBeGreaterThan(enemy.aggroRange * 1.3)
+    }
   })
 })

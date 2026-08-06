@@ -692,14 +692,14 @@ describe('a cleared patrol comes back', () => {
   })
 
   it('regression guard: a gust cannot land on the same frame the patrol restores', () => {
-    // Production's respawnRange (40, in DEFAULT_PATROL_CONFIG) sits beyond every
+    // Production's respawnRange (66, in DEFAULT_PATROL_CONFIG) sits beyond every
     // weapon's reach -- gust's range of 12 included -- so the shipped tuning can never
     // let a restore and a landing attack coincide on one frame; that gap is what makes
     // leaving-and-returning safe in the first place. The respawnRange of 5 below exists
     // solely to force the two to overlap so the restore-last ordering is actually
-    // observable by a test. Do not "fix" this back to 40: that would silently disarm
-    // the guard, since with 40 this test could never fail even with the ordering bug
-    // it exists to catch.
+    // observable by a test. Do not "fix" this back to production's value: that would
+    // silently disarm the guard, since at that range this test could never fail even
+    // with the ordering bug it exists to catch.
     const closeRespawn = { ...withPatrol, patrol: { respawnRange: 5 } }
     let encounter = clear()
     // Holding gust down through clear() leaves its cooldown mid-cycle, not spent. Settle
@@ -730,7 +730,7 @@ describe('a cleared patrol comes back', () => {
     // `encounter.enemies` draws it on the patrol ground rather than at the kill.
     //
     // A respawnRange of 5 (test-local, like the guard above) is what lets one frame do
-    // both: at production's 40 no attack reaches far enough for a down and a restore to
+    // both: at production's 66 no attack reaches far enough for a down and a restore to
     // coincide, which is exactly why this needed a fixture of its own.
     const closeRespawn = { ...withPatrol, patrol: { respawnRange: 5 } }
     const start = startEncounter(SPAWNS, C)

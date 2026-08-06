@@ -161,7 +161,17 @@ export const HOME_PATROL: EnemySpawn[] = [
 ]
 
 /**
- * Above the enemy's aggroRange of 26 by enough that a restored soldier can never
- * appear already inside its own notice range.
+ * Above the widest notice range of any enemy kind -- currently the archer's 48, not
+ * the spear's 26 -- by enough that a restored soldier can never appear already inside
+ * its own notice range. The margin exists because a restore fires the instant the
+ * player passes respawnRange, and they may be walking back in, so "just outside
+ * aggroRange" is not enough separation.
+ *
+ * Raising this to clear the archer means a patrol restore now needs the player 66
+ * units from every spawn point, not 40. That is a longer trip than before, so
+ * respawns are rarer than they used to be. The alternative -- shrinking the archer's
+ * aggroRange instead -- was rejected: 48 is what makes climbing stop being a win
+ * condition, which is this whole enemy type's purpose, so the hygiene value moves
+ * and not the design one.
  */
-export const DEFAULT_PATROL_CONFIG: PatrolConfig = { respawnRange: 40 }
+export const DEFAULT_PATROL_CONFIG: PatrolConfig = { respawnRange: 66 }
