@@ -248,7 +248,7 @@ That exact body fits `src/player/controller.test.ts:12` and `src/player/ground-m
 
 For the fakes that ignore `maxDistance` today, keep ignoring it; only add the direction guard.
 
-Finally, in `src/world/terrain-query.test.ts`, the nine existing `query.raycastDown(...)` call sites become `raycastDown(query, ...)`, and the file imports the helper.
+Finally, in `src/world/terrain-query.test.ts`, the eight existing `query.raycastDown(...)` call sites become `raycastDown(query, ...)`, and the file imports the helper.
 
 - [ ] **Step 7: Typecheck and run the whole suite**
 
