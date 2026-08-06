@@ -55,3 +55,15 @@ jobs:
     steps:
       - id: deploy
         uses: actions/deploy-pages@v4
+        with:
+          # Default is 600000 (ten minutes), and on 2026-08-06 that was not enough: Pages
+          # accepted deployments and took longer than ten minutes to process them, so the
+          # action aborted and tried to cancel each one. The evidence that waiting is the
+          # right answer rather than retrying is a557c36, whose run logged "Canceling Pages
+          # deployment" and whose deployment nonetheless reports `succeed` — the abort was
+          # racing a deployment that completed anyway.
+          #
+          # Aborting is also worse than waiting, because a deployment left mid-flight blocks
+          # the next one, and a re-run cannot recover it: Pages keys a deployment by the
+          # commit SHA, so re-running creates a duplicate ID and is cancelled outright.
+          timeout: 1800000
