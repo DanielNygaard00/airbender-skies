@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  startEncounter, stepEncounter, canGust, canVortex, type CombatConfig, type EncounterInput,
-  type EnemySpawn,
+  startEncounter, stepEncounter, canGust, canVortex, type CombatConfig, type Encounter,
+  type EncounterInput, type EnemySpawn,
 } from './encounter'
 import { isDowned } from './health'
 import { DEFAULT_COMBAT_CONFIG } from './config'
@@ -72,6 +72,35 @@ function run(seconds: number, over: Partial<EncounterInput> = {}, from = near())
   }
   return { encounter, downed, hits }
 }
+
+/** The single soldier of `near()`, already flat, having gone down `downs` times. */
+function downedSoldier(downs: number): Encounter {
+  const base = near()
+  const enemy = base.enemies[0]!
+  return {
+    ...base,
+    enemies: [{
+      ...enemy,
+      health: { ...enemy.health, current: 0 },
+      stance: 'downed' as const,
+      stanceTime: 0,
+      downs,
+    }],
+  }
+}
+
+/** The same soldier, on its feet and one gust from going down again. */
+function almostDown(downs: number): Encounter {
+  const base = near()
+  const enemy = base.enemies[0]!
+  return {
+    ...base,
+    enemies: [{ ...enemy, health: { ...enemy.health, current: 0.1 }, downs }],
+  }
+}
+
+const gustOnce = (from: Encounter) =>
+  stepEncounter(from, { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
 
 describe('the fight runs', () => {
   it('hurts a player who stands in reach doing nothing', () => {
@@ -752,5 +781,43 @@ describe('a cleared patrol comes back', () => {
     // fix above would have traded one wrong position for another.
     const step = stepEncounter(near(), defaults, 1 / 60, C, DEPS)
     expect(step.enemiesBeforeRestore).toEqual(step.encounter.enemies)
+  })
+})
+
+describe('a soldier pushing back up', () => {
+  /** Wait out the countdown on a downed soldier, leaving it mid-rise. */
+  const rising = () => run(C.enemy.downedSeconds + 0.1, {}, downedSoldier(1)).encounter
+
+  it('is on its way up once the countdown has run', () => {
+    expect(rising().enemies[0]!.stance).toBe('rising')
+  })
+
+  it('can be hit, which is what makes the interrupt reachable', () => {
+    // The regression isTargetable exists to prevent: every resolver used to skip anything
+    // isDowned, and health is zero for the whole rise, so the gust would pass straight
+    // through and the interrupt would be unreachable.
+    expect(gustOnce(rising()).encounter.enemies[0]!.stance).toBe('downed')
+  })
+
+  it('is not reported as a down when it is knocked back over', () => {
+    const step = gustOnce(rising())
+    expect(step.downedThisFrame).toEqual([])
+    expect(step.firstDownsThisFrame).toEqual([])
+  })
+})
+
+describe('firstDownsThisFrame', () => {
+  it('reports a soldier going down for the first time, alongside downedThisFrame', () => {
+    const step = gustOnce(almostDown(0))
+    expect(step.downedThisFrame).toEqual(['a'])
+    expect(step.firstDownsThisFrame).toEqual(['a'])
+  })
+
+  it('drops a later down, so the ladder cannot be walked as a Focus engine', () => {
+    // A soldier that has already been down once and has been chipped to zero again. The
+    // burst should still fire; Focus should not pay twice.
+    const step = gustOnce(almostDown(1))
+    expect(step.downedThisFrame).toEqual(['a'])
+    expect(step.firstDownsThisFrame).toEqual([])
   })
 })

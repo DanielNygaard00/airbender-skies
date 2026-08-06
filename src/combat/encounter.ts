@@ -3,7 +3,8 @@ import {
   applyDamage, fullHealth, isDowned, stepHealth, type Health, type HealthConfig,
 } from './health'
 import {
-  hitEnemy, spawnEnemy, stepEnemy, type Enemy, type EnemyConfig, type GroundHeightQuery,
+  hitEnemy, isTargetable, spawnEnemy, stepEnemy,
+  type Enemy, type EnemyConfig, type GroundHeightQuery,
 } from './enemy'
 import { gustImpulse, gustTargets, type GustConfig } from './gust'
 import {
@@ -97,6 +98,12 @@ export interface EncounterStep {
   encounter: Encounter
   /** Enemies knocked down this frame, for feedback and for scoring later. */
   downedThisFrame: string[]
+  /**
+   * Of `downedThisFrame`, the soldiers going down for the first time.
+   *
+   * The Focus list. `downedThisFrame` is the feedback list and stays wider.
+   */
+  firstDownsThisFrame: string[]
   /**
    * Enemies that went down by falling out of the world this frame, kept apart from
    * downedThisFrame.
@@ -194,10 +201,10 @@ export function stepEncounter(
     // Read before the hits land, so "connected" means a live enemy took it rather
     // than a body being blown around the island.
     hitThisFrame = enemies
-      .filter((enemy) => caught.has(enemy.id) && !isDowned(enemy.health))
+      .filter((enemy) => caught.has(enemy.id) && isTargetable(enemy))
       .map((enemy) => enemy.id)
     enemies = enemies.map((enemy) =>
-      caught.has(enemy.id) && !isDowned(enemy.health)
+      caught.has(enemy.id) && isTargetable(enemy)
         ? hitEnemy(
             enemy,
             c.gust.damage,
@@ -237,7 +244,7 @@ export function stepEncounter(
         vortexTargets(input.playerPosition, enemies, charge, c.vortex).map((e) => e.id),
       )
       enemies = enemies.map((enemy) =>
-        caught.has(enemy.id) && !isDowned(enemy.health)
+        caught.has(enemy.id) && isTargetable(enemy)
           // Zero damage: the move is setup. hitEnemy still interrupts, which is
           // what a control move should do to a wind-up.
           ? hitEnemy(enemy, 0, vortexImpulse(
@@ -263,11 +270,11 @@ export function stepEncounter(
     // Read before the hits land, so a connect means a live enemy took it rather than a body
     // being shoved around the island.
     staffHitThisFrame = enemies
-      .filter((enemy) => caught.has(enemy.id) && !isDowned(enemy.health))
+      .filter((enemy) => caught.has(enemy.id) && isTargetable(enemy))
       .map((enemy) => enemy.id)
     const damage = staffDamage(finisher, c.staffArc)
     enemies = enemies.map((enemy) =>
-      caught.has(enemy.id) && !isDowned(enemy.health)
+      caught.has(enemy.id) && isTargetable(enemy)
         ? hitEnemy(enemy, damage, staffImpulse(
             input.playerPosition, enemy.position, finisher, c.staffArc,
           ))
@@ -284,11 +291,11 @@ export function stepEncounter(
     )
     // Read before the hits land, so a connect means a live enemy took it.
     slamHitThisFrame = enemies
-      .filter((enemy) => caught.has(enemy.id) && !isDowned(enemy.health))
+      .filter((enemy) => caught.has(enemy.id) && isTargetable(enemy))
       .map((enemy) => enemy.id)
     const damage = waveDamage(strength, c.pressureWave)
     enemies = enemies.map((enemy) =>
-      caught.has(enemy.id) && !isDowned(enemy.health)
+      caught.has(enemy.id) && isTargetable(enemy)
         ? hitEnemy(
             enemy,
             damage,
@@ -323,6 +330,16 @@ export function stepEncounter(
     .filter((enemy) => isDowned(enemy.health) && !wasDowned.has(enemy.id) && !lost.has(enemy.id))
     .map((enemy) => enemy.id)
 
+  // Only the first crossing pays Focus, so a soldier cannot be walked up and down the
+  // recovery ladder as a Focus engine. Kept apart from `downedThisFrame` rather than
+  // replacing it, because every down is still worth its impact burst — the same split
+  // hitThisFrame, slamHitThisFrame and staffHitThisFrame already make, for the same
+  // reason: each feeds a differently tuned grant.
+  const downedIds = new Set(downedThisFrame)
+  const firstDownsThisFrame = enemies
+    .filter((enemy) => downedIds.has(enemy.id) && enemy.downs === 1)
+    .map((enemy) => enemy.id)
+
   // Last, deliberately. `wasDowned` is diffed at the top of this function, so
   // replacing the enemy array any earlier would compare a fresh soldier against a
   // downed one and report a phantom down or hit. Restoring here means the next frame
@@ -341,6 +358,7 @@ export function stepEncounter(
   return {
     encounter: { enemies, playerHealth, gustCooldown, vortexHeldSeconds, vortexCooldown },
     downedThisFrame,
+    firstDownsThisFrame,
     lostThisFrame,
     restoredThisFrame,
     enemiesBeforeRestore,
