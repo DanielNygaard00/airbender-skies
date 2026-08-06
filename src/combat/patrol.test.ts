@@ -10,7 +10,7 @@ const C: PatrolConfig = { respawnRange: 40 }
 const ENEMY_CONFIG: EnemyConfig = {
   maxHealth: 1.5, outOfCombatSeconds: 6, regenPerSecond: 0,
   moveSpeed: 4.2, strikeRange: 3.2, aggroRange: 26, windUpSeconds: 0.55,
-  recoverSeconds: 0.7, strikeDamage: 1, knockbackDamping: 2.6,
+  recoverSeconds: 0.7, attack: { kind: 'melee', damage: 1 }, knockbackDamping: 2.6,
   gravity: 20, snapDistance: 1.2,
   downedSeconds: 18, risingSeconds: 1.2, recoveryHealthFractions: [0.6, 0.3],
 }
@@ -21,12 +21,12 @@ const ENEMY_CONFIG: EnemyConfig = {
 // other, which makes `every` and `some` agree on every input this file can feed
 // shouldRestorePatrol -- and the quantifier test below could not fail.
 const SPAWNS: EnemySpawn[] = [
-  { id: 'a', position: new Vector3(0, 0, 0) },
-  { id: 'b', position: new Vector3(100, 0, 0) },
+  { id: 'a', position: new Vector3(0, 0, 0), kind: 'spear' },
+  { id: 'b', position: new Vector3(100, 0, 0), kind: 'spear' },
 ]
 
 const standing = (): Enemy[] =>
-  SPAWNS.map((s) => spawnEnemy(s.id, s.position, ENEMY_CONFIG))
+  SPAWNS.map((s) => spawnEnemy(s.id, s.position, 'spear', ENEMY_CONFIG))
 
 const allDowned = (): Enemy[] =>
   standing().map((e) => ({ ...e, health: { ...e.health, current: 0 }, stance: 'downed' as const }))
@@ -74,14 +74,17 @@ describe('when a patrol restores', () => {
   })
 
   it('ignores altitude, because flying over is not leaving', () => {
-    // Horizontal distance only, matching how aggroRange is measured in stepEnemy.
+    // Horizontal distance only. That matches how stepEnemy measures a spear's aggroRange,
+    // but not an archer's, which is 3D -- so this deliberately keeps a player hovering
+    // 300 units up from counting as gone, and the safety of a restore rests on
+    // respawnRange clearing every aggroRange rather than on the two agreeing.
     const overhead = new Vector3(0, 300, 0)
     expect(shouldRestorePatrol(allDowned(), SPAWNS, overhead, C)).toBe(false)
   })
 })
 
 describe('the shipped patrol tuning', () => {
-  it('keeps the respawn range clear of the enemy notice range, by a real margin', () => {
+  it('keeps the respawn range clear of every enemy notice range, by a real margin', () => {
     // Both config.ts and patrol.ts call this gap load-bearing: a fresh soldier must
     // never appear already inside its own notice range, or the player turns around into
     // a fight that spawned on top of them. Nothing pinned it until now, so either value
@@ -92,7 +95,17 @@ describe('the shipped patrol tuning', () => {
     // margin has to leave room for the restore frame itself: a restore fires the instant
     // the player passes respawnRange, and the player can be walking back in, so "just
     // outside aggroRange" is not enough separation.
-    expect(DEFAULT_PATROL_CONFIG.respawnRange)
-      .toBeGreaterThan(DEFAULT_COMBAT_CONFIG.enemy.aggroRange * 1.3)
+    //
+    // Iterated over every kind in DEFAULT_COMBAT_CONFIG.enemies rather than pinned to
+    // `.spear`, because that literal is exactly what broke this test once already: when
+    // CombatConfig.enemy became a per-kind Record, a mechanical rename inserted `.spear.`
+    // here, and the archer -- at 48, wider than the spear's 26 -- became invisible to it.
+    // A respawnRange of 40 shipped against an archer of 48 with nothing objecting. Keying
+    // off the Record means a future third kind is covered automatically, without needing
+    // this test edited again.
+    for (const [kind, enemy] of Object.entries(DEFAULT_COMBAT_CONFIG.enemies)) {
+      expect(DEFAULT_PATROL_CONFIG.respawnRange, `kind: ${kind}`)
+        .toBeGreaterThan(enemy.aggroRange * 1.3)
+    }
   })
 })

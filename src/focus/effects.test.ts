@@ -36,9 +36,9 @@ describe('boostedCombatConfig', () => {
     // The claim, stated against the enemy's health rather than against the
     // multiplier the code reads: boosted gust must reach a full health bar.
     const boosted = boostedCombatConfig(DEFAULT_COMBAT_CONFIG, true, C)
-    expect(boosted.gust.damage).toBeGreaterThanOrEqual(DEFAULT_COMBAT_CONFIG.enemy.maxHealth)
+    expect(boosted.gust.damage).toBeGreaterThanOrEqual(DEFAULT_COMBAT_CONFIG.enemies.spear.maxHealth)
     expect(DEFAULT_COMBAT_CONFIG.gust.damage)
-      .toBeLessThan(DEFAULT_COMBAT_CONFIG.enemy.maxHealth)
+      .toBeLessThan(DEFAULT_COMBAT_CONFIG.enemies.spear.maxHealth)
   })
 
   it('drops the gust cooldown entirely', () => {
@@ -59,7 +59,7 @@ describe('boostedCombatConfig', () => {
 
   it('leaves the enemy and player config alone', () => {
     const boosted = boostedCombatConfig(DEFAULT_COMBAT_CONFIG, true, C)
-    expect(boosted.enemy).toBe(DEFAULT_COMBAT_CONFIG.enemy)
+    expect(boosted.enemies).toBe(DEFAULT_COMBAT_CONFIG.enemies)
     expect(boosted.player).toBe(DEFAULT_COMBAT_CONFIG.player)
   })
 })

@@ -39,6 +39,7 @@ import { createVortexRing } from './fx/vortex-ring'
 import { createVortexChargeTell } from './fx/vortex-charge'
 import { vortexRadius } from './combat/vortex'
 import { createEnemyView } from './combat/enemy-mesh'
+import { createArrowView, type ArrowView } from './fx/arrow'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
 import { canSlipstream, isInvulnerable, dodgeHeading } from './player/slipstream'
@@ -158,7 +159,7 @@ function start(): void {
     return tell
   })
 
-  // The one encounter: spear infantry on the home island.
+  // The one encounter: three spears and two archers on the home island, per HOME_PATROL.
   //
   // Hoisted into a const and handed to both startEncounter and the fight's deps below,
   // because the restore respawns from `deps.spawns` and there must be exactly one answer
@@ -178,11 +179,17 @@ function start(): void {
   }))
   let encounter = startEncounter(patrolSpawns, DEFAULT_COMBAT_CONFIG)
   const enemyViews = new Map(encounter.enemies.map((enemy) => {
-    const view = createEnemyView()
+    const view = createEnemyView(enemy.kind)
     scene.add(view.object)
     enableShadows(view.object)
     return [enemy.id, view] as const
   }))
+
+  /**
+   * One view per arrow in flight, created on first sight and disposed when the arrow is
+   * gone. Keyed by projectile id, the same way enemyViews is keyed by enemy id.
+   */
+  const arrowViews = new Map<string, ArrowView>()
 
   const avatar = createAvatar()
   scene.add(avatar.object)
@@ -403,7 +410,7 @@ function start(): void {
         wind.update(0, 0)
         followSun(player.position)
         for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(
-          enemy, camera.quaternion, risingProgress(enemy, DEFAULT_COMBAT_CONFIG.enemy),
+          enemy, camera.quaternion, risingProgress(enemy, DEFAULT_COMBAT_CONFIG.enemies[enemy.kind]),
         )
       }
       // The one thing that always keeps moving. The 'down' burst is the punctuation of
@@ -641,8 +648,30 @@ function start(): void {
     // above or below: boostedCombatConfig only ever replaces the gust key, so the two are
     // the same object today, and there is nothing on `enemy` for a future boost to reach.
     for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(
-      enemy, camera.quaternion, risingProgress(enemy, DEFAULT_COMBAT_CONFIG.enemy),
+      enemy, camera.quaternion, risingProgress(enemy, DEFAULT_COMBAT_CONFIG.enemies[enemy.kind]),
     )
+
+    // Read straight from the simulation rather than through an interpolator. Arrows are
+    // fast and short-lived, an interpolator would have to be created and disposed per
+    // arrow, and the render-interpolation work exists to smooth a camera-followed
+    // character rather than every moving object.
+    for (const arrow of encounter.projectiles) {
+      let view = arrowViews.get(arrow.id)
+      if (!view) {
+        view = createArrowView()
+        arrowViews.set(arrow.id, view)
+        scene.add(view.object)
+      }
+      view.update(arrow)
+    }
+    // Anything with no arrow left has hit, landed or expired.
+    const live = new Set(encounter.projectiles.map((arrow) => arrow.id))
+    for (const [id, view] of arrowViews) {
+      if (live.has(id)) continue
+      scene.remove(view.object)
+      view.dispose()
+      arrowViews.delete(id)
+    }
 
     // Drawn at the true vortexRadius for the same reason the gust cone is drawn at its
     // true hit volume — a pull that reaches outside the visible ring reads as a bug.
@@ -680,6 +709,10 @@ function start(): void {
     }
     if (bursts.hits.length > 0) combatAudio.impact()
     if (bursts.downs.length > 0) combatAudio.down()
+    // Once, with the count, like every other voice on this list. A call per arrow stacked
+    // bit-identical bursts at the same currentTime; the level for a volley is decided in
+    // mapping.ts, where it can be tested.
+    combatAudio.bowRelease(fight.firedThisFrame.length)
 
     // Heavy events only. Never a gust: a move with a 0.45s cooldown that hitches on
     // every use is nausea, not weight.

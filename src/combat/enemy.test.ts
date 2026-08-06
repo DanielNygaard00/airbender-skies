@@ -10,7 +10,7 @@ import { DEFAULT_COMBAT_CONFIG } from './config'
 const C: EnemyConfig = {
   maxHealth: 3, outOfCombatSeconds: 4, regenPerSecond: 0.4,
   moveSpeed: 4, strikeRange: 3, aggroRange: 30, windUpSeconds: 0.5, recoverSeconds: 0.6,
-  strikeDamage: 1, knockbackDamping: 3, gravity: 20, snapDistance: 1.2,
+  attack: { kind: 'melee', damage: 1 }, knockbackDamping: 3, gravity: 20, snapDistance: 1.2,
   downedSeconds: 18, risingSeconds: 1.2, recoveryHealthFractions: [0.6, 0.3],
 }
 
@@ -23,7 +23,7 @@ const emptyAir: GroundHeightQuery = { groundHeightAt: () => null }
 const FLOOR = -50
 
 /** Run the enemy against a stationary player and total the damage dealt. */
-function fight(seconds: number, playerAt: Vector3, from = spawnEnemy('a', AT(0, 20), C)) {
+function fight(seconds: number, playerAt: Vector3, from = spawnEnemy('a', AT(0, 20), 'spear', C)) {
   let enemy = from
   let damage = 0
   for (let t = 0; t < seconds; t += 1 / 60) {
@@ -68,13 +68,13 @@ describe('spear infantry pressures ground spacing', () => {
 
   it('cannot reach a player who keeps their distance', () => {
     // Out-running it is the intended answer, so distance must be a real defence.
-    const far = spawnEnemy('a', AT(0, 60), C)
+    const far = spawnEnemy('a', AT(0, 60), 'spear', C)
     expect(fight(2, AT(0, 0), far).damage).toBe(0)
   })
 
   it('telegraphs before it hits, so the strike is dodgeable', () => {
     // Inside reach, but the hit must not land during the wind-up.
-    const adjacent = spawnEnemy('a', AT(0, 2), C)
+    const adjacent = spawnEnemy('a', AT(0, 2), 'spear', C)
     const early = fight(C.windUpSeconds - 0.1, AT(0, 0), adjacent)
     expect(early.damage).toBe(0)
     expect(early.enemy.stance).toBe('wind-up')
@@ -82,7 +82,7 @@ describe('spear infantry pressures ground spacing', () => {
 
   it('misses if the player leaves reach during the wind-up', () => {
     // This is what makes the telegraph a dodge window rather than decoration.
-    let enemy = spawnEnemy('a', AT(0, 2), C)
+    let enemy = spawnEnemy('a', AT(0, 2), 'spear', C)
     let damage = 0
     for (let t = 0; t < C.windUpSeconds + 0.2; t += 1 / 60) {
       // Step away as soon as the wind-up starts.
@@ -102,25 +102,27 @@ describe('spear infantry pressures ground spacing', () => {
 
 describe('being downed rather than killed', () => {
   it('goes down at zero health and stays present', () => {
-    const downed = hitEnemy(spawnEnemy('a', AT(0, 5), C), C.maxHealth, new Vector3())
+    const downed = hitEnemy(spawnEnemy('a', AT(0, 5), 'spear', C), C.maxHealth, new Vector3())
     expect(isDowned(downed.health)).toBe(true)
     expect(downed.stance).toBe('downed')
   })
 
   it('stops fighting once downed', () => {
-    const downed = hitEnemy(spawnEnemy('a', AT(0, 2), C), C.maxHealth, new Vector3())
+    const downed = hitEnemy(spawnEnemy('a', AT(0, 2), 'spear', C), C.maxHealth, new Vector3())
     expect(fight(5, AT(0, 0), downed).damage).toBe(0)
   })
 
   it('stays down through the countdown rather than recovering the instant it falls', () => {
     // The ladder (see "getting back up" below) does eventually stand a soldier back
-    // up — that is Task 1's whole point — but not before downedSeconds has passed.
-    const downed = hitEnemy(spawnEnemy('a', AT(0, 2), C), C.maxHealth, new Vector3())
+    // up — that is Task 1's whole point — but not before downedSeconds has passed. This
+    // replaces an older "stays down instead of recovering over time" that ran 30 seconds
+    // and expected 'downed' at the end of it; the ladder makes that claim false.
+    const downed = hitEnemy(spawnEnemy('a', AT(0, 2), 'spear', C), C.maxHealth, new Vector3())
     expect(fight(C.downedSeconds - 1, AT(0, 0), downed).enemy.stance).toBe('downed')
   })
 
   it('does not advance while downed', () => {
-    const downed = hitEnemy(spawnEnemy('a', AT(0, 20), C), C.maxHealth, new Vector3())
+    const downed = hitEnemy(spawnEnemy('a', AT(0, 20), 'spear', C), C.maxHealth, new Vector3())
     const after = fight(3, AT(0, 0), downed).enemy
     expect(horizontalDistance(after.position, AT(0, 20))).toBeLessThan(0.5)
   })
@@ -128,13 +130,13 @@ describe('being downed rather than killed', () => {
 
 describe('taking a hit', () => {
   it('interrupts a wind-up rather than only chipping health', () => {
-    const winding = fight(C.windUpSeconds - 0.1, AT(0, 0), spawnEnemy('a', AT(0, 2), C)).enemy
+    const winding = fight(C.windUpSeconds - 0.1, AT(0, 0), spawnEnemy('a', AT(0, 2), 'spear', C)).enemy
     expect(winding.stance).toBe('wind-up')
     expect(hitEnemy(winding, 1, new Vector3()).stance).toBe('recover')
   })
 
   it('is pushed by the impulse and then settles', () => {
-    const pushed = hitEnemy(spawnEnemy('a', AT(0, 20), C), 0.5, new Vector3(0, 0, 30))
+    const pushed = hitEnemy(spawnEnemy('a', AT(0, 20), 'spear', C), 0.5, new Vector3(0, 0, 30))
     const moved = fight(0.3, AT(0, 0), pushed).enemy
     expect(moved.position.z).toBeGreaterThan(20)
     const settled = fight(3, AT(0, 0), moved).enemy
@@ -145,20 +147,20 @@ describe('taking a hit', () => {
 describe('the aggro leash', () => {
   it('ignores a player beyond its notice range', () => {
     // Without a leash a patrol trails the player across the whole archipelago.
-    const distant = spawnEnemy('a', AT(0, C.aggroRange + 20), C)
+    const distant = spawnEnemy('a', AT(0, C.aggroRange + 20), 'spear', C)
     const after = fight(3, AT(0, 0), distant).enemy
     expect(horizontalDistance(after.position, AT(0, C.aggroRange + 20))).toBeLessThan(0.5)
   })
 
   it('closes once the player comes inside it', () => {
-    const inside = spawnEnemy('a', AT(0, C.aggroRange - 5), C)
+    const inside = spawnEnemy('a', AT(0, C.aggroRange - 5), 'spear', C)
     const after = fight(1, AT(0, 0), inside).enemy
     expect(horizontalDistance(after.position, AT(0, 0)))
       .toBeLessThan(C.aggroRange - 5)
   })
 
   it('still faces a player it is ignoring, so the leash is not blindness', () => {
-    const distant = spawnEnemy('a', AT(0, C.aggroRange + 20), C)
+    const distant = spawnEnemy('a', AT(0, C.aggroRange + 20), 'spear', C)
     expect(fight(0.5, AT(0, 0), distant).enemy.facing.z).toBeLessThan(0)
   })
 })
@@ -167,7 +169,7 @@ describe('an airborne enemy', () => {
   /** Get an enemy into wind-up stance right next to the player, then lift it. */
   const liftedInWindUp = () => {
     const player = AT(0, 0)
-    let enemy = spawnEnemy('a', AT(0, 0.5), C)
+    let enemy = spawnEnemy('a', AT(0, 0.5), 'spear', C)
     // Step until it winds up (close enough to strike).
     for (let t = 0; t < 2 && enemy.stance !== 'wind-up'; t += 1 / 60) {
       enemy = stepEnemy(enemy, player, flatGround, FLOOR, 1 / 60, C).enemy
@@ -230,17 +232,17 @@ describe('enemy gravity', () => {
     // Regression guard for a measured bug: gust and Pressure Wave both apply an
     // upward impulse, and with no gravity the soldier stayed up permanently — a
     // gusted enemy was measured 2.4m above the ground twenty seconds later.
-    const lifted = hitEnemy(spawnEnemy('a', AT(0, 0), C), 0, new Vector3(0, 9, 0))
+    const lifted = hitEnemy(spawnEnemy('a', AT(0, 0), 'spear', C), 0, new Vector3(0, 9, 0))
     expect(settle(lifted, 3).position.y).toBeCloseTo(0, 3)
   })
 
   it('rises before it falls', () => {
-    const lifted = hitEnemy(spawnEnemy('a', AT(0, 0), C), 0, new Vector3(0, 9, 0))
+    const lifted = hitEnemy(spawnEnemy('a', AT(0, 0), 'spear', C), 0, new Vector3(0, 9, 0))
     expect(settle(lifted, 0.2).position.y).toBeGreaterThan(0.5)
   })
 
   it('reports itself airborne while up, and grounded once it lands', () => {
-    const lifted = hitEnemy(spawnEnemy('a', AT(0, 0), C), 0, new Vector3(0, 9, 0))
+    const lifted = hitEnemy(spawnEnemy('a', AT(0, 0), 'spear', C), 0, new Vector3(0, 9, 0))
     expect(settle(lifted, 0.2).grounded).toBe(false)
     expect(settle(lifted, 3).grounded).toBe(true)
   })
@@ -248,7 +250,7 @@ describe('enemy gravity', () => {
   it('lets a downed body fall rather than stranding it in the air', () => {
     // stepEnemy returns early for the downed. Leaving gravity out of that branch
     // would strand any corpse that was airborne when it went down.
-    const downed = hitEnemy(spawnEnemy('a', AT(0, 0), C), C.maxHealth, new Vector3(0, 9, 0))
+    const downed = hitEnemy(spawnEnemy('a', AT(0, 0), 'spear', C), C.maxHealth, new Vector3(0, 9, 0))
     const settled = settle(downed, 3)
     expect(settled.stance).toBe('downed')
     expect(settled.position.y).toBeCloseTo(0, 3)
@@ -256,7 +258,7 @@ describe('enemy gravity', () => {
 
   it('downs an enemy that falls out of the world', () => {
     // Section 4.6 counts being blown off a ledge as a down.
-    const pushed = settle(spawnEnemy('a', AT(0, 0), C), 6, emptyAir)
+    const pushed = settle(spawnEnemy('a', AT(0, 0), 'spear', C), 6, emptyAir)
     expect(isDowned(pushed.health)).toBe(true)
   })
 
@@ -264,7 +266,7 @@ describe('enemy gravity', () => {
     // Downing it is not enough on its own: the downed branch kept integrating, so a body
     // in empty air accelerated without bound. Measured before this guard — 36km down and
     // still gaining 1.2km/s a minute in. Nothing can ever see it again, so it stops.
-    let enemy = spawnEnemy('a', AT(0, 0), C)
+    let enemy = spawnEnemy('a', AT(0, 0), 'spear', C)
     const far = AT(0, 500)
     const run = (frames: number) => {
       for (let i = 0; i < frames; i++) enemy = stepEnemy(enemy, far, emptyAir, FLOOR, 1 / 60, C).enemy
@@ -279,7 +281,7 @@ describe('enemy gravity', () => {
 
   it('still decays a horizontal push', () => {
     // Pre-existing behaviour that the split of knockback must not lose.
-    const shoved = hitEnemy(spawnEnemy('a', AT(0, 0), C), 0, new Vector3(20, 0, 0))
+    const shoved = hitEnemy(spawnEnemy('a', AT(0, 0), 'spear', C), 0, new Vector3(20, 0, 0))
     const after = settle(shoved, 2)
     expect(after.position.x).toBeGreaterThan(1)
     expect(Math.hypot(after.knockback.x, after.knockback.z)).toBeLessThan(1)
@@ -297,7 +299,7 @@ describe('walking downhill', () => {
   // strikeRange 3 the whole time). Derived from config, not a literal.
   const playerDistance = (C.strikeRange + C.aggroRange) / 2
   const player = AT(playerDistance, 0)
-  const spawnOnSlope = () => spawnEnemy('a', new Vector3(0, slope.groundHeightAt(0, 0) ?? 0, 0), C)
+  const spawnOnSlope = () => spawnEnemy('a', new Vector3(0, slope.groundHeightAt(0, 0) ?? 0, 0), 'spear', C)
 
   it('stays grounded every frame on a 0.2 downhill slope', () => {
     // The measured bug: stepping onto lower ground puts position.y above the new
@@ -337,19 +339,19 @@ describe('reporting an environmental removal', () => {
   const BRINK = FLOOR + 0.001
 
   it('reports nothing on an ordinary grounded frame', () => {
-    const step = stepEnemy(spawnEnemy('a', AT(0, 20), C), AT(0, -10), flatGround, FLOOR, 1 / 60, C)
+    const step = stepEnemy(spawnEnemy('a', AT(0, 20), 'spear', C), AT(0, -10), flatGround, FLOOR, 1 / 60, C)
     expect(step.fellOutOfWorld).toBe(false)
   })
 
   it('reports nothing while merely falling, above the floor', () => {
-    const falling = { ...spawnEnemy('a', AT(0, 20), C), position: new Vector3(0, 0, 0), grounded: false }
+    const falling = { ...spawnEnemy('a', AT(0, 20), 'spear', C), position: new Vector3(0, 0, 0), grounded: false }
     const step = stepEnemy(falling, AT(0, -10), emptyAir, FLOOR, 1 / 60, C)
     expect(step.fellOutOfWorld).toBe(false)
     expect(isDowned(step.enemy.health)).toBe(false)
   })
 
   it('reports the removal on the frame it crosses the floor, and downs it', () => {
-    const brink = { ...spawnEnemy('a', AT(0, 20), C), position: new Vector3(0, BRINK, 0), grounded: false }
+    const brink = { ...spawnEnemy('a', AT(0, 20), 'spear', C), position: new Vector3(0, BRINK, 0), grounded: false }
     const step = stepEnemy(brink, AT(0, -10), emptyAir, FLOOR, 1 / 60, C)
     expect(step.fellOutOfWorld).toBe(true)
     expect(isDowned(step.enemy.health)).toBe(true)
@@ -358,7 +360,7 @@ describe('reporting an environmental removal', () => {
   it('reports it exactly once, not on every frame afterwards', () => {
     // The latching bug this test exists for: a flag that stays true pays Focus every
     // frame for one event, and a parked body sits below the floor forever.
-    let current = { ...spawnEnemy('a', AT(0, 20), C), position: new Vector3(0, BRINK, 0), grounded: false }
+    let current = { ...spawnEnemy('a', AT(0, 20), 'spear', C), position: new Vector3(0, BRINK, 0), grounded: false }
     const reports: boolean[] = []
     for (let i = 0; i < 20; i++) {
       const step = stepEnemy(current, AT(0, -10), emptyAir, FLOOR, 1 / 60, C)
@@ -373,7 +375,7 @@ describe('reporting an environmental removal', () => {
     // It was removed by a gust and already paid for. Reporting the fall as well would
     // pay twice for one soldier.
     const corpse = {
-      ...spawnEnemy('a', AT(0, 20), C),
+      ...spawnEnemy('a', AT(0, 20), 'spear', C),
       position: new Vector3(0, BRINK, 0),
       grounded: false,
       health: { current: 0, max: 1.5, sinceHit: 0 },
@@ -394,7 +396,7 @@ describe('the ground snap does not grab a body from mid-air', () => {
     // fall brought it back within snapDistance of the ground it would pop onto the
     // ground early -- landing several frames before it actually reached it, which
     // for a multi-metre Vortex lift would be a visible teleport underfoot.
-    const lifted = hitEnemy(spawnEnemy('a', AT(0, 0), C), 0, new Vector3(0, 11, 0))
+    const lifted = hitEnemy(spawnEnemy('a', AT(0, 0), 'spear', C), 0, new Vector3(0, 11, 0))
     let enemy = lifted
     let sawSmallGapWhileAirborne = false
     for (let t = 0; t < 3; t += 1 / 60) {
@@ -420,23 +422,23 @@ describe('the ground snap does not grab a body from mid-air', () => {
 
 describe('getting back up', () => {
   it('pushes up after the countdown', () => {
-    const enemy = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.1)
+    const enemy = settle(down(spawnEnemy('a', AT(0, 20), 'spear', C)), C.downedSeconds + 0.1)
     expect(enemy.stance).toBe('rising')
   })
 
   it('is still flat a moment before the countdown ends', () => {
-    const enemy = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds - 0.5)
+    const enemy = settle(down(spawnEnemy('a', AT(0, 20), 'spear', C)), C.downedSeconds - 0.5)
     expect(enemy.stance).toBe('downed')
   })
 
   it('restores the first rung of the ladder when the push-up finishes', () => {
-    const enemy = settle(down(spawnEnemy('a', AT(0, 20), C)), FULL_RECOVERY + 0.1)
+    const enemy = settle(down(spawnEnemy('a', AT(0, 20), 'spear', C)), FULL_RECOVERY + 0.1)
     expect(enemy.stance).toBe('advance')
     expect(enemy.health.current).toBeCloseTo(C.maxHealth * C.recoveryHealthFractions[0]!)
   })
 
   it('restores the second rung on the second recovery, so the ladder descends', () => {
-    const first = settle(down(spawnEnemy('a', AT(0, 20), C)), FULL_RECOVERY + 0.1)
+    const first = settle(down(spawnEnemy('a', AT(0, 20), 'spear', C)), FULL_RECOVERY + 0.1)
     const second = settle(down(first), FULL_RECOVERY + 0.1)
     expect(second.stance).toBe('advance')
     expect(second.health.current).toBeCloseTo(C.maxHealth * C.recoveryHealthFractions[1]!)
@@ -444,7 +446,7 @@ describe('getting back up', () => {
   })
 
   it('stays down for good once the ladder is spent', () => {
-    let enemy = down(spawnEnemy('a', AT(0, 20), C))
+    let enemy = down(spawnEnemy('a', AT(0, 20), 'spear', C))
     for (const _ of C.recoveryHealthFractions) enemy = down(settle(enemy, FULL_RECOVERY + 0.1))
     // Several more countdowns' worth: a soldier past the last rung never rises again.
     expect(settle(enemy, FULL_RECOVERY * 3).stance).toBe('downed')
@@ -452,7 +454,7 @@ describe('getting back up', () => {
 
   it('does not count down while still in the air', () => {
     // Downed mid-Vortex: the body has to land before it starts recovering.
-    const lifted = { ...down(spawnEnemy('a', AT(0, 20), C)), position: AT(0, 20).setY(40) }
+    const lifted = { ...down(spawnEnemy('a', AT(0, 20), 'spear', C)), position: AT(0, 20).setY(40) }
     const enemy = settle(lifted, 1)
     expect(enemy.stance).toBe('downed')
     expect(enemy.stanceTime).toBe(0)
@@ -461,7 +463,7 @@ describe('getting back up', () => {
   it('deals no damage and does not close while pushing up', () => {
     // A rising soldier is inert. Player placed inside strikeRange to prove it.
     const onTop = AT(0, 20)
-    const rising = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.1)
+    const rising = settle(down(spawnEnemy('a', AT(0, 20), 'spear', C)), C.downedSeconds + 0.1)
     const step = stepEnemy(rising, onTop, flatGround, FLOOR, 1 / 60, C)
     expect(step.damageToPlayer).toBe(0)
     expect(step.enemy.position.x).toBeCloseTo(rising.position.x)
@@ -471,13 +473,13 @@ describe('getting back up', () => {
   it('faces the player from the moment it starts pushing up', () => {
     // Otherwise it comes up aimed wherever it fell and snaps round on its first
     // advance frame.
-    const enemy = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.1)
+    const enemy = settle(down(spawnEnemy('a', AT(0, 20), 'spear', C)), C.downedSeconds + 0.1)
     // `settle` puts the player at AT(0, 500), so the heading is +z.
     expect(enemy.facing.z).toBeGreaterThan(0.9)
   })
 
   it('goes straight back down when hit during the push-up', () => {
-    const rising = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.5)
+    const rising = settle(down(spawnEnemy('a', AT(0, 20), 'spear', C)), C.downedSeconds + 0.5)
     expect(rising.stance).toBe('rising')
     const interrupted = hitEnemy(rising, 0.1, new Vector3())
     expect(interrupted.stance).toBe('downed')
@@ -487,7 +489,7 @@ describe('getting back up', () => {
   it('does not spend a rung on an interrupted push-up', () => {
     // The ruling: interrupting buys time, it does not substitute for damage. So the
     // next rise has to come back at the SAME rung, not the next one down.
-    const rising = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.5)
+    const rising = settle(down(spawnEnemy('a', AT(0, 20), 'spear', C)), C.downedSeconds + 0.5)
     const interrupted = hitEnemy(rising, 0.1, new Vector3())
     expect(interrupted.downs).toBe(1)
     const risenAgain = settle(interrupted, FULL_RECOVERY + 0.1)
@@ -495,13 +497,13 @@ describe('getting back up', () => {
   })
 
   it('never rises once it has left the world', () => {
-    const fallen = settle(spawnEnemy('a', AT(0, 20), C), 5, emptyAir)
+    const fallen = settle(spawnEnemy('a', AT(0, 20), 'spear', C), 5, emptyAir)
     expect(isDowned(fallen.health)).toBe(true)
     expect(settle(fallen, FULL_RECOVERY * 2, emptyAir).stance).toBe('downed')
   })
 
   it('counts a down only on the crossing, not on every hit to a body', () => {
-    const first = down(spawnEnemy('a', AT(0, 20), C))
+    const first = down(spawnEnemy('a', AT(0, 20), 'spear', C))
     expect(first.downs).toBe(1)
     expect(hitEnemy(first, C.maxHealth, new Vector3()).downs).toBe(1)
   })
@@ -516,7 +518,7 @@ describe('getting back up', () => {
     // `C`) so the zero-rung config actually reaches `stepEnemy`.
     const zeroRung: EnemyConfig = { ...C, recoveryHealthFractions: [0] }
     const far = AT(0, 500)
-    let enemy = down(spawnEnemy('a', AT(0, 20), zeroRung))
+    let enemy = down(spawnEnemy('a', AT(0, 20), 'spear', zeroRung))
     for (let t = 0; t < FULL_RECOVERY * 3; t += 1 / 60) {
       enemy = stepEnemy(enemy, far, flatGround, FLOOR, 1 / 60, zeroRung).enemy
     }
@@ -524,52 +526,185 @@ describe('getting back up', () => {
     expect(isDowned(enemy.health)).toBe(true)
   })
 
-  it('takes strictly fewer gusts to put down at each rung, and one at the last', () => {
-    // The feel claim from the spec, phrased so retuning the numbers cannot silently
-    // invert the ladder. Uses the real config, not this file's fixture.
-    const { enemy: E, gust } = DEFAULT_COMBAT_CONFIG
-    const gustsToDown = (health: number) => Math.ceil(health / gust.damage)
-    const rungs = [1, ...E.recoveryHealthFractions].map((f) => gustsToDown(E.maxHealth * f))
-    for (let i = 1; i < rungs.length; i++) expect(rungs[i]).toBeLessThan(rungs[i - 1]!)
-    expect(rungs[rungs.length - 1]).toBe(1)
-  })
+  // Both kinds, because the ladder is per-kind config and the claim has to hold for each
+  // of them. The archer carries the same fractions against a smaller maxHealth, so it is
+  // not a copy of the spear's arithmetic.
+  for (const kind of ['spear', 'archer'] as const) {
+    it(`takes strictly fewer gusts to put a ${kind} down at each rung, and one at the last`, () => {
+      // The feel claim from the spec, phrased so retuning the numbers cannot silently
+      // invert the ladder. Uses the real config, not this file's fixture.
+      const { gust } = DEFAULT_COMBAT_CONFIG
+      const E = DEFAULT_COMBAT_CONFIG.enemies[kind]
+      const gustsToDown = (health: number) => Math.ceil(health / gust.damage)
+      const rungs = [1, ...E.recoveryHealthFractions].map((f) => gustsToDown(E.maxHealth * f))
+      for (let i = 1; i < rungs.length; i++) expect(rungs[i]).toBeLessThan(rungs[i - 1]!)
+      expect(rungs[rungs.length - 1]).toBe(1)
+    })
+  }
 })
 
 describe('isTargetable', () => {
   it('is true for a soldier on its feet', () => {
-    expect(isTargetable(spawnEnemy('a', AT(0, 0), C))).toBe(true)
+    expect(isTargetable(spawnEnemy('a', AT(0, 0), 'spear', C))).toBe(true)
   })
 
   it('is false for a body on the ground', () => {
-    expect(isTargetable(down(spawnEnemy('a', AT(0, 0), C)))).toBe(false)
+    expect(isTargetable(down(spawnEnemy('a', AT(0, 0), 'spear', C)))).toBe(false)
   })
 
   it('is true for one pushing back up, which is what makes the interrupt reachable', () => {
-    const rising = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.1)
+    const rising = settle(down(spawnEnemy('a', AT(0, 20), 'spear', C)), C.downedSeconds + 0.1)
     expect(isTargetable(rising)).toBe(true)
   })
 })
 
 describe('risingProgress', () => {
   it('is nothing for a soldier that is not pushing up', () => {
-    expect(risingProgress(spawnEnemy('a', AT(0, 0), C), C)).toBe(0)
+    expect(risingProgress(spawnEnemy('a', AT(0, 0), 'spear', C), C)).toBe(0)
   })
 
   it('runs from nothing to all of it across the push-up', () => {
-    const rising = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.1)
+    const rising = settle(down(spawnEnemy('a', AT(0, 20), 'spear', C)), C.downedSeconds + 0.1)
     expect(risingProgress(rising, C)).toBeLessThan(0.2)
     expect(risingProgress({ ...rising, stanceTime: C.risingSeconds }, C)).toBe(1)
   })
 
   it('clamps rather than overshooting the pose', () => {
-    const rising = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.1)
+    const rising = settle(down(spawnEnemy('a', AT(0, 20), 'spear', C)), C.downedSeconds + 0.1)
     expect(risingProgress({ ...rising, stanceTime: C.risingSeconds * 5 }, C)).toBe(1)
   })
 
   it('is nothing for a zero-length rise rather than a NaN', () => {
     // The value multiplies into a rotation, where a NaN corrupts the matrix instead of
     // merely looking wrong.
-    const rising = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.1)
+    const rising = settle(down(spawnEnemy('a', AT(0, 20), 'spear', C)), C.downedSeconds + 0.1)
     expect(risingProgress(rising, { ...C, risingSeconds: 0 })).toBe(0)
+  })
+})
+
+describe('a melee attack reaches horizontally, as it always has', () => {
+  it('thrusts at a player just in reach', () => {
+    // The existing behaviour, restated so the refactor cannot quietly change it.
+    const near = { ...spawnEnemy('a', AT(0, 0), 'spear', C), stance: 'wind-up' as const, stanceTime: 999 }
+    const step = stepEnemy(near, new Vector3(0, 0, -2), flatGround, FLOOR, 1 / 60, C)
+    expect(step.damageToPlayer).toBeGreaterThan(0)
+    expect(step.firedProjectile).toBe(null)
+  })
+
+  it('still thrusts at a player almost directly overhead', () => {
+    // A spear's reach is horizontal and must stay so: 2 units away, 20 units up is a
+    // hit today, and this refactor must not turn it into a miss.
+    const near = { ...spawnEnemy('a', AT(0, 0), 'spear', C), stance: 'wind-up' as const, stanceTime: 999 }
+    const step = stepEnemy(near, new Vector3(0, 20, -2), flatGround, FLOOR, 1 / 60, C)
+    expect(step.damageToPlayer).toBeGreaterThan(0)
+  })
+})
+
+describe('a projectile attack reaches in three dimensions', () => {
+  // A deliberately distinct strikeRange from anything shipped, so an assertion that
+  // accidentally read the real config instead of this one would be visible.
+  const ARCHER: EnemyConfig = {
+    ...C,
+    strikeRange: 30,
+    aggroRange: 60,
+    attack: { kind: 'projectile', damage: 0.4, speed: 20 },
+  }
+
+  it('fires at a player inside its range', () => {
+    const archer = {
+      ...spawnEnemy('a', AT(0, 0), 'archer', ARCHER), stance: 'wind-up' as const, stanceTime: 999,
+    }
+    const step = stepEnemy(archer, new Vector3(0, 0, -10), flatGround, FLOOR, 1 / 60, ARCHER)
+    expect(step.firedProjectile).not.toBe(null)
+    // The arrow carries the damage, not this frame.
+    expect(step.damageToPlayer).toBe(0)
+  })
+
+  it('does NOT fire at a player overhead beyond its range', () => {
+    // The whole point of the type. Horizontal distance here is 0, so under the old
+    // horizontal-only measurement this would be inside ANY range and the archer would
+    // be inescapable by climbing. True distance is 40, outside the 30 above.
+    const archer = {
+      ...spawnEnemy('a', AT(0, 0), 'archer', ARCHER), stance: 'wind-up' as const, stanceTime: 999,
+    }
+    const step = stepEnemy(archer, new Vector3(0, 40, 0), flatGround, FLOOR, 1 / 60, ARCHER)
+    expect(step.firedProjectile).toBe(null)
+  })
+
+  it('does fire at a player overhead inside its range', () => {
+    // The other half: height is not a magic shield, only distance is.
+    //
+    // 20 out and 18 up: horizontal 20, true distance 26.9, both inside the 30 above.
+    // A player directly overhead would be at horizontal distance 0 and would fire under
+    // either measurement, which is why this one stands off to the side -- the pairing
+    // with the test below, at the same horizontal offset and a greater height, is what
+    // makes altitude the only difference between firing and not.
+    const archer = {
+      ...spawnEnemy('a', AT(0, 0), 'archer', ARCHER), stance: 'wind-up' as const, stanceTime: 999,
+    }
+    const step = stepEnemy(archer, new Vector3(0, 18, -20), flatGround, FLOOR, 1 / 60, ARCHER)
+    expect(step.firedProjectile).not.toBe(null)
+  })
+
+  it('stops firing at that same player once they climb higher', () => {
+    // The sibling of the test above, differing only in altitude: 20 out in both cases,
+    // 18 up there and 25 up here, which puts true distance at 32.0 -- outside the 30.
+    // Under a horizontal-only measurement both are at distance 20 and both fire, so this
+    // pair is what pins the split rather than the degenerate directly-overhead case.
+    const archer = {
+      ...spawnEnemy('a', AT(0, 0), 'archer', ARCHER), stance: 'wind-up' as const, stanceTime: 999,
+    }
+    const step = stepEnemy(archer, new Vector3(0, 25, -20), flatGround, FLOOR, 1 / 60, ARCHER)
+    expect(step.firedProjectile).toBe(null)
+  })
+
+  it('aims in 3D, so a shot at a hovering player climbs', () => {
+    const archer = {
+      ...spawnEnemy('a', AT(0, 0), 'archer', ARCHER), stance: 'wind-up' as const, stanceTime: 999,
+    }
+    const step = stepEnemy(archer, new Vector3(0, 20, -10), flatGround, FLOOR, 1 / 60, ARCHER)
+    const shot = step.firedProjectile
+    if (!shot) throw new Error('the archer should have fired')
+    // A flattened direction would have y exactly 0, which is the bug this catches.
+    expect(shot.direction.y).toBeGreaterThan(0.5)
+    expect(shot.direction.length()).toBeCloseTo(1, 5)
+  })
+
+  it('leaves facing horizontal on the very frame it aims up', () => {
+    // facing drives the rig's yaw via atan2(x, z) and must stay a horizontal heading,
+    // while the shot itself climbs. Both halves are asserted on one frame on purpose:
+    // `facing.y === 0` alone holds for every possible input, because horizontalTo builds
+    // its vector as (dx, 0, dz) and even its degenerate fallback is (0, 0, -1) -- so on a
+    // frame where nothing fires it is not a claim about anything. Pairing it with the
+    // climb makes it contingent on the firing path having actually run.
+    //
+    // 10 out and 20 up is a true distance of 22.4, inside the 30 above. The previous
+    // fixture stood at 40 up, a true distance of 41.2, where the archer never fired.
+    const archer = {
+      ...spawnEnemy('a', AT(0, 0), 'archer', ARCHER), stance: 'wind-up' as const, stanceTime: 999,
+    }
+    const step = stepEnemy(archer, new Vector3(0, 20, -10), flatGround, FLOOR, 1 / 60, ARCHER)
+    const shot = step.firedProjectile
+    if (!shot) throw new Error('the archer should have fired')
+    expect(shot.direction.y).toBeGreaterThan(0.5)
+    expect(step.enemy.facing.y).toBe(0)
+  })
+
+  it('notices in three dimensions too', () => {
+    // aggroRange must be 3D for the same reason strikeRange is: a player hovering
+    // overhead is at horizontal distance 0 and would otherwise always be noticed,
+    // however high. 60 is this fixture's aggroRange, so 80 up is outside it and the
+    // archer should hold station rather than close.
+    const archer = {
+      ...spawnEnemy('a', new Vector3(5, 0, 5), 'archer', ARCHER), stance: 'advance' as const,
+    }
+    const step = stepEnemy(archer, new Vector3(5, 80, 5), flatGround, FLOOR, 1 / 60, ARCHER)
+    expect(step.enemy.position.x).toBeCloseTo(5)
+    expect(step.enemy.position.z).toBeCloseTo(5)
+    // Position alone does not distinguish "held station" from "in wind-up but yet to
+    // move": under a horizontal-only measurement, distance reads as 0 here, which is
+    // inside strikeRange too, so it would wind up on this very frame rather than hold.
+    // Stance is what actually pins "still just advancing, not noticing yet".
+    expect(step.enemy.stance).toBe('advance')
   })
 })

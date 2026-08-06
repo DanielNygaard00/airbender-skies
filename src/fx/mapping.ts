@@ -61,10 +61,40 @@ export const COMBAT_LEVELS = {
   impact: 0.3,
   down: 0.36,
   hurt: 0.4,
+  /** An archer loosing. Louder than a staff swing, since it is a warning; below hurt. */
+  bowRelease: 0.24,
 } as const
 
 export function swingLevel(finisher: boolean): number {
   return finisher ? COMBAT_LEVELS.finisher : COMBAT_LEVELS.swing
+}
+
+/**
+ * The loudest a bow release may be, however many archers loose on one frame.
+ *
+ * Under the 0.5 every voice in `COMBAT_LEVELS` is held to, with a little margin, because
+ * this is the only voice whose level is not a constant.
+ */
+export const BOW_RELEASE_CEILING = 0.48
+
+/**
+ * Gain for every release that happened on one frame, played as a single burst.
+ *
+ * A count rather than one call per arrow, and this is the whole reason the function
+ * exists. Every other voice fires once per frame regardless of how many events fed it;
+ * the bow release used to fire once per arrow, and each call builds a fresh chain into a
+ * master at gain 1. Two arrows on one frame therefore produced two bit-identical bursts
+ * starting at the same `currentTime`, which sum coherently rather than blending: 2 × 0.24
+ * = 0.48 against the 0.5 ceiling, and a third clipped outright. Two equidistant archers
+ * on the shipped patrol phase-lock on their identical cycle and do this repeatedly.
+ *
+ * Growth is by the square root of the count, the way uncorrelated sources add, so a
+ * volley reads as bigger than one shot without the level being a straight multiple of
+ * it. Hard-capped on top, so the number of archers on screen can never clip the mix.
+ */
+export function bowReleaseLevel(count: number): number {
+  if (!Number.isFinite(count) || count < 1) return 0
+  return Math.min(BOW_RELEASE_CEILING, COMBAT_LEVELS.bowRelease * Math.sqrt(count))
 }
 
 export function swingSeconds(finisher: boolean): number {

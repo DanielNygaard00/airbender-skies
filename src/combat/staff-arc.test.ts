@@ -5,11 +5,11 @@ import { spawnEnemy, horizontalDistance } from './enemy'
 import { DEFAULT_COMBAT_CONFIG } from './config'
 
 const A = DEFAULT_COMBAT_CONFIG.staffArc
-const E = DEFAULT_COMBAT_CONFIG.enemy
+const E = DEFAULT_COMBAT_CONFIG.enemies.spear
 const ORIGIN = new Vector3(0, 0, 0)
 const NORTH = new Vector3(0, 0, -1)
 const at = (x: number, z: number) => new Vector3(x, 0, z)
-const enemyAt = (id: string, x: number, z: number) => spawnEnemy(id, at(x, z), E)
+const enemyAt = (id: string, x: number, z: number) => spawnEnemy(id, at(x, z), 'spear', E)
 
 describe('staffShape', () => {
   it('sweeps wider and further on the finisher', () => {
