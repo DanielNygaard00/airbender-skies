@@ -830,6 +830,24 @@ The patrol now sits further out: spears at radius 34 to 36, archers at radius 55
 units of margin, so nothing engages a motionless player, and the first arrow now waits until the
 player has walked roughly 15 units toward the group.
 
+**The patrol is still findable from the spawn, and that was checked rather than assumed.** Moving
+soldiers outward risks hiding them behind the island's own crest, which rises from about 7.9 units
+at the centre to roughly 10.7 at radius 30 before falling away — so this needed measuring in the
+running game. Standing at the spawn without touching anything, two of the three spears are inside
+the camera frustum at 39.3 and 41.5 units with no mesh between the camera and them; the third is
+off-frame to the right, at normalised device x of 1.384. Both archers project on screen but are
+occluded, one behind another soldier's body and one behind terrain, which is what being the back
+rank should look like. The soldiers land at a vertical pixel of 254 to 265 in a 720-tall canvas
+against a horizon probe at 181, so they read as figures standing on the ground below the skyline
+rather than as specks on it.
+
+A warning for anyone repeating that check: at this distance a 1.8-unit soldier is a handful of
+pixels and reads as scenery. A first pass over the same screenshot concluded the patrol was hidden,
+which was wrong — the frustum test and the occlusion raycast are the mechanisms to trust here, and
+a screenshot alone is not one. The camera's drawing buffer is also 2560×1440 against a 1280×720 CSS
+size, so projected pixel coordinates need scaling before they can be compared against a captured
+image at all.
+
 `patrol-placement.test.ts` is the guard, and it needs the real island geometry rather than a
 fixture: a soldier's distance from the spawn depends on the terrain height under both, so the
 property cannot be read off the coordinates alone. It also pins that the archers stay behind the
