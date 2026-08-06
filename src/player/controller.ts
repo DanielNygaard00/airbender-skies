@@ -281,7 +281,20 @@ export function controllerStep(
     input.slipstreamPressed,
     // Posture-aware: on foot the movement keys are walk and strafe, but in the glider
     // they are thrust and bank, so `dodgeHeading` reads only what means direction there.
-    dodgeHeading(next.mode, next.forward, input.lookDirection, input.forward, input.strafe),
+    dodgeHeading(
+      next.mode, next.forward, input.lookDirection, input.forward, input.strafe,
+      // The same 0.6 flightStep uses to turn strafe into bank a few lines up. Not shared
+      // through a constant because it doesn't read naturally as one here, but this is one
+      // of three call sites carrying this literal -- the other two are `main.ts`'s
+      // dodge-streak effect, which resolves the same dodge for drawing, and `flightStep`'s
+      // own bank field above -- and all three are meant to move together if bank
+      // responsiveness is ever retuned.
+      input.strafe * 0.6,
+    ),
+    // Read after the posture branches, so this is the breath the branch settled: the
+    // glider's drain from thrust or hover, or the ground branch's regeneration. A
+    // pre-step value would let a player spend breath the same frame they ran out of it.
+    next.breath,
     dt,
     deps.slipstream,
   )
@@ -290,6 +303,11 @@ export function controllerStep(
     slipstreamElapsed: slip.state.elapsed,
     slipstreamCooldown: slip.state.cooldown,
     velocity: slip.impulse ? next.velocity.clone().add(slip.impulse) : next.velocity,
+    // Breath cannot go negative here — canSlipstream already refuses to fire below
+    // c.breathCost, and the firing branch spends exactly that — but the clamp is the
+    // safe answer if that gate and this deduction ever drift apart, because a negative
+    // bar would read as a permanently unusable dodge.
+    breath: Math.max(0, next.breath - slip.breathSpent),
   }
 
   return isFinitePlayer(next) ? next : safeRespawn(state, deps)

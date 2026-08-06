@@ -3,11 +3,12 @@
 Written 2026-07-31, updated 2026-08-04 for the enemy health bars, updated 2026-08-05
 for the impact feel and encounter lifecycle work, and again 2026-08-05 for the aim tell and
 stall readability work, and again 2026-08-06 for archers and projectiles, and again
-2026-08-06 for terrain collision. This is a recap for whoever picks the project up next,
-including a future session with no memory of the work below.
+2026-08-06 for terrain collision, and again 2026-08-06 for the Slipstream breath cost. This
+is a recap for whoever picks the project up next, including a future session with no memory
+of the work below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 1334 tests across 85 files,
+**Repo state:** 1367 tests across 86 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -1082,6 +1083,121 @@ which overestimates by roughly 24% on a glancing hit — harmless today because 
 pass re-sweeps regardless, but it sets that pass's budget more generously than the
 geometry actually calls for.
 
+**The Slipstream dodge cost nothing, and now it does.** Nothing else in the game gives speed
+for free — thrust costs 18 breath a second, hovering costs 30 — but the dodge added 30 m/s on a
+1.5 s cooldown with no cost and no gate. Measured over forty seconds from y 300 at 30 m/s: a
+plain glide ends at y 151, 23.1 m/s, breath full, total energy at ×0.51 of where it started,
+which is what a glide is supposed to do. Chain-dodging on cooldown against the old code ended at
+y 434, 76.9 m/s, breath still **full**, energy at ×1.81 — a 134-metre climb with the resource
+meant to gate flight left completely untouched, a perpetual-motion machine. `flight.ts`'s lift
+fallback carries a comment insisting a lift direction stay perpendicular to velocity, because a
+component along the flight path "would do work and inject energy, breaking the invariant that
+gliding never gains height" — that invariant holds inside `flightStep` and was broken one call
+up, in `controllerStep`, where the dodge impulse is added after the integrator has already run.
+
+**Two changes closed it.** `SlipstreamConfig` gains `breathCost`; `canSlipstream` refuses to fire
+below it, and firing deducts it. And the glider's dodge now goes along the glider's own right
+axis, banked by the glider's real bank, instead of falling back to a flattened forward heading —
+`gliderRight`, a new export beside `gliderUp` in `flight.ts`, gives `dodgeHeading` a genuine
+lateral axis in three dimensions rather than a flattened one.
+
+**`breathCost` is 28, chosen against thrust.** Thrust buys `thrustAccel` 22 m/s² for
+`breathDrainPerSecond` 18 — a ratio of 1.22 (m/s²) per (breath/s). A dodge buys 30 m/s over its
+own 1.5 s cooldown for `breathCost` spent over that same 1.5 s, a ratio of `30 / breathCost`. The
+two break even at a cost of 25; 28 sits just past it, so thrust stays the efficient way to gain
+speed and the dodge is what gets spent for the invulnerability, not for the altitude. The test
+that pins this ordering reads the ratio against the live thrust config rather than against the
+literal 1.22 or 1.07, specifically so a later retune of thrust's own numbers cannot silently flip
+the ordering and make chain-dodging optimal again without reddening anything.
+
+**The gate is hard, and being caught unable to dodge is deliberate.** Below 28 breath the press
+does nothing at all — not even the cooldown is spent — so spending breath on thrust becomes a
+decision with a defensive cost, which is the tension the resource exists for.
+
+**One rule, and the two postures differ for free.** The cost applies in both, but breath
+regenerates at 12/s in the air against 30/s on the ground, because
+`breathRegenGroundedMultiplier` is 2.5. On foot the 28 is repaid in 0.93 s, comfortably inside
+the dodge's own 1.5 s cooldown, so the ground dodge stays as freely available as it was before.
+In the glider the same 28 takes 2.33 s to earn back — longer than the cooldown — so chaining it
+in the air runs the bar down. Neither posture needed a special case; the difference falls out of
+a multiplier that already existed for an unrelated reason.
+
+**After the fix, a single dodge still climbs, but the climb cannot outrun gravity, and that
+bound is structural rather than a lucky choice of test input.** A banked dodge's vertical kick is
+about 17 m/s. Gravity removes 30 m/s over the dodge's own 1.5 s cooldown — and the breath cost
+stretches the *sustainable* interval between dodges to 2.33 s, over which gravity removes 46.7
+m/s. The kick cannot outrun that gap regardless of how a player times it. Sweeping eight dodge
+patterns over forty seconds from y 300 at 30 m/s, measuring only while still in the glider:
+
+| pattern | peak y | end y | breath |
+|---|---|---|---|
+| no strafe | 300.0 | −524.4 | 19.8 |
+| strafe held either side | 337.4 | −211.5 | 19.8 |
+| strafe only on the dodge frame | 301.4 | −284.0 | 19.8 |
+| alternating every dodge | 332.3 | −136.0 | 19.8 |
+| alternating every second | 317.8 | −243.8 | 19.8 |
+| half strafe held | 316.8 | −369.1 | 19.8 |
+
+Twenty dodges landed in the forty seconds, down from twenty-seven when the cost was
+neutralised. The best case across the sweep is a **+37 m transient** — the only pattern that
+rises above the y 300 start at all, and only briefly — and every pattern ends far below where it
+started, with the breath bar run down to 19.8 across the board. The old exploit's shape — climb,
+and keep the bar full — has not reopened in any of the patterns tried.
+
+**Three things in this cycle were my own errors, and are recorded honestly rather than folded
+quietly into the fixes above.**
+
+First, `breathCost`'s ordering against thrust is pinned by a test that reads the live thrust
+config rather than the literal 1.22/1.07 numbers, precisely because those numbers are cheap to
+get wrong twice — once when they're chosen, and again whenever thrust itself is retuned.
+
+Second, the design spec was self-contradictory about the glider dodge's direction. It called for
+`gliderRight(forward, 0)` and separately asserted that a dodge thrown in a dive keeps a vertical
+component. Those cannot both hold: by the identity `cross(cross(a,b),c) = b(a·c) − a(b·c)`, a
+bank-0 call to `gliderRight` reduces to `cross(forward, WORLD_UP)`, which is horizontal for
+*every* heading, dive included. The spec
+([`docs/superpowers/specs/2026-08-06-dodge-costs-breath-design.md`](superpowers/specs/2026-08-06-dodge-costs-breath-design.md))
+has been corrected: `dodgeHeading` now takes the glider's actual bank as a sixth parameter and
+threads it straight through to `gliderRight`, so a level dodge — even in a dive — stays flat, and
+a banked one tilts.
+
+Third, `gliderRight` initially returned the glider's *left*, not its right. Same identity again:
+`cross(gliderUp(forward, bank), forward)` is `-right` by the vector triple product, where
+`gliderUp` derives its own internal `right` as `cross(forward, WORLD_UP)` — the same expression
+the ground dodge already used. Player-facing, that meant `D` dodged world-right on foot and
+world-left in the glider, the same key producing opposite results depending on posture alone. It
+survived a full review because every existing test asserted perpendicularity and a side-flip
+between the two strafe directions, and neither property can distinguish a vector from its own
+negation. The fix (`src/player/flight.ts:47`, swapping the cross order to
+`crossVectors(forward, gliderUp(forward, bank))`) added a test that checks an actual direction
+against the ground dodge's own right — that is the transferable lesson, not the specific sign.
+
+**Fixing that sign reversed a ruling made one round earlier.** With the buggy sign, a banked
+dodge measurably descended on both sides (`(0.825, -0.565, 0)` left, `(-0.825, -0.565, 0)`
+right), and that was ruled *intended* — dodging toward the inside of your own bank descending is
+physically legible, and letting the side pick a climb instead would hand back exactly the kind of
+free altitude this cycle exists to close. Negating the whole vector to fix the handedness flips
+every component, not just the one that exposed the bug, so the same coupling now climbs on both
+sides instead. The eight-pattern sweep above is what was run afterward to check whether that
+reversal reopens the exploit it had previously been ruled safe against. It does not.
+
+**The guide panel already described the dodge correctly; the code didn't match it until this
+cycle.** `src/ui/guide/actions.ts` has told players, since before this cycle started, "in the
+glider, bank left or right to dodge sideways, since thrust and flare are not directions" — the
+lateral, bank-driven dodge this cycle actually built. The code it was describing instead
+flattened to a forward heading whenever no strafe was held. Worth recording as a case where the
+documentation was the reliable artifact and the implementation was the one that needed to catch
+up.
+
+**What is not fixed.** A single dodge still adds 30 m/s and is not energy-neutral; the breath
+cost bounds the *repeated* exploit, not the one-shot kick. The `0.6` bank literal — how strongly
+strafe becomes roll — now appears three times (`controller.ts` twice, `main.ts` once), and the
+three have to move together; none is a shared constant, each site carries a comment saying so.
+And the in-game feel of all of this is unverified: the browser harness cannot hold pointer lock,
+so no part of this cycle — the breath drain, the gate, the tilt, the sweep above — has been
+played with a mouse in hand. Every number above comes from the synthetic-controller harness the
+terrain collision and Focus work already used, not from a human.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
@@ -1274,6 +1390,15 @@ could and couldn't distinguish, not by trusting the plan's own justification for
 would work — and every fix was then confirmed by running the neutralisation and watching
 the suite actually redden, rather than by re-reading the new assertion and judging it
 plausible.
+
+**The dodge-costs-breath cycle's review turned up a seventh assertion of that exact shape.**
+`slipstream.test.ts`'s `'in the glider, banking dodges sideways rather than along the heading'`
+passed against both the fixed code and the pre-fix buggy branch, because for the heading it
+exercised, the old flattened fallback and the corrected `gliderRight(forward, 0)` happen to
+return the identical `(0, 0, 1)` — dot zero and unit length against that heading, both true
+either way. Same failure as the terrain collision cycle's five above it: a relationship that
+both the correct and the broken implementation satisfy. The fix, as always, was reading what the
+test could actually distinguish rather than trusting that a green run meant the claim was true.
 
 ## Suggested next steps
 

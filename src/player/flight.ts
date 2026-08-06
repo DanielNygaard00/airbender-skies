@@ -24,6 +24,31 @@ export function gliderUp(forward: Vector3, bank: number): Vector3 {
 }
 
 /**
+ * The glider's right axis: the third leg of the frame `gliderUp` builds.
+ *
+ * Derived from `gliderUp` rather than recomputed from a world-up cross, and the
+ * difference matters. `cross(forward, WORLD_UP)` is horizontal for every heading, so a
+ * dodge along it would be flat however far the glider was rolled. Rolling the up axis
+ * and taking the cross against forward carries the bank through, and it inherits
+ * `gliderUp`'s handling of a vertical heading rather than needing its own.
+ *
+ * The argument order is `crossVectors(forward, up)`, not `crossVectors(up, forward)` --
+ * this was flipped once and shipped, and the bug was invisible to every test that only
+ * checked perpendicularity or a side-flip, because both hold for either sign. The tell
+ * was handedness against a known heading: `gliderUp` derives an internal `right` at
+ * `flight.ts:19` (`cross(forward, WORLD_UP)`), which is the same expression
+ * `slipstreamHeading` uses for the ground dodge's right, so it is the frame's true right.
+ * `cross(cross(right, forward), forward)` -- what the old order computed for bank 0 -- is
+ * `forward*(right·forward) - right*(forward·forward) = -right` by the vector triple
+ * product identity, since `right ⊥ forward` and `forward` is unit. `cross(forward, up)`
+ * is `right*(forward·forward) - forward*(right·forward) = right`, the sign this function
+ * is supposed to return.
+ */
+export function gliderRight(forward: Vector3, bank: number): Vector3 {
+  return new Vector3().crossVectors(forward, gliderUp(forward, bank)).normalize()
+}
+
+/**
  * Signed angle between where the glider points and where it is moving.
  * Positive means the nose is above the flight path, which is what generates lift.
  */

@@ -448,6 +448,36 @@ describe('slipstream', () => {
     const broken = player({ position: new Vector3(Number.NaN, 0, 0), slipstreamElapsed: 0.05 })
     expect(controllerStep(broken, input(), 1 / 60, deps(flatGround)).slipstreamElapsed).toBeNull()
   })
+
+  it('deducts breath on a successful dodge', () => {
+    const full = player({ breath: 100 })
+    const dodged = controllerStep(
+      full, input({ slipstreamPressed: true }), 1 / 60, deps(flatGround),
+    )
+    expect(dodged.breath).toBe(100 - DEFAULT_SLIPSTREAM_CONFIG.breathCost)
+  })
+
+  it('will not fire without enough breath', () => {
+    // Margin of 1 rather than a hair under the cost: ground regen adds a little breath
+    // back before the dodge is evaluated this same frame, and a too-thin margin would
+    // let that regen alone carry the player over the line.
+    const winded = player({ breath: DEFAULT_SLIPSTREAM_CONFIG.breathCost - 1 })
+    const dodged = controllerStep(
+      winded, input({ slipstreamPressed: true }), 1 / 60, deps(flatGround),
+    )
+    expect(dodged.slipstreamElapsed).toBeNull()
+  })
+
+  it('cannot drive breath below zero', () => {
+    // stepSlipstream only ever spends breathCost, and canSlipstream already refuses to
+    // fire below that, so the deduction should never need the clamp — this pins the
+    // floor at the exact boundary in case that stops being true.
+    const atCost = player({ breath: DEFAULT_SLIPSTREAM_CONFIG.breathCost })
+    const dodged = controllerStep(
+      atCost, input({ slipstreamPressed: true }), 1 / 60, deps(flatGround),
+    )
+    expect(dodged.breath).toBeGreaterThanOrEqual(0)
+  })
 })
 
 describe('the staff', () => {

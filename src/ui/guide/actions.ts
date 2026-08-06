@@ -144,7 +144,7 @@ export const ACTIONS: readonly GameAction[] = [
       + 'than the dash, so it beats an attack you can see coming rather than everything. '
       + 'Timed right it also builds Focus. On foot it goes wherever you are moving or '
       + 'looking; in the glider, bank left or right to dodge sideways, since thrust and '
-      + 'flare are not directions.',
+      + 'flare are not directions. It spends breath, so it cannot be chained forever.',
   },
   {
     key: 'Ctrl', press: 'hold', name: 'Tuck', mode: 'glider', available: inGlider,

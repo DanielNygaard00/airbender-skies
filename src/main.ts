@@ -250,10 +250,11 @@ function start(): void {
       gustReady: canGust(encounter),
       avatarStateReady: isArmed(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
       vortexReady: canVortex(encounter),
-      slipstreamReady: canSlipstream({
-        elapsed: player.slipstreamElapsed,
-        cooldown: player.slipstreamCooldown,
-      }),
+      slipstreamReady: canSlipstream(
+        { elapsed: player.slipstreamElapsed, cooldown: player.slipstreamCooldown },
+        player.breath,
+        DEFAULT_SLIPSTREAM_CONFIG,
+      ),
     }))
   })
   const wind = createWindAudio()
@@ -504,7 +505,13 @@ function start(): void {
     if (player.slipstreamElapsed !== null && beforeStep.slipstreamElapsed === null) {
       effects.add(createSlipstreamTrail(
         beforeStep.position,
-        dodgeHeading(player.mode, player.forward, state.lookDirection, state.forward, state.strafe),
+        dodgeHeading(
+          player.mode, player.forward, state.lookDirection, state.forward, state.strafe,
+          // Same 0.6 as `controller.ts`'s call and `flightStep`'s bank field: this has to
+          // resolve to the identical heading the controller used, or the streak would
+          // point somewhere the dodge didn't actually go.
+          state.strafe * 0.6,
+        ),
         DEFAULT_SLIPSTREAM_CONFIG,
       ))
     }
