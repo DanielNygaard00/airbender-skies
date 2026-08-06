@@ -7,9 +7,18 @@ import type { TerrainQuery } from '../core/types'
  * Before this existed, `TerrainQuery` could only cast downward, so nothing ever asked
  * whether something was in the way sideways. Measured against the real archipelago: a
  * glider flown at the `needle` island at 50 m/s entered at x 210 and left at x 112,
- * straight through a rock centred at x 150. On foot it was worse — inside a mesh the
- * ground snap's downward ray meets back faces, a FrontSide material culls them, and the
- * player falls through the island interior and past the world floor into a respawn.
+ * straight through a rock centred at x 150.
+ *
+ * On foot, a related mechanism is real but is a latent hazard rather than an observed
+ * failure. Inside the `needle` and `home` meshes, the ground snap's downward ray meets
+ * back faces, a `FrontSide` material culls them, and the ray returns null — that part is
+ * confirmed directly. Whether a player walking around this archipelago ever reaches that
+ * state was also measured directly, and the answer is no: 83 inward runs, all thirteen
+ * islands, eight bearings each, 400 frames at sprint, with collision disabled, produced
+ * zero respawns, because the ground snap climbs everything this island noise generates.
+ * Arriving inside a mesh by a jump, a dash, a charged-jump landing, or a glide impact was
+ * not tested. So the walker's deflection below is a guard against a hazard that is real
+ * even though no walking route to it was found — not a fix for an observed death.
  *
  * The response is a deflection rather than a stop. The design document is explicit that
  * landing at speed never hard-stops the character, and a wall is no more welcome to. The
