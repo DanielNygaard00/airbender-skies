@@ -10,9 +10,23 @@ permissions:
   pages: write
   id-token: write
 
+# Queue deploys instead of cancelling them. `cancel-in-progress: true` looks like the
+# right thing for a deploy pipeline and is actively harmful here: if a run is cancelled
+# *after* actions/deploy-pages has created its Pages deployment, that deployment is
+# orphaned in an in-progress state, and an orphaned deployment blocks every later one
+# until each gives up at its own 600-second timeout.
+#
+# That is not hypothetical. On 2026-08-06 two sessions pushed to main minutes apart, the
+# older run was cancelled mid-deployment, and the next four deploys failed — two on the
+# queue timeout and two more because re-running a workflow cannot recover it: Pages keys a
+# deployment by `pages_build_version`, which is the commit SHA, so a re-run tries to create
+# a duplicate ID and is cancelled within seconds. Recovery needed a manual
+# `POST /repos/:owner/:repo/pages/deployments/:sha/cancel` plus a fresh commit.
+#
+# GitHub's own Pages starter workflow uses `false` for this reason.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
