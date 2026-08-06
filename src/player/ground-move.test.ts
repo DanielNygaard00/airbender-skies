@@ -27,7 +27,10 @@ const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycast: () => nul
 const groundAndWall: TerrainQuery = {
   groundHeightAt: () => 0,
   raycast: (from, direction, maxDistance) => {
-    if (direction.y < -0.9) {
+    // Scaled by the direction's length, same reasoning as flatGround and step above:
+    // `raycast` accepts an unnormalised direction, and a fake that only recognised the
+    // unit down vector would answer `null` to a mostly-downward sweep the real one answers.
+    if (direction.y < -0.9 * direction.length()) {
       return from.y >= 0 && from.y - maxDistance <= 0
         ? { point: new Vector3(from.x, 0, from.z), normal: new Vector3(0, 1, 0), islandId: 'flat' }
         : null
@@ -398,9 +401,12 @@ describe('walking into a wall', () => {
     // The deflection must not fight the ground snap. It adjusts only y, and only for a
     // player already grounded or descending onto a surface, so the two compose -- but
     // that is an argument, and this is the test of it. `grounded` and `y` alone hold on
-    // open flat ground too, with no wall involved at all, so the wall-contact assertion
-    // below is load-bearing: without it this test cannot tell a walker actually held by
-    // the wall from one that never reached it.
+    // open flat ground too, with no wall involved at all, so a mere `position.x < 5` here
+    // would only duplicate the non-penetration check the first test already makes. What
+    // this test is actually about is *contact*: walking straight into the wall settles the
+    // body exactly at `5 - COLLISION.radius` (measured: by frame 30 of 120, and it holds
+    // there, velocity zeroed, for the rest of the run) -- which is the one value a walker
+    // that never reached the wall could not produce.
     let s = player()
     for (let frame = 0; frame < 120; frame++) {
       s = groundStep(
@@ -408,7 +414,7 @@ describe('walking into a wall', () => {
         1 / 60, groundAndWall, G, COLLISION,
       )
     }
-    expect(s.position.x).toBeLessThan(5)
+    expect(s.position.x).toBeCloseTo(5 - COLLISION.radius, 6)
     expect(s.grounded).toBe(true)
     expect(s.position.y).toBeCloseTo(0, 6)
   })

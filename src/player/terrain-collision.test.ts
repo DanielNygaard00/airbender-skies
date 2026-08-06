@@ -132,6 +132,28 @@ describe('a walker cannot walk through an island', () => {
       slipstreamElapsed: null, slipstreamCooldown: 0,
       staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0,
     }
+    // Honest accounting of what these two checks inside the loop actually establish,
+    // because a future reader who only sees "about to respawn" and "belt and suspenders"
+    // below will reasonably conclude both are load-bearing against real geometry. They are
+    // not, currently, and that is worth recording here rather than only in the task report:
+    //
+    // - The sideways-drift assertion after the first `walk(40)` below is the one that
+    //   actually fails if the deflection stops working -- confirmed by neutralising
+    //   `resolveMovement` in `groundStep`, which reddens exactly that assertion
+    //   (`expected 0 to be greater than 1`) and nothing else in this test.
+    // - `willRespawn` and the underside bound, checked on every frame here, are correct
+    //   regression protection for the failure this task exists to fix -- a downward ray
+    //   that starts inside a mesh meets only back faces and reports no ground at all. That
+    //   mechanism is real: measured directly, a downward ray cast from a point inside the
+    //   `needle` and `home` meshes returns `null`, i.e. back-face culling does swallow the
+    //   interior exactly as described. But no walking route to it has been found on this
+    //   geometry: 83 inward runs across all thirteen archipelago islands, from eight
+    //   bearings each, at sprint with collision disabled, produced zero respawns -- the
+    //   ground snap's unconditional "accept any downward hit while already grounded" climbs
+    //   every slope this noise generates regardless of steepness, so a bounded-speed walker
+    //   never gets deep enough inside a mesh for the back faces to matter. These two
+    //   assertions are here because the mechanism is real and cheap to guard against, not
+    //   because this test has been observed to catch it.
     const walk = (frames: number) => {
       for (let frame = 0; frame < frames; frame++) {
         // Checked before each step, not after: `controllerStep` calls `willRespawn` at
