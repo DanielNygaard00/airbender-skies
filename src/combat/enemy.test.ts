@@ -1,15 +1,17 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  spawnEnemy, stepEnemy, hitEnemy, horizontalDistance,
+  spawnEnemy, stepEnemy, hitEnemy, horizontalDistance, isTargetable, risingProgress,
   type Enemy, type EnemyConfig, type GroundHeightQuery,
 } from './enemy'
 import { isDowned } from './health'
+import { DEFAULT_COMBAT_CONFIG } from './config'
 
 const C: EnemyConfig = {
   maxHealth: 3, outOfCombatSeconds: 4, regenPerSecond: 0.4,
   moveSpeed: 4, strikeRange: 3, aggroRange: 30, windUpSeconds: 0.5, recoverSeconds: 0.6,
   strikeDamage: 1, knockbackDamping: 3, gravity: 20, snapDistance: 1.2,
+  downedSeconds: 18, risingSeconds: 1.2, recoveryHealthFractions: [0.6, 0.3],
 }
 
 const AT = (x: number, z: number) => new Vector3(x, 0, z)
@@ -41,6 +43,11 @@ function settle(enemy: Enemy, seconds: number, ground = flatGround): Enemy {
   }
   return current
 }
+
+/** Take an enemy to zero the way the fight does — through a hit. */
+const down = (enemy: Enemy) => hitEnemy(enemy, enemy.health.max, new Vector3())
+/** Total seconds for one full trip: flat on the ground, then the push-up. */
+const FULL_RECOVERY = C.downedSeconds + C.risingSeconds
 
 describe('spear infantry pressures ground spacing', () => {
   it('closes on a distant player', () => {
@@ -105,9 +112,11 @@ describe('being downed rather than killed', () => {
     expect(fight(5, AT(0, 0), downed).damage).toBe(0)
   })
 
-  it('stays down instead of recovering over time', () => {
+  it('stays down through the countdown rather than recovering the instant it falls', () => {
+    // The ladder (see "getting back up" below) does eventually stand a soldier back
+    // up — that is Task 1's whole point — but not before downedSeconds has passed.
     const downed = hitEnemy(spawnEnemy('a', AT(0, 2), C), C.maxHealth, new Vector3())
-    expect(fight(30, AT(0, 0), downed).enemy.stance).toBe('downed')
+    expect(fight(C.downedSeconds - 1, AT(0, 0), downed).enemy.stance).toBe('downed')
   })
 
   it('does not advance while downed', () => {
@@ -406,5 +415,143 @@ describe('the ground snap does not grab a body from mid-air', () => {
     // unconditional tolerance jumps straight from "well above" to "grounded, y
     // at the ground" with no such frame in between.
     expect(sawSmallGapWhileAirborne).toBe(true)
+  })
+})
+
+describe('getting back up', () => {
+  it('pushes up after the countdown', () => {
+    const enemy = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.1)
+    expect(enemy.stance).toBe('rising')
+  })
+
+  it('is still flat a moment before the countdown ends', () => {
+    const enemy = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds - 0.5)
+    expect(enemy.stance).toBe('downed')
+  })
+
+  it('restores the first rung of the ladder when the push-up finishes', () => {
+    const enemy = settle(down(spawnEnemy('a', AT(0, 20), C)), FULL_RECOVERY + 0.1)
+    expect(enemy.stance).toBe('advance')
+    expect(enemy.health.current).toBeCloseTo(C.maxHealth * C.recoveryHealthFractions[0]!)
+  })
+
+  it('restores the second rung on the second recovery, so the ladder descends', () => {
+    const first = settle(down(spawnEnemy('a', AT(0, 20), C)), FULL_RECOVERY + 0.1)
+    const second = settle(down(first), FULL_RECOVERY + 0.1)
+    expect(second.stance).toBe('advance')
+    expect(second.health.current).toBeCloseTo(C.maxHealth * C.recoveryHealthFractions[1]!)
+    expect(second.health.current).toBeLessThan(first.health.current)
+  })
+
+  it('stays down for good once the ladder is spent', () => {
+    let enemy = down(spawnEnemy('a', AT(0, 20), C))
+    for (const _ of C.recoveryHealthFractions) enemy = down(settle(enemy, FULL_RECOVERY + 0.1))
+    // Several more countdowns' worth: a soldier past the last rung never rises again.
+    expect(settle(enemy, FULL_RECOVERY * 3).stance).toBe('downed')
+  })
+
+  it('does not count down while still in the air', () => {
+    // Downed mid-Vortex: the body has to land before it starts recovering.
+    const lifted = { ...down(spawnEnemy('a', AT(0, 20), C)), position: AT(0, 20).setY(40) }
+    const enemy = settle(lifted, 1)
+    expect(enemy.stance).toBe('downed')
+    expect(enemy.stanceTime).toBe(0)
+  })
+
+  it('deals no damage and does not close while pushing up', () => {
+    // A rising soldier is inert. Player placed inside strikeRange to prove it.
+    const onTop = AT(0, 20)
+    const rising = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.1)
+    const step = stepEnemy(rising, onTop, flatGround, FLOOR, 1 / 60, C)
+    expect(step.damageToPlayer).toBe(0)
+    expect(step.enemy.position.x).toBeCloseTo(rising.position.x)
+    expect(step.enemy.position.z).toBeCloseTo(rising.position.z)
+  })
+
+  it('faces the player from the moment it starts pushing up', () => {
+    // Otherwise it comes up aimed wherever it fell and snaps round on its first
+    // advance frame.
+    const enemy = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.1)
+    // `settle` puts the player at AT(0, 500), so the heading is +z.
+    expect(enemy.facing.z).toBeGreaterThan(0.9)
+  })
+
+  it('goes straight back down when hit during the push-up', () => {
+    const rising = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.5)
+    expect(rising.stance).toBe('rising')
+    const interrupted = hitEnemy(rising, 0.1, new Vector3())
+    expect(interrupted.stance).toBe('downed')
+    expect(interrupted.stanceTime).toBe(0)
+  })
+
+  it('does not spend a rung on an interrupted push-up', () => {
+    // The ruling: interrupting buys time, it does not substitute for damage. So the
+    // next rise has to come back at the SAME rung, not the next one down.
+    const rising = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.5)
+    const interrupted = hitEnemy(rising, 0.1, new Vector3())
+    expect(interrupted.downs).toBe(1)
+    const risenAgain = settle(interrupted, FULL_RECOVERY + 0.1)
+    expect(risenAgain.health.current).toBeCloseTo(C.maxHealth * C.recoveryHealthFractions[0]!)
+  })
+
+  it('never rises once it has left the world', () => {
+    const fallen = settle(spawnEnemy('a', AT(0, 20), C), 5, emptyAir)
+    expect(isDowned(fallen.health)).toBe(true)
+    expect(settle(fallen, FULL_RECOVERY * 2, emptyAir).stance).toBe('downed')
+  })
+
+  it('counts a down only on the crossing, not on every hit to a body', () => {
+    const first = down(spawnEnemy('a', AT(0, 20), C))
+    expect(first.downs).toBe(1)
+    expect(hitEnemy(first, C.maxHealth, new Vector3()).downs).toBe(1)
+  })
+
+  it('takes strictly fewer gusts to put down at each rung, and one at the last', () => {
+    // The feel claim from the spec, phrased so retuning the numbers cannot silently
+    // invert the ladder. Uses the real config, not this file's fixture.
+    const { enemy: E, gust } = DEFAULT_COMBAT_CONFIG
+    const gustsToDown = (health: number) => Math.ceil(health / gust.damage)
+    const rungs = [1, ...E.recoveryHealthFractions].map((f) => gustsToDown(E.maxHealth * f))
+    for (let i = 1; i < rungs.length; i++) expect(rungs[i]).toBeLessThan(rungs[i - 1]!)
+    expect(rungs[rungs.length - 1]).toBe(1)
+  })
+})
+
+describe('isTargetable', () => {
+  it('is true for a soldier on its feet', () => {
+    expect(isTargetable(spawnEnemy('a', AT(0, 0), C))).toBe(true)
+  })
+
+  it('is false for a body on the ground', () => {
+    expect(isTargetable(down(spawnEnemy('a', AT(0, 0), C)))).toBe(false)
+  })
+
+  it('is true for one pushing back up, which is what makes the interrupt reachable', () => {
+    const rising = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.1)
+    expect(isTargetable(rising)).toBe(true)
+  })
+})
+
+describe('risingProgress', () => {
+  it('is nothing for a soldier that is not pushing up', () => {
+    expect(risingProgress(spawnEnemy('a', AT(0, 0), C), C)).toBe(0)
+  })
+
+  it('runs from nothing to all of it across the push-up', () => {
+    const rising = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.1)
+    expect(risingProgress(rising, C)).toBeLessThan(0.2)
+    expect(risingProgress({ ...rising, stanceTime: C.risingSeconds }, C)).toBe(1)
+  })
+
+  it('clamps rather than overshooting the pose', () => {
+    const rising = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.1)
+    expect(risingProgress({ ...rising, stanceTime: C.risingSeconds * 5 }, C)).toBe(1)
+  })
+
+  it('is nothing for a zero-length rise rather than a NaN', () => {
+    // The value multiplies into a rotation, where a NaN corrupts the matrix instead of
+    // merely looking wrong.
+    const rising = settle(down(spawnEnemy('a', AT(0, 20), C)), C.downedSeconds + 0.1)
+    expect(risingProgress(rising, { ...C, risingSeconds: 0 })).toBe(0)
   })
 })

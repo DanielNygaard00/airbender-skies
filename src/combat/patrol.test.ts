@@ -12,6 +12,7 @@ const ENEMY_CONFIG: EnemyConfig = {
   moveSpeed: 4.2, strikeRange: 3.2, aggroRange: 26, windUpSeconds: 0.55,
   recoverSeconds: 0.7, strikeDamage: 1, knockbackDamping: 2.6,
   gravity: 20, snapDistance: 1.2,
+  downedSeconds: 18, risingSeconds: 1.2, recoveryHealthFractions: [0.6, 0.3],
 }
 
 // Spread far wider apart than respawnRange, so the two spawn points can actually

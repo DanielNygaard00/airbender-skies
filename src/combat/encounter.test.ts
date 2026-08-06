@@ -17,6 +17,7 @@ const C: CombatConfig = {
     gravity: 20,
     // Matches DEFAULT_COMBAT_CONFIG.enemy.snapDistance.
     snapDistance: 1.2,
+    downedSeconds: 18, risingSeconds: 1.2, recoveryHealthFractions: [0.6, 0.3],
   },
   gust: { range: 12, halfAngle: Math.PI / 3, damage: 0.5, knockback: 26, cooldownSeconds: 0.5 },
   pressureWave: {

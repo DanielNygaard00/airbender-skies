@@ -34,6 +34,20 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     // Matches DEFAULT_GROUND_CONFIG's own snapDistance, so a soldier sticks to a
     // slope underfoot the same way the player does.
     snapDistance: 1.2,
+    /**
+     * Long enough that clearing a patrol feels like progress, short enough that the
+     * island does not go quiet while the player is still standing on it.
+     */
+    downedSeconds: 18,
+    // Well above the strike's windUpSeconds of 0.55: getting up is a bigger commitment
+    // than a spear thrust and should read as one.
+    risingSeconds: 1.2,
+    /**
+     * Against maxHealth 1.5 and the gust's 0.5 damage, these are three gusts, then two,
+     * then one — 1.5, then 0.9, then 0.45. The ladder is legible from playing it rather
+     * than from reading this, and each rung costs less of the player's time than the last.
+     */
+    recoveryHealthFractions: [0.6, 0.3],
   },
   gust: {
     range: 12,

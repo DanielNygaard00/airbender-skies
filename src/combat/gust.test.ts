@@ -16,6 +16,7 @@ const E: EnemyConfig = {
   gravity: 20,
   // Matches DEFAULT_COMBAT_CONFIG.enemy.snapDistance.
   snapDistance: 1.2,
+  downedSeconds: 18, risingSeconds: 1.2, recoveryHealthFractions: [0.6, 0.3],
 }
 
 const ORIGIN = new Vector3(0, 0, 0)
