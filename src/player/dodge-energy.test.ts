@@ -8,7 +8,6 @@ import {
   DEFAULT_SLIPSTREAM_CONFIG, DEFAULT_STAFF_CONFIG,
 } from '../core/config'
 import { controllerStep, type ControllerDeps } from './controller'
-import { totalEnergy } from './flight'
 import type { InputState, PlayerState } from '../core/types'
 
 /**
@@ -19,27 +18,47 @@ import type { InputState, PlayerState } from '../core/types'
  * glide over the same span sank to y 151 and 23.1 m/s. The glide loses half its energy,
  * which is what gliding is; chain-dodging gained 81 percent of it, because the impulse is
  * added in `controllerStep` after `flightStep` has run and so escapes the
- * never-gains-height invariant the integrator is careful to keep.
+ * never-gains-height invariant the integrator is careful to keep. (That "81 percent"
+ * figure uses `totalEnergy`, which is valid there because the flight in that run never
+ * crosses y 0. It is not used below, for a reason explained there.)
  *
- * After the fix (breath cost 28, perpendicular glider dodge landing on a fixed default
- * side when no bank is held): the same forty seconds of chain-dodging drifts off its
- * straight line -- every dodge kicks sideways to the same side rather than forward -- and
- * ends up crashed on an island at y -51.8, nearly stopped (0.8 m/s), breath drained to
- * 87.5, energy ratio -0.16. A plain glide over the same span ends at y 150.9, 23.1 m/s,
- * energy ratio 0.51. Chain-dodging is not just no-longer-free, it is now worse than doing
- * nothing.
+ * After the fix (breath cost 28, perpendicular glider dodge, bank threaded through to
+ * `gliderRight` so a banked dodge is not flattened): the same forty seconds of
+ * chain-dodging drifts off its straight line -- every untouched-bank dodge kicks sideways
+ * to the same default side rather than forward -- and ends up crashed on an island at
+ * y -51.8, nearly stopped (0.8 m/s), breath drained to 87.5. A plain glide over the same
+ * span ends at y 150.9, 23.1 m/s. Chain-dodging is not just no-longer-free, it is now
+ * worse than doing nothing. (`totalEnergy` is not used for this comparison: the crashed
+ * run's position goes well below y 0, and `totalEnergy = gravity * y + 0.5 * v^2` goes
+ * negative there too, so a ratio against the start would cross zero and "less than 1"
+ * would pass for having crossed zero, not for having lost energy in any meaningful sense.
+ * Altitude and speed, measured directly, do not have that problem.)
  *
- * Setting `breathCost` to 0 does not reproduce the original figures. With the direction
- * fix already in place, an unlimited-dodge run still never goes anywhere near y 434: it
- * drifts off the archipelago and free-falls into open water, ending at y -482.4, 40.0 m/s,
- * a full 100 breath, energy ratio -1.37. The breath bar staying full is the one thing that
- * matches the original description; the altitude and energy figures do not, because this
- * neutralisation only removes the cost, not the direction fix from the same cycle's other
- * task, and the direction fix alone already prevents the straight-line climb that produced
- * y 434. Reverting *both* fixes together (confirmed as a diagnostic, not committed) does
- * reproduce the original measurement almost exactly: y 434.4, 76.9 m/s, full 100 breath --
- * which is what pins that both fixes are implemented correctly, even though neither one
- * alone, tested against this scenario, looks like the bug report.
+ * Both fixes in this cycle are jointly load-bearing here, and neutralising either one
+ * alone does not reproduce the original bug -- this is worth recording because it is not
+ * cheap to re-derive:
+ *
+ * - Setting `breathCost` to 0 alone (the direction fix from the other task still in
+ *   place) reddens the breath-bar assertion and the speed assertion, but not the altitude
+ *   one. The direction fix by itself already prevents a straight-line climb: an unlimited
+ *   dodge chain still never gets near y 434 -- it drifts off the archipelago and
+ *   free-falls into open water instead, ending at y -482.4, which is still comfortably
+ *   below "no higher than a plain glide plus slack". But falling that far for that long
+ *   picks up real speed: 40.0 m/s at the end, which *does* clear "not much faster than a
+ *   plain glide", so this neutralisation is still caught, just by a different one of the
+ *   four assertions than the altitude-only version of this test would have used. Breath
+ *   staying at a full 100 is the one figure that matches the original description; y and
+ *   the mechanism producing the speed do not -- one is a climb, the other a fall.
+ * - Reverting the direction fix alone (bank fixed at 0 again, `dodgeHeading`'s glider
+ *   branch falling back to the flattened heading; `breathCost` still 28) was not
+ *   separately re-measured for this file, since Task 2's own tests already pin that
+ *   change in isolation.
+ * - Reverting *both* fixes together (checked as a diagnostic while developing this test,
+ *   not a committed state) reproduces the original measurement almost exactly: y 434.4,
+ *   76.9 m/s, a full 100 breath. That is what pins both fixes as correctly implemented,
+ *   even though neither one alone, measured against this exact scenario, looks like the
+ *   bug report -- each closes the hole through a different mechanism, and either is
+ *   sufficient on its own against this particular 40-second, no-strafe input pattern.
  *
  * Run against the real archipelago rather than a fake, so nothing about the terrain query
  * or the collision resolution can quietly change what this measures.
@@ -95,7 +114,6 @@ function glider(): PlayerState {
 function fly(dodge: boolean) {
   const d = deps()
   let p = glider()
-  const start = totalEnergy(p.position, p.velocity, DEFAULT_FLIGHT_CONFIG.gravity)
   let dodges = 0
   for (let frame = 0; frame < 2400; frame++) {
     const ready = dodge && p.slipstreamCooldown <= 0 && p.slipstreamElapsed === null
@@ -108,7 +126,6 @@ function fly(dodge: boolean) {
     speed: p.velocity.length(),
     breath: p.breath,
     dodges,
-    energyRatio: totalEnergy(p.position, p.velocity, DEFAULT_FLIGHT_CONFIG.gravity) / start,
   }
 }
 
@@ -125,25 +142,37 @@ describe('chain-dodging is no longer a way to gain altitude for free', () => {
     expect(fly(true).breath).toBeLessThan(100)
   })
 
-  it('loses energy over forty seconds rather than gaining it', () => {
-    const chained = fly(true)
-    expect(chained.energyRatio).toBeLessThan(1)
-  })
-
-  it('is worse than a plain glide at keeping altitude, not better', () => {
-    // Compared against the control in the same test rather than against a remembered
-    // constant, so retuning the flight model cannot silently invert the comparison while
-    // both numbers drift.
+  it('does not end up higher than a plain glide', () => {
+    // Altitude, measured directly, rather than an energy ratio: this run ends well below
+    // y 0 (see the docblock), and totalEnergy = gravity*y + 0.5*v^2 goes negative there
+    // too, so a ratio against the start would cross zero and pass "less than 1" for
+    // having crossed zero, not for having lost anything meaningful. Altitude does not
+    // have that problem, and is the thing the original bug was actually about.
     //
-    // The slack is 0.15, not a round guess: measured, chained.energyRatio is -0.16 and
-    // plain.energyRatio is 0.51, a gap of about 0.67. 0.15 is comfortably inside that gap
-    // -- room for the flight model to be retuned a bit without the assertion needing
-    // attention -- while still failing well before chained could close more than about a
-    // fifth of the distance to plain, which is the point of the comparison: chained
-    // creeping back toward parity with plain is exactly what this should catch.
+    // Compared against the control in the same test rather than a remembered constant,
+    // so retuning the flight model cannot silently invert the comparison while both
+    // numbers drift. The slack is 20, not a round guess: measured, chained.y is -51.8 and
+    // plain.y is 150.9, a gap of about 203. 20 is a small fraction of that gap -- room for
+    // retuning without the assertion needing attention -- while still failing long before
+    // chained could climb anywhere near parity with plain, which is the regression this
+    // exists to catch.
     const plain = fly(false)
     const chained = fly(true)
-    expect(chained.energyRatio).toBeLessThanOrEqual(plain.energyRatio + 0.15)
+    expect(chained.y).toBeLessThanOrEqual(plain.y + 20)
+  })
+
+  it('does not end up much faster than a plain glide', () => {
+    // Speed, for the same reason altitude is used above: it stays meaningful however far
+    // below y 0 the run goes, where an energy ratio would not.
+    //
+    // The slack is 15: measured, chained.speed is 0.8 m/s and plain.speed is 23.1 m/s, so
+    // chained is currently far below plain, not above it. 15 leaves plenty of room over
+    // today's measurement while still catching a return toward the original exploit's
+    // 76.9 m/s -- which would blow past plain.speed + 15 well before it got anywhere near
+    // 76.9.
+    const plain = fly(false)
+    const chained = fly(true)
+    expect(chained.speed).toBeLessThanOrEqual(plain.speed + 15)
   })
 
   it('still lets a fight have several dodges in it', () => {
