@@ -119,13 +119,22 @@ Derived from `gliderUp` rather than recomputed, so there is one definition of th
 frame and a change to the roll convention cannot leave the two disagreeing.
 
 `dodgeHeading` in the glider then returns `±gliderRight`, signed by the strafe axis, defaulting
-to `+gliderRight` when no axis is held. Three things follow:
+to `+gliderRight` when no axis is held. It needs the glider's *actual* bank to do that, not a
+fixed 0. By the vector triple product identity `cross(cross(a,b),c) = b(a·c) − a(b·c)`,
+`gliderRight(forward, 0)` reduces to `cross(forward, WORLD_UP)`, which is horizontal for every
+`forward` — so a bank-0 call can never produce the tilted dodge this section asks for, in a dive
+or anywhere else. `dodgeHeading` therefore gains a sixth parameter, `bank: number`, passed
+straight through to `gliderRight`. `controllerStep` already computes `input.strafe * 0.6` as
+`flightStep`'s bank field a few lines above where the dodge is resolved; that same expression is
+what `dodgeHeading` is handed, so the frame a dodge breaks across is the frame the wing is
+actually flying at. Three things follow:
 
 - It is perpendicular to the flight path by construction, for any heading, because
   `gliderRight` is an axis of a frame built on `forward`.
 - It is never forward, so the no-bank press stops being a boost.
 - A banked glider's dodge tilts with the roll, because the bank is baked into the frame. A
-  level glider's lateral dodge is horizontal; a rolled one's is not.
+  level glider's lateral dodge is horizontal — even diving, since pitch alone carries no roll —
+  and a rolled one's is not; the vertical component comes from the bank, not from the heading.
 
 `stepSlipstream` must stop flattening the impulse. It currently drops the `y` component of
 whatever heading it is handed, which would discard the tilt this change exists to produce.
@@ -165,7 +174,10 @@ flattened camera vector and a horizontal right vector.
 `src/player/slipstream.test.ts`, for direction:
 
 - a glider dodge with no axis held is perpendicular to the heading, and is **not** the heading
-- a glider dodge while diving has a non-zero vertical component
+- a glider dodge is horizontal when the wings are level, even diving — pitch alone does not
+  produce a vertical component
+- the same dodge thrown banked picks up a non-zero vertical component, because the bank is what
+  carries it out of the horizontal plane
 - a ground dodge is unchanged: still camera-relative, still horizontal, still able to go
   backwards
 
