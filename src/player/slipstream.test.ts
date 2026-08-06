@@ -182,7 +182,7 @@ describe('dodgeHeading', () => {
     // the dodge lands on the default side (the positive glider-right axis), nowhere near
     // "backward along the heading", which would show up as x close to -1.
     expect(dodgeHeading('glider', FLYING_EAST, NORTH, -1, 0, 0).x).toBeCloseTo(0, 5)
-    expect(dodgeHeading('glider', FLYING_EAST, NORTH, -1, 0, 0).z).toBeCloseTo(-1, 5)
+    expect(dodgeHeading('glider', FLYING_EAST, NORTH, -1, 0, 0).z).toBeCloseTo(1, 5)
   })
 
   it('in the glider, thrust does not steer the dodge either', () => {
@@ -198,9 +198,17 @@ describe('dodgeHeading', () => {
 
   it('in the glider, banking dodges sideways rather than along the heading', () => {
     // Perpendicular is the point: it is what beats something coming straight at you.
+    // But dot 0 and length 1 alone don't discriminate much: the pre-Task-2 fallback
+    // (slipstreamHeading(FLYING_EAST, 0, 1), the flattened-heading bug) happens to give
+    // the identical (0,0,1) for this exact heading and strafe, so it passes both checks
+    // too, coincidentally -- that regression is what the flare and thrust tests above
+    // actually catch. The exact component below is what pins this test's own case,
+    // and it does catch the handedness bug (gliderRight returning the mirrored axis):
+    // that neutralisation gives (0,0,-1) here, not (0,0,1).
     const dodge = dodgeHeading('glider', FLYING_EAST, NORTH, 0, 1, 0)
     expect(dodge.dot(FLYING_EAST)).toBeCloseTo(0, 5)
     expect(dodge.length()).toBeCloseTo(1, 5)
+    expect(dodge.z).toBeCloseTo(1, 5)
   })
 
   it('in the glider, uses the glider heading rather than the camera', () => {
@@ -210,7 +218,22 @@ describe('dodgeHeading', () => {
     // gliderRight(FLYING_EAST, 0) actually produces.
     const dodge = dodgeHeading('glider', FLYING_EAST, NORTH, 0, 0, 0)
     expect(dodge.x).toBeCloseTo(0, 5)
-    expect(dodge.z).toBeCloseTo(-1, 5)
+    expect(dodge.z).toBeCloseTo(1, 5)
+  })
+
+  it('dodges the same world direction that a ground dodge calls right, for a positive strafe', () => {
+    // The handedness bug this exists to catch: gliderRight shipped once returning the
+    // glider's left axis, so D (positive strafe) dodged world-right on foot and
+    // world-left in the glider -- the same key, opposite directions, depending only on
+    // posture. A relationship between two glider calls, or a perpendicularity check,
+    // cannot see that: both sides of a mirrored pair are still perpendicular and still
+    // each other's negation. This compares against the ground dodge's own right for the
+    // same heading, which is the actual, player-facing thing that has to agree.
+    const forward = new Vector3(0, 0, -1)
+    const groundRight = dodgeHeading('ground', forward, forward, 0, 1, 0)
+    const gliderRightDodge = dodgeHeading('glider', forward, forward, 0, 1, 0)
+    expect(Math.sign(gliderRightDodge.x)).toBe(Math.sign(groundRight.x))
+    expect(groundRight.x).toBeGreaterThan(0)
   })
 })
 
@@ -244,15 +267,40 @@ describe('a glider dodge goes across the flight path, not along it', () => {
     expect(Math.abs(heading.y)).toBeGreaterThan(0.1)
   })
 
-  it('takes its side from the strafe axis regardless of bank', () => {
+  it('takes its side from the strafe axis, independent of the bank value -- in isolation', () => {
     // Not "the bank axis" -- that name would collide with the real bank parameter above,
     // which rolls the frame the side is chosen within but does not choose the side
-    // itself. Side selection is strafeAxis's job in both calls, and a nonzero bank on
-    // both sides of the comparison proves bank does not leak into it.
+    // itself. Side selection is strafeAxis's job in both calls.
+    //
+    // The same bank, 0.6, on BOTH sides here on purpose: this tests dodgeHeading's own
+    // code in isolation from the coupling controllerStep actually applies (bank locked to
+    // the same strafe that picks the side, so left and right never really share a bank
+    // value in production -- see the next test for that pairing). Held equal like this,
+    // bank cannot be the thing choosing the side, because it is identical on both calls;
+    // only strafeAxis differs, and only the side differs in the result.
     const forward = new Vector3(0, 0, -1)
     const left = dodgeHeading('glider', forward, NORTH, 0, -1, 0.6)
     const right = dodgeHeading('glider', forward, NORTH, 0, 1, 0.6)
     expect(left.dot(right)).toBeLessThan(-0.9)
+  })
+
+  it('the production pairing (bank locked to strafe) still opposes on x, and matches on y', () => {
+    // What controllerStep actually produces: bank = strafe * 0.6, so left and right carry
+    // opposite bank too, not just opposite strafe. left.dot(right) is -0.362 here, not the
+    // near-total opposition the isolated test above gets with a shared bank -- documented
+    // rather than asserted as "less than -0.9", because that bound is simply false under
+    // this coupling, and a test asserting it would either be wrong or would have to have
+    // its bound quietly loosened until it stopped meaning what it said.
+    //
+    // What is still true, and worth pinning: the two sides still oppose horizontally (x
+    // has the opposite sign), and per dodgeHeading's comment on the coupling, the roll
+    // both sides carry currently pushes the same way vertically -- not opposite, matching.
+    const forward = new Vector3(0, 0, -1)
+    const left = dodgeHeading('glider', forward, NORTH, 0, -1, -1 * 0.6)
+    const right = dodgeHeading('glider', forward, NORTH, 0, 1, 1 * 0.6)
+    expect(Math.sign(left.x)).not.toBe(Math.sign(right.x))
+    expect(Math.sign(left.y)).toBe(Math.sign(right.y))
+    expect(left.dot(right)).toBeCloseTo(-0.362, 3)
   })
 
   it('stepSlipstream passes a 3D heading straight through, without flattening it', () => {

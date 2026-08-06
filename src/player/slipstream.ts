@@ -100,9 +100,24 @@ export function dodgeHeading(
   // `bank` is the glider's actual roll -- the same value `flightStep` derives as
   // `input.strafe * 0.6` for lift -- passed through rather than fixed at zero, so a dodge
   // thrown while banked rolls with the wing and picks up the vertical component that
-  // implies: bank into a dive and the lateral break carries you down with it as well as
-  // sideways. Level (bank 0) the break stays exactly horizontal, which is the deliberate
-  // baseline, not an oversight -- wings level, no roll to carry a vertical component on.
+  // implies, rather than being crushed onto the horizontal plane regardless of roll.
+  // Level (bank 0) the break stays exactly horizontal, which is the deliberate baseline,
+  // not an oversight -- wings level, no roll to carry a vertical component on.
+  //
+  // Bank is sign-locked to the same strafe axis that picks the side, because strafe is
+  // the only lateral input there is -- there is no separate "roll independently of which
+  // side you break toward" control. Both directions of that coupled pair currently break
+  // upward: `gliderRight` returns the frame's true right (fixed after shipping the mirror
+  // once -- see the handedness test in flight.test.ts), and with `bank = strafe * 0.6`
+  // on both sides, the vertical component the roll contributes comes out positive
+  // regardless of which side strafe picks. This is *not* a free-altitude reopening in
+  // practice: the kick is one instantaneous velocity injection per cooldown, and gravity
+  // pulls harder than that across the 1.5s gap before the next one lands -- measured
+  // against both a held bank and a bank tapped only on the firing frame, forty seconds of
+  // chain-dodging still ends well below where it started either way. It is recorded here
+  // because it was not the intended shape going in, and the next person to touch this
+  // coupling needs to know the sign is what it is, not what the design doc originally
+  // said, and why that's still safe rather than assumed to be.
   //
   // A default side rather than a fallback to the heading: falling back to forward made
   // the no-bank press -- the common one -- a free 30 m/s boost.

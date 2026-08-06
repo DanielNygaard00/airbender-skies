@@ -284,8 +284,11 @@ export function controllerStep(
     dodgeHeading(
       next.mode, next.forward, input.lookDirection, input.forward, input.strafe,
       // The same 0.6 flightStep uses to turn strafe into bank a few lines up. Not shared
-      // through a constant because it doesn't read naturally as one here, but the two
-      // literals are meant to move together if bank responsiveness is ever retuned.
+      // through a constant because it doesn't read naturally as one here, but this is one
+      // of three call sites carrying this literal -- the other two are `main.ts`'s
+      // dodge-streak effect, which resolves the same dodge for drawing, and `flightStep`'s
+      // own bank field above -- and all three are meant to move together if bank
+      // responsiveness is ever retuned.
       input.strafe * 0.6,
     ),
     // Read after the posture branches, so this is the breath the branch settled: the

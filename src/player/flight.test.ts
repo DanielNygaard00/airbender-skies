@@ -48,6 +48,15 @@ describe('gliderRight', () => {
     new Vector3(0, -1, 0),
   ]
 
+  // The next two are identities for any function of this shape, not evidence about which
+  // way gliderRight actually points: cross(A, forward) is perpendicular to both A and
+  // forward regardless of the order the cross is taken in, or which vector plays A, so
+  // negating the whole result -- exactly the handedness bug that shipped once -- passes
+  // both unchanged. Checked directly: reverting the argument order in gliderRight (the
+  // real neutralisation that bug was) left both of these green; only "is unit length"
+  // caught it, because a mis-signed vector is still unit length too, so even that one is
+  // weaker evidence than it looks. The test that actually pins the sign is the handedness
+  // one below.
   it('is perpendicular to the heading, for every heading', () => {
     for (const forward of HEADINGS) {
       expect(Math.abs(gliderRight(forward, 0).dot(forward)))
@@ -74,6 +83,22 @@ describe('gliderRight', () => {
     // dodge would be flat no matter how far over it was rolled.
     expect(Math.abs(gliderRight(new Vector3(0, 0, -1), 0).y)).toBeLessThan(1e-6)
     expect(Math.abs(gliderRight(new Vector3(0, 0, -1), 0.6).y)).toBeGreaterThan(0.1)
+  })
+
+  it('points the same way the ground dodge calls right, not its mirror', () => {
+    // The bug this exists to catch: gliderRight shipped once returning the glider's left
+    // axis instead of its right, because cross(gliderUp, forward) is -right by the vector
+    // triple product identity (forward*(right.forward) - right*(forward.forward) = -right,
+    // since right is perpendicular to forward and forward is unit). Perpendicularity and
+    // unit length can't see that sign; a component against a known heading can. `right`
+    // here is the same expression slipstreamHeading uses for the ground dodge's right --
+    // cross(forward, WORLD_UP) -- so this also pins gliderRight against gliderUp's own
+    // internal `right` at flight.ts:19, not just against an independently-typed vector
+    // that happens to agree by coincidence.
+    const forward = new Vector3(0, 0, -1)
+    const groundRight = new Vector3().crossVectors(forward, new Vector3(0, 1, 0)).normalize()
+    expect(gliderRight(forward, 0).x).toBeCloseTo(groundRight.x, 5)
+    expect(gliderRight(forward, 0).x).toBeCloseTo(1, 5)
   })
 })
 
