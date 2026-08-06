@@ -5,6 +5,7 @@ import {
   type EncounterInput, type EnemySpawn,
 } from './encounter'
 import { isDowned } from './health'
+import { gustTargets } from './gust'
 import { DEFAULT_COMBAT_CONFIG } from './config'
 
 const C: CombatConfig = {
@@ -807,28 +808,99 @@ describe('a soldier pushing back up', () => {
 })
 
 describe('a flat soldier gusted on every cooldown', () => {
-  it('still reaches advance, rather than stalling forever', () => {
+  it('runs its downed countdown untouched, and reaches the rise on schedule', () => {
     // The regression `isTargetable` exists to prevent: `hitEnemy` resets `stanceTime` to 0
     // on every hit, so a downed, non-rising body that could still be hit would have its
     // 18-second countdown restarted every cooldown, forever. All seven resolver gates ask
-    // `isTargetable`, which is false for a downed body until it starts rising, so this
-    // soldier's countdown runs untouched and only the rise itself is interruptible -- and an
-    // interrupted rise costs no rung (see above), so it simply tries again.
+    // `isTargetable`, which is false for a downed body until it starts rising, so the
+    // countdown runs untouched and only the rise itself is interruptible.
     //
-    // A held gust does connect on most of those retries -- the soldier stays in the cone the
-    // whole time -- but each connecting hit's knockback carries it further from the player,
-    // and after a couple of interrupted rises it has been blown out past the gust's own
-    // range and finishes the next one unmolested. That is why this needs several multiples
-    // of downedSeconds + risingSeconds rather than just one: the guard is that gusting on
-    // every cooldown delays the recovery, not that it cannot touch it at all.
+    // The countdown is asserted directly, frame by frame, rather than through the stance
+    // this eventually produces. An earlier version of this test gusted the body and
+    // asserted it reached 'advance' inside a generous budget, which cannot fail: a
+    // hittable body takes the knockback too, and `fall()` runs regardless of stance, so a
+    // few hits blow it clean past gust.range and it recovers unmolested from there --
+    // sooner than the correct behaviour, not later. Both readings passed.
+    //
+    // The window stops at the rise on purpose. A rising soldier *is* targetable, so a gust
+    // landing after this point knocks it back down, which is the intended behaviour tested
+    // above; extending the window would stop measuring the gate and start measuring the
+    // interrupt.
     let encounter = downedSoldier(1)
-    const capSeconds = 6 * (C.enemy.downedSeconds + C.enemy.risingSeconds)
-    for (let t = 0; t < capSeconds && encounter.enemies[0]!.stance !== 'advance'; t += 1 / 60) {
-      encounter = stepEncounter(encounter, { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
-        .encounter
+    const fell = encounter.enemies[0]!.position.clone()
+    const cap = Math.ceil((C.enemy.downedSeconds + 1) * 60)
+    let frames = 0
+
+    while (encounter.enemies[0]!.stance === 'downed' && frames < cap) {
+      // Geometry has nothing to do with it: the body is inside the cone on every frame of
+      // this window, so the gate is the only thing that can be keeping it unhit.
+      expect(gustTargets(ORIGIN, NORTH, encounter.enemies, C.gust)).toHaveLength(1)
+
+      const step = stepEncounter(encounter, { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
+      expect(step.hitThisFrame).toEqual([])
+
+      encounter = step.encounter
+      frames += 1
+      const soldier = encounter.enemies[0]!
+      // The assertion the old one only gestured at: elapsed seconds, never restarted.
+      if (soldier.stance === 'downed') expect(soldier.stanceTime).toBeCloseTo(frames / 60, 5)
     }
-    expect(encounter.enemies[0]!.stance).toBe('advance')
+
+    expect(encounter.enemies[0]!.stance).toBe('rising')
+    expect(frames / 60).toBeCloseTo(C.enemy.downedSeconds, 1)
+    // And it never moved, which is what kept it in the cone for the whole window -- the
+    // range escape that made the old assertion unfalsifiable never gets started.
+    expect(encounter.enemies[0]!.position.distanceTo(fell)).toBeCloseTo(0, 5)
   })
+})
+
+describe('every resolver, against a flat soldier', () => {
+  // The guarantee above is only worth as much as the gates being uniform: a fifth move
+  // added with a looser gate -- or with the `caught.has(enemy.id)` test and no state gate
+  // at all, which is the easy omission -- brings the stall back for that move alone, and
+  // the gust test would not notice. `isTargetable` has its own unit tests in
+  // enemy.test.ts; these are about the wiring, that each of the four moves resolving
+  // against enemies actually asks it.
+  //
+  // Worth being precise about which mistake this catches, because the obvious candidate is
+  // the wrong one: a gate written `!isDowned(enemy.health)` is *stricter* than
+  // `isTargetable`, not looser, so it cannot produce the stall -- it skips a flat body just
+  // as this one does. It fails the other way, by making a rising soldier unhittable, and
+  // "can be hit, which is what makes the interrupt reachable" above is the test for that.
+  const moves: Array<{ name: string; input: Partial<EncounterInput>; charged?: boolean }> = [
+    { name: 'a gust', input: { gustPressed: true } },
+    { name: 'a staff finisher', input: { staffSwing: { index: 3, finisher: true } } },
+    { name: 'a pressure wave', input: { slam: { strength: 40 } } },
+    // A release resolves only from a charge already held, so this one needs the encounter
+    // primed as well as the input set.
+    { name: 'a vortex release', input: { vortexReleased: true }, charged: true },
+  ]
+
+  /** The encounter a release needs: charged to the maximum, so the move actually fires. */
+  const primed = (encounter: Encounter, charged: boolean | undefined) =>
+    (charged ? { ...encounter, vortexHeldSeconds: C.vortex.maxChargeSeconds } : encounter)
+
+  const land = (from: Encounter, move: typeof moves[number]) => stepEncounter(
+    primed(from, move.charged), { ...defaults, ...move.input }, 1 / 60, C, DEPS,
+  )
+
+  for (const move of moves) {
+    it(`leaves a body's countdown and its knockback alone under ${move.name}`, () => {
+      const soldier = land(downedSoldier(1), move).encounter.enemies[0]!
+      expect(soldier.stance).toBe('downed')
+      // Not restarted, and not pushed: `hitEnemy` is the only thing that does either, so
+      // both together say the resolver skipped this body rather than merely under-hitting it.
+      expect(soldier.stanceTime).toBeCloseTo(1 / 60, 5)
+      expect(soldier.knockback.length()).toBe(0)
+    })
+
+    it(`connects with a soldier on its feet under ${move.name}`, () => {
+      // The control. Without it the assertion above would pass just as well for a move
+      // aimed somewhere else entirely, which is the failure the old stall test made.
+      const soldier = land(near(), move).encounter.enemies[0]!
+      expect(soldier.knockback.length()).toBeGreaterThan(0)
+    })
+  }
 })
 
 describe('firstDownsThisFrame', () => {
