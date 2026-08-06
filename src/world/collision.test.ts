@@ -37,6 +37,35 @@ const gentleFloor: TerrainQuery = {
   }),
 }
 
+/**
+ * A wall tilted just past vertical -- `normal.y` sits under `wallNormalY` by a hair, the
+ * way a steep flank like the spire's does, rather than the dead-vertical face
+ * `wallFacingMinusX` models. Answers only the first cast it is given and returns null
+ * after that, on purpose: this exists to pin what a single deflection does to vertical
+ * velocity (Minor 1), not to exercise multi-pass sliding, which the corner tests above
+ * already cover, and a second geometrically-consistent cast off a tilted, non-axis-aligned
+ * plane would add real complexity for no more coverage.
+ */
+const slantedWallOnce = (planePoint: Vector3, normal: Vector3): TerrainQuery => {
+  let answered = false
+  return {
+    groundHeightAt: () => null,
+    raycast: (from, direction) => {
+      if (answered) return null
+      const denom = normal.dot(direction)
+      if (denom >= 0) return null
+      const travel = normal.dot(planePoint.clone().sub(from)) / denom
+      if (travel < 0) return null
+      answered = true
+      return {
+        point: from.clone().addScaledVector(direction, travel),
+        normal: normal.clone(),
+        islandId: 'slant',
+      }
+    },
+  }
+}
+
 describe('isWall', () => {
   it('calls a vertical surface a wall', () => {
     expect(isWall(new Vector3(-1, 0, 0), C)).toBe(true)
@@ -62,7 +91,9 @@ describe('resolveMovement with nothing in the way', () => {
     expect(out.velocity.toArray()).toEqual([10, 0, 0])
     expect(out.normal).toBeNull()
   })
+})
 
+describe('resolveMovement against a wall', () => {
   it('does not mutate the vectors it was handed', () => {
     const from = new Vector3()
     const to = new Vector3(10, 0, 0)
@@ -79,9 +110,7 @@ describe('resolveMovement with nothing in the way', () => {
     expect(out.position.toArray()).toEqual([3, 4, 5])
     expect(out.normal).toBeNull()
   })
-})
 
-describe('resolveMovement against a wall', () => {
   it('holds the body a radius clear of the surface', () => {
     const out = resolveMovement(
       new Vector3(), new Vector3(10, 0, 0), new Vector3(10, 0, 0), wallFacingMinusX(5), C,
@@ -130,6 +159,27 @@ describe('resolveMovement against a wall', () => {
     expect(out.position.z).toBeGreaterThan(5)
   })
 
+  it('sizes the second pass by remaining arc length along the original sweep, not a rescaled one', () => {
+    // Minor 2 of the review: `stopped.distanceTo(origin)` at line 93 is the only thing
+    // pinning that figure anywhere in the suite. A reviewer swapped it for `travel * 5` — a
+    // fivefold overshoot of the remaining budget — and every test still passed, because
+    // nothing checked the number itself, only that z ended up somewhere past 5.
+    //
+    // The same glancing sweep as the test above, measured exactly rather than assumed: the
+    // full diagonal is sqrt(72) = 8.485281374238571 long. The first pass stops at (4.5, 0,
+    // 5), which is sqrt(4.5^2 + 5^2) = 6.726812023536855 from the origin — leaving
+    // 1.7584693507017164 of the original 8.485281... still to spend along the deflected
+    // (now purely +z) direction, landing the second pass at z = 5 + 1.7584693507017164 =
+    // 6.758469350701716. That arc-length identity — first leg plus second leg equals the
+    // original sweep — is what the formula is actually for; pinning the final position is
+    // the falsifiable stand-in for checking it.
+    const out = resolveMovement(
+      new Vector3(), new Vector3(6, 0, 6), new Vector3(6, 0, 6), wallFacingMinusX(5), C,
+    )
+    expect(out.position.x).toBeCloseTo(4.5, 9)
+    expect(out.position.z).toBeCloseTo(6.758469350701716, 9)
+  })
+
   it('leaves alone a velocity that is already moving away from the surface', () => {
     // The `into < 0` guard. `to` and `velocity` are independent arguments, so a caller can
     // sweep toward a wall while the velocity points away from it — which is what a player
@@ -139,6 +189,22 @@ describe('resolveMovement against a wall', () => {
       new Vector3(), new Vector3(10, 0, 0), new Vector3(-10, 0, 0), wallFacingMinusX(5), C,
     )
     expect(out.velocity.x).toBeCloseTo(-10, 6)
+  })
+
+  it('injects an upward velocity component off a slanted wall, even from purely horizontal input', () => {
+    // Minor 1 of the review, measured on the spire flank over 300 sprint frames: shipped
+    // peak vy +3.903 with 102 ungrounded frames, against vy 0 and 97 ungrounded frames with
+    // walls disabled. The mechanism: removing the into-surface component of a velocity adds
+    // back along +normal, and a wall's normal.y can be anywhere up to (but not including)
+    // wallNormalY, so that addition can carry a positive y component the input never had.
+    // This then trips groundStep's `velocity.y <= 0` gate on the ground snap, which is the
+    // behaviour Minor 1 flags as real, new, and worth pinning rather than assuming.
+    const normal = new Vector3(-1, 0.49, 0).normalize()
+    const wall = slantedWallOnce(new Vector3(5, 0, 0), normal)
+    const velocity = new Vector3(10, 0, 0)
+    const out = resolveMovement(new Vector3(), new Vector3(10, 0, 0), velocity, wall, C)
+    expect(out.velocity.y).toBeGreaterThan(0)
+    expect(out.velocity.y).toBeCloseTo(3.9513, 3)
   })
 
   it('never speeds anything up', () => {
@@ -165,8 +231,14 @@ describe('resolveMovement leaves ground alone', () => {
 
 describe('resolveMovement in a corner', () => {
   it('does not drive through the second wall while deflecting off the first', () => {
-    // One pass deflects off the near wall and sends the player along it, straight through
-    // the far one. This is the case the second pass exists for.
+    // With only one pass, the sweep stops dead at whichever wall it meets first -- here the
+    // x-wall, arbitrarily, since both hits tie in this symmetric corner -- and never even
+    // asks about the second: `PASSES - 1` is 0, so pass 0 is already the last pass, and the
+    // last pass always stops at contact rather than sliding past it. That leaves z at
+    // exactly 5, the z-wall's own surface, with none of the radius clearance the x-wall got.
+    // Not "slides along the first wall and through the second" -- this implementation never
+    // slides on its last pass -- but still a real penetration of the second wall's
+    // clearance, which is the case the second pass exists to catch.
     const corner: TerrainQuery = {
       groundHeightAt: () => null,
       raycast: (from, direction) => {
