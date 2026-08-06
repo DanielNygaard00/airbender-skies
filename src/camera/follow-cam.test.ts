@@ -135,6 +135,17 @@ describe('pullInForTerrain', () => {
     expect(out.z).toBeGreaterThan(0)
   })
 
+  it('stops strictly short of the surface, never on it', () => {
+    // Placing the camera exactly on the hit point puts that surface at distance zero from
+    // the camera, behind the near clip plane, which is the see-through-the-wall failure
+    // this whole function exists to fix. `CAMERA_SKIN` is what pulls it back off the
+    // surface; without it `target.distanceTo(out)` would equal the hit distance exactly.
+    const desired = new Vector3(0, 20, 10)
+    const hitDistance = 4
+    const out = pullInForTerrain(target, desired, surfaceAt(hitDistance))
+    expect(target.distanceTo(out)).toBeLessThan(hitDistance)
+  })
+
   it('never comes closer than minDistance, even against a surface nearer than that', () => {
     // Deliberate: a camera jammed into the character's head is worse than a camera
     // briefly clipping a wall.

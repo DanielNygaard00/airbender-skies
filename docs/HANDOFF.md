@@ -1002,12 +1002,17 @@ actually exercises the crossing it claims to and that the original measurement w
 camera whenever terrain shared its column, unable to tell a wall between the camera and
 the player from a roof over both. It now casts from the player toward the desired camera
 position and, on a hit nearer than the arm's own length, places the camera at the hit
-point pulled back by `minDistance` — which **replaces** the lift rather than joining it,
-since keeping both would leave two opinions about where the camera belongs. Four existing
-tests that asserted the lift (a `.y` increase) were deliberately deleted and replaced
-with tests of the goal — the arm's shortened *distance* — rather than of the mechanism
-that used to produce it. That is an intended behaviour change, not a regression, and is
-recorded as such here so it doesn't read as one to a future `git log` skim.
+point pulled back along the ray by a small skin (`CAMERA_SKIN`, 0.3), floored at
+`minDistance` — which **replaces** the lift rather than joining it, since keeping both
+would leave two opinions about where the camera belongs. The skin exists because
+`minDistance` alone was not enough: an earlier version of this cast placed the camera
+exactly on the hit surface, which puts that surface at distance zero from the camera,
+behind the near clip plane, and the player sees straight through it — the exact failure
+this cast was written to fix. Four existing tests that asserted the lift (a `.y`
+increase) were deliberately deleted and replaced with tests of the goal — the arm's
+shortened *distance* — rather than of the mechanism that used to produce it. That is an
+intended behaviour change, not a regression, and is recorded as such here so it doesn't
+read as one to a future `git log` skim.
 
 **A claim in the spec, the plan, and one commit message overstated what was found, and
 it is worth knowing which one.** All three said, in effect, that walking into a hillside

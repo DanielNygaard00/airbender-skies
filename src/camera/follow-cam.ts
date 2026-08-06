@@ -21,6 +21,18 @@ export function profileFor(mode: PlayerState['mode']): CamProfile {
   return mode === 'glider' ? GLIDER_PROFILE : GROUND_PROFILE
 }
 
+/**
+ * How far short of a hit surface the camera stops.
+ *
+ * Placing the camera exactly on the surface puts that surface at distance zero from the
+ * camera — behind the near clip plane — so the near-plane clip carves a hole in it and
+ * the player sees straight through, which is the exact failure `pullInForTerrain` exists
+ * to fix. This is not `minDistance`: `minDistance` is a floor on distance from the player,
+ * unrelated to the near plane, and does not by itself keep the camera off a surface that
+ * sits further from the player than `minDistance` but still closer than this skin.
+ */
+const CAMERA_SKIN = 0.3
+
 /** Where the camera wants to sit, before smoothing or terrain collision. */
 export function desiredCameraPosition(
   target: Vector3, lookDirection: Vector3, profile: CamProfile,
@@ -51,8 +63,11 @@ export function smoothTowards(
  * ceiling and the ground included — where movement leaves ground to the ground snap and
  * the landing probe, the camera has no other owner.
  *
- * `minDistance` wins over the surface when the surface is nearer than it. Deliberate: a
- * camera jammed into the character's head is worse than a camera briefly clipping a wall.
+ * The camera stops `CAMERA_SKIN` short of the hit, not on it, so the surface stays in
+ * front of the near clip plane instead of behind it. `minDistance` wins over that when
+ * the surface sits close enough that skinning back from it would land inside
+ * `minDistance` of the player. Deliberate: a camera jammed into the character's head is
+ * worse than a camera briefly clipping a wall.
  */
 export function pullInForTerrain(
   target: Vector3, desired: Vector3, terrain: TerrainQuery, minDistance = 2,
@@ -66,6 +81,6 @@ export function pullInForTerrain(
   const hit = terrain.raycast(target, arm, length)
   if (!hit) return desired.clone()
 
-  const kept = Math.max(minDistance, target.distanceTo(hit.point))
+  const kept = Math.max(minDistance, target.distanceTo(hit.point) - CAMERA_SKIN)
   return target.clone().addScaledVector(arm.divideScalar(length), kept)
 }

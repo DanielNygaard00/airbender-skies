@@ -1460,6 +1460,15 @@ export function pullInForTerrain(
 }
 ```
 
+**Corrected in the terrain-collision review fix pass.** Placing the camera exactly on
+`hit.point`, as written above, puts that surface at distance zero from the camera — behind
+the near clip plane — which lets the player see straight through it. The shipped `kept` is
+`Math.max(minDistance, target.distanceTo(hit.point) - CAMERA_SKIN)`, with `CAMERA_SKIN =
+0.3` as a module constant pulling the camera back off the surface by a fixed skin before
+the `minDistance` floor applies. This plan's code block above is left as originally
+written, matching this document's convention of recording what was wrong rather than
+erasing it; take the formula above with this correction rather than at face value.
+
 `arm` is a local built by `subVectors`, so dividing it in place normalises without touching either argument.
 
 - [ ] **Step 4: Run and confirm the tests pass**

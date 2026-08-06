@@ -198,7 +198,11 @@ deflection instead of competing with it.
 cannot tell whether that terrain is between the camera and the player or merely overhead.
 With a real cast it asks the question directly: cast from the player toward the desired camera
 position, and if something is hit nearer than the arm's length, put the camera at the hit
-point pulled back along the ray by `minDistance`.
+point pulled back along the ray by a small skin (`CAMERA_SKIN`), floored at `minDistance`.
+The skin, not `minDistance` alone, is what keeps the hit surface itself off the near clip
+plane — a camera placed exactly on a surface puts that surface at distance zero, behind
+the near plane, which is the see-through failure this cast exists to fix in the first
+place.
 
 This **replaces** the height lift rather than joining it. The lift was an approximation
 standing in for exactly this cast, and keeping both would leave two opinions about where the
@@ -251,7 +255,8 @@ permanent guards:
   provably confined to walls
 
 `src/camera/follow-cam.test.ts`: the arm shortens when a wall stands between camera and
-player; the camera still trails at full `distance` in the open; `minDistance` is respected.
+player; the camera still trails at full `distance` in the open; `minDistance` is respected;
+the camera stops strictly nearer than the hit surface, never on it.
 
 The full existing suite stays green, with the follow-cam lift tests as the single intended
 exception. `patrol-placement.test.ts` matters most here: it runs the real fight over real
