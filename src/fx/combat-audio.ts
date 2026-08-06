@@ -1,4 +1,4 @@
-import { COMBAT_LEVELS, swingLevel, swingSeconds } from './mapping'
+import { bowReleaseLevel, COMBAT_LEVELS, swingLevel, swingSeconds } from './mapping'
 
 const NOISE_SECONDS = 1
 
@@ -98,9 +98,18 @@ export function createCombatAudio() {
       thud(COMBAT_LEVELS.hurt * 0.8, 0.22, 220, 35)
     },
 
-    /** A short bright snap, higher and shorter than a staff swing: a string releasing. */
-    bowRelease(): void {
-      burst(COMBAT_LEVELS.bowRelease, 0.1, 4200, 900)
+    /**
+     * A short bright snap, higher and shorter than a staff swing: a string releasing.
+     *
+     * One burst for the whole frame, whatever `count` is, like every other voice here.
+     * Called once per arrow instead, the identical bursts would start at the same
+     * `currentTime` and sum coherently into the master; `bowReleaseLevel` is where that
+     * decision lives, and it is tested.
+     */
+    bowRelease(count: number): void {
+      const level = bowReleaseLevel(count)
+      if (level <= 0) return
+      burst(level, 0.1, 4200, 900)
     },
 
     dispose(): void {

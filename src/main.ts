@@ -597,7 +597,10 @@ function start(): void {
     }
     if (bursts.hits.length > 0) combatAudio.impact()
     if (bursts.downs.length > 0) combatAudio.down()
-    for (let i = 0; i < fight.firedThisFrame.length; i++) combatAudio.bowRelease()
+    // Once, with the count, like every other voice on this list. A call per arrow stacked
+    // bit-identical bursts at the same currentTime; the level for a volley is decided in
+    // mapping.ts, where it can be tested.
+    combatAudio.bowRelease(fight.firedThisFrame.length)
 
     // Heavy events only. Never a gust: a move with a 0.45s cooldown that hitches on
     // every use is nausea, not weight.
