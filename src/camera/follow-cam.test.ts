@@ -16,6 +16,12 @@ const noGround: TerrainQuery = { groundHeightAt: () => null, raycast: () => null
 const surfaceAt = (distance: number): TerrainQuery => ({
   groundHeightAt: () => 0,
   raycast: (from, direction, maxDistance) => {
+    // Mirrors the degenerate-direction guard `createTerrainQuery` actually enforces
+    // (`terrain-query.ts`'s `!(lengthSq > 1e-12)` check): a real TerrainQuery never hands
+    // back a hit for a zero-length direction, so this fake shouldn't either. Without this,
+    // `surfaceAt(0)` would fall through to `direction.clone().normalize()` on a zero
+    // vector and hand back a NaN point instead of the null a real implementation returns.
+    if (!(direction.lengthSq() > 1e-12)) return null
     if (distance > maxDistance) return null
     const unit = direction.clone().normalize()
     return {
@@ -158,11 +164,25 @@ describe('pullInForTerrain', () => {
     expect(pullInForTerrain(target, desired, surfaceAt(40)).toArray()).toEqual(desired.toArray())
   })
 
+  // This is a contract test, not proof that the zero-length-arm guard in
+  // `pullInForTerrain` is load-bearing: `arm` here is exactly (0, 0, 0), and any
+  // TerrainQuery honouring the same degenerate-direction contract `createTerrainQuery`
+  // enforces (`terrain-query.ts`'s `!(lengthSq > 1e-12)` check, mirrored in `surfaceAt`
+  // above) already returns null for that direction, so `pullInForTerrain` falls through to
+  // its own `if (!hit) return desired.clone()` and produces the identical result with the
+  // guard deleted. Checked directly: removing the guard and running this file still passes
+  // all tests. The guard stays anyway -- it fails fast and documents the case by name,
+  // rather than depending on every TerrainQuery implementation continuing to reject a
+  // zero-length cast the same way.
   it('handles a desired position sitting on the player', () => {
     const out = pullInForTerrain(target, target.clone(), surfaceAt(1))
     expect(Number.isFinite(out.x + out.y + out.z)).toBe(true)
   })
 
+  // Despite the name, this one does not exercise the guard at all: `arm` is
+  // (0, -1, 0), length 1, nowhere near the `1e-6` threshold. It is a real test of a real
+  // hit landing inside `minDistance` of the player, kept as its own case rather than
+  // folded into the guard discussion above.
   it('never returns a non-finite position', () => {
     const out = pullInForTerrain(target, new Vector3(0, 19, 0), surfaceAt(1))
     expect(Number.isFinite(out.x + out.y + out.z)).toBe(true)
