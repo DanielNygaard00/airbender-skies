@@ -22,17 +22,31 @@ import type { InputState, PlayerState } from '../core/types'
  * figure uses `totalEnergy`, which is valid there because the flight in that run never
  * crosses y 0. It is not used below, for a reason explained there.)
  *
- * After the fix (breath cost 28, perpendicular glider dodge, bank threaded through to
- * `gliderRight` so a banked dodge is not flattened): the same forty seconds of
- * chain-dodging drifts off its straight line -- every untouched-bank dodge kicks sideways
- * to the same default side rather than forward -- and ends up crashed on an island at
- * y -51.8, nearly stopped (0.8 m/s), breath drained to 87.5. A plain glide over the same
- * span ends at y 150.9, 23.1 m/s. Chain-dodging is not just no-longer-free, it is now
- * worse than doing nothing. (`totalEnergy` is not used for this comparison: the crashed
- * run's position goes well below y 0, and `totalEnergy = gravity * y + 0.5 * v^2` goes
- * negative there too, so a ratio against the start would cross zero and "less than 1"
- * would pass for having crossed zero, not for having lost energy in any meaningful sense.
- * Altitude and speed, measured directly, do not have that problem.)
+ * After the fix (breath cost 28, perpendicular glider dodge with the handedness corrected
+ * so `strafe` dodges the same world side on foot and in the glider, bank threaded through
+ * to `gliderRight` so a banked dodge is not flattened): with no strafe held -- the default
+ * side, the common case -- the same forty seconds of chain-dodging drifts off its straight
+ * line, kicking sideways to the same default side every time rather than forward, and
+ * never lands within the forty seconds at all. It free-falls into open water, ending at
+ * y -524.4, 24.9 m/s, breath drained to 19.8, 20 dodges. A plain glide over the same span
+ * ends at y 150.9, 23.1 m/s. Chain-dodging is not just no-longer-free, it ends up lower and
+ * barely different in speed. (`totalEnergy` is not used for this comparison: the run's
+ * position goes well below y 0, and `totalEnergy = gravity * y + 0.5 * v^2` goes negative
+ * there too, so a ratio against the start would cross zero and "less than 1" would pass for
+ * having crossed zero, not for having lost energy in any meaningful sense. Altitude and
+ * speed, measured directly, do not have that problem.)
+ *
+ * The measurement is bounded to glider posture -- `fly` stops the instant `mode` leaves
+ * 'glider' -- because an earlier version of this test ran the full forty seconds
+ * regardless, and the chain-dodge run of that version landed at 19.43s and spent the
+ * remaining ~20.6s sliding around on the ground, occasionally ground-dodging (11 glider
+ * dodges, 14 ground ones, of 25 total). That compared a landed player's y and speed
+ * against a still-gliding control, and let "the test must actually be dodging" pass on
+ * ground dodges alone. With the handedness fix, this particular run's default-side dodge
+ * points the other way and no longer intersects that island at all, so it never lands
+ * within the forty seconds either way here -- but the bound stays, because which way a
+ * future retune happens to send it is exactly the kind of thing that shouldn't be able to
+ * silently change what this measures again.
  *
  * Both fixes in this cycle are jointly load-bearing here, and neutralising either one
  * alone does not reproduce the original bug -- this is worth recording because it is not
@@ -42,13 +56,13 @@ import type { InputState, PlayerState } from '../core/types'
  *   place) reddens the breath-bar assertion and the speed assertion, but not the altitude
  *   one. The direction fix by itself already prevents a straight-line climb: an unlimited
  *   dodge chain still never gets near y 434 -- it drifts off the archipelago and
- *   free-falls into open water instead, ending at y -482.4, which is still comfortably
- *   below "no higher than a plain glide plus slack". But falling that far for that long
- *   picks up real speed: 40.0 m/s at the end, which *does* clear "not much faster than a
- *   plain glide", so this neutralisation is still caught, just by a different one of the
- *   four assertions than the altitude-only version of this test would have used. Breath
- *   staying at a full 100 is the one figure that matches the original description; y and
- *   the mechanism producing the speed do not -- one is a climb, the other a fall.
+ *   free-falls into open water, ending at y -482.4, still comfortably below "no higher
+ *   than a plain glide plus slack". But falling that far for that long picks up real
+ *   speed: 40.0 m/s at the end, which *does* clear "not much faster than a plain glide",
+ *   so this neutralisation is still caught, just by a different one of the four assertions
+ *   than the altitude-only version of this test would have used. Breath staying at a full
+ *   100 is the one figure that matches the original description; y and the mechanism
+ *   producing the speed do not -- one is a climb, the other a fall.
  * - Reverting the direction fix alone (bank fixed at 0 again, `dodgeHeading`'s glider
  *   branch falling back to the flattened heading; `breathCost` still 28) was not
  *   separately re-measured for this file, since Task 2's own tests already pin that
@@ -110,22 +124,34 @@ function glider(): PlayerState {
   }
 }
 
-/** Forty seconds, dodging on cooldown or never. Returns what forty seconds produced. */
+/**
+ * Up to forty seconds, dodging on cooldown or never, stopped the moment the player
+ * lands. Landing flips `mode` to 'ground', where the flight invariants this test is
+ * about -- and the dodge's own vertical component -- no longer apply: a landed player
+ * sliding around and occasionally ground-dodging is a different question from whether
+ * flying and dodging gains height for free. Letting the loop run past that point mixed a
+ * landed player's numbers into what was meant to measure a glide, and let the "must
+ * actually be dodging" guard pass on ground dodges alone. Bounding to glider posture also
+ * means every counted dodge is a glider dodge, so `dodges` needs no separate label.
+ */
 function fly(dodge: boolean) {
   const d = deps()
   let p = glider()
   let dodges = 0
-  for (let frame = 0; frame < 2400; frame++) {
+  let frame = 0
+  while (frame < 2400 && p.mode === 'glider') {
     const ready = dodge && p.slipstreamCooldown <= 0 && p.slipstreamElapsed === null
     const before = p.slipstreamCooldown
     p = controllerStep(p, input({ slipstreamPressed: ready }), 1 / 60, d)
     if (p.slipstreamCooldown > before) dodges++
+    frame++
   }
   return {
     y: p.position.y,
     speed: p.velocity.length(),
     breath: p.breath,
     dodges,
+    landedAtSeconds: p.mode === 'glider' ? null : frame / 60,
   }
 }
 
@@ -151,8 +177,8 @@ describe('chain-dodging is no longer a way to gain altitude for free', () => {
     //
     // Compared against the control in the same test rather than a remembered constant,
     // so retuning the flight model cannot silently invert the comparison while both
-    // numbers drift. The slack is 20, not a round guess: measured, chained.y is -51.8 and
-    // plain.y is 150.9, a gap of about 203. 20 is a small fraction of that gap -- room for
+    // numbers drift. The slack is 20, not a round guess: measured, chained.y is -524.4 and
+    // plain.y is 150.9, a gap of about 675. 20 is a small fraction of that gap -- room for
     // retuning without the assertion needing attention -- while still failing long before
     // chained could climb anywhere near parity with plain, which is the regression this
     // exists to catch.
@@ -165,11 +191,12 @@ describe('chain-dodging is no longer a way to gain altitude for free', () => {
     // Speed, for the same reason altitude is used above: it stays meaningful however far
     // below y 0 the run goes, where an energy ratio would not.
     //
-    // The slack is 15: measured, chained.speed is 0.8 m/s and plain.speed is 23.1 m/s, so
-    // chained is currently far below plain, not above it. 15 leaves plenty of room over
-    // today's measurement while still catching a return toward the original exploit's
-    // 76.9 m/s -- which would blow past plain.speed + 15 well before it got anywhere near
-    // 76.9.
+    // The slack is 15: measured, chained.speed is 24.9 m/s and plain.speed is 23.1 m/s, a
+    // gap of only about 1.8 -- close now, not far apart, since the bounded run never lands
+    // and free-falls into open water at close to the same terminal-ish speed a glide holds.
+    // 15 still leaves comfortable room over that gap while catching a return toward the
+    // original exploit's 76.9 m/s, which would blow past plain.speed + 15 well before it
+    // got anywhere near 76.9.
     const plain = fly(false)
     const chained = fly(true)
     expect(chained.speed).toBeLessThanOrEqual(plain.speed + 15)
