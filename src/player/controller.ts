@@ -294,8 +294,10 @@ export function controllerStep(
     slipstreamElapsed: slip.state.elapsed,
     slipstreamCooldown: slip.state.cooldown,
     velocity: slip.impulse ? next.velocity.clone().add(slip.impulse) : next.velocity,
-    // Clamped at 0 so a rounding error can never drive the bar negative, which would
-    // read as a permanently unusable dodge.
+    // Breath cannot go negative here — canSlipstream already refuses to fire below
+    // c.breathCost, and the firing branch spends exactly that — but the clamp is the
+    // safe answer if that gate and this deduction ever drift apart, because a negative
+    // bar would read as a permanently unusable dodge.
     breath: Math.max(0, next.breath - slip.breathSpent),
   }
 
