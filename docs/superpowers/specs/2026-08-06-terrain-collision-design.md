@@ -81,8 +81,12 @@ Implementation requirements for `createTerrainQuery`:
 
 - Reuse the existing shared `Raycaster`. This runs every frame in two systems now.
 - Normalise the direction into a module-level scratch vector rather than allocating:
-  `Raycaster.set` does not normalise, and an unnormalised direction silently rescales
-  `maxDistance`.
+  three.js documents `Raycaster.direction` as required to be normalized. Measured against
+  0.185.1, a Mesh target doesn't actually need it — `Mesh.js`'s intersection check compares
+  `maxDistance` against a real Euclidean distance from the ray origin, not a raw ray
+  parameter, so an unnormalised direction doesn't rescale it in this version. Normalise
+  anyway: that's an undocumented tolerance of this version, not a contract, and a future
+  three.js upgrade is free to start depending on unit length again.
 - Return `null` for a zero-length direction rather than casting with a degenerate ray.
 
 ## Collision
@@ -220,9 +224,10 @@ cast keeps those tests testing movement, which is what they are for.
 - a zero-length step is a no-op
 - speed never increases, for any hit geometry
 
-`src/world/terrain-query.test.ts`: lateral casts hit; a zero-length direction returns `null`;
-an unnormalised direction still respects `maxDistance` in world units; the `raycastDown`
-helper keeps every behaviour the method had.
+`src/world/terrain-query.test.ts`: lateral casts hit; a zero-length or non-finite direction
+returns `null`; `maxDistance` is honoured in world units on either side of a known hit
+distance, with an unnormalised direction to prove that length doesn't skew it; the
+`raycastDown` helper keeps every behaviour the method had.
 
 Integration, against real archipelago geometry — the analysis measurements inverted into
 permanent guards:

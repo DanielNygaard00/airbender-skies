@@ -77,14 +77,26 @@ describe('raycast', () => {
     expect(hit!.point.x).toBeLessThan(0)
   })
 
-  it('respects maxDistance in world units even for an unnormalised direction', () => {
-    // Raycaster.set does not normalise, so a direction of length 10 would otherwise
-    // silently multiply the range by ten.
+  it('honours maxDistance in world units on either side of the real hit', () => {
+    // originIsland's surface along this ray sits at x ~= -46.55 (noise-perturbed, not the
+    // nominal radius of 40), which is ~153.45 world units out from `from`. 200 comfortably
+    // clears that; 100 comfortably falls short of it. The direction is left unnormalised
+    // (length 10) on purpose: this is the test the wrongly-reasoned "rescales maxDistance"
+    // test above used to be, and the point now is that maxDistance behaves the same in
+    // world units regardless of direction length, not that it doesn't.
     const query = createTerrainQuery([originIsland()])
-    const near = query.raycast(new Vector3(-200, 0, 0), new Vector3(10, 0, 0), 5)
-    expect(near).toBeNull()
+    const from = new Vector3(-200, 0, 0)
+    const direction = new Vector3(10, 0, 0)
+    expect(query.raycast(from, direction, 200)).not.toBeNull()
+    expect(query.raycast(from, direction, 100)).toBeNull()
   })
 
+  // The two tests below are contract tests, not proof that the guard in `raycast` is
+  // load-bearing: a zero-length or non-finite direction normalises to NaN (divideScalar's
+  // 1/0 or 1/NaN), and a NaN ray already fails every downstream triangle-intersection
+  // comparison in three.js, so both would still return null with the guard deleted. The
+  // guard stays anyway -- it makes the contract explicit and fails fast, rather than
+  // depending on a NaN ray staying harmless in whatever raycasting backend runs next.
   it('returns null for a zero-length direction rather than casting a degenerate ray', () => {
     const query = createTerrainQuery([originIsland()])
     expect(query.raycast(new Vector3(0, 300, 0), new Vector3(), 1000)).toBeNull()

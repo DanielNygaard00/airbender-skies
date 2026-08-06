@@ -57,12 +57,16 @@ describe('raycast', () => {
     expect(hit!.point.x).toBeLessThan(0)
   })
 
-  it('respects maxDistance in world units even for an unnormalised direction', () => {
-    // Raycaster.set does not normalise, so a direction of length 10 would otherwise
-    // silently multiply the range by ten.
+  it('honours maxDistance in world units on either side of the real hit', () => {
+    // originIsland's surface along this ray sits ~153.45 world units out from `from`
+    // (measured; noise-perturbed, not the nominal radius of 40). 200 comfortably clears
+    // that; 100 comfortably falls short of it. The direction is left unnormalised (length
+    // 10) to show that maxDistance stays in world units regardless of direction length.
     const query = createTerrainQuery([originIsland()])
-    const near = query.raycast(new Vector3(-200, 0, 0), new Vector3(10, 0, 0), 5)
-    expect(near).toBeNull()
+    const from = new Vector3(-200, 0, 0)
+    const direction = new Vector3(10, 0, 0)
+    expect(query.raycast(from, direction, 200)).not.toBeNull()
+    expect(query.raycast(from, direction, 100)).toBeNull()
   })
 
   it('returns null for a zero-length direction rather than casting a degenerate ray', () => {
@@ -135,8 +139,12 @@ const SCRATCH_DIRECTION = new Vector3()
     // Written as the negated form so a NaN direction falls out here rather than being
     // normalised into a NaN ray that silently reports no hit from anywhere.
     if (!(lengthSq > 1e-12)) return null
-    // Raycaster.set does not normalise, and an unnormalised direction rescales `far`,
-    // so a direction of length 10 would quietly multiply the range by ten.
+    // three.js documents Raycaster.direction as required to be normalized. Measured against
+    // this version (0.185.1): it doesn't actually need to be, for a Mesh target -- Mesh.js's
+    // checkIntersection compares `far` against raycaster.ray.origin.distanceTo(hitPoint), a
+    // real Euclidean distance, so an unnormalised direction does not rescale it. We normalise
+    // anyway rather than lean on that undocumented tolerance, because it is not a contract
+    // and a future three.js upgrade is free to start relying on unit length again.
     SCRATCH_DIRECTION.copy(direction).divideScalar(Math.sqrt(lengthSq))
     raycaster.set(from, SCRATCH_DIRECTION)
     raycaster.near = 0
@@ -245,7 +253,9 @@ Expected: both passes clean, every test green. This task changes no behaviour, s
 
 - [ ] **Step 8: Red-proof the new tests**
 
-Temporarily change the zero-direction guard in `raycast` from `if (!(lengthSq > 1e-12)) return null` to `if (false) return null` and confirm the zero-length and non-finite tests fail. Restore it. Then temporarily drop the `divideScalar` normalisation and confirm the `maxDistance` test fails. Restore it.
+The zero-length and non-finite direction tests cannot be red-proofed by disabling the guard: a zero-length or non-finite direction normalises to NaN via `divideScalar`'s `1/0` or `1/NaN`, and three.js already fails every downstream triangle-intersection comparison against a NaN ray, so both tests still pass with the guard deleted. Leave the guard in place — it makes the contract explicit rather than depending on a NaN ray staying harmless — but don't spend time trying to make these two go red; they are contract tests, not proof the guard is load-bearing.
+
+The `maxDistance` test is the one to red-proof, and it takes a different neutralisation: widen the `far` clamp, e.g. change `raycaster.far = maxDistance` to `raycaster.far = maxDistance * 10`, and confirm `honours maxDistance in world units on either side of the real hit` fails (the far-short-of-the-hit assertion starts finding a hit it shouldn't). Restore it. Dropping the `divideScalar` normalisation will *not* red-proof this test: this version of three.js (0.185.1) compares `far` against a real Euclidean distance in `Mesh.js`'s `checkIntersection`, not a raw ray parameter, so direction length doesn't affect the outcome either way — confirmed by measurement, not assumption, after the original version of this step claimed otherwise and turned out to be wrong.
 
 - [ ] **Step 9: Commit**
 
@@ -267,9 +277,10 @@ new method optional was considered and rejected: collision would then
 silently do nothing wherever a fake omitted it, which is the same class
 of silent narrowing that let patrol.test.ts shrink its own scope.
 
-The direction is normalised into a module-level scratch vector, because
-Raycaster.set does not normalise and an unnormalised direction quietly
-rescales maxDistance.
+The direction is normalised into a module-level scratch vector because
+three.js documents it as required, even though this version tolerates an
+unnormalised one for a Mesh target -- that's an undocumented tolerance
+of 0.185.1, not a contract, and not worth depending on.
 
 Every fake that models a ground plane now answers only downward casts.
 Without that guard a fake would answer a horizontal sweep with a hit on
