@@ -812,8 +812,35 @@ drain or a stale HUD read on the one attempt this pass had time for.
 
 Every tuning value in this cycle is an unplayed guess, same as the rest of this document's
 tuning — but unlike most of this project's guesses, these are about *pressure* rather than feel,
-so an hour of play will move them a long way. The archer's `aggroRange` of 48 most of all: it is
-the number that decides whether climbing still wins.
+so an hour of play will move them a long way. The archer's `aggroRange` most of all: it is the
+number that decides whether climbing still wins.
+
+**First tuning pass, and the coupling it exposed.** The archer shipped at `aggroRange` 48 with
+`strikeRange` 40 and came down to **38 and 30**. The two have to move together: the 8-unit gap
+between them is the closing band, about 2.4 seconds of walking at `moveSpeed` 3.4, and it is the
+only warning the player gets before the first arrow. Dropping `aggroRange` alone squeezes that —
+at 44 it is four units, at 42 it is two, and at 40 the archer fires the instant it notices, which
+makes `config.ts`'s own comment false. So the floor on `aggroRange` alone is higher than it looks.
+
+Measured by walking the player from the spawn straight at the patrol's centroid at `walkSpeed`,
+before and after:
+
+| | 48 / 40 | 38 / 30 |
+|---|---|---|
+| first arrow | t = 2.65 s, 18.6 units walked | t = 4.10 s, 28.7 units |
+| first hit | t = 3.48 s | t = 3.85 s |
+| health after 15 s | 2.73 / 5 | 3.89 / 5 |
+| escape climb | 48 units above an archer | 38 units |
+
+The interesting line is the third row read against the second. Before, the opening blow was an
+*arrow* — loosed at 2.65 s with roughly 0.8 seconds of flight, landing at 3.48 s. After, arrows
+start too late for that, so the first hit at 3.85 s is a **spear**. The first punch changed hands
+from the back rank to the front, which is the shape §4.4 asks for: close the distance and the
+spears punish you, hold back or climb and the archers do. That reordering is a better argument for
+these values than the health figure is.
+
+Still unplayed. If 38 / 30 turns out too soft, the next step down was measured as 42 / 34, which
+keeps the same band.
 
 **Two known problems, both measured rather than reasoned about, and both since fixed.** Neither
 was a defect in the code that implemented it, which is why each was recorded rather than patched

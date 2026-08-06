@@ -62,11 +62,26 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
       regenPerSecond: 0,
       // Slower than the spear's 4.2. It wants distance, not contact.
       moveSpeed: 3.4,
-      // Its firing range, below aggroRange so it closes before shooting rather than
-      // opening fire the instant it notices.
-      strikeRange: 40,
-      // Nearly double the spear's 26, and in 3D.
-      aggroRange: 48,
+      /**
+       * Its firing range, kept a full 8 units below `aggroRange` so it closes before
+       * shooting rather than opening fire the instant it notices. At `moveSpeed` 3.4 that
+       * band is about 2.4 seconds of walking, which is the warning the player gets.
+       *
+       * The two values move together for that reason. Dropping `aggroRange` alone squeezes
+       * the band — at 44 it is 4 units, at 42 it is 2, and at 40 the archer fires on sight
+       * and the sentence above stops being true.
+       */
+      strikeRange: 30,
+      /**
+       * Measured in 3D, which is the whole point of the type: before archers existed,
+       * getting above the spear's 26 ended any fight.
+       *
+       * Came down from 48 with `strikeRange` from 40, as a first pass at making the archer
+       * less oppressive from both ends — the escape climb is 38 rather than 48, and arrows
+       * start at 30 rather than 40. Still comfortably wider than the spear's 26, so height
+       * still costs something. Unplayed, like every number here.
+       */
+      aggroRange: 38,
       // Longer than the spear's 0.55: a draw is slower than a thrust, and this window
       // is the dodge.
       windUpSeconds: 0.8,
