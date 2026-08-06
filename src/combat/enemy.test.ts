@@ -460,11 +460,29 @@ describe('a projectile attack reaches in three dimensions', () => {
 
   it('does fire at a player overhead inside its range', () => {
     // The other half: height is not a magic shield, only distance is.
+    //
+    // 20 out and 18 up: horizontal 20, true distance 26.9, both inside the 30 above.
+    // A player directly overhead would be at horizontal distance 0 and would fire under
+    // either measurement, which is why this one stands off to the side -- the pairing
+    // with the test below, at the same horizontal offset and a greater height, is what
+    // makes altitude the only difference between firing and not.
     const archer = {
       ...spawnEnemy('a', AT(0, 0), 'archer', ARCHER), stance: 'wind-up' as const, stanceTime: 999,
     }
-    const step = stepEnemy(archer, new Vector3(0, 20, 0), flatGround, FLOOR, 1 / 60, ARCHER)
+    const step = stepEnemy(archer, new Vector3(0, 18, -20), flatGround, FLOOR, 1 / 60, ARCHER)
     expect(step.firedProjectile).not.toBe(null)
+  })
+
+  it('stops firing at that same player once they climb higher', () => {
+    // The sibling of the test above, differing only in altitude: 20 out in both cases,
+    // 18 up there and 25 up here, which puts true distance at 32.0 -- outside the 30.
+    // Under a horizontal-only measurement both are at distance 20 and both fire, so this
+    // pair is what pins the split rather than the degenerate directly-overhead case.
+    const archer = {
+      ...spawnEnemy('a', AT(0, 0), 'archer', ARCHER), stance: 'wind-up' as const, stanceTime: 999,
+    }
+    const step = stepEnemy(archer, new Vector3(0, 25, -20), flatGround, FLOOR, 1 / 60, ARCHER)
+    expect(step.firedProjectile).toBe(null)
   })
 
   it('aims in 3D, so a shot at a hovering player climbs', () => {
@@ -479,12 +497,23 @@ describe('a projectile attack reaches in three dimensions', () => {
     expect(shot.direction.length()).toBeCloseTo(1, 5)
   })
 
-  it('leaves facing horizontal even when aiming up', () => {
-    // facing drives the rig's yaw via atan2(x, z) and must stay a horizontal heading.
+  it('leaves facing horizontal on the very frame it aims up', () => {
+    // facing drives the rig's yaw via atan2(x, z) and must stay a horizontal heading,
+    // while the shot itself climbs. Both halves are asserted on one frame on purpose:
+    // `facing.y === 0` alone holds for every possible input, because horizontalTo builds
+    // its vector as (dx, 0, dz) and even its degenerate fallback is (0, 0, -1) -- so on a
+    // frame where nothing fires it is not a claim about anything. Pairing it with the
+    // climb makes it contingent on the firing path having actually run.
+    //
+    // 10 out and 20 up is a true distance of 22.4, inside the 30 above. The previous
+    // fixture stood at 40 up, a true distance of 41.2, where the archer never fired.
     const archer = {
       ...spawnEnemy('a', AT(0, 0), 'archer', ARCHER), stance: 'wind-up' as const, stanceTime: 999,
     }
-    const step = stepEnemy(archer, new Vector3(0, 40, -10), flatGround, FLOOR, 1 / 60, ARCHER)
+    const step = stepEnemy(archer, new Vector3(0, 20, -10), flatGround, FLOOR, 1 / 60, ARCHER)
+    const shot = step.firedProjectile
+    if (!shot) throw new Error('the archer should have fired')
+    expect(shot.direction.y).toBeGreaterThan(0.5)
     expect(step.enemy.facing.y).toBe(0)
   })
 
