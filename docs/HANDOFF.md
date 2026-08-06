@@ -625,6 +625,33 @@ so the sink is driven through the squash channel that jump charging uses. A real
 the obvious follow-up. Spec:
 [`docs/superpowers/specs/2026-08-05-player-down-design.md`](superpowers/specs/2026-08-05-player-down-design.md).
 
+**Getting back up.** `src/combat/enemy.ts` gained a recovery ladder: a downed soldier waits
+`downedSeconds`, pushes up over `risingSeconds`, and comes back on the next rung of
+`recoveryHealthFractions` — 60% then 30% of max, which against a gust's damage is three
+gusts to put down, then two, then one. Run off the end of the array and the down is
+permanent. An empty array turns the whole feature off, which is the behaviour this module
+had before.
+
+Health stays at **zero** through both `downed` and `rising`, and that one choice is what
+made the interrupt free: `hitEnemy` already ends with
+`stance: isDowned(health) ? 'downed' : 'recover'`, so a hit during a rise puts the soldier
+back down with the timer reset and no new code. It deliberately does *not* advance `downs` —
+interrupting buys time, it does not substitute for damage. The cost was elsewhere: every
+resolver in `encounter.ts` gated on `!isDowned`, which would have skipped a rising soldier
+entirely, so all seven now ask `isTargetable`.
+
+This sits beside `patrol.ts`'s restore rather than replacing it. That one is encounter-level
+and needs the player to leave; this one is per-soldier and happens mid-fight. A restore
+rebuilds the array with `spawnEnemy`, so it resets `downs` — a restored patrol is a fresh
+patrol, which is what it already meant.
+
+Focus pays `firstDownsThisFrame`, not `downedThisFrame`, so the ladder cannot be walked as a
+Focus engine; the impact burst still fires on every down. Whether paying the *first* down
+rather than the *last* is the right way round is an open question — §4.6 pays downs because
+a non-lethal removal is the generous play, and the removal that sticks is the last one. It
+is a one-line filter if it is revisited. Spec:
+[`docs/superpowers/specs/2026-08-06-enemy-recovery-design.md`](superpowers/specs/2026-08-06-enemy-recovery-design.md).
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:

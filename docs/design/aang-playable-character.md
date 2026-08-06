@@ -185,6 +185,10 @@ Three meters, each with a clear job:
 Aang's defining trait is that he wins without killing, and the combat system encodes it rather than mentioning it in cutscenes:
 
 - Every enemy has a **downed** state instead of a death state — disarmed, buried to the waist, frozen, blown off a ledge into water, tangled in their own equipment.
+  - Downed is a condition, not a removal. A soldier gets back up after a spell on the
+    ground, weaker each time, until a last down finally sticks. Standing over one as it
+    rises and knocking it back down buys time but not progress — only damage moves a
+    soldier down that ladder.
 - Enemies removed non-lethally grant more Focus than enemies removed by environmental accident, so the generous play is also the strong play.
 - A small number of scripted moments let the player break this. The game does not fail them for it — Focus generation simply degrades for the rest of the encounter, and the character reacts. The mechanic carries the theme; no dialogue box is needed.
 
