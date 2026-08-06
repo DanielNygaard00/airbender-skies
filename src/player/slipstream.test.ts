@@ -178,14 +178,22 @@ describe('dodgeHeading', () => {
   it('in the glider, a flare does not dodge backwards', () => {
     // The bug this exists to fix. In the glider S is a flare — raise the nose — not
     // reverse, so reading it as translation sent the dodge backwards for an input that
-    // never meant "go back".
-    expect(dodgeHeading('glider', FLYING_EAST, NORTH, -1, 0).x).toBeCloseTo(1, 5)
+    // never meant "go back". The forward axis is not read at all in this posture now, so
+    // the dodge lands on the default side (the positive glider-right axis), nowhere near
+    // "backward along the heading", which would show up as x close to -1.
+    expect(dodgeHeading('glider', FLYING_EAST, NORTH, -1, 0).x).toBeCloseTo(0, 5)
+    expect(dodgeHeading('glider', FLYING_EAST, NORTH, -1, 0).z).toBeCloseTo(-1, 5)
   })
 
   it('in the glider, thrust does not steer the dodge either', () => {
     // W is airbending thrust and holding it is the normal flying state, so if it steered
     // the dodge then almost every glider dodge would silently become a forward one.
-    expect(dodgeHeading('glider', FLYING_EAST, NORTH, 1, 0).x).toBeCloseTo(1, 5)
+    // Checked by comparison against the flare case above: the forward axis flips sign
+    // between the two calls and the result does not move at all.
+    const withFlare = dodgeHeading('glider', FLYING_EAST, NORTH, -1, 0)
+    const withThrust = dodgeHeading('glider', FLYING_EAST, NORTH, 1, 0)
+    expect(withThrust.x).toBeCloseTo(withFlare.x, 5)
+    expect(withThrust.z).toBeCloseTo(withFlare.z, 5)
   })
 
   it('in the glider, banking dodges sideways rather than along the heading', () => {
@@ -197,8 +205,59 @@ describe('dodgeHeading', () => {
 
   it('in the glider, uses the glider heading rather than the camera', () => {
     // The mouse only trims in the glider, so the heading is where the player is flying.
+    // FLYING_EAST and NORTH are deliberately different (see the comment above): reading
+    // the camera by mistake here would put the dodge on a different axis than the one
+    // gliderRight(FLYING_EAST, 0) actually produces.
     const dodge = dodgeHeading('glider', FLYING_EAST, NORTH, 0, 0)
-    expect(dodge.x).toBeCloseTo(1, 5)
-    expect(dodge.z).toBeCloseTo(0, 5)
+    expect(dodge.x).toBeCloseTo(0, 5)
+    expect(dodge.z).toBeCloseTo(-1, 5)
+  })
+})
+
+describe('a glider dodge goes across the flight path, not along it', () => {
+  it('is perpendicular to the heading when no bank is held', () => {
+    // The defect: this used to fall back to the flattened heading, so the most common
+    // press -- nobody holds A or D continuously -- was a 30 m/s forward boost with
+    // invulnerability attached.
+    const forward = new Vector3(0, 0, -1)
+    const heading = dodgeHeading('glider', forward, new Vector3(0, 0, -1), 0, 0)
+    expect(Math.abs(heading.dot(forward))).toBeLessThan(1e-6)
+  })
+
+  it('keeps a vertical component when dodging out of a dive', () => {
+    // It used to be flattened, so a dodge in a dive was a shove across the ground plane
+    // rather than across the flight path.
+    //
+    // This exercises stepSlipstream directly with a heading that has a vertical
+    // component, rather than composing one from dodgeHeading('glider', ...): gliderRight
+    // is called with bank fixed at 0 (see dodgeHeading's glider branch), and cross(cross(
+    // right0, forward), forward) is exactly -right0 whenever forward is unit and right0
+    // is perpendicular to it -- which right0 always is, by construction, for *every*
+    // heading. So a bank-0 gliderRight is horizontal for any dive, any climb, any heading
+    // at all; there is no dodgeHeading input that gives it a y component to preserve.
+    // What can, and does, have one is a heading that is not itself constrained to be
+    // horizontal, which is what a dive heading fed straight to stepSlipstream is.
+    const diving = new Vector3(0, -1, -1).normalize()
+    const out = stepSlipstream(idleSlipstream(), true, diving, 100, 1 / 60, S)
+    expect(Math.abs(out.impulse!.y)).toBeGreaterThan(0.1)
+  })
+
+  it('takes its side from the bank axis', () => {
+    const forward = new Vector3(0, 0, -1)
+    const left = dodgeHeading('glider', forward, NORTH, 0, -1)
+    const right = dodgeHeading('glider', forward, NORTH, 0, 1)
+    expect(left.dot(right)).toBeLessThan(-0.9)
+  })
+
+  it('leaves the ground dodge horizontal and camera-relative', () => {
+    // The ground rule is unchanged, including that it can go backwards. Asserted here
+    // because Task 1 removed the flatten from stepSlipstream, and this is what proves
+    // that removal did not leak into the posture that wants flat.
+    const back = dodgeHeading('ground', NORTH, new Vector3(0, 0.7, -0.7).normalize(), -1, 0)
+    // toBeCloseTo rather than toBe: the arithmetic here can land on -0 rather than 0
+    // depending on the signs multiplied through, and -0 is exactly horizontal too --
+    // Object.is would fail a case that has nothing wrong with it.
+    expect(back.y).toBeCloseTo(0, 6)
+    expect(back.z).toBeGreaterThan(0)
   })
 })

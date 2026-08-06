@@ -1,5 +1,6 @@
 import { Vector3 } from 'three'
 import type { PlayerMode } from '../core/types'
+import { gliderRight } from './flight'
 
 /**
  * Slipstream: a directional dash with a brief invulnerability window.
@@ -76,15 +77,6 @@ export function slipstreamHeading(
  *
  * On foot the movement keys mean walk and strafe, so a dodge is camera-relative and can
  * go anywhere, backwards included.
- *
- * In the glider they mean something else entirely: W is airbending thrust and S is a
- * flare. Reading them as translation made holding S dodge *backwards*, for an input that
- * only ever meant "raise the nose" — and since W is the normal flying state, it would
- * have turned almost every glider dodge into a forward one. So only the bank axis steers
- * a glider dodge, and it steers it perpendicular to the heading, which is the direction
- * that beats something coming straight at you. The basis is the glider's own forward
- * rather than the camera, because in the glider the mouse only trims: the heading is
- * where the player is actually flying.
  */
 export function dodgeHeading(
   mode: PlayerMode,
@@ -93,11 +85,25 @@ export function dodgeHeading(
   forwardAxis: number,
   strafeAxis: number,
 ): Vector3 {
-  // Composed from slipstreamHeading rather than restating how axes become a direction,
-  // so there is one definition of that and the two postures only choose its inputs.
-  return mode === 'glider'
-    ? slipstreamHeading(gliderForward, 0, strafeAxis)
-    : slipstreamHeading(lookDirection, forwardAxis, strafeAxis)
+  // In the glider the movement keys mean something else: W is airbending thrust and S is
+  // a flare. Reading them as translation made holding S dodge *backwards* for an input
+  // that only meant "raise the nose", and since W is the normal flying state it turned
+  // almost every glider dodge into a forward one.
+  //
+  // So a glider dodge is lateral, along the glider's own right axis, with the bank axis
+  // choosing the side and a default side when nothing is held. Perpendicular to the
+  // flight path by construction, for any heading, because `gliderRight` is an axis of a
+  // frame built on `forward` -- which is what beats something coming straight at you, and
+  // is what the guide panel has told players the move does all along. It rolls with the
+  // bank, so a banked glider's dodge is not horizontal.
+  //
+  // A default side rather than a fallback to the heading: falling back to forward made
+  // the no-bank press -- the common one -- a free 30 m/s boost.
+  if (mode === 'glider') {
+    const right = gliderRight(gliderForward, 0)
+    return strafeAxis < 0 ? right.negate() : right
+  }
+  return slipstreamHeading(lookDirection, forwardAxis, strafeAxis)
 }
 
 /**
@@ -113,6 +119,12 @@ export function stepSlipstream(
   c: SlipstreamConfig,
 ): { state: SlipstreamState; impulse: Vector3 | null; breathSpent: number } {
   if (pressed && canSlipstream(state, breath, c)) {
+    // Not flattened: the impulse follows the heading in all three axes, because a glider
+    // dodge is perpendicular to the flight path and that perpendicular is not guaranteed
+    // to be horizontal -- gliderRight rolls with bank, so a heading with a vertical
+    // component must be allowed through rather than crushed onto the ground plane. The
+    // ground dodge is unaffected either way, since slipstreamHeading already returns a
+    // horizontal vector.
     const direction = heading.lengthSq() < 1e-8 ? new Vector3(0, 0, -1) : heading.clone().normalize()
     return {
       state: { elapsed: 0, cooldown: c.cooldownSeconds },

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { gliderUp, angleOfAttack, hoverAccel, flightStep, stallFactor } from './flight'
+import { gliderUp, gliderRight, angleOfAttack, hoverAccel, flightStep, stallFactor } from './flight'
 import { DEFAULT_FLIGHT_CONFIG as C } from '../core/config'
 
 const FWD_LEVEL = new Vector3(0, 0, -1)
@@ -35,6 +35,45 @@ describe('gliderUp', () => {
     const up = gliderUp(new Vector3(0, -1, 0), 0)
     expect(Number.isFinite(up.x + up.y + up.z)).toBe(true)
     expect(up.length()).toBeCloseTo(1, 6)
+  })
+})
+
+describe('gliderRight', () => {
+  const HEADINGS = [
+    new Vector3(0, 0, -1),
+    new Vector3(1, 0, 0),
+    new Vector3(0, -1, -1).normalize(),
+    new Vector3(0.3, 0.8, -0.5).normalize(),
+    new Vector3(0, 1, 0),   // vertical: the case gliderUp handles explicitly
+    new Vector3(0, -1, 0),
+  ]
+
+  it('is perpendicular to the heading, for every heading', () => {
+    for (const forward of HEADINGS) {
+      expect(Math.abs(gliderRight(forward, 0).dot(forward)))
+        .toBeLessThan(1e-6)
+    }
+  })
+
+  it('is perpendicular to the glider up axis too, so the three make a frame', () => {
+    for (const forward of HEADINGS) {
+      expect(Math.abs(gliderRight(forward, 0).dot(gliderUp(forward, 0))))
+        .toBeLessThan(1e-6)
+    }
+  })
+
+  it('is unit length', () => {
+    for (const forward of HEADINGS) {
+      expect(gliderRight(forward, 0).length()).toBeCloseTo(1, 6)
+    }
+  })
+
+  it('rolls with the bank, so a banked dodge is not horizontal', () => {
+    // The reason this is derived from gliderUp rather than from a world-up cross:
+    // a world-up cross is horizontal for every heading, so a banked glider's lateral
+    // dodge would be flat no matter how far over it was rolled.
+    expect(Math.abs(gliderRight(new Vector3(0, 0, -1), 0).y)).toBeLessThan(1e-6)
+    expect(Math.abs(gliderRight(new Vector3(0, 0, -1), 0.6).y)).toBeGreaterThan(0.1)
   })
 })
 

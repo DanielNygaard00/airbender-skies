@@ -24,6 +24,19 @@ export function gliderUp(forward: Vector3, bank: number): Vector3 {
 }
 
 /**
+ * The glider's right axis: the third leg of the frame `gliderUp` builds.
+ *
+ * Derived from `gliderUp` rather than recomputed from a world-up cross, and the
+ * difference matters. `cross(forward, WORLD_UP)` is horizontal for every heading, so a
+ * dodge along it would be flat however far the glider was rolled. Rolling the up axis
+ * and taking the cross against forward carries the bank through, and it inherits
+ * `gliderUp`'s handling of a vertical heading rather than needing its own.
+ */
+export function gliderRight(forward: Vector3, bank: number): Vector3 {
+  return new Vector3().crossVectors(gliderUp(forward, bank), forward).normalize()
+}
+
+/**
  * Signed angle between where the glider points and where it is moving.
  * Positive means the nose is above the flight path, which is what generates lift.
  */
