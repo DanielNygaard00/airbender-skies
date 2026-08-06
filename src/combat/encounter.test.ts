@@ -733,7 +733,7 @@ describe('a cleared patrol comes back', () => {
   })
 
   it('regression guard: a gust cannot land on the same frame the patrol restores', () => {
-    // Production's respawnRange (66, in DEFAULT_PATROL_CONFIG) sits beyond every
+    // Production's respawnRange (52, in DEFAULT_PATROL_CONFIG) sits beyond every
     // weapon's reach -- gust's range of 12 included -- so the shipped tuning can never
     // let a restore and a landing attack coincide on one frame; that gap is what makes
     // leaving-and-returning safe in the first place. The respawnRange of 5 below exists

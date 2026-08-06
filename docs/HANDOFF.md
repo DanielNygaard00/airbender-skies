@@ -729,11 +729,20 @@ turns around into a fight that spawned on top of them. The archer's `aggroRange`
 against the earlier `respawnRange` of 40 with nothing objecting — an 8-unit violation — because
 the regression test for this exact invariant checked only `enemies.spear.aggroRange`, a literal
 left behind when `CombatConfig.enemy` became a per-kind `Record`. `DEFAULT_PATROL_CONFIG.respawnRange`
-is now 66, clearing the archer's 48 by the same 1.3 margin the test enforces (48 × 1.3 = 62.4).
-The fixed point is the archer's `aggroRange`, not `respawnRange`: 48 is what makes climbing stop
-being a win condition, this cycle's whole point, so it does not move, and the hygiene value moves
-around it instead. The cost is real — a patrol restore now needs the player 66 units from every
-spawn point instead of 40, a longer walk, so respawns are rarer than they were.
+went to 66, clearing the archer's then-48 by the same 1.3 margin the test enforces (48 × 1.3 = 62.4).
+The fixed point is the archer's `aggroRange`, not `respawnRange`: it is what makes climbing stop
+being a win condition, this cycle's whole point, so it does not move for hygiene reasons, and the
+hygiene value moves around it instead.
+
+**And then the archer moved on its own terms, so `respawnRange` followed it down.** Bringing the
+archer's reach down at both ends — `strikeRange` 40 → 30, `aggroRange` 48 → 38 — left
+`respawnRange` at 66 clearing a floor of 38 × 1.3 = 49.4 by 17 units, far more separation than the
+rule asks for and a longer walk to a restore than anything justified. It is now **52**: the same
+slack over 49.4 that 66 had over 62.4. The order of authority is unchanged — the archer's number
+is the design one and this one tracks it — but the direction reversed, so the cost recorded here
+previously (a restore needing the player 66 units out instead of 40) has largely gone away.
+Deliberately not pinned to the bare floor of 50: this value has already needed fixing once for
+being pinned to a number the archer then outgrew.
 
 **The violation was confirmed by playing it out, not only by comparing the two constants.** The
 config-invariant test in `patrol.test.ts` asserts a relationship between numbers, which leaves
@@ -742,9 +751,12 @@ that. `the shipped patrol restores out of every soldier's notice range` sweeps t
 a one-unit grid, and for every position where `stepEncounter` actually restores the home patrol it
 requires no restored soldier to be inside its own `aggroRange`, measured in 3D the way `stepEnemy`
 measures a ranged soldier's. At the old `respawnRange` of 40 that sweep reports 1907 offending
-positions, all of them `archer-2`; at 66 it reports none. The sweep replaces a hand-picked position
-on purpose — a single coordinate is pinned to today's `HOME_PATROL` layout and would quietly stop
-testing anything if the spawns or the ranges were retuned.
+positions, all of them `archer-2`; at 66 it reported none, and at today's 52 it still reports none.
+The sweep replaces a hand-picked position on purpose — a single coordinate is pinned to today's
+`HOME_PATROL` layout and would quietly stop testing anything if the spawns or the ranges were
+retuned. Both guards were re-checked against the current numbers by dropping `respawnRange` to 30,
+below the archer's 38: the sweep and the `patrol.test.ts` margin assertion both go red, so neither
+is passing vacuously at the smaller ranges.
 
 `a restore that lands inside an archer's notice range` is the other half: it holds a test-local
 `respawnRange` below the fixture archer's `aggroRange`, in the same spirit as the two
