@@ -81,14 +81,31 @@ describe('raycast', () => {
     // originIsland's surface along this ray sits at x ~= -46.55 (noise-perturbed, not the
     // nominal radius of 40), which is ~153.45 world units out from `from`. 200 comfortably
     // clears that; 100 comfortably falls short of it. The direction is left unnormalised
-    // (length 10) on purpose: this is the test the wrongly-reasoned "rescales maxDistance"
-    // test above used to be, and the point now is that maxDistance behaves the same in
-    // world units regardless of direction length, not that it doesn't.
+    // (length 10) on purpose, to pin that maxDistance behaves the same in world units
+    // regardless of direction length.
     const query = createTerrainQuery([originIsland()])
     const from = new Vector3(-200, 0, 0)
     const direction = new Vector3(10, 0, 0)
     expect(query.raycast(from, direction, 200)).not.toBeNull()
     expect(query.raycast(from, direction, 100)).toBeNull()
+  })
+
+  it('treats a direction and the same direction scaled by a constant identically', () => {
+    // This is the property the seven ground-plane fakes elsewhere in the test suite got
+    // wrong before their `direction.y < -0.9` guard was scaled by `direction.length()`:
+    // comparing a raw component against a unit-vector threshold treats a scaled-but-still-
+    // mostly-downward direction as different from its unit form, when `raycast` itself does
+    // not -- scaling the direction must not change whether it hits or where.
+    const query = createTerrainQuery([originIsland()])
+    const from = new Vector3(-200, 0, 0)
+    const unit = new Vector3(1, 0, 0)
+    const scaled = unit.clone().multiplyScalar(7)
+    const a = query.raycast(from, unit, 1000)
+    const b = query.raycast(from, scaled, 1000)
+    expect(a).not.toBeNull()
+    expect(b).not.toBeNull()
+    expect(b!.point.toArray()).toEqual(a!.point.toArray())
+    expect(b!.islandId).toBe(a!.islandId)
   })
 
   // The two tests below are contract tests, not proof that the guard in `raycast` is

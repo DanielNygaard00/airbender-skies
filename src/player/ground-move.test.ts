@@ -9,9 +9,12 @@ const flatGround: TerrainQuery = {
   groundHeightAt: () => 0,
   // Only answers downward casts. A fake that ignored `direction` would answer a
   // horizontal collision sweep with a hit on the ground below, so a movement test in a
-  // flat fake world would start deflecting off phantom walls.
+  // flat fake world would start deflecting off phantom walls. The threshold is scaled by
+  // the direction's length, not compared against the unit vector: `raycast` accepts an
+  // unnormalised direction, and a fake that only recognised the unit down vector would
+  // answer `null` to a mostly-downward sweep the real one answers.
   raycast: (from, direction, maxDistance) =>
-    direction.y < -0.9 && from.y >= 0 && from.y - maxDistance <= 0
+    direction.y < -0.9 * direction.length() && from.y >= 0 && from.y - maxDistance <= 0
       ? { point: new Vector3(from.x, 0, from.z), normal: new Vector3(0, 1, 0), islandId: 'flat' }
       : null,
 }
@@ -231,9 +234,10 @@ describe('groundStep', () => {
     // Walking (grounded) with ground 0.5 m below: slope-stick must survive.
     const step: TerrainQuery = {
       groundHeightAt: () => -0.5,
-      // Only answers downward casts, same reasoning as flatGround above.
+      // Only answers downward casts, same reasoning as flatGround above, including the
+      // length-scaled threshold for an unnormalised direction.
       raycast: (from, direction, maxDistance) =>
-        direction.y < -0.9 && from.y >= -0.5 && from.y - maxDistance <= -0.5
+        direction.y < -0.9 * direction.length() && from.y >= -0.5 && from.y - maxDistance <= -0.5
           ? { point: new Vector3(from.x, -0.5, from.z), normal: new Vector3(0, 1, 0), islandId: 'flat' }
           : null,
     }

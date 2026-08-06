@@ -37,12 +37,16 @@ export function createTerrainQuery(islands: readonly IslandMesh[]): TerrainQuery
     // Written as the negated form so a NaN direction falls out here rather than being
     // normalised into a NaN ray that silently reports no hit from anywhere.
     if (!(lengthSq > 1e-12)) return null
-    // three.js documents Raycaster.direction as required to be normalized. Measured against
-    // this version (0.185.1): it doesn't actually need to be, for a Mesh target -- Mesh.js's
-    // checkIntersection compares `far` against raycaster.ray.origin.distanceTo(hitPoint), a
-    // real Euclidean distance, so an unnormalised direction does not rescale it. We normalise
-    // anyway rather than lean on that undocumented tolerance, because it is not a contract
-    // and a future three.js upgrade is free to start relying on unit length again.
+    // three.js documents Raycaster.direction as required to be normalized. What's actually
+    // measured, against this version (0.185.1): Mesh.js's checkIntersection compares `far`
+    // against raycaster.ray.origin.distanceTo(hitPoint), a real Euclidean distance, so
+    // direction length does not rescale `far` there. The bounding-sphere prefilter one level
+    // up (Mesh.js's early-return before checkIntersection runs) is not scale-invariant --
+    // it projects onto the direction vector and walks along it by that same vector's
+    // length, so an unnormalised direction shifts where it looks -- but it errs permissive,
+    // so it has never been observed to reject a hit `far` would have accepted. We normalise
+    // rather than depend on either of those unmeasured-in-general internals surviving a
+    // three.js upgrade.
     SCRATCH_DIRECTION.copy(direction).divideScalar(Math.sqrt(lengthSq))
     raycaster.set(from, SCRATCH_DIRECTION)
     raycaster.near = 0

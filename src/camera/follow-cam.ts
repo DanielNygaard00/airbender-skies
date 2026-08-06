@@ -51,8 +51,9 @@ export function smoothTowards(
  *    frame, so we leave the camera where it is.
  *  - The arm still does not shorten when it would pass through a terrain wall,
  *    which is what the spec asks for. Doing that needs a general segment cast
- *    (`TerrainQuery.raycast(from, direction, maxDistance)`), which does not
- *    exist yet. Until it does, the camera is permissive rather than wrong.
+ *    (`TerrainQuery.raycast(from, direction, maxDistance)`), which exists now
+ *    but this function has not yet been moved onto it. Until it is, the
+ *    camera is permissive rather than wrong.
  */
 export function pullInForTerrain(
   target: Vector3, desired: Vector3, terrain: TerrainQuery, minDistance = 2,

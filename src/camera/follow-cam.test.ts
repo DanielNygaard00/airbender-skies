@@ -11,9 +11,12 @@ const groundAt = (y: number): TerrainQuery => ({
   groundHeightAt: () => y,
   // Only answers downward casts. A fake that ignored `direction` would answer a
   // horizontal collision sweep with a hit on the ground below, so a movement test in a
-  // flat fake world would start deflecting off phantom walls.
+  // flat fake world would start deflecting off phantom walls. The threshold is scaled by
+  // the direction's length, not compared against the unit vector: `raycast` accepts an
+  // unnormalised direction, and a fake that only recognised the unit down vector would
+  // answer `null` to a mostly-downward sweep the real one answers.
   raycast: (from, direction) =>
-    direction.y < -0.9
+    direction.y < -0.9 * direction.length()
       ? { point: new Vector3(from.x, y, from.z), normal: new Vector3(0, 1, 0), islandId: 'g' }
       : null,
 })

@@ -82,11 +82,13 @@ Implementation requirements for `createTerrainQuery`:
 - Reuse the existing shared `Raycaster`. This runs every frame in two systems now.
 - Normalise the direction into a module-level scratch vector rather than allocating:
   three.js documents `Raycaster.direction` as required to be normalized. Measured against
-  0.185.1, a Mesh target doesn't actually need it — `Mesh.js`'s intersection check compares
-  `maxDistance` against a real Euclidean distance from the ray origin, not a raw ray
-  parameter, so an unnormalised direction doesn't rescale it in this version. Normalise
-  anyway: that's an undocumented tolerance of this version, not a contract, and a future
-  three.js upgrade is free to start depending on unit length again.
+  0.185.1: `Mesh.js`'s intersection check compares `maxDistance` against a real Euclidean
+  distance from the ray origin, not a raw ray parameter, so direction length doesn't rescale
+  it there. The bounding-sphere prefilter one level up is not scale-invariant — it walks
+  along the direction vector by that vector's own length — but it errs permissive, so it has
+  never been observed to reject a hit the distance check would have accepted. Normalise
+  anyway: depending on either of those is depending on unmeasured internals, not a contract,
+  and a future three.js upgrade is free to start requiring unit length again.
 - Return `null` for a zero-length direction rather than casting with a degenerate ray.
 
 ## Collision
