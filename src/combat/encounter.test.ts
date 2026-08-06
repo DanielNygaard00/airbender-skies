@@ -24,10 +24,14 @@ const C: CombatConfig = {
     // strikeRange (22) is well past the 10 units a mixed-patrol fixture needs to
     // stand back an archer, and distinct from the shipped config's 40 so a test
     // that accidentally read the real config would be visible.
+    //
+    // That includes the damage: it used to be 1, the same as the spear's, which meant an
+    // arrow spawned from the wrong kind's config carried an indistinguishable value. 0.8
+    // instead, so a cross-kind mix-up is visible in an assertion.
     archer: {
       maxHealth: 1, outOfCombatSeconds: 4, regenPerSecond: 0,
       moveSpeed: 3, strikeRange: 22, aggroRange: 35, windUpSeconds: 0.6, recoverSeconds: 0.9,
-      attack: { kind: 'projectile', damage: 1, speed: 20 }, knockbackDamping: 3,
+      attack: { kind: 'projectile', damage: 0.8, speed: 20 }, knockbackDamping: 3,
       gravity: 20,
       snapDistance: 1.2,
     },
@@ -1087,6 +1091,22 @@ describe('arrows in the fight', () => {
     expect(ids.size).toBeGreaterThan(2)
   })
 
+  it("builds the arrow from the archer's own attack config", () => {
+    // Nothing asserted a spawned arrow's damage or speed, so `spawnProjectile` could have
+    // been handed any kind's config and the suite stayed green. The fixture archer's
+    // damage is 0.8 against the spear's 1 and its speed has no spear counterpart at all,
+    // so a cross-kind mix-up shows up in both numbers.
+    const { encounter } = untilFired()
+    const arrow = encounter.projectiles[0]
+    if (!arrow) throw new Error('no arrow')
+    const attack = C.enemies.archer.attack
+    if (attack.kind !== 'projectile') throw new Error('fixture archer must be ranged')
+    expect(arrow.damage).toBeCloseTo(attack.damage, 6)
+    expect(arrow.damage).not.toBeCloseTo(C.enemies.spear.attack.damage, 6)
+    // The speed lands in the velocity's magnitude, which is the only place it survives.
+    expect(arrow.velocity.length()).toBeCloseTo(attack.speed, 4)
+  })
+
   it('does not advance an arrow on the frame it is fired', () => {
     // Stepping before spawning, so a new arrow does not appear already metres out.
     const { encounter } = untilFired()
@@ -1138,5 +1158,62 @@ describe('arrows in the fight', () => {
     const step = stepEncounter(downed, away, 1 / 60, C, withPatrol)
     expect(step.restoredThisFrame.length).toBe(1)
     expect(step.encounter.projectiles).toEqual([])
+  })
+})
+
+describe('an archer on high ground measures its range in 3D through a played fight', () => {
+  // Every other archer fixture in this file stands at y = 0, which is the one altitude
+  // where horizontal distance and true distance agree -- so nothing here noticed whether
+  // stepEnemy measured a ranged soldier's range in 3D or horizontally, and reverting the
+  // split only failed enemy.test.ts. This block puts the archer on a plateau instead, and
+  // runs it through stepEncounter rather than stepEnemy directly.
+  //
+  // 10 units out and 25 units up: horizontal distance 10, well inside the fixture
+  // archer's strikeRange of 22, while true distance is 26.9 -- outside it, and inside the
+  // aggroRange of 35. So the archer notices, closes, and never gets a shot off. Under a
+  // horizontal-only measurement it would be in range from the first frame.
+  const HIGH_GROUND = 25
+  const plateau = { groundHeightAt: () => HIGH_GROUND }
+  const AT_ALTITUDE: EnemySpawn[] = [
+    { id: 'archer-1', position: new Vector3(0, HIGH_GROUND, -10), kind: 'archer' },
+  ]
+  // The same archer at the player's own altitude, the control: identical horizontal
+  // offset, so the only difference between the two is height.
+  const ON_THE_LEVEL: EnemySpawn[] = [
+    { id: 'archer-1', position: new Vector3(0, 0, -10), kind: 'archer' },
+  ]
+
+  /** Run for `seconds` and report what the archer did. */
+  function play(spawns: EnemySpawn[], ground: { groundHeightAt: () => number }, seconds = 4) {
+    const deps = { ...DEPS, ground, spawns: [], patrol: { respawnRange: 40 } }
+    let encounter = startEncounter(spawns, C)
+    let arrows = 0
+    for (let t = 0; t < seconds; t += 1 / 60) {
+      const step = stepEncounter(encounter, defaults, 1 / 60, C, deps)
+      encounter = step.encounter
+      arrows += step.firedThisFrame.length
+    }
+    const archer = encounter.enemies[0]
+    if (!archer) throw new Error('fixture')
+    return { arrows, archer }
+  }
+
+  it('never looses a shot at a player 25 units below it', () => {
+    expect(play(AT_ALTITUDE, plateau).arrows).toBe(0)
+  })
+
+  it('still notices that player and closes on them', () => {
+    // The vacuity guard for the test above: silence has to come from the range
+    // measurement, not from an archer that is inert, airborne, or asleep.
+    const { archer } = play(AT_ALTITUDE, plateau)
+    expect(archer.grounded).toBe(true)
+    expect(horizontalDistance(archer.position, ORIGIN)).toBeLessThan(5)
+  })
+
+  it('does loose at the same player from the same horizontal offset on the level', () => {
+    // The other half of the guard: this fixture can fire, and altitude is the only thing
+    // stopping it above. Under a horizontal-only measurement the two cases are identical
+    // and both fire, which is what makes the pair a real test of the split.
+    expect(play(ON_THE_LEVEL, flatGround).arrows).toBeGreaterThan(0)
   })
 })
