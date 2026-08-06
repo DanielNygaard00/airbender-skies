@@ -404,6 +404,12 @@ export function stepEncounter(
     restoredThisFrame = enemies.map((enemy) => enemy.id)
     // The arrows belonged to a fight that is over. Left alone, one loosed before the
     // reset could strike a player who has walked back to a fresh patrol.
+    //
+    // This runs after the enemy loop that pushes this frame's new arrows, and discarding
+    // them wholesale is safe only because no restore frame can have spawned one: a restore
+    // requires every enemy downed, and stepEnemy returns firedProjectile: null on every
+    // downed branch. If the restore rule is ever loosened to fire with a soldier still
+    // standing, this line silently throws away a live shot and has to move above the loop.
     projectiles = []
   }
 
