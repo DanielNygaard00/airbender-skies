@@ -3,7 +3,8 @@ import {
   applyDamage, fullHealth, isDowned, stepHealth, type Health, type HealthConfig,
 } from './health'
 import {
-  hitEnemy, spawnEnemy, stepEnemy, type Enemy, type EnemyConfig, type GroundHeightQuery,
+  hitEnemy, spawnEnemy, stepEnemy,
+  type Enemy, type EnemyConfig, type EnemyKind, type GroundHeightQuery,
 } from './enemy'
 import { gustImpulse, gustTargets, type GustConfig } from './gust'
 import {
@@ -12,6 +13,7 @@ import {
 import { vortexCharge, vortexImpulse, vortexTargets, type VortexConfig } from './vortex'
 import { staffDamage, staffImpulse, staffTargets, type StaffArcConfig } from './staff-arc'
 import { shouldRestorePatrol, type PatrolConfig } from './patrol'
+import { spawnProjectile, stepProjectile, type Projectile, type ProjectileConfig } from './projectile'
 import type { StaffSwing } from '../player/staff'
 
 /**
@@ -24,6 +26,16 @@ import type { StaffSwing } from '../player/staff'
  */
 export interface Encounter {
   enemies: Enemy[]
+  /** Arrows in flight. Owned by the fight, like the enemies that loosed them. */
+  projectiles: Projectile[]
+  /**
+   * The next arrow's id.
+   *
+   * A counter rather than `Math.random()`, so ids are unique and deterministic — the
+   * effects layer keys a view off them, and this project's tests cannot tolerate
+   * unrepeatable values.
+   */
+  nextProjectileId: number
   playerHealth: Health
   /** Seconds until the next gust is available. */
   gustCooldown: number
@@ -34,7 +46,15 @@ export interface Encounter {
 
 export interface CombatConfig {
   player: HealthConfig
-  enemy: EnemyConfig
+  /**
+   * One config per kind of soldier, rather than one config full stop.
+   *
+   * A Record keyed by `EnemyKind` rather than an array, so a missing kind is a
+   * typecheck error at the point the config is written rather than an undefined at the
+   * point a soldier spawns.
+   */
+  enemies: Record<EnemyKind, EnemyConfig>
+  projectile: ProjectileConfig
   gust: GustConfig
   pressureWave: PressureWaveConfig
   vortex: VortexConfig
@@ -44,6 +64,7 @@ export interface CombatConfig {
 export interface EnemySpawn {
   id: string
   position: Vector3
+  kind: EnemyKind
 }
 
 /**
@@ -68,7 +89,11 @@ export interface EncounterDeps {
 
 export function startEncounter(spawns: readonly EnemySpawn[], c: CombatConfig): Encounter {
   return {
-    enemies: spawns.map((spawn) => spawnEnemy(spawn.id, spawn.position, c.enemy)),
+    enemies: spawns.map((spawn) => spawnEnemy(
+      spawn.id, spawn.position, spawn.kind, c.enemies[spawn.kind],
+    )),
+    projectiles: [],
+    nextProjectileId: 0,
     playerHealth: fullHealth(c.player),
     gustCooldown: 0,
     vortexHeldSeconds: 0,
@@ -149,6 +174,8 @@ export interface EncounterStep {
   damageAvoided: boolean
   /** The charge a vortex fired at, or null. For the effect that draws it. */
   vortexFired: number | null
+  /** Projectile ids loosed this frame, so a bow release can be made audible. */
+  firedThisFrame: string[]
 }
 
 /** Whether a gust can fire: off cooldown only. */
@@ -169,6 +196,11 @@ export function canVortex(encounter: Encounter): boolean {
  * wind-up rather than trading with it, which requires all three to land before
  * enemies are stepped. Their relative order is arbitrary but deterministic, and it
  * means each later move sees the earlier ones' knockback already applied.
+ *
+ * The arrows already in flight are stepped before that enemy pass too, for a
+ * different reason: the enemy pass is what spawns this frame's new arrows, and an
+ * arrow stepped before it exists would advance on the very frame it is fired,
+ * appearing already a metre or two from the bow.
  */
 export function stepEncounter(
   encounter: Encounter,
@@ -297,14 +329,46 @@ export function stepEncounter(
         : enemy)
   }
 
+  // Stepped before the enemy loop spawns this frame's shots, so a new arrow does not
+  // advance on the frame it is fired and appear already metres from the bow. The
+  // ordering comment at the top of this function applies here too: this order is
+  // load-bearing, not incidental.
+  let projectiles: Projectile[] = []
+  let projectileDamage = 0
+  for (const arrow of encounter.projectiles) {
+    const step = stepProjectile(arrow, input.playerPosition, deps.ground, dt, c.projectile)
+    projectileDamage += step.damageToPlayer
+    if (step.projectile) projectiles.push(step.projectile)
+  }
+
   let damageToPlayer = 0
   const lostThisFrame: string[] = []
+  const firedThisFrame: string[] = []
+  let nextProjectileId = encounter.nextProjectileId
   enemies = enemies.map((enemy) => {
-    const step = stepEnemy(enemy, input.playerPosition, deps.ground, deps.worldFloorY, dt, c.enemy)
+    const config = c.enemies[enemy.kind]
+    const step = stepEnemy(
+      enemy, input.playerPosition, deps.ground, deps.worldFloorY, dt, config,
+    )
     damageToPlayer += step.damageToPlayer
     if (step.fellOutOfWorld) lostThisFrame.push(step.enemy.id)
+    if (step.firedProjectile && config.attack.kind === 'projectile') {
+      const id = `arrow-${nextProjectileId++}`
+      projectiles.push(spawnProjectile(
+        id,
+        step.firedProjectile.origin,
+        step.firedProjectile.direction,
+        config.attack.damage,
+        config.attack.speed,
+      ))
+      firedThisFrame.push(id)
+    }
     return step.enemy
   })
+
+  // Into the same total the spears feed, which is what makes a Slipstream dodge an arrow
+  // and `damageAvoided` grant Focus for it without a line of new code.
+  damageToPlayer += projectileDamage
 
   // Avoided only counts when something was actually coming.
   const avoided = input.playerInvulnerable && damageToPlayer > 0
@@ -334,12 +398,26 @@ export function stepEncounter(
 
   let restoredThisFrame: string[] = []
   if (shouldRestorePatrol(enemies, deps.spawns, input.playerPosition, deps.patrol)) {
-    enemies = deps.spawns.map((spawn) => spawnEnemy(spawn.id, spawn.position, c.enemy))
+    enemies = deps.spawns.map((spawn) => spawnEnemy(
+      spawn.id, spawn.position, spawn.kind, c.enemies[spawn.kind],
+    ))
     restoredThisFrame = enemies.map((enemy) => enemy.id)
+    // The arrows belonged to a fight that is over. Left alone, one loosed before the
+    // reset could strike a player who has walked back to a fresh patrol.
+    //
+    // This runs after the enemy loop that pushes this frame's new arrows, and discarding
+    // them wholesale is safe only because no restore frame can have spawned one: a restore
+    // requires every enemy downed, and stepEnemy returns firedProjectile: null on every
+    // downed branch. If the restore rule is ever loosened to fire with a soldier still
+    // standing, this line silently throws away a live shot and has to move above the loop.
+    projectiles = []
   }
 
   return {
-    encounter: { enemies, playerHealth, gustCooldown, vortexHeldSeconds, vortexCooldown },
+    encounter: {
+      enemies, projectiles, nextProjectileId, playerHealth, gustCooldown, vortexHeldSeconds,
+      vortexCooldown,
+    },
     downedThisFrame,
     lostThisFrame,
     restoredThisFrame,
@@ -350,5 +428,6 @@ export function stepEncounter(
     playerHit: applied > 0,
     damageAvoided: avoided,
     vortexFired,
+    firedThisFrame,
   }
 }

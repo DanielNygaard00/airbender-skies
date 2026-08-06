@@ -4,6 +4,7 @@ import {
   BASE_FOV, MAX_FOV_KICK, FX_SPEED_REFERENCE, TRAIL_SPEED_THRESHOLD,
   fovKickForDash, MAX_DASH_FOV_KICK,
   COMBAT_LEVELS, swingLevel, swingSeconds,
+  bowReleaseLevel, BOW_RELEASE_CEILING,
 } from './mapping'
 
 describe('speedIntensity', () => {
@@ -134,5 +135,77 @@ describe('the combat voices', () => {
       COMBAT_LEVELS.impact, COMBAT_LEVELS.down,
     ]
     expect(COMBAT_LEVELS.hurt).toBeGreaterThan(Math.max(...others) * 1.1)
+  })
+})
+
+describe('the bow release', () => {
+  // "is audible" and "does not clip" used to live here. Both were exact duplicates of
+  // the Object.entries loop in "keeps every voice audible and none of them clipping"
+  // above, which already covers bowRelease along with every other voice.
+
+  it('is quieter than the player being hurt', () => {
+    // A hit taken stays the loudest thing in the fight; an enemy's telegraph is a
+    // warning, not an alarm. A margin, not a bare comparison.
+    expect(COMBAT_LEVELS.bowRelease).toBeLessThan(COMBAT_LEVELS.hurt * 0.85)
+  })
+
+  it('is loud enough to notice from behind', () => {
+    // It is the only warning an archer out of shot gives, so it must not be the
+    // quietest thing in the mix either.
+    expect(COMBAT_LEVELS.bowRelease).toBeGreaterThan(COMBAT_LEVELS.swing)
+  })
+})
+
+describe('a volley of bow releases on one frame', () => {
+  it('is silent when nothing was loosed', () => {
+    // main.ts calls this unconditionally with the frame's count, which is zero on almost
+    // every frame, so silence at zero is the common case rather than an edge case.
+    expect(bowReleaseLevel(0)).toBe(0)
+  })
+
+  it('is the single-arrow level when one archer looses', () => {
+    expect(bowReleaseLevel(1)).toBeCloseTo(COMBAT_LEVELS.bowRelease, 6)
+  })
+
+  it('grows with the count, by a real margin', () => {
+    // Two archers loosing together should read as bigger than one, or the cap has simply
+    // thrown the information away.
+    expect(bowReleaseLevel(2)).toBeGreaterThan(bowReleaseLevel(1) * 1.2)
+    expect(bowReleaseLevel(3)).toBeGreaterThan(bowReleaseLevel(2))
+  })
+
+  it('stays under the clipping ceiling at every count', () => {
+    // The defect this function exists for. main.ts used to call the voice once per arrow,
+    // and each call builds its own chain into a master at gain 1, so N identical bursts
+    // starting at the same currentTime summed to N × 0.24: two reached 0.48 against the
+    // ceiling and three clipped. The literal 0.5, not the constant the code reads --
+    // asserting BOW_RELEASE_CEILING against itself would pass for any value.
+    for (const count of [1, 2, 3, 10]) {
+      expect(bowReleaseLevel(count), `${count} simultaneous releases clip`)
+        .toBeLessThan(0.5)
+    }
+    expect(BOW_RELEASE_CEILING).toBeLessThan(0.5)
+  })
+
+  it('is not a straight multiple of the single-arrow level', () => {
+    // The precise shape of the old bug, stated as its own claim: three arrows must not be
+    // three times one arrow, whatever the ceiling happens to be.
+    expect(bowReleaseLevel(3)).toBeLessThan(COMBAT_LEVELS.bowRelease * 3 * 0.75)
+  })
+
+  it('never gets quieter as arrows are added', () => {
+    let previous = 0
+    for (let count = 1; count <= 20; count++) {
+      const level = bowReleaseLevel(count)
+      expect(level, `${count} arrows is quieter than ${count - 1}`)
+        .toBeGreaterThanOrEqual(previous)
+      previous = level
+    }
+  })
+
+  it('is silent for a nonsense count rather than NaN into the graph', () => {
+    expect(bowReleaseLevel(-1)).toBe(0)
+    expect(bowReleaseLevel(Number.NaN)).toBe(0)
+    expect(bowReleaseLevel(Number.POSITIVE_INFINITY)).toBe(0)
   })
 })

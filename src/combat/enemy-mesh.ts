@@ -1,10 +1,10 @@
 import {
-  CapsuleGeometry, ConeGeometry, Group, Mesh, MeshLambertMaterial,
+  CapsuleGeometry, ConeGeometry, Group, Mesh, MeshLambertMaterial, TorusGeometry,
   type Object3D, type Quaternion,
 } from 'three'
 import { isDowned } from './health'
 import { createHealthBar } from './health-bar'
-import type { Enemy } from './enemy'
+import type { Enemy, EnemyKind } from './enemy'
 
 /**
  * A spear infantryman, as primitives.
@@ -26,10 +26,11 @@ export interface EnemyView {
 
 const BODY = 0x8d6b4a
 const SPEAR = 0x4a3c2a
+const BOW = 0x5a4632
 /** Warm and bright, so a telegraph is the most visible thing on screen. */
 const WINDUP = 0xe4763c
 
-export function createEnemyView(): EnemyView {
+export function createEnemyView(kind: EnemyKind): EnemyView {
   const object = new Group()
 
   const rig = new Group()
@@ -42,10 +43,15 @@ export function createEnemyView(): EnemyView {
   body.position.y = 0.85
   rig.add(body)
 
-  const spear = new Mesh(new ConeGeometry(0.09, 1.9, 6), new MeshLambertMaterial({ color: SPEAR }))
-  spear.name = 'spear'
-  spear.position.set(0.32, 1.1, 0)
-  rig.add(spear)
+  // The held prop is the only visible difference between the kinds. The spear keeps its
+  // geometry, position and name unchanged, because other tests in this file find it by
+  // name and the silhouette is what tells the player which threat they are looking at.
+  const prop = kind === 'spear'
+    ? new Mesh(new ConeGeometry(0.09, 1.9, 6), new MeshLambertMaterial({ color: SPEAR }))
+    : new Mesh(new TorusGeometry(0.42, 0.05, 6, 12, Math.PI * 1.2), new MeshLambertMaterial({ color: BOW }))
+  prop.name = kind === 'spear' ? 'spear' : 'bow'
+  prop.position.set(0.32, 1.1, 0)
+  rig.add(prop)
 
   const healthBar = createHealthBar()
   object.add(healthBar.object)
@@ -62,7 +68,7 @@ export function createEnemyView(): EnemyView {
         // Down, not gone: the body stays in the world, lying where it was put.
         rig.rotation.set(Math.PI / 2, 0, 0)
         bodyMaterial.color.setHex(BODY)
-        spear.rotation.set(0, 0, 0)
+        prop.rotation.set(0, 0, 0)
         return
       }
 
@@ -71,8 +77,9 @@ export function createEnemyView(): EnemyView {
 
       const winding = enemy.stance === 'wind-up'
       bodyMaterial.color.setHex(winding ? WINDUP : BODY)
-      // Spear cocked back on the telegraph, level otherwise.
-      spear.rotation.set(winding ? -1.1 : 0, 0, 0)
+      // A spear cocks back to thrust; a bow rotates as it is drawn. Different amounts,
+      // because the two motions read differently at distance.
+      prop.rotation.set(winding ? (kind === 'spear' ? -1.1 : -0.6) : 0, 0, 0)
     },
   }
 }

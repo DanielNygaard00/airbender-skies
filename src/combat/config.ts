@@ -13,28 +13,65 @@ import type { PatrolConfig } from './patrol'
  */
 export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
   player: { maxHealth: 5, outOfCombatSeconds: 4, regenPerSecond: 0.4 },
-  enemy: {
-    maxHealth: 1.5,
-    outOfCombatSeconds: 6,
-    // Enemies do not heal. Chipping one down over a long fight has to stay viable.
-    regenPerSecond: 0,
-    // Slower than a walk, so distance is always a real defence.
-    moveSpeed: 4.2,
-    strikeRange: 3.2,
-    // Notices at 26 units: enough to be a threat on approach, short enough that
-    // leaving the island leaves the fight behind.
-    aggroRange: 26,
-    windUpSeconds: 0.55,
-    recoverSeconds: 0.7,
-    strikeDamage: 1,
-    knockbackDamping: 2.6,
-    // Matches DEFAULT_GROUND_CONFIG's gravity, so a lifted soldier falls at the
-    // same rate the player does.
-    gravity: 20,
-    // Matches DEFAULT_GROUND_CONFIG's own snapDistance, so a soldier sticks to a
-    // slope underfoot the same way the player does.
-    snapDistance: 1.2,
+  enemies: {
+    spear: {
+      maxHealth: 1.5,
+      outOfCombatSeconds: 6,
+      // Enemies do not heal. Chipping one down over a long fight has to stay viable.
+      regenPerSecond: 0,
+      // Slower than a walk, so distance is always a real defence.
+      moveSpeed: 4.2,
+      strikeRange: 3.2,
+      // Notices at 26 units: enough to be a threat on approach, short enough that
+      // leaving the island leaves the fight behind.
+      aggroRange: 26,
+      windUpSeconds: 0.55,
+      recoverSeconds: 0.7,
+      attack: { kind: 'melee', damage: 1 },
+      knockbackDamping: 2.6,
+      gravity: 20,
+      snapDistance: 1.2,
+    },
+    /**
+     * The archer. Section 4.4 gives it altitude to pressure, and its numbers are the
+     * inverse of the spear's: fragile, slower on its feet, and dangerous from far away.
+     *
+     * Both its ranges are measured in 3D by `stepEnemy`, which is what makes climbing
+     * stop being a win condition. Before this type existed, getting above the spear's
+     * 26 units ended any fight.
+     */
+    archer: {
+      // Under the spear's 1.5: ranged and fragile. A staff opener at 0.7 plus anything
+      // finishes one.
+      maxHealth: 1.2,
+      outOfCombatSeconds: 6,
+      regenPerSecond: 0,
+      // Slower than the spear's 4.2. It wants distance, not contact.
+      moveSpeed: 3.4,
+      // Its firing range, below aggroRange so it closes before shooting rather than
+      // opening fire the instant it notices.
+      strikeRange: 40,
+      // Nearly double the spear's 26, and in 3D.
+      aggroRange: 48,
+      // Longer than the spear's 0.55: a draw is slower than a thrust, and this window
+      // is the dodge.
+      windUpSeconds: 0.8,
+      // Longer than the spear's 0.7. The gap between shots is the opening to close.
+      recoverSeconds: 1.1,
+      // Same damage as a spear thrust. 34 units/sec crosses its 40-unit range in about
+      // 1.2 seconds: fast enough to threaten, slow enough to see coming.
+      attack: { kind: 'projectile', damage: 1, speed: 34 },
+      knockbackDamping: 2.6,
+      gravity: 20,
+      snapDistance: 1.2,
+    },
   },
+  /**
+   * Arrows. `hitRadius` is roughly half the character's 1.8 height — generous enough not
+   * to feel arbitrary, tight enough that moving works. `maxSeconds` is well past the
+   * archer's own range at 34 units/sec, so it is a backstop rather than a mechanic.
+   */
+  projectile: { hitRadius: 0.9, maxSeconds: 4 },
   gust: {
     range: 12,
     // A 60 degree half-angle: a sweep that catches a group, not a shot at one.
@@ -110,18 +147,31 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
 /**
  * Where the first fight lives: on the home island, near the spawn.
  *
- * Deliberately placed where the player already is rather than gated behind a
- * traversal challenge, because this is the only encounter in the game and it should
- * be findable. Three of them, spread out, so the gust's cone matters.
+ * Three spears and two archers, with the archers further back, so the group has a shape
+ * rather than being a blob. Section 4.4 builds encounters as combinations of types, and
+ * this is the intended bind: close the distance and the spears punish you, hold back or
+ * climb and the archers do.
  */
 export const HOME_PATROL: EnemySpawn[] = [
-  { id: 'spear-1', position: new Vector3(26, 0, -18) },
-  { id: 'spear-2', position: new Vector3(34, 0, -8) },
-  { id: 'spear-3', position: new Vector3(20, 0, -4) },
+  { id: 'spear-1', position: new Vector3(26, 0, -18), kind: 'spear' },
+  { id: 'spear-2', position: new Vector3(34, 0, -8), kind: 'spear' },
+  { id: 'spear-3', position: new Vector3(20, 0, -4), kind: 'spear' },
+  { id: 'archer-1', position: new Vector3(40, 0, -24), kind: 'archer' },
+  { id: 'archer-2', position: new Vector3(16, 0, -30), kind: 'archer' },
 ]
 
 /**
- * Above the enemy's aggroRange of 26 by enough that a restored soldier can never
- * appear already inside its own notice range.
+ * Above the widest notice range of any enemy kind -- currently the archer's 48, not
+ * the spear's 26 -- by enough that a restored soldier can never appear already inside
+ * its own notice range. The margin exists because a restore fires the instant the
+ * player passes respawnRange, and they may be walking back in, so "just outside
+ * aggroRange" is not enough separation.
+ *
+ * Raising this to clear the archer means a patrol restore now needs the player 66
+ * units from every spawn point, not 40. That is a longer trip than before, so
+ * respawns are rarer than they used to be. The alternative -- shrinking the archer's
+ * aggroRange instead -- was rejected: 48 is what makes climbing stop being a win
+ * condition, which is this whole enemy type's purpose, so the hygiene value moves
+ * and not the design one.
  */
-export const DEFAULT_PATROL_CONFIG: PatrolConfig = { respawnRange: 40 }
+export const DEFAULT_PATROL_CONFIG: PatrolConfig = { respawnRange: 66 }
