@@ -7,12 +7,15 @@ import type { InputState, PlayerState, TerrainQuery } from '../core/types'
 /** Flat ground at y=0 everywhere, so movement can be reasoned about exactly. */
 const flatGround: TerrainQuery = {
   groundHeightAt: () => 0,
-  raycastDown: (from, maxDistance) =>
-    from.y >= 0 && from.y - maxDistance <= 0
+  // Only answers downward casts. A fake that ignored `direction` would answer a
+  // horizontal collision sweep with a hit on the ground below, so a movement test in a
+  // flat fake world would start deflecting off phantom walls.
+  raycast: (from, direction, maxDistance) =>
+    direction.y < -0.9 && from.y >= 0 && from.y - maxDistance <= 0
       ? { point: new Vector3(from.x, 0, from.z), normal: new Vector3(0, 1, 0), islandId: 'flat' }
       : null,
 }
-const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycast: () => null }
 
 const input = (over: Partial<InputState> = {}): InputState => ({
   lookDirection: new Vector3(0, 0, -1), forward: 0, strafe: 0,
@@ -228,8 +231,9 @@ describe('groundStep', () => {
     // Walking (grounded) with ground 0.5 m below: slope-stick must survive.
     const step: TerrainQuery = {
       groundHeightAt: () => -0.5,
-      raycastDown: (from, maxDistance) =>
-        from.y >= -0.5 && from.y - maxDistance <= -0.5
+      // Only answers downward casts, same reasoning as flatGround above.
+      raycast: (from, direction, maxDistance) =>
+        direction.y < -0.9 && from.y >= -0.5 && from.y - maxDistance <= -0.5
           ? { point: new Vector3(from.x, -0.5, from.z), normal: new Vector3(0, 1, 0), islandId: 'flat' }
           : null,
     }

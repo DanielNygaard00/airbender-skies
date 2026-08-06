@@ -9,12 +9,15 @@ import type { InputState, PlayerState, TerrainQuery } from '../core/types'
 
 const flatGround: TerrainQuery = {
   groundHeightAt: () => 0,
-  raycastDown: (from, maxDistance) =>
-    from.y >= 0 && from.y - maxDistance <= 0
+  // Only answers downward casts. A fake that ignored `direction` would answer a
+  // horizontal collision sweep with a hit on the ground below, so a movement test in a
+  // flat fake world would start deflecting off phantom walls.
+  raycast: (from, direction, maxDistance) =>
+    direction.y < -0.9 && from.y >= 0 && from.y - maxDistance <= 0
       ? { point: new Vector3(from.x, 0, from.z), normal: new Vector3(0, 1, 0), islandId: 'flat' }
       : null,
 }
-const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycast: () => null }
 
 const deps = (
   terrain: TerrainQuery,

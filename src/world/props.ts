@@ -8,6 +8,7 @@ import { mulberry32 } from '../core/rng'
 import type { TerrainQuery, TerrainHit } from '../core/types'
 import type { IslandDef } from './island'
 import { BIOME_PALETTES } from './island-paint'
+import { raycastDown } from './terrain-query'
 
 export interface PropPlacement {
   kind: 'tree' | 'boulder' | 'pillar' | 'arch'
@@ -47,7 +48,7 @@ export function propPlacements(
 
   const groundAt = (x: number, z: number): TerrainHit | null => {
     const probeY = def.position.y + def.height + 50
-    const hit = terrain.raycastDown(new Vector3(x, probeY, z), def.height * 3 + 100)
+    const hit = raycastDown(terrain, new Vector3(x, probeY, z), def.height * 3 + 100)
     if (!hit || hit.normal.y < MIN_GROUND_NORMAL_Y) return null
     return hit
   }

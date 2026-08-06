@@ -3,6 +3,7 @@ import type { GroundConfig, InputState, PlayerState, TerrainQuery } from '../cor
 import { stepJump } from './jump'
 import { stepScooter, scooterSpeedMultiplier, scooterTurnAuthority } from './scooter'
 import { stepDash } from './dash'
+import { raycastDown } from '../world/terrain-query'
 
 const WORLD_UP = new Vector3(0, 1, 0)
 
@@ -108,7 +109,7 @@ export function groundStep(
   let lastGroundIslandId = state.lastGroundIslandId
   if (velocity.y <= 0) {
     const probe = position.clone().setY(position.y + c.eyeProbeHeight)
-    const hit = terrain.raycastDown(probe, c.eyeProbeHeight + c.snapDistance)
+    const hit = raycastDown(terrain, probe, c.eyeProbeHeight + c.snapDistance)
     if (hit && (state.grounded || position.y <= hit.point.y)) {
       position.y = hit.point.y
       velocity.y = 0

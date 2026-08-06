@@ -20,7 +20,7 @@ const level: Level = {
 
 const terrain = (groundY: number | null): TerrainQuery => ({
   groundHeightAt: () => groundY,
-  raycastDown: () => null,
+  raycast: () => null,
 })
 
 const save = (maxBreath: number): SaveData => ({ collectedShrines: [], maxBreath })

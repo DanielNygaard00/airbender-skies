@@ -35,7 +35,7 @@ export type EnemyAttack =
 /**
  * Just the ground height, and nothing else.
  *
- * `TerrainQuery` also carries `raycastDown`, which stepping an enemy has no use for.
+ * `TerrainQuery` also carries `raycast`, which stepping an enemy has no use for.
  * Asking for the narrower thing keeps the combat model independent of the parts of
  * terrain it does not need, and makes a test fixture one line instead of six.
  */

@@ -17,8 +17,11 @@ const def = (over: Partial<IslandDef> = {}): IslandDef => ({
 /** Flat ground at y=5 everywhere, with a configurable surface normal. */
 const flat = (normalY = 1): TerrainQuery => ({
   groundHeightAt: () => 5,
-  raycastDown: (from, maxDistance) =>
-    from.y >= 5 && from.y - maxDistance <= 5
+  // Only answers downward casts. A fake that ignored `direction` would answer a
+  // horizontal collision sweep with a hit on the ground below, so a movement test in a
+  // flat fake world would start deflecting off phantom walls.
+  raycast: (from, direction, maxDistance) =>
+    direction.y < -0.9 && from.y >= 5 && from.y - maxDistance <= 5
       ? {
           point: new Vector3(from.x, 5, from.z),
           normal: new Vector3(Math.sqrt(1 - normalY * normalY), normalY, 0),
@@ -26,7 +29,7 @@ const flat = (normalY = 1): TerrainQuery => ({
         }
       : null,
 })
-const voidTerrain: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+const voidTerrain: TerrainQuery = { groundHeightAt: () => null, raycast: () => null }
 
 describe('propPlacements', () => {
   it('is deterministic for the same island', () => {

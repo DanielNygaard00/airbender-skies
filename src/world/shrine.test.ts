@@ -7,11 +7,15 @@ import type { Level } from './level'
 
 const flat: TerrainQuery = {
   groundHeightAt: () => 10,
-  raycastDown: (from) => ({
-    point: new Vector3(from.x, 10, from.z), normal: new Vector3(0, 1, 0), islandId: 'x',
-  }),
+  // Only answers downward casts. A fake that ignored `direction` would answer a
+  // horizontal collision sweep with a hit on the ground below, so a movement test in a
+  // flat fake world would start deflecting off phantom walls.
+  raycast: (from, direction) =>
+    direction.y < -0.9
+      ? { point: new Vector3(from.x, 10, from.z), normal: new Vector3(0, 1, 0), islandId: 'x' }
+      : null,
 }
-const empty: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+const empty: TerrainQuery = { groundHeightAt: () => null, raycast: () => null }
 
 describe('placeShrines', () => {
   it('places one shrine per level shrine definition', () => {

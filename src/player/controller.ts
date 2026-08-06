@@ -12,6 +12,7 @@ import { stepSlipstream, dodgeHeading, type SlipstreamConfig } from './slipstrea
 import {
   idleStaff, staffBusy, staffOf, stepStaff, type StaffConfig, type StaffSwing,
 } from './staff'
+import { raycastDown } from '../world/terrain-query'
 
 export interface ControllerDeps {
   terrain: TerrainQuery
@@ -237,7 +238,7 @@ export function controllerStep(
       breath: breath.breath, grounded: false,
     }
 
-    const hit = deps.terrain.raycastDown(next.position, LANDING_PROBE)
+    const hit = raycastDown(deps.terrain, next.position, LANDING_PROBE)
     if (hit) {
       const landingSpeed = next.velocity.length()
       next = {

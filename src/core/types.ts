@@ -80,10 +80,21 @@ export interface TerrainHit {
   islandId: string
 }
 
-/** The only channel through which movement code may ask about the world. */
+/**
+ * The single channel through which the game asks about terrain.
+ *
+ * One general cast rather than a downward special case. It was downward-only for a long
+ * time, and three systems were missing behaviour because of it: the player passed through
+ * solid rock in both postures, the camera arm could not shorten through a wall, and the
+ * air scooter's tier drop was unreachable because nothing could report a clip.
+ */
 export interface TerrainQuery {
   groundHeightAt(x: number, z: number): number | null
-  raycastDown(from: Vector3, maxDistance: number): TerrainHit | null
+  /**
+   * The first surface along a ray, or null. `direction` need not be normalised;
+   * `maxDistance` is always in world units.
+   */
+  raycast(from: Vector3, direction: Vector3, maxDistance: number): TerrainHit | null
 }
 
 export interface FlightConfig {

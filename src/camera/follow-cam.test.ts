@@ -6,12 +6,16 @@ import {
 } from './follow-cam'
 import type { TerrainQuery } from '../core/types'
 
-const noGround: TerrainQuery = { groundHeightAt: () => null, raycastDown: () => null }
+const noGround: TerrainQuery = { groundHeightAt: () => null, raycast: () => null }
 const groundAt = (y: number): TerrainQuery => ({
   groundHeightAt: () => y,
-  raycastDown: (from) => ({
-    point: new Vector3(from.x, y, from.z), normal: new Vector3(0, 1, 0), islandId: 'g',
-  }),
+  // Only answers downward casts. A fake that ignored `direction` would answer a
+  // horizontal collision sweep with a hit on the ground below, so a movement test in a
+  // flat fake world would start deflecting off phantom walls.
+  raycast: (from, direction) =>
+    direction.y < -0.9
+      ? { point: new Vector3(from.x, y, from.z), normal: new Vector3(0, 1, 0), islandId: 'g' }
+      : null,
 })
 
 describe('profileFor', () => {
