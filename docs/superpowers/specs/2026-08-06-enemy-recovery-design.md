@@ -8,16 +8,22 @@ system, on the other side of the fight, and a much larger question." This is tha
 
 ## Why
 
-Three spear soldiers hold the home island. Down all three and the island is empty for the
-rest of the session. There is nothing left to leave, nothing to come back to, and no reason
-to disengage from a fight you have already won by attrition. The one encounter in the game
-resolves permanently in about ninety seconds and then the world is quiet.
+Three spear soldiers hold the home island. Down one and it is out of the fight for as long
+as the fight lasts — there is no way back onto its feet short of clearing the whole patrol
+and walking away.
 
-That is not what §4.6 asks for. It says every enemy has a **downed** state instead of a
-death state, which is a statement about not killing people — not a statement that the
-encounter is over. A patrol that reconstitutes is both more honest to that line and more
-useful: the island stays dangerous, and disengaging becomes a real choice rather than a
-thing you do after mopping up.
+`src/combat/patrol.ts` already handles the *encounter* scale: once every soldier is down and
+the player is beyond `respawnRange: 40`, the patrol is replaced with a fresh one. Leaving and
+coming back works. What is missing is anything at the scale of a single exchange. A fight
+with three soldiers is really three separate fights against one soldier each, resolved in
+sequence and never revisited, and nothing about downing one costs the player anything later.
+There is no pressure to finish, no cost to ignoring a body, and no reason to keep moving once
+the last one is flat.
+
+That is also not quite what §4.6 asks for. It says every enemy has a **downed** state instead
+of a death state, which is a statement about not killing people — not a statement that a
+winded soldier is out of the war. A soldier who gets back up is the more honest reading, and
+it makes the space stay dangerous while the player is still standing in it.
 
 Four frictions shaped the design, and each is answered below rather than waved at.
 
@@ -165,6 +171,15 @@ An **empty** `recoveryHealthFractions` is a meaningful config, not a broken one:
 is already past the end of the ladder, so no soldier ever rises and the module behaves
 exactly as it does today. That makes the whole feature switchable from one constant.
 
+### Test fixtures (changed)
+
+`EnemyConfig` gains three required fields, so every hand-written literal of it stops
+compiling. There are four, and all need the new values: `src/combat/enemy.test.ts`,
+`src/combat/encounter.test.ts`, `src/combat/gust.test.ts` and `src/combat/patrol.test.ts`.
+Only the first two exercise the new behaviour; the other two just need to compile, and
+should take the same values as `DEFAULT_COMBAT_CONFIG.enemy` so a reader is not left
+wondering whether a different number there is load-bearing.
+
 ### `src/combat/encounter.ts` (changed)
 
 **Targeting.** All four resolvers — gust, vortex, staff and wave — gate on
@@ -239,6 +254,30 @@ bigger commitment than a spear thrust and should read as one.
 `downedSeconds: 18` is long enough that clearing a patrol feels like progress and short
 enough that the island does not go quiet. Like every other tuning constant in this repo, an
 argued guess that has not been played.
+
+## How this sits beside the patrol restore
+
+`shouldRestorePatrol` and this feature work at different scales and neither replaces the
+other. The restore is encounter-level and requires the player to leave: every soldier down,
+and the player beyond `respawnRange: 40` from every spawn. Recovery is per-soldier and
+happens while the player is standing in the fight. Four consequences worth stating:
+
+**The restore condition becomes rarer, and better for it.** "Every soldier is downed" now
+means downing all three inside one `downedSeconds` window rather than accumulating downs at
+leisure. Clearing a patrol becomes a thing the player does on purpose.
+
+**A rising soldier counts as downed for the restore**, because health is zero through the
+rise. That is harmless: the restore also requires the player to be more than 40 metres from
+every spawn, which is far outside the fight, and a soldier mid-rise at that distance is not
+something anyone is looking at.
+
+**A restore resets the ladder, correctly.** It rebuilds the array with `spawnEnemy`, so
+`downs` returns to 0 along with everything else. A restored patrol is a fresh patrol, which
+is exactly what that feature already means. No change needed.
+
+**Recovery is the near-term behaviour and the restore is the long-term one.** A player
+walking away from a downed patrol will usually see soldiers stand back up before they get 40
+metres out. That is the intended reading: you do not get to leave a fight half-won.
 
 ## Edge cases
 
