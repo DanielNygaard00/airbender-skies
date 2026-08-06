@@ -762,6 +762,39 @@ tuning — but unlike most of this project's guesses, these are about *pressure*
 so an hour of play will move them a long way. The archer's `aggroRange` of 48 most of all: it is
 the number that decides whether climbing still wins.
 
+**Two known problems left unfixed on purpose.** Both are real and both were measured, not
+reasoned about. Neither is a defect in the code that implements them — the first is a tuning
+decision that belongs to whoever plays the game, the second is a design question about how a
+soldier should behave in a case the current rule does not really cover.
+
+*`HOME_PATROL` opens fire at spawn, and `config.ts` says it does not.* Measured against the real
+terrain rather than a flat test plane: the player spawns at `(0, 13.87, 0)`, and after
+`main.ts` drops each patrol position onto the ground, `archer-2` stands at `(16, 9.86, -30)` — a
+3D distance of 34.24, inside its own 40-unit `strikeRange`. So it does not close first; it winds
+up on frame one and looses at t = 0.82 s. First hit at t = 1.80 s, and a player who loads the
+game and touches nothing is at zero health by t = 5.63 s. The same run with the two archers
+removed gives a first hit at t = 4.67 s and zero health at t = 9.73 s, so this is not new —
+`spear-3` at 20.53 units already did it — but this branch cuts time-to-first-hit by a factor of
+2.6. What is worth reading twice is the comment on `strikeRange` in `config.ts`, which says the
+value sits below `aggroRange` "so it closes before shooting rather than opening fire the instant
+it notices". That is true of the two numbers and false of the patrol: `HOME_PATROL` never
+produces the behaviour the comment describes, because two of its five spawns are already inside
+firing range of the spawn point. Fixing it means moving spawn positions or shortening
+`strikeRange`, and either is a feel decision — deliberately not made here.
+
+*An archer directly beneath a hovering player twitches in place instead of repositioning.* At 45
+units straight up it is inside `aggroRange` (48) and outside `strikeRange` (40), so it takes the
+closing branch — where `horizontalTo` finds a zero horizontal delta and falls back to
+`(0, 0, -1)`. The outcome is right: it never fires, which is the whole point of the type. The
+motion is not. Measured over 20 simulated seconds, it does *not* march away in a fixed direction:
+it steps 0.057 units (one frame of `moveSpeed`) due −Z, at which point the horizontal delta is no
+longer zero and points back at the player, so the next frame steps it back to the origin. It
+oscillates between those two points forever, and `facing` flips a full 180° every frame with it —
+which at 60 fps is a soldier spinning on the spot, not a soldier walking. Total displacement ever
+reached: 0.057 units. Whatever the fix is (hold station when there is no horizontal delta, pick a
+stable retreat heading and commit to it, or give the archer a minimum stand-off distance), it is a
+behaviour decision rather than a bug fix, so it is recorded rather than guessed at.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
