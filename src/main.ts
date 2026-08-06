@@ -637,6 +637,9 @@ function start(): void {
     // sliding across the map, or climbing up out of the void for one that fell off the
     // world. Dropping the entry makes the next record start clean.
     for (const id of fight.restoredThisFrame) enemyPositionLerps.delete(id)
+    // DEFAULT_COMBAT_CONFIG.enemy, not fightConfig.enemy, but not for the defensive reason
+    // above or below: boostedCombatConfig only ever replaces the gust key, so the two are
+    // the same object today, and there is nothing on `enemy` for a future boost to reach.
     for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(
       enemy, camera.quaternion, risingProgress(enemy, DEFAULT_COMBAT_CONFIG.enemy),
     )

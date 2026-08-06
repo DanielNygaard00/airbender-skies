@@ -1,7 +1,6 @@
 import { Vector3 } from 'three'
-import { type Enemy } from './enemy'
+import { isTargetable, type Enemy } from './enemy'
 import { inCone } from './cone'
-import { isDowned } from './health'
 
 /**
  * Gust: fast, low damage, high knockback.
@@ -68,12 +67,15 @@ export function gustTargets(
 }
 
 /**
- * Everyone a gust would catch who is still standing.
+ * Everyone a gust would catch who is worth aiming at — on their feet, or pushing back up
+ * onto them.
  *
- * `gustTargets` deliberately does not filter downed enemies — `stepEncounter` applies that
+ * `gustTargets` deliberately does not filter by state at all — `stepEncounter` applies that
  * filter itself so that "connected" means a live soldier took the hit rather than a body
- * being blown around the island. The aim preview needs the same distinction: a preview that
- * lights up for a corpse promises something a gust cannot deliver.
+ * being blown around the island. The aim preview needs the same distinction, and the same
+ * `isTargetable` stepEncounter's own resolvers ask: a preview that lights up for a corpse
+ * promises something a gust cannot deliver, and one that stays dark for a soldier mid-push-up
+ * promises less than a gust actually does.
  *
  * A separate name rather than a boolean parameter, because `gustTargets(o, f, e, c, true)`
  * at a call site says nothing about what the flag means.
@@ -89,11 +91,11 @@ export function liveGustTargets(
   enemies: readonly Enemy[],
   c: GustConfig,
 ): Enemy[] {
-  return gustTargets(origin, forward, enemies, c).filter((enemy) => !isDowned(enemy.health))
+  return gustTargets(origin, forward, enemies, c).filter(isTargetable)
 }
 
 /**
- * Whether a gust thrown now would catch anyone still standing.
+ * Whether a gust thrown now would catch anyone worth aiming at.
  *
  * The same rule as `liveGustTargets`, asked as a yes-or-no. The aim preview only needs to
  * know whether to light up, and `liveGustTargets(...).length > 0` at the call site is a rule
@@ -115,6 +117,6 @@ export function anyLiveGustTarget(
   c: GustConfig,
 ): boolean {
   return enemies.some(
-    (enemy) => !isDowned(enemy.health) && inGust(origin, forward, enemy.position, c),
+    (enemy) => isTargetable(enemy) && inGust(origin, forward, enemy.position, c),
   )
 }

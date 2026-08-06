@@ -155,9 +155,18 @@ export function horizontalDistance(a: Vector3, b: Vector3): number {
  * One place owns the index arithmetic, so the check that starts a rise and the restore
  * that ends it cannot disagree about which rung is next. Indexed at `downs - 1` because
  * `downs` counts crossings and the first crossing earns the first rung.
+ *
+ * A non-positive rung is treated as the end of the ladder, same as a missing one, rather
+ * than `?? null` alone: a soldier restored to zero or negative health is still downed by
+ * `isDowned`'s own `<= 0`, so a rise that lands on such a rung could never complete —
+ * `stepEnemy` would cycle downed -> rising -> zero-health-still-downed forever, with no
+ * crossing to report and so no burst and no Focus. Treating it as absent instead makes
+ * the down permanent up front, which is what a soldier that can never actually rise
+ * amounts to anyway.
  */
 export function nextRecoveryFraction(enemy: Enemy, c: EnemyConfig): number | null {
-  return c.recoveryHealthFractions[enemy.downs - 1] ?? null
+  const fraction = c.recoveryHealthFractions[enemy.downs - 1]
+  return fraction !== undefined && fraction > 0 ? fraction : null
 }
 
 /** Worth aiming at: on its feet, or pushing back up onto them. */
@@ -287,7 +296,13 @@ export function stepEnemy(
         return {
           enemy: {
             ...enemy, ...moved,
-            health: { ...enemy.health, current: enemy.health.max * fraction, sinceHit: 0 },
+            // Clamped: a mistuned fraction above 1 would otherwise leave the pool over
+            // max and the health bar overflowing its own frame.
+            health: {
+              ...enemy.health,
+              current: MathUtils.clamp(enemy.health.max * fraction, 0, enemy.health.max),
+              sinceHit: 0,
+            },
             stance: 'advance',
             stanceTime: 0,
           },

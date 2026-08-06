@@ -506,6 +506,24 @@ describe('getting back up', () => {
     expect(hitEnemy(first, C.maxHealth, new Vector3()).downs).toBe(1)
   })
 
+  it('stays permanently down rather than cycling, when a rung is configured at zero', () => {
+    // A soldier restored to zero health is still downed by isDowned's own `<= 0`, so a
+    // rise that landed on this rung could never complete: downed -> rising -> zero-health
+    // -still-downed, forever, with no crossing to ever report. `nextRecoveryFraction` has
+    // to treat a non-positive rung as the ladder's end rather than a valid one.
+    //
+    // Stepped by hand rather than through `settle` (which is wired to this file's fixed
+    // `C`) so the zero-rung config actually reaches `stepEnemy`.
+    const zeroRung: EnemyConfig = { ...C, recoveryHealthFractions: [0] }
+    const far = AT(0, 500)
+    let enemy = down(spawnEnemy('a', AT(0, 20), zeroRung))
+    for (let t = 0; t < FULL_RECOVERY * 3; t += 1 / 60) {
+      enemy = stepEnemy(enemy, far, flatGround, FLOOR, 1 / 60, zeroRung).enemy
+    }
+    expect(enemy.stance).toBe('downed')
+    expect(isDowned(enemy.health)).toBe(true)
+  })
+
   it('takes strictly fewer gusts to put down at each rung, and one at the last', () => {
     // The feel claim from the spec, phrased so retuning the numbers cannot silently
     // invert the ladder. Uses the real config, not this file's fixture.

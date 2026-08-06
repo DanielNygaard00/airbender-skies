@@ -806,6 +806,31 @@ describe('a soldier pushing back up', () => {
   })
 })
 
+describe('a flat soldier gusted on every cooldown', () => {
+  it('still reaches advance, rather than stalling forever', () => {
+    // The regression `isTargetable` exists to prevent: `hitEnemy` resets `stanceTime` to 0
+    // on every hit, so a downed, non-rising body that could still be hit would have its
+    // 18-second countdown restarted every cooldown, forever. All seven resolver gates ask
+    // `isTargetable`, which is false for a downed body until it starts rising, so this
+    // soldier's countdown runs untouched and only the rise itself is interruptible -- and an
+    // interrupted rise costs no rung (see above), so it simply tries again.
+    //
+    // A held gust does connect on most of those retries -- the soldier stays in the cone the
+    // whole time -- but each connecting hit's knockback carries it further from the player,
+    // and after a couple of interrupted rises it has been blown out past the gust's own
+    // range and finishes the next one unmolested. That is why this needs several multiples
+    // of downedSeconds + risingSeconds rather than just one: the guard is that gusting on
+    // every cooldown delays the recovery, not that it cannot touch it at all.
+    let encounter = downedSoldier(1)
+    const capSeconds = 6 * (C.enemy.downedSeconds + C.enemy.risingSeconds)
+    for (let t = 0; t < capSeconds && encounter.enemies[0]!.stance !== 'advance'; t += 1 / 60) {
+      encounter = stepEncounter(encounter, { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
+        .encounter
+    }
+    expect(encounter.enemies[0]!.stance).toBe('advance')
+  })
+})
+
 describe('firstDownsThisFrame', () => {
   it('reports a soldier going down for the first time, alongside downedThisFrame', () => {
     const step = gustOnce(almostDown(0))
