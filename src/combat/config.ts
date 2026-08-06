@@ -87,8 +87,8 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
       windUpSeconds: 0.8,
       // Longer than the spear's 0.7. The gap between shots is the opening to close.
       recoverSeconds: 1.1,
-      // Same damage as a spear thrust. 34 units/sec crosses its 40-unit range in about
-      // 1.2 seconds: fast enough to threaten, slow enough to see coming.
+      // Same damage as a spear thrust. At 34 units/sec an arrow crosses the 30-unit firing
+      // range in about 0.9 seconds: fast enough to threaten, slow enough to see coming.
       attack: { kind: 'projectile', damage: 1, speed: 34 },
       knockbackDamping: 2.6,
       gravity: 20,
@@ -219,17 +219,24 @@ export const HOME_PATROL: EnemySpawn[] = [
 ]
 
 /**
- * Above the widest notice range of any enemy kind -- currently the archer's 48, not
+ * Above the widest notice range of any enemy kind -- currently the archer's 38, not
  * the spear's 26 -- by enough that a restored soldier can never appear already inside
  * its own notice range. The margin exists because a restore fires the instant the
  * player passes respawnRange, and they may be walking back in, so "just outside
  * aggroRange" is not enough separation.
  *
- * Raising this to clear the archer means a patrol restore now needs the player 66
- * units from every spawn point, not 40. That is a longer trip than before, so
- * respawns are rarer than they used to be. The alternative -- shrinking the archer's
- * aggroRange instead -- was rejected: 48 is what makes climbing stop being a win
- * condition, which is this whole enemy type's purpose, so the hygiene value moves
- * and not the design one.
+ * This value tracks the archer rather than standing on its own. It went to 66 when the
+ * archer noticed at 48, and comes back down to 52 now that the archer notices at 38 --
+ * clearing `38 × 1.3 = 49.4`, the margin `patrol.test.ts` enforces, by about the same
+ * slack 66 had over 62.4. The order of authority has not changed: the archer's
+ * aggroRange is the design number and moves for design reasons, and this hygiene value
+ * follows it. It was raised to 66 rather than shrinking the archer back when 48 was
+ * what made climbing stop being a win condition; the archer has since come down on its
+ * own terms, so the trip back to a patrol restore gets shorter as a consequence rather
+ * than as a trade.
+ *
+ * Left deliberately above the bare floor. Sitting at 50 would satisfy the test and
+ * leave nothing for the next few units of retuning, and the whole reason this number
+ * needed fixing once already is that it was pinned to a value the archer then outgrew.
  */
-export const DEFAULT_PATROL_CONFIG: PatrolConfig = { respawnRange: 66 }
+export const DEFAULT_PATROL_CONFIG: PatrolConfig = { respawnRange: 52 }
