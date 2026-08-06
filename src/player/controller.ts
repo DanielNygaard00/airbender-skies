@@ -13,6 +13,7 @@ import {
   idleStaff, staffBusy, staffOf, stepStaff, type StaffConfig, type StaffSwing,
 } from './staff'
 import { raycastDown } from '../world/terrain-query'
+import { resolveMovement, type CollisionConfig } from '../world/collision'
 
 export interface ControllerDeps {
   terrain: TerrainQuery
@@ -28,6 +29,8 @@ export interface ControllerDeps {
   windAt?(position: Vector3, forward: Vector3): WindSample
   slipstream: SlipstreamConfig
   staff: StaffConfig
+  /** How the body is held off terrain. Injected like every other config here. */
+  collision: CollisionConfig
 }
 
 /** Distance below the glider at which touching down counts as landing. */
@@ -229,12 +232,21 @@ export function controllerStep(
       bank: input.strafe * 0.6,
       hover: hovering, tuck: input.tuck,
     }, dt, deps.flight, wind)
+
+    // Between the integrator and the landing probe, and the order is not arbitrary.
+    // flightStep produces a destination; this resolves the path to it; only then does the
+    // landing probe run, against the resolved position. Resolving after the landing check
+    // would let a player land on the far side of a wall they should have hit.
+    const cleared = resolveMovement(
+      state.position, moved.position, moved.velocity, deps.terrain, deps.collision,
+    )
+
     const effort = thrusting ? 'thrust' : hovering ? 'hover' : 'idle'
     const breath = stepBreath(state, effort, false, dt, deps.flight)
 
     next = {
       ...state, forward,
-      position: moved.position, velocity: moved.velocity,
+      position: cleared.position, velocity: cleared.velocity,
       breath: breath.breath, grounded: false,
     }
 

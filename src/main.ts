@@ -274,6 +274,7 @@ function start(): void {
     spawnPointFor: spawnPointFor(ARCHIPELAGO, world.terrain),
     slipstream: DEFAULT_SLIPSTREAM_CONFIG,
     staff: DEFAULT_STAFF_CONFIG,
+    collision: DEFAULT_COLLISION_CONFIG,
     // Surged for the Avatar State on the way out, and the unsurged sample kept so the
     // Focus rate reads the real air. Otherwise the surge feeds itself: the state boosts
     // the wind, and the boosted wind pays more Focus.
