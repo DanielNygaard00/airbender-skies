@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { createArrowView } from './arrow'
+import { createArrowView, SHAFT_MATERIAL_OPTIONS } from './arrow'
 import { spawnProjectile } from '../combat/projectile'
 
 const arrow = (position: Vector3, direction: Vector3) =>
@@ -39,9 +39,26 @@ describe('the arrow view', () => {
     // A deliberate difference from the attack tells in this directory, which draw over
     // the world. An arrow the player cannot see is a threat; an arrow visible through
     // terrain is information they should not have. Same reasoning as the health bars.
+    //
+    // Asserted against the exported options rather than against the built material.
+    // `new MeshLambertMaterial({ color })` already yields depthTest === true, because
+    // Material's constructor backfills its own defaults, so reading it back off the mesh
+    // passes whether or not arrow.ts asks for it -- deleting the option left this test
+    // green. On the options object a removed key reads undefined instead.
+    expect(SHAFT_MATERIAL_OPTIONS.depthTest).toBe(true)
+  })
+
+  it('lays the shaft along its flight axis rather than across it', () => {
+    // CylinderGeometry's axis is local Y and the view aims local +Z at the target, so
+    // without the quarter turn every arrow in the game flies broadside -- visible in
+    // every frame of flight, and nothing else in this file notices it.
     const view = createArrowView()
-    const mesh = view.object.getObjectByName('arrow-shaft') as unknown as { material: { depthTest: boolean } }
-    expect(mesh.material.depthTest).toBe(true)
+    const shaft = view.object.getObjectByName('arrow-shaft')
+    if (!shaft) throw new Error('expected a child named arrow-shaft')
+    expect(shaft.rotation.x).toBeCloseTo(Math.PI / 2, 5)
+    // Local Y, the cylinder's own axis, has to end up along the parent's forward.
+    const axis = new Vector3(0, 1, 0).applyQuaternion(shaft.quaternion)
+    expect(Math.abs(axis.z)).toBeCloseTo(1, 5)
     view.dispose()
   })
 
