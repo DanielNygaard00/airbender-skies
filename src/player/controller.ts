@@ -188,7 +188,7 @@ export function controllerStep(
         grounded: false,
       }
     } else {
-      next = groundStep(state, input, dt, deps.terrain, deps.ground)
+      next = groundStep(state, input, dt, deps.terrain, deps.ground, deps.collision)
     }
 
     // Gated on next.mode, not state.mode: a press that lands on the same frame the

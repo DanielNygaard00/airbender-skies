@@ -4,6 +4,7 @@ import { stepJump } from './jump'
 import { stepScooter, scooterSpeedMultiplier, scooterTurnAuthority } from './scooter'
 import { stepDash } from './dash'
 import { raycastDown } from '../world/terrain-query'
+import { resolveMovement, type CollisionConfig } from '../world/collision'
 
 const WORLD_UP = new Vector3(0, 1, 0)
 
@@ -63,6 +64,7 @@ export function groundStep(
   dt: number,
   terrain: TerrainQuery,
   c: GroundConfig,
+  collision: CollisionConfig,
 ): PlayerState {
   const jump = stepJump(state, input, dt, c)
 
@@ -100,7 +102,14 @@ export function groundStep(
     : state.velocity.y - c.gravity * dt
 
   const velocity = new Vector3(horizontal.x, velocityY, horizontal.z)
-  const position = state.position.clone().addScaledVector(velocity, dt)
+  const target = state.position.clone().addScaledVector(velocity, dt)
+  // Before the ground snap, not after. The snap adjusts only y, and only for a player who
+  // was already grounded or is descending onto a surface, so a horizontal deflection
+  // composes with it instead of competing. Resolving after the snap would leave a walker
+  // deflected off a wall without being re-seated on the ground under them.
+  const cleared = resolveMovement(state.position, target, velocity, terrain, collision)
+  const position = cleared.position
+  velocity.copy(cleared.velocity)
 
   // Walking keeps a distance snap so slopes and small drops stick underfoot.
   // An airborne body must not be grabbed from a distance — that cancelled the

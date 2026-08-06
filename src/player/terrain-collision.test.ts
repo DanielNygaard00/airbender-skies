@@ -92,3 +92,63 @@ describe('a glider cannot fly through an island', () => {
     expect(state.position.x).toBeGreaterThan(needle.position.x - needle.radius)
   })
 })
+
+describe('a walker cannot walk through an island', () => {
+  it('is deflected by a genuine wall on the spire flank rather than passing through it', () => {
+    const terrain = archipelagoTerrain()
+    const spire = island('spire')
+    // Walking straight in along the spire's own centre line (dz 0) turns out to be a walk
+    // over a walkable, noise-perturbed dome the whole way across -- the crown is gentle
+    // enough there that nothing steeper than wallNormalY is ever met, so a test along that
+    // line would prove nothing (see the task brief). Probing downward at points along
+    // z = spire.position.z + 8 instead finds a genuine wall: at 16 to 17 units out the
+    // surface normal's y component measures roughly 0.41, steeper than wallNormalY's 0.5,
+    // and the height drops smoothly into it rather than jumping -- a real slope, not an
+    // overhang whose top a walker would just fall off the edge of. Measured directly
+    // against the geometry, not assumed.
+    const offsetZ = spire.position.z + 8
+    const startX = spire.position.x + 20
+    const ground = terrain.groundHeightAt(startX, offsetZ)
+    expect(ground, 'the walk should start on real ground').not.toBe(null)
+
+    let state: PlayerState = {
+      mode: 'ground',
+      position: new Vector3(startX, ground!, offsetZ),
+      velocity: new Vector3(),
+      forward: new Vector3(-1, 0, 0),
+      breath: 100, maxBreath: 100,
+      grounded: true, lastGroundIslandId: 'spire',
+      airJumpsUsed: 0, chargeTime: 0,
+      scooterActive: false, scooterCharge: 0,
+      dashesUsed: 0, dashRecovery: 0,
+      slipstreamElapsed: null, slipstreamCooldown: 0,
+      staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0,
+    }
+    const walk = (frames: number) => {
+      for (let frame = 0; frame < frames; frame++) {
+        state = controllerStep(
+          state,
+          input({ forward: 1, sprint: true, lookDirection: new Vector3(-1, 0, 0) }),
+          1 / 60,
+          deps(terrain),
+        )
+      }
+    }
+
+    // Approach the wall dead straight along z. 40 frames covers reaching it at run speed
+    // with room either side; the wall's own normal has a z component, so a real deflection
+    // shows up as sideways drift off that straight line -- the same signature the
+    // ground-move unit test checks for a fake wall, now against real archipelago geometry.
+    walk(40)
+    expect(Math.abs(state.position.z - offsetZ), 'a real wall should have deflected the walk sideways')
+      .toBeGreaterThan(0.05)
+
+    // Keep walking. The failure this task exists to fix was not a wall stopping the
+    // player -- it was a downward ray, once inside the mesh, meeting only back faces and
+    // reporting no ground at all, dropping the player through the island and past the
+    // world floor into a respawn. Whatever path the deflection sends the walker on, that
+    // must not happen.
+    walk(260)
+    expect(state.position.y).toBeGreaterThan(ARCHIPELAGO.worldFloorY)
+  })
+})
