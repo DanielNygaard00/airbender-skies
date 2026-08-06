@@ -32,7 +32,11 @@ const C: CombatConfig = {
       snapDistance: 1.2,
     },
   },
-  // Not exercised by this file's own tests, but required by CombatConfig's shape.
+  // Both values are load-bearing here, not just shape. Three tests fly an arrow all the
+  // way into the player -- "lets the stepping loop use each enemy's own kind", "eventually
+  // hurts a player standing in front of it" and "lets a slipstream dodge an arrow" -- and
+  // each of them goes red if hitRadius drops to 0 (nothing ever connects) or if maxSeconds
+  // drops to 0 (every arrow expires before it arrives).
   projectile: { hitRadius: 0.9, maxSeconds: 4 },
   gust: { range: 12, halfAngle: Math.PI / 3, damage: 0.5, knockback: 26, cooldownSeconds: 0.5 },
   pressureWave: {

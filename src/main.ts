@@ -149,7 +149,7 @@ function start(): void {
     return tell
   })
 
-  // The one encounter: spear infantry on the home island.
+  // The one encounter: three spears and two archers on the home island, per HOME_PATROL.
   //
   // Hoisted into a const and handed to both startEncounter and the fight's deps below,
   // because the restore respawns from `deps.spawns` and there must be exactly one answer
