@@ -132,3 +132,34 @@ describe('the two kinds look different', () => {
     expect(Math.abs(bow.rotation.x - calm)).toBeGreaterThan(0.3)
   })
 })
+
+describe('a downed soldier drops whatever it was holding', () => {
+  // The downed branch resets prop.rotation, and nothing covered it for either kind:
+  // "lays a downed soldier flat" reads only rig.rotation.x, and the wind-up tests all
+  // exercise the living branch. prop.rotation is persistent mesh state, so without that
+  // line a body lies flat on the ground with its weapon still drawn, held at the angle
+  // the interrupted telegraph left it at -- and it stays there for the rest of the level.
+  //
+  // Each test winds up first and asserts the prop actually moved, so a view that never
+  // rotated the prop at all cannot pass this vacuously.
+  const ARCHER_CONFIG = DEFAULT_COMBAT_CONFIG.enemies.archer
+
+  it('lowers a downed spear', () => {
+    const view = createEnemyView('spear')
+    const spear = child(view, 'spear')
+    view.sync({ ...enemyAt(0, 0), stance: 'wind-up' }, CAMERA)
+    expect(Math.abs(spear.rotation.x)).toBeGreaterThan(0.3)
+    view.sync(downed(enemyAt(0, 0)), CAMERA)
+    expect(spear.rotation.x).toBeCloseTo(0, 5)
+  })
+
+  it('lowers a downed bow', () => {
+    const view = createEnemyView('archer')
+    const bow = child(view, 'bow')
+    const archer = spawnEnemy('a', new Vector3(), 'archer', ARCHER_CONFIG)
+    view.sync({ ...archer, stance: 'wind-up' }, CAMERA)
+    expect(Math.abs(bow.rotation.x)).toBeGreaterThan(0.3)
+    view.sync(hitEnemy(archer, ARCHER_CONFIG.maxHealth, new Vector3()), CAMERA)
+    expect(bow.rotation.x).toBeCloseTo(0, 5)
+  })
+})
