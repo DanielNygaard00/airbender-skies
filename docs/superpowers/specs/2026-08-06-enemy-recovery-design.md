@@ -275,9 +275,15 @@ something anyone is looking at.
 `downs` returns to 0 along with everything else. A restored patrol is a fresh patrol, which
 is exactly what that feature already means. No change needed.
 
-**Recovery is the near-term behaviour and the restore is the long-term one.** A player
-walking away from a downed patrol will usually see soldiers stand back up before they get 40
-metres out. That is the intended reading: you do not get to leave a fight half-won.
+**The restore wins comfortably for a player who disengages.** `DEFAULT_GROUND_CONFIG.runSpeed`
+is 13 and `respawnRange` is 40, so clearing the range from all three spawns costs roughly 4
+seconds at a run — against an 18-second `downedSeconds`, the restore gets there first by a
+wide margin. A player who downs all three and leaves gets the pre-existing fresh patrol and
+never sees a recovery. Recovery is the behaviour that shapes a fight the player *stays* in;
+the ladder's pressure is on the player who keeps fighting, not the one who leaves. This was
+argued backwards during design — an earlier draft of this section claimed the opposite, and
+`downedSeconds: 18` was tuned partly on that inverted claim — so that number deserves a
+second look once the feature has actually been played.
 
 ## Edge cases
 
