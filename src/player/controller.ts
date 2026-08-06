@@ -282,6 +282,10 @@ export function controllerStep(
     // Posture-aware: on foot the movement keys are walk and strafe, but in the glider
     // they are thrust and bank, so `dodgeHeading` reads only what means direction there.
     dodgeHeading(next.mode, next.forward, input.lookDirection, input.forward, input.strafe),
+    // Read after the posture branches, so this is the breath the branch settled: the
+    // glider's drain from thrust or hover, or the ground branch's regeneration. A
+    // pre-step value would let a player spend breath the same frame they ran out of it.
+    next.breath,
     dt,
     deps.slipstream,
   )
@@ -290,6 +294,9 @@ export function controllerStep(
     slipstreamElapsed: slip.state.elapsed,
     slipstreamCooldown: slip.state.cooldown,
     velocity: slip.impulse ? next.velocity.clone().add(slip.impulse) : next.velocity,
+    // Clamped at 0 so a rounding error can never drive the bar negative, which would
+    // read as a permanently unusable dodge.
+    breath: Math.max(0, next.breath - slip.breathSpent),
   }
 
   return isFinitePlayer(next) ? next : safeRespawn(state, deps)

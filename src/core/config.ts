@@ -133,6 +133,12 @@ import type { SlipstreamConfig } from '../player/slipstream'
 /**
  * Slipstream. The window is 0.11s inside an enemy telegraph of 0.55s
  * (`windUpSeconds`), so beating a strike takes real timing rather than a mash.
+ *
+ * `breathCost` of 28 buys three dodges from a full bar. Breath regenerates at
+ * `breathRegenPerSecond` 12 airborne but `breathRegenGroundedMultiplier` 2.5 times that,
+ * 30, on the ground, so the same cost is repaid in 0.93s on foot — inside the dodge's own
+ * cooldown, leaving the ground dodge as freely available as it was — against 2.33s in the
+ * glider, which is longer than the cooldown and so makes chaining it a real decision.
  */
 export const DEFAULT_SLIPSTREAM_CONFIG: SlipstreamConfig = {
   // A shade faster than the blast dash's 26: this one is bought with a cooldown
@@ -141,6 +147,7 @@ export const DEFAULT_SLIPSTREAM_CONFIG: SlipstreamConfig = {
   durationSeconds: 0.2,
   invulnerableSeconds: 0.11,
   cooldownSeconds: 1.5,
+  breathCost: 28,
 }
 
 import type { StaffConfig } from '../player/staff'

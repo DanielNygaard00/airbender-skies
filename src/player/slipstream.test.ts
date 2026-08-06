@@ -4,16 +4,16 @@ import {
   idleSlipstream, canSlipstream, isInvulnerable, stepSlipstream, slipstreamHeading,
   dodgeHeading,
 } from './slipstream'
-import { DEFAULT_SLIPSTREAM_CONFIG as S } from '../core/config'
+import { DEFAULT_SLIPSTREAM_CONFIG as S, DEFAULT_FLIGHT_CONFIG } from '../core/config'
 
 const NORTH = new Vector3(0, 0, -1)
-const fire = () => stepSlipstream(idleSlipstream(), true, NORTH, 1 / 60, S)
+const fire = (breath = S.breathCost) => stepSlipstream(idleSlipstream(), true, NORTH, breath, 1 / 60, S)
 
 /** Advance an active slipstream by `seconds` with no further presses. */
 function advance(state = fire().state, seconds = 0): typeof state {
   let current = state
   for (let t = 0; t < seconds; t += 1 / 60) {
-    current = stepSlipstream(current, false, NORTH, 1 / 60, S).state
+    current = stepSlipstream(current, false, NORTH, 100, 1 / 60, S).state
   }
   return current
 }
@@ -46,47 +46,97 @@ describe('stepSlipstream', () => {
   it('cannot fire again while on cooldown', () => {
     const spent = advance(undefined, S.durationSeconds + 0.05)
     expect(spent.cooldown).toBeGreaterThan(0)
-    expect(canSlipstream(spent)).toBe(false)
-    expect(stepSlipstream(spent, true, NORTH, 1 / 60, S).impulse).toBeNull()
+    expect(canSlipstream(spent, 100, S)).toBe(false)
+    expect(stepSlipstream(spent, true, NORTH, 100, 1 / 60, S).impulse).toBeNull()
   })
 
   it('is available again once the cooldown expires', () => {
-    expect(canSlipstream(advance(undefined, S.cooldownSeconds + 0.05))).toBe(true)
+    expect(canSlipstream(advance(undefined, S.cooldownSeconds + 0.05), 100, S)).toBe(true)
   })
 
   it('cannot fire twice inside one dash', () => {
     const active = fire().state
-    expect(stepSlipstream(active, true, NORTH, 1 / 60, S).impulse).toBeNull()
+    expect(stepSlipstream(active, true, NORTH, 100, 1 / 60, S).impulse).toBeNull()
   })
 
   it('forwards the heading to the impulse', () => {
     // If heading is ignored entirely, this test fails; every other test before this
     // uses a heading that normalizes to the same vector.
     const impulse = stepSlipstream(
-      idleSlipstream(), true, new Vector3(1, 0, 0), 1 / 60, S,
+      idleSlipstream(), true, new Vector3(1, 0, 0), S.breathCost, 1 / 60, S,
     ).impulse
     expect(impulse?.x).toBeCloseTo(S.speed, 5)
     expect(impulse?.z).toBeCloseTo(0, 5)
   })
 
-  it('flattens the heading, so looking up does not launch you', () => {
-    // Heading with a real horizontal component and a vertical component.
-    // Flattening should preserve the x while zeroing y.
+  it('no longer flattens the heading — it is passed straight through', () => {
+    // The flatten that used to live here is gone; stepSlipstream now trusts whatever
+    // direction it is handed, vertical component included.
     const impulse = stepSlipstream(
-      idleSlipstream(), true, new Vector3(1, 5, 0), 1 / 60, S,
+      idleSlipstream(), true, new Vector3(1, 1, 0), S.breathCost, 1 / 60, S,
     ).impulse
-    expect(impulse?.y).toBe(0)
-    // The horizontal component must be preserved at full speed.
     expect(impulse?.length()).toBeCloseTo(S.speed, 5)
-    expect(impulse?.x).toBeCloseTo(S.speed, 5)
+    expect(impulse?.y).toBeGreaterThan(0)
   })
 
   it('falls back to a fixed direction rather than producing NaN', () => {
     const impulse = stepSlipstream(
-      idleSlipstream(), true, new Vector3(0, 1, 0), 1 / 60, S,
+      idleSlipstream(), true, new Vector3(0, 0, 0), S.breathCost, 1 / 60, S,
     ).impulse
     expect(Number.isFinite(impulse?.x)).toBe(true)
     expect(impulse?.length()).toBeCloseTo(S.speed, 5)
+  })
+})
+
+describe('a dodge costs breath', () => {
+  it('does not fire when there is less breath than it costs', () => {
+    const out = stepSlipstream(idleSlipstream(), true, NORTH, S.breathCost - 0.01, 1 / 60, S)
+    expect(out.impulse).toBeNull()
+  })
+
+  it('does not spend the cooldown on a press it could not afford', () => {
+    // The press has to be a no-op, not a wasted dodge. Spending the cooldown would
+    // punish a player twice for being out of breath.
+    const out = stepSlipstream(idleSlipstream(), true, NORTH, 0, 1 / 60, S)
+    expect(out.state.cooldown).toBe(0)
+    expect(out.state.elapsed).toBeNull()
+  })
+
+  it('fires at exactly its cost', () => {
+    expect(stepSlipstream(idleSlipstream(), true, NORTH, S.breathCost, 1 / 60, S).impulse)
+      .not.toBeNull()
+  })
+
+  it('reports exactly what it spent', () => {
+    expect(stepSlipstream(idleSlipstream(), true, NORTH, 100, 1 / 60, S).breathSpent)
+      .toBe(S.breathCost)
+  })
+
+  it('spends nothing on a frame with no dodge', () => {
+    expect(stepSlipstream(idleSlipstream(), false, NORTH, 100, 1 / 60, S).breathSpent).toBe(0)
+  })
+
+  it('spends nothing on a press it could not afford', () => {
+    expect(stepSlipstream(idleSlipstream(), true, NORTH, 0, 1 / 60, S).breathSpent).toBe(0)
+  })
+
+  it('costs more than thrust would to gain the same speed', () => {
+    // The whole point of the number. Thrust buys thrustAccel per breathDrainPerSecond;
+    // a dodge buys speed/cooldownSeconds per breathCost/cooldownSeconds. If the dodge
+    // ever became the cheaper way to accelerate, chain-dodging would be optimal again.
+    const thrustRatio = DEFAULT_FLIGHT_CONFIG.thrustAccel / DEFAULT_FLIGHT_CONFIG.breathDrainPerSecond
+    const dodgeRatio = S.speed / S.breathCost
+    expect(dodgeRatio).toBeLessThan(thrustRatio)
+  })
+})
+
+describe('canSlipstream', () => {
+  it('is false with too little breath even when off cooldown', () => {
+    expect(canSlipstream(idleSlipstream(), S.breathCost - 0.01, S)).toBe(false)
+  })
+
+  it('is true with enough breath and no cooldown', () => {
+    expect(canSlipstream(idleSlipstream(), S.breathCost, S)).toBe(true)
   })
 })
 

@@ -19,6 +19,18 @@ export interface SlipstreamConfig {
   /** Measured from the start, and shorter than `durationSeconds`. */
   invulnerableSeconds: number
   cooldownSeconds: number
+  /**
+   * Breath a dodge spends, deducted the frame it fires.
+   *
+   * Chosen against thrust, because the two are alternatives for gaining speed and the
+   * dodge has to be the worse of them. Thrust buys `thrustAccel` 22 for
+   * `breathDrainPerSecond` 18, a ratio of 1.22; a dodge buys `speed` 30 over
+   * `cooldownSeconds` 1.5 for this cost over the same 1.5, a ratio of `speed / breathCost`.
+   * They break even at 25. Above that, thrust is the efficient way to go faster and the
+   * dodge is what you spend when you need the invulnerability — which is the ordering the
+   * move is supposed to have, and a test pins it.
+   */
+  breathCost: number
 }
 
 export interface SlipstreamState {
@@ -31,9 +43,11 @@ export function idleSlipstream(): SlipstreamState {
   return { elapsed: null, cooldown: 0 }
 }
 
-/** Not already dashing, and off cooldown. */
-export function canSlipstream(state: SlipstreamState): boolean {
-  return state.elapsed === null && state.cooldown <= 0
+/** Not already dashing, off cooldown, and able to pay for it. */
+export function canSlipstream(
+  state: SlipstreamState, breath: number, c: SlipstreamConfig,
+): boolean {
+  return state.elapsed === null && state.cooldown <= 0 && breath >= c.breathCost
 }
 
 export function isInvulnerable(state: SlipstreamState, c: SlipstreamConfig): boolean {
@@ -94,24 +108,28 @@ export function stepSlipstream(
   state: SlipstreamState,
   pressed: boolean,
   heading: Vector3,
+  breath: number,
   dt: number,
   c: SlipstreamConfig,
-): { state: SlipstreamState; impulse: Vector3 | null } {
-  if (pressed && canSlipstream(state)) {
-    const flat = new Vector3(heading.x, 0, heading.z)
-    const direction = flat.lengthSq() < 1e-8 ? new Vector3(0, 0, -1) : flat.normalize()
+): { state: SlipstreamState; impulse: Vector3 | null; breathSpent: number } {
+  if (pressed && canSlipstream(state, breath, c)) {
+    const direction = heading.lengthSq() < 1e-8 ? new Vector3(0, 0, -1) : heading.clone().normalize()
     return {
       state: { elapsed: 0, cooldown: c.cooldownSeconds },
       impulse: direction.multiplyScalar(c.speed),
+      breathSpent: c.breathCost,
     }
   }
 
   const cooldown = Math.max(0, state.cooldown - dt)
-  if (state.elapsed === null) return { state: { elapsed: null, cooldown }, impulse: null }
+  if (state.elapsed === null) {
+    return { state: { elapsed: null, cooldown }, impulse: null, breathSpent: 0 }
+  }
 
   const elapsed = state.elapsed + dt
   return {
     state: { elapsed: elapsed >= c.durationSeconds ? null : elapsed, cooldown },
     impulse: null,
+    breathSpent: 0,
   }
 }

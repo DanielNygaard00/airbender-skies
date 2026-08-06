@@ -250,10 +250,11 @@ function start(): void {
       gustReady: canGust(encounter),
       avatarStateReady: isArmed(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
       vortexReady: canVortex(encounter),
-      slipstreamReady: canSlipstream({
-        elapsed: player.slipstreamElapsed,
-        cooldown: player.slipstreamCooldown,
-      }),
+      slipstreamReady: canSlipstream(
+        { elapsed: player.slipstreamElapsed, cooldown: player.slipstreamCooldown },
+        player.breath,
+        DEFAULT_SLIPSTREAM_CONFIG,
+      ),
     }))
   })
   const wind = createWindAudio()
