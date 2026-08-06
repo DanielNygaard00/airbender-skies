@@ -809,10 +809,11 @@ tuning — but unlike most of this project's guesses, these are about *pressure*
 so an hour of play will move them a long way. The archer's `aggroRange` of 48 most of all: it is
 the number that decides whether climbing still wins.
 
-**Two known problems left unfixed on purpose.** Both are real and both were measured, not
-reasoned about. Neither is a defect in the code that implements them — the first is a tuning
-decision that belongs to whoever plays the game, the second is a design question about how a
-soldier should behave in a case the current rule does not really cover.
+**Two known problems, both measured rather than reasoned about, and both since fixed.** Neither
+was a defect in the code that implemented it, which is why each was recorded rather than patched
+on sight: the first was a tuning decision that belonged to whoever plays the game, the second a
+design question about how a soldier should behave in a case the rule did not really cover. Each
+was answered deliberately, and each answer is pinned by a test that failed first.
 
 **`HOME_PATROL` used to open fire at spawn. It has been moved, and a test now pins it.**
 
@@ -844,18 +845,44 @@ climbing stop being a win condition and is the last number that should be traded
 rather than opening fire the instant it notices" is now true of the patrol as well as of the two
 numbers — it was the mismatch between those two readings that hid the problem in the first place.
 
-*An archer directly beneath a hovering player twitches in place instead of repositioning.* At 45
-units straight up it is inside `aggroRange` (48) and outside `strikeRange` (40), so it takes the
-closing branch — where `horizontalTo` finds a zero horizontal delta and falls back to
-`(0, 0, -1)`. The outcome is right: it never fires, which is the whole point of the type. The
-motion is not. Measured over 20 simulated seconds, it does *not* march away in a fixed direction:
-it steps 0.057 units (one frame of `moveSpeed`) due −Z, at which point the horizontal delta is no
-longer zero and points back at the player, so the next frame steps it back to the origin. It
-oscillates between those two points forever, and `facing` flips a full 180° every frame with it —
-which at 60 fps is a soldier spinning on the spot, not a soldier walking. Total displacement ever
-reached: 0.057 units. Whatever the fix is (hold station when there is no horizontal delta, pick a
-stable retreat heading and commit to it, or give the archer a minimum stand-off distance), it is a
-behaviour decision rather than a bug fix, so it is recorded rather than guessed at.
+**An archer directly beneath a hovering player used to twitch in place. It now holds station.**
+
+At 45 units straight up it is inside `aggroRange` (48) and outside `strikeRange` (40), so it takes
+the closing branch — where `horizontalTo` found a zero horizontal delta and fell back to
+`(0, 0, -1)`. The outcome was already right: it never fires, which is the whole point of the type.
+The motion was not. It did *not* march away in a fixed direction: it stepped 0.057 units (one frame
+of `moveSpeed`) due −Z, at which point the horizontal delta was no longer zero and pointed back at
+the player, so the next frame stepped it back to the origin. It oscillated between those two points
+forever, `facing` reversing a full 180° every frame with it — at 60 fps a soldier spinning on the
+spot rather than a soldier walking. Total ground ever covered: 0.057 units.
+
+Holding station is not merely the cheapest of the three options that were on the table — the others
+being a committed retreat heading, or a minimum stand-off band — it is the only one that is
+geometrically right. While the player is straight up, *every* horizontal step lengthens the 3D
+distance that is keeping the shot out of range, so the archer is already standing on the best
+square available to it. A retreat heading would have looked more deliberate while making the
+archer's position strictly worse. The genuinely interesting answer, moving to higher ground to
+close the vertical gap instead, needs pathfinding and terrain sampling; it is a feature, and it is
+not this.
+
+Two changes carry it, both in `stepEnemy`. `horizontalTo` now returns `Vector3 | null` and reports
+the absence of a heading instead of inventing one — a fabricated direction is indistinguishable
+from a real one to every caller, which is precisely how a soldier came to walk along it and
+manufacture the delta that had been missing. `facing` falls back to the heading already held, since
+a soldier looking straight up has no yaw it ought to prefer. And the closing step is now capped at
+the horizontal distance actually left to cover, because holding station on an *exact* zero does not
+cover the neighbourhood around it: a player hovering 0.03 units off vertical is less than one
+frame's step away, so the archer overshot their horizontal position and oscillated around it — the
+same twitch, reachable by anyone using a real control stick rather than exact coordinates. The cap
+only ever binds inside the last fraction of a step, and only for a ranged soldier: closing at all
+requires the horizontal gap to exceed `strikeRange`, which for a spear is many times one frame's
+walk, so melee behaviour is untouched.
+
+Five tests in `enemy.test.ts` pin it, three of which failed first — the archer stays put over 120
+frames, keeps one heading, and converges on a nearly-overhead player without crossing to the far
+side. The other two were already green and are there to stay that way: it still never fires at a
+player out of range, and it still closes at full `moveSpeed` on a player genuinely off to one side,
+so the cap cannot quietly turn into an archer that never advances.
 
 ## What has NOT been built
 

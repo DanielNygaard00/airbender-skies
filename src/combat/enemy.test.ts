@@ -535,3 +535,93 @@ describe('a projectile attack reaches in three dimensions', () => {
     expect(step.enemy.stance).toBe('advance')
   })
 })
+
+describe('a soldier with nowhere horizontal to go', () => {
+  // The gap between a ranged soldier's two ranges, entered from directly underneath. At a
+  // height above strikeRange and below aggroRange, an archer has noticed the player and
+  // cannot shoot them, so it takes the closing branch -- and there is no horizontal
+  // direction that closes anything, because while the player is straight up every
+  // horizontal step makes the 3D distance larger. Standing still is not merely the
+  // simplest thing to do here, it is the only move that does not make matters worse.
+  //
+  // Shaped like the shipped archer rather than the fixture above, since the numbers being
+  // ordered strikeRange < height < aggroRange is the whole precondition.
+  const HOVER: EnemyConfig = {
+    ...C,
+    moveSpeed: 3.4, strikeRange: 40, aggroRange: 48,
+    attack: { kind: 'projectile', damage: 1, speed: 34 },
+  }
+  /** One frame's worth of walking, the unit every assertion below is scaled against. */
+  const STEP = HOVER.moveSpeed / 60
+
+  /** Step an archer against a stationary player, keeping every frame's enemy. */
+  function track(player: Vector3, frames: number, from = AT(0, 0)) {
+    let enemy = spawnEnemy('a', from, 'archer', HOVER)
+    const history: Enemy[] = []
+    for (let i = 0; i < frames; i++) {
+      enemy = stepEnemy(enemy, player, flatGround, FLOOR, 1 / 60, HOVER).enemy
+      history.push(enemy)
+    }
+    return { enemy, history }
+  }
+
+  it('stands still under a player hovering directly overhead', () => {
+    // 45 up: inside aggroRange (48), outside strikeRange (40). Before this, the zero
+    // horizontal delta fell back to a fabricated (0, 0, -1) heading and the archer stepped
+    // 0.057 units along it, which made the delta non-zero and pointing back, so the next
+    // frame returned it to the origin -- a two-frame cycle it never left. Total ground
+    // ever covered was one frame's step, so the bug is invisible in a position snapshot
+    // taken on an even frame; it needs the maximum across the run.
+    const { history } = track(new Vector3(0, 45, 0), 120)
+    const wandered = Math.max(
+      ...history.map((enemy) => horizontalDistance(enemy.position, AT(0, 0))),
+    )
+    expect(wandered).toBeLessThan(STEP / 100)
+  })
+
+  it('keeps one heading instead of spinning on the spot', () => {
+    // The visible half of the same bug: `facing` drives the rig's yaw, and it was
+    // recomputed from that alternating delta, so it reversed a full 180 degrees every
+    // frame -- at 60fps a soldier spinning in place rather than standing. A stationary
+    // player means the heading has nothing to turn towards, so consecutive frames should
+    // agree; a reversal reads as a dot product near -1.
+    const { history } = track(new Vector3(0, 45, 0), 120)
+    const turns = history.slice(1).map((enemy, i) => enemy.facing.dot(history[i]!.facing))
+    expect(Math.min(...turns)).toBeGreaterThan(0.999)
+  })
+
+  it('never fires at a player it cannot reach, however long they hover', () => {
+    // The half that was already right and must stay right: out of strikeRange is out of
+    // strikeRange, which is what makes climbing above 40 a real escape.
+    let enemy = spawnEnemy('a', AT(0, 0), 'archer', HOVER)
+    for (let i = 0; i < 300; i++) {
+      const step = stepEnemy(enemy, new Vector3(0, 45, 0), flatGround, FLOOR, 1 / 60, HOVER)
+      enemy = step.enemy
+      expect(step.firedProjectile).toBe(null)
+      expect(step.damageToPlayer).toBe(0)
+    }
+  })
+
+  it('settles beneath a player hovering just off centre, without stepping past them', () => {
+    // The neighbourhood of the degenerate point, which holding station on an exact zero
+    // does not cover on its own. 0.03 out is less than one frame's step of 0.057, so
+    // walking the full step overshoots the player's horizontal position and the archer
+    // oscillates around it -- the same twitch, reachable by a player who is merely nearly
+    // overhead rather than exactly so, which is every player using a real control stick.
+    const player = new Vector3(0.03, 45, 0)
+    const { enemy, history } = track(player, 120)
+    // Arrives underneath them...
+    expect(horizontalDistance(enemy.position, player)).toBeLessThan(STEP / 100)
+    // ...and got there without ever crossing to the far side.
+    expect(Math.max(...history.map((e) => e.position.x))).toBeLessThanOrEqual(player.x + 1e-9)
+  })
+
+  it('still closes at full speed on a player who is genuinely off to one side', () => {
+    // The guard on the clamp. Capping the step at the remaining horizontal distance must
+    // only bind in the final fraction of a step, so an ordinary approach has to still
+    // cover a whole step per frame -- otherwise the fix above would have traded a twitch
+    // for an archer that never advances.
+    const { enemy } = track(new Vector3(0, 0, -45), 1)
+    expect(horizontalDistance(enemy.position, AT(0, 0))).toBeCloseTo(STEP, 6)
+  })
+})

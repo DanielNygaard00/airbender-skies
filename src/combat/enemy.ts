@@ -151,9 +151,20 @@ export interface EnemyStep {
 /** Chest height, so an arrow leaves the archer rather than the ground it stands on. */
 const SHOT_HEIGHT = 1.1
 
-function horizontalTo(from: Vector3, to: Vector3): Vector3 {
+/**
+ * The horizontal heading from `from` to `to`, or null when there is no horizontal
+ * separation to take a heading from.
+ *
+ * Null rather than a fallback direction. This used to answer `(0, 0, -1)`, which reads as
+ * a reasonable default and is not one: a fabricated heading is indistinguishable from a
+ * real one to every caller, so a soldier directly beneath a hovering player walked along
+ * it, which created the very horizontal delta that had been missing and pointed it back
+ * the way it came. Reporting the absence instead lets the caller do the one correct thing,
+ * which is nothing.
+ */
+function horizontalTo(from: Vector3, to: Vector3): Vector3 | null {
   const flat = new Vector3(to.x - from.x, 0, to.z - from.z)
-  return flat.lengthSq() < 1e-8 ? new Vector3(0, 0, -1) : flat.normalize()
+  return flat.lengthSq() < 1e-8 ? null : flat.normalize()
 }
 
 export function horizontalDistance(a: Vector3, b: Vector3): number {
@@ -286,14 +297,17 @@ export function stepEnemy(
   }
 
   const toPlayer = horizontalTo(moved.position, playerPosition)
+  // Nothing to turn towards when the player is straight up, so hold the heading already
+  // held. `facing` drives the rig's yaw, and a soldier looking up has no yaw it ought to
+  // prefer -- snapping to some fixed compass direction is a visible spin that says nothing.
+  const facing = toPlayer ?? enemy.facing
   // A spear cannot reach up and an arrow can, so the two measure differently. This is
   // the only place the two types genuinely diverge, and it is the whole reason an archer
   // pressures altitude: measured horizontally, a player hovering directly overhead sits
   // at distance 0 and would be inside any range, so climbing would stop being an escape.
   const ranged = c.attack.kind === 'projectile'
-  const distance = ranged
-    ? moved.position.distanceTo(playerPosition)
-    : horizontalDistance(moved.position, playerPosition)
+  const horizontalGap = horizontalDistance(moved.position, playerPosition)
+  const distance = ranged ? moved.position.distanceTo(playerPosition) : horizontalGap
   const stanceTime = enemy.stanceTime + dt
   let damageToPlayer = 0
   let firedProjectile: EnemyStep['firedProjectile'] = null
@@ -308,11 +322,22 @@ export function stepEnemy(
     } else if (distance <= c.strikeRange) {
       stance = 'wind-up'
       time = 0
-    } else {
+    } else if (toPlayer) {
       // Closes only horizontally, whichever type it is: infantry does not chase into the
       // sky, and an archer does not need to — it shoots upward instead.
-      position = moved.position.clone().addScaledVector(toPlayer, c.moveSpeed * dt)
+      //
+      // Capped at the distance actually left to cover, so a soldier cannot step past the
+      // spot it is walking to and spend the rest of the engagement crossing back and
+      // forth over it. Only ever binds inside the last fraction of a step, and only for a
+      // ranged soldier: closing at all needs the horizontal gap above strikeRange, which
+      // for a spear is many times one frame's walk.
+      position = moved.position.clone()
+        .addScaledVector(toPlayer, Math.min(c.moveSpeed * dt, horizontalGap))
     }
+    // No horizontal heading at all — the player is directly overhead — so hold station,
+    // which `position` already does. Every horizontal step from here lengthens the 3D
+    // distance that keeps the shot out of range, so standing still is the whole of the
+    // right answer rather than a placeholder for a cleverer one.
   } else if (enemy.stance === 'wind-up') {
     if (stanceTime >= c.windUpSeconds) {
       // The release lands only if the player is still in reach — which is what makes the
@@ -338,7 +363,7 @@ export function stepEnemy(
 
   return {
     enemy: {
-      ...enemy, ...moved, position, facing: toPlayer, stance, stanceTime: time,
+      ...enemy, ...moved, position, facing, stance, stanceTime: time,
     },
     damageToPlayer,
     firedProjectile,
