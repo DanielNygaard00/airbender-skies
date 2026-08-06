@@ -117,7 +117,12 @@ export function dodgeHeading(
   // chain-dodging still ends well below where it started either way. It is recorded here
   // because it was not the intended shape going in, and the next person to touch this
   // coupling needs to know the sign is what it is, not what the design doc originally
-  // said, and why that's still safe rather than assumed to be.
+  // said, and why that's still safe rather than assumed to be. This upward direction is
+  // downstream of `gliderUp`'s own roll convention (`applyAxisAngle(forward, -bank)`), not
+  // an independent fact about `dodgeHeading` -- slipstream.test.ts's "picks up a vertical
+  // component" and "the production pairing" tests assert the sign explicitly, not a
+  // magnitude or an agreement-of-signs, specifically so a change to that convention cannot
+  // silently flip this argument's conclusion without a test noticing.
   //
   // A default side rather than a fallback to the heading: falling back to forward made
   // the no-bank press -- the common one -- a free 30 m/s boost.

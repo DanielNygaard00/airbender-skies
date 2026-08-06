@@ -95,6 +95,16 @@ describe('gliderRight', () => {
     // cross(forward, WORLD_UP) -- so this also pins gliderRight against gliderUp's own
     // internal `right` at flight.ts:19, not just against an independently-typed vector
     // that happens to agree by coincidence.
+    //
+    // What this pins and what it doesn't: bank 0 at one level heading, which is the
+    // cross(forward, WORLD_UP) branch of gliderUp -- not the FALLBACK_RIGHT branch a
+    // vertical heading takes. The handedness sign is reasoned rather than pinned by a
+    // test for that branch: FALLBACK_RIGHT is a fixed vector, not derived from `forward`,
+    // so the same triple-product identity used above (right*(forward.forward) -
+    // forward*(right.forward) = right, since FALLBACK_RIGHT is perpendicular to a
+    // vertical forward and forward is unit) applies to it the same way, independent of
+    // which concrete vector plays "right" -- but nothing in this file exercises that
+    // branch against a known sign the way the level case just was.
     const forward = new Vector3(0, 0, -1)
     const groundRight = new Vector3().crossVectors(forward, new Vector3(0, 1, 0)).normalize()
     expect(gliderRight(forward, 0).x).toBeCloseTo(groundRight.x, 5)

@@ -36,17 +36,20 @@ import type { InputState, PlayerState } from '../core/types'
  * having crossed zero, not for having lost energy in any meaningful sense. Altitude and
  * speed, measured directly, do not have that problem.)
  *
- * The measurement is bounded to glider posture -- `fly` stops the instant `mode` leaves
- * 'glider' -- because an earlier version of this test ran the full forty seconds
- * regardless, and the chain-dodge run of that version landed at 19.43s and spent the
- * remaining ~20.6s sliding around on the ground, occasionally ground-dodging (11 glider
- * dodges, 14 ground ones, of 25 total). That compared a landed player's y and speed
- * against a still-gliding control, and let "the test must actually be dodging" pass on
- * ground dodges alone. With the handedness fix, this particular run's default-side dodge
- * points the other way and no longer intersects that island at all, so it never lands
- * within the forty seconds either way here -- but the bound stays, because which way a
- * future retune happens to send it is exactly the kind of thing that shouldn't be able to
- * silently change what this measures again.
+ * The measurement is bounded to glider posture -- `fly`'s loop checks `mode === 'glider'`
+ * before each step and stops as soon as that's false, which means a run that lands
+ * reports the landing frame's own result (already snapped to the ground by that step),
+ * not the last airborne frame before it -- because an earlier version of this test ran
+ * the full forty seconds regardless, and the chain-dodge run of that version landed at
+ * 19.43s and spent the remaining ~20.6s sliding around on the ground, occasionally
+ * ground-dodging (11 glider dodges, 14 ground ones, of 25 total). That compared a landed
+ * player's y and speed against a still-gliding control, and let "the test must actually
+ * be dodging" pass on ground dodges alone. With the handedness fix, this particular run's
+ * default-side dodge points the other way and no longer intersects that island at all, so
+ * it never lands within the forty seconds either way here, which is also why the
+ * landing-frame distinction above doesn't currently affect either run's figures -- but
+ * the bound stays, because which way a future retune happens to send it is exactly the
+ * kind of thing that shouldn't be able to silently change what this measures again.
  *
  * Both fixes in this cycle are jointly load-bearing here, and neutralising either one
  * alone does not reproduce the original bug -- this is worth recording because it is not
@@ -125,8 +128,11 @@ function glider(): PlayerState {
 }
 
 /**
- * Up to forty seconds, dodging on cooldown or never, stopped the moment the player
- * lands. Landing flips `mode` to 'ground', where the flight invariants this test is
+ * Up to forty seconds, dodging on cooldown or never, stopping the loop as soon as the
+ * player is no longer in `'glider'` mode. If a run lands, the values returned are that
+ * landing frame's own result -- already snapped to the ground by that step -- not the
+ * last airborne frame before it; the loop only stops one step later, not one step
+ * earlier. Landing flips `mode` to 'ground', where the flight invariants this test is
  * about -- and the dodge's own vertical component -- no longer apply: a landed player
  * sliding around and occasionally ground-dodging is a different question from whether
  * flying and dodging gains height for free. Letting the loop run past that point mixed a

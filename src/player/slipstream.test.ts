@@ -262,9 +262,16 @@ describe('a glider dodge goes across the flight path, not along it', () => {
     // threaded through to gliderRight: a dodge thrown while rolled carries the roll's
     // vertical component with it, the same way a real bank turns a level break into a
     // climbing or diving one.
+    //
+    // Asserted as a signed value, not Math.abs: a magnitude bound holds for either sign
+    // and cannot tell "climbs" from "descends" apart, which is exactly the property
+    // dodgeHeading's comment (slipstream.ts:107-120) spends fourteen lines arguing is
+    // deliberate. Math.abs here would stay green under a roll-convention flip that
+    // reverses which way the coupled strafe/bank pair breaks -- checked directly, see
+    // the red-proof note below.
     const forward = new Vector3(0, 0, -1)
     const heading = dodgeHeading('glider', forward, NORTH, 0, 1, 0.6)
-    expect(Math.abs(heading.y)).toBeGreaterThan(0.1)
+    expect(heading.y).toBeGreaterThan(0.1)
   })
 
   it('takes its side from the strafe axis, independent of the bank value -- in isolation', () => {
@@ -295,11 +302,19 @@ describe('a glider dodge goes across the flight path, not along it', () => {
     // What is still true, and worth pinning: the two sides still oppose horizontally (x
     // has the opposite sign), and per dodgeHeading's comment on the coupling, the roll
     // both sides carry currently pushes the same way vertically -- not opposite, matching.
+    //
+    // Asserted as "both climb" (y > 0 on each side), not "signs agree": agreement holds
+    // under a mirrored gliderRight too (both would flip to negative together and still
+    // agree), so it cannot tell "both climb" from "both descend" apart -- and "both
+    // descend" is the reversed property a roll-convention flip produces. Same reasoning as
+    // the signed-magnitude fix in the test above; checked directly, see the red-proof note
+    // below.
     const forward = new Vector3(0, 0, -1)
     const left = dodgeHeading('glider', forward, NORTH, 0, -1, -1 * 0.6)
     const right = dodgeHeading('glider', forward, NORTH, 0, 1, 1 * 0.6)
     expect(Math.sign(left.x)).not.toBe(Math.sign(right.x))
-    expect(Math.sign(left.y)).toBe(Math.sign(right.y))
+    expect(left.y).toBeGreaterThan(0)
+    expect(right.y).toBeGreaterThan(0)
     expect(left.dot(right)).toBeCloseTo(-0.362, 3)
   })
 
