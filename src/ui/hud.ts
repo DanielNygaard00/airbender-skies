@@ -147,6 +147,10 @@ const STYLE = `
 .hud-fade { position: fixed; inset: 0; background: #000; pointer-events: none;
   opacity: 0; }
 .hud-hint { margin-top: 8px; font-size: 12px; opacity: .45; }
+/* The pause card (src/ui/pause-overlay.ts) repeats this same "H — guide" hint, and its
+   backdrop is only 55% opaque -- unlike the guide panel's, which is opaque enough to hide
+   the HUD outright -- so without this rule the front door shows the hint twice at once. */
+body:has(.pause.is-on) .hud-hint { visibility: hidden; }
 `
 
 export function createHud(parent: HTMLElement) {

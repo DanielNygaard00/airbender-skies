@@ -198,9 +198,15 @@ export const ACTIONS: readonly GameAction[] = [
     detail: 'Opens and closes this panel, and pauses while it is open.',
   },
   {
+    // This row is read from inside the very panel it describes, where Escape does
+    // something else entirely (closes the panel, same as H — see panel.ts's own
+    // subtitle) and "pauses the game" is vacuous, since the guide being open is already
+    // one of pauseReason's own reasons. The detail says both things so neither context
+    // reads as wrong.
     key: 'Escape', name: 'Pause', mode: 'both', available: always,
-    detail: 'Releases the mouse and pauses the game. Click the canvas to grab the mouse '
-      + 'back and resume.',
+    detail: 'While this guide is open, closes it — the same as H. Otherwise it releases '
+      + 'the mouse, so the game pauses and the "Paused" card comes up. Click the canvas '
+      + 'to grab the mouse back and resume.',
   },
 ]
 

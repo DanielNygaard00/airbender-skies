@@ -1418,14 +1418,49 @@ focus, and pointer lock is this cycle's whole subject:
 
 What *was* verified in the dev server: the card sits in the DOM with the correct
 first-play copy and `pointer-events: none` (so it never steals the click the canvas needs
-to request the lock), and — because the preview pane reports `document.visibilityState ===
-'hidden'`, which this cycle's own `documentHidden` input now treats as a pause reason —
-the game held at frame zero: the HUD's altitude readout never left its pre-first-update
-empty state, including across 300 frames driven with a stepped synthetic clock (the
-`window.requestAnimationFrame` capture-and-drive technique below), because `update()` is
-never called on the paused branch of `frame()`. That confirms the pause holds under a
-real `documentHidden` reading; it says nothing about pointer lock, which no environment
-available here can exercise.
+to request the lock). Whether the game actually held at frame zero needs a word of care —
+see the correction directly below, added during this cycle's review — because the first
+attempt at that check overstated what it had shown.
+
+**A correction to the paragraph above, and the front-door frame bug that prompted it.**
+The pause hold was first "confirmed" by driving 300 synthetic frames under the preview
+pane's genuine `document.hidden === true` and observing that the HUD's altitude readout
+never left its pre-first-update empty string. That observation is real, but empty-then-
+still-empty is exactly what a *broken* pause would also produce if the drive script never
+actually invoked `frame()`, or if `frame()` threw before reaching `renderer.render`, or for
+any of several other reasons unrelated to `pauseReason` doing its job — nothing in that run
+distinguished "the pause held" from "nothing ran." Writing it up as confirmation was the
+same mistake this document elsewhere warns against: an observation that was consistent with
+the claim got read as proof of it.
+
+The review that caught this also caught a second, more serious bug the first check's own
+blind spot was hiding: `syncVisuals()` and `hud.update()` are only ever reached from inside
+the *playing* branch of `frame()` (via `stepper.advance`'s render callback and `update()`
+respectively), and on a fresh load the game starts paused. Before a fix landed, the front
+door's actual first paint was the camera and avatar sitting at `createRenderer`'s default
+transform — inside the home island's volume, since the island is centred on the world
+origin — with all four HUD meter fills stuck at their unset CSS `width: 100%` and blank
+altitude/airspeed text, because `hud.update()` had never run once to overwrite them. The
+"HUD stayed empty" observation above was consistent with the pause holding correctly *and*
+with this bug, and could not tell the two apart. `main.ts` now primes the presentation
+layer once — recording the enemy interpolators, calling `followSun`, `syncVisuals` and
+`hud.update()` a single time — before the loop starts, so the very first paint shows the
+real spawn rather than an uninitialised scene. Confirmed by screenshot (a screenshot forces
+one paint even in a hidden tab): before the fix, the four meter bars were solid and full
+and altitude/airspeed were blank; after it, all four bars were correctly invisible (full
+stats hide their own bars by design) and the readout showed a real `14 m` / `0 m/s`.
+
+With that fixed, the pause-hold claim was re-established properly: forcing this file's own
+`pointerlockchange` and `visibilitychange` listeners to report `pointerLocked: true` and
+`documentHidden: false` (via `Object.defineProperty` on `document.hidden` and
+`pointerLockElement`, then dispatching the two events — a labelled exercise of this file's
+own listeners, not a claim about a real pointer lock grant) and driving the loop showed
+altitude actually falling, 14 m to 12 m over the first 15-30 driven frames as the spawn
+settled onto the ground, with airspeed rising then dropping back to 0. That is the control
+the first pass lacked: proof the instrument can see motion when the game is genuinely
+playing, which is what makes "altitude never left 14 m" mean something when read back under
+a real, unforced `documentHidden === true`. Both directions were checked with the same
+hook-and-drive technique so the comparison is apples to apples.
 
 ## What has NOT been built
 

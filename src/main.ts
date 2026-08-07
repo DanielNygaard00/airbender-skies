@@ -898,6 +898,57 @@ function start(): void {
     },
   })
 
+  // Prime the presentation layer once, before the loop ever runs. syncVisuals() is only
+  // ever reached through stepper.advance's render callback, and hud.update() only from
+  // inside update() -- both exclusive to the playing branch of frame() below. Before this
+  // cycle that was fine: the game started playing on frame one, so the gap between "the
+  // scene exists" and "the scene is drawn where it should be" lasted a few milliseconds at
+  // worst. Now the paused branch can be the very first frame and can hold indefinitely
+  // behind the front-door card, so that gap is what a new player sees: the camera sitting
+  // at createRenderer's default transform (inside the home island's volume, since the
+  // island is centred on the origin) and a HUD whose four meter fills are still at their
+  // unset CSS `width: 100%`, not the values hudModelFor would compute for a fresh spawn.
+  //
+  // The player interpolators are already primed (record() above seeds both ends, so
+  // sample() at any alpha already returns the spawn position/forward exactly) -- what is
+  // missing is a single call that actually applies them to the camera, the avatar and the
+  // enemy views, the way every subsequent frame's render callback does.
+  //
+  // cameraPosition is snapped directly rather than left for syncVisuals's own
+  // smoothTowards to reach, for the same reason recover() snaps it: smoothTowards is
+  // exponential decay, so calling syncVisuals with frameDt 0 (there being no elapsed frame
+  // time to report before the loop has run once) would compute the right `desired` value
+  // and then blend zero percent of the way to it, leaving cameraPosition exactly where
+  // createRenderer put it.
+  cameraPosition = pullInForTerrain(
+    player.position,
+    desiredCameraPosition(player.position, lookDirection, profileFor(player.mode)),
+    world.terrain,
+  )
+  // Enemy view positions come from the same kind of interpolator as the player's, but
+  // nothing has called record() for them yet -- that only happens inside update(), once
+  // per enemy, the first time it steps. Seeded here with the patrol's spawn positions so
+  // syncVisuals has something real to sample instead of leaving each view at whatever
+  // position createEnemyView left it.
+  for (const enemy of encounter.enemies) {
+    const lerp = createInterpolatedVector()
+    lerp.record(enemy.position)
+    enemyPositionLerps.set(enemy.id, lerp)
+  }
+  followSun(player.position)
+  syncVisuals(1, 0)
+  // sync() needs camera.quaternion, which syncVisuals's camera.lookAt call above just set,
+  // so this has to run after it -- the same ordering update()'s own copy of this loop
+  // relies on.
+  for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(
+    enemy, camera.quaternion, risingProgress(enemy, DEFAULT_COMBAT_CONFIG.enemies[enemy.kind]),
+  )
+  hud.update(hudModelFor(player, encounter.playerHealth, {
+    focus: focus.max > 0 ? focus.value / focus.max : 0,
+    avatarCharge: armFraction(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
+    avatarActive,
+  }, hurtFlash, stallSeverity(player, DEFAULT_FLIGHT_CONFIG)))
+
   let last = performance.now()
   /** Whether the previous frame was running, so audio follows the edge and not the state. */
   let wasPlaying = false
@@ -916,9 +967,11 @@ function start(): void {
     if (!playing) {
       // Drain the input edges so a jump pressed just before pausing does not fire on
       // resume, and hold `last` at now so no time accumulates to lurch through when it
-      // does. The scene still renders, so the world stays visible behind the card.
-      // This is the treatment the guide branch already had; the guide is now one of the
-      // reasons rather than the only one.
+      // does. The scene still renders rather than going blank: on the guide branch that
+      // has always meant the world stays visible behind the panel; now that the very
+      // first frame can land here too, it is the priming block above -- not this render
+      // call -- that is what makes "still renders" mean "renders the spawn" instead of
+      // "renders wherever the renderer's default camera happened to start."
       input.sample()
       last = now
       renderer.render(scene, camera)
