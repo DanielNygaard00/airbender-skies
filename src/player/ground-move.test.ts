@@ -349,13 +349,12 @@ describe('the scooter trades turning for speed', () => {
     return Infinity
   }
 
-  // Measured after moving authority from the strafe axis to the easing rate (step 4 of the
-  // task-1 brief): 0.45 s on foot (authority 1, unchanged), 0.7666... s at charge 0
-  // (scooterTurnFactor 0.5), and 1.6333... s at charge 1 (scooterTurnFactor 0.5 minus
-  // scooterChargeTurnPenalty 0.25, floored at the 0.05 minimum in scooterTurnAuthority).
-  // The spec's back-of-envelope guess was roughly 0.9 s and 1.8 s -- close, not exact,
-  // because turnTime is a threshold-crossing time on an exponential ease, not the ease's
-  // time constant itself.
+  // Measured by running this exact helper against this exact code, after moving authority
+  // from the strafe axis to the easing rate (step 4 of the task-1 brief): 0.45 s on foot
+  // (authority 1, unchanged), 0.8833 s at charge 0 (rounded from 53/60 s exactly; authority
+  // 0.5, i.e. scooterTurnFactor with no charge spent), and 1.75 s at charge 1 (exact;
+  // authority 0.25, i.e. scooterTurnFactor 0.5 minus scooterChargeTurnPenalty 0.25). The
+  // spec's back-of-envelope guess of roughly 0.9 s and 1.8 s was close.
   it('turns slower on a scooter than on foot', () => {
     // The measurement that made this a defect: before the fix these were 0.45, 0.45 and
     // 0.45 -- identical -- because authority scaled the strafe axis, which the camera-
