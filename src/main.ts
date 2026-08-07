@@ -60,6 +60,8 @@ import { animationFor, chargeSquashScale } from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
 import { createHud, hudModelFor } from './ui/hud'
 import { createGuide, guideModelFor } from './ui/guide/panel'
+import { pauseReason, pauseOverlayModel } from './core/pause'
+import { createPauseOverlay } from './ui/pause-overlay'
 import { canGust, canVortex } from './combat/encounter'
 import { isArmed } from './focus/avatar-state'
 import { createWindAudio } from './fx/audio'
@@ -235,10 +237,38 @@ function start(): void {
     avatar.attachModel(gltf)
     // The model's meshes arrive after the first frame, so they miss the initial pass.
     enableShadows(avatar.object)
+    // Pose the character here rather than in the priming block below, for the reason the
+    // priming block cannot do it: this promise cannot settle before start()'s synchronous
+    // body has finished, so the model is always attached after that block has run. And
+    // nothing later covers it either while the front door is up -- setAnimation() and
+    // avatar.update() are reached only from the playing branch of frame() -- so before
+    // this call the character stood in whatever pose attachModel had left it in, for as
+    // long as the player left the card up. Not character.glb's rest pose: attachModel
+    // composes the glide clip before it builds the mixer, and sampling bones for that
+    // pose writes into the live bones without ever restoring them, so what the card
+    // showed was a leftover half-glide -- arms raised to head height on a character
+    // standing on the ground. poseNow rather than setAnimation because the fade needs a
+    // tick of the mixer to actually reach the model; see its own comment.
+    avatar.poseNow(animationFor(player))
   })
 
   const input = new InputTracker(window, canvas)
+  // Pointer lock is the signal for "the mouse is aiming rather than pointing", and losing
+  // it is what Escape does. Before this, Escape released the mouse and the simulation
+  // carried on: the look direction froze wherever it was and the patrol kept closing.
+  let pointerLocked = document.pointerLockElement === canvas
+  let documentHidden = document.hidden
+  /** True from the first time the lock is actually held, which is what "play" means here. */
+  let everStarted = pointerLocked
+  document.addEventListener('pointerlockchange', () => {
+    pointerLocked = document.pointerLockElement === canvas
+    if (pointerLocked) everStarted = true
+  })
+  document.addEventListener('visibilitychange', () => {
+    documentHidden = document.hidden
+  })
   const hud = createHud(document.body)
+  const overlay = createPauseOverlay(document.body)
   // Rebuilt on open rather than per frame: the simulation is paused while the guide is
   // up, so there is nothing to refresh. `canGust` and `isArmed` are asked here rather
   // than inside the guide, so a fight object and an Avatar State never reach the UI.
@@ -287,6 +317,10 @@ function start(): void {
     },
   }
 
+  // The clone only carries the declaration; the value is dead. Both the priming block near
+  // the bottom of this function and every later syncVisuals call overwrite it before
+  // anything reads it, so this does not mean "the camera starts where the renderer put it"
+  // -- which is exactly the false premise the front door's first paint bug rested on.
   let cameraPosition = camera.position.clone()
 
   // Rendered frames outnumber simulation steps on high-refresh displays. update()
@@ -881,12 +915,80 @@ function start(): void {
     },
   })
 
+  // Prime the presentation layer once, before the loop ever runs. syncVisuals() is only
+  // ever reached through stepper.advance's render callback, and hud.update() only from
+  // inside update() -- both exclusive to the playing branch of frame() below. Before this
+  // cycle that was fine: the game started playing on frame one, so the gap between "the
+  // scene exists" and "the scene is drawn where it should be" lasted a few milliseconds at
+  // worst. Now the paused branch can be the very first frame and can hold indefinitely
+  // behind the front-door card, so that gap is what a new player sees: the camera sitting
+  // at createRenderer's default transform (inside the home island's volume, since the
+  // island is centred on the origin) and a HUD whose four meter fills are still at their
+  // unset CSS `width: 100%`, not the values hudModelFor would compute for a fresh spawn.
+  //
+  // The player interpolators are already primed (record() above seeds both ends, so
+  // sample() at any alpha already returns the spawn position/forward exactly) -- what is
+  // missing is a single call that actually applies them to the camera, the avatar and the
+  // enemy views, the way every subsequent frame's render callback does.
+  //
+  // cameraPosition is snapped directly rather than left for syncVisuals's own
+  // smoothTowards to reach, for the same reason recover() snaps it: smoothTowards is
+  // exponential decay, so calling syncVisuals with frameDt 0 (there being no elapsed frame
+  // time to report before the loop has run once) would compute the right `desired` value
+  // and then blend zero percent of the way to it, leaving cameraPosition exactly where
+  // createRenderer put it.
+  cameraPosition = pullInForTerrain(
+    player.position,
+    desiredCameraPosition(player.position, lookDirection, profileFor(player.mode)),
+    world.terrain,
+  )
+  // Enemy view positions come from the same kind of interpolator as the player's, but
+  // nothing has called record() for them yet -- that only happens inside update(), once
+  // per enemy, the first time it steps. Seeded here with the patrol's spawn positions so
+  // syncVisuals has something real to sample instead of leaving each view at whatever
+  // position createEnemyView left it.
+  for (const enemy of encounter.enemies) {
+    const lerp = createInterpolatedVector()
+    lerp.record(enemy.position)
+    enemyPositionLerps.set(enemy.id, lerp)
+  }
+  followSun(player.position)
+  syncVisuals(1, 0)
+  // sync() needs camera.quaternion, which syncVisuals's camera.lookAt call above just set,
+  // so this has to run after it -- the same ordering update()'s own copy of this loop
+  // relies on.
+  for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(
+    enemy, camera.quaternion, risingProgress(enemy, DEFAULT_COMBAT_CONFIG.enemies[enemy.kind]),
+  )
+  hud.update(hudModelFor(player, encounter.playerHealth, {
+    focus: focus.max > 0 ? focus.value / focus.max : 0,
+    avatarCharge: armFraction(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
+    avatarActive,
+  }, hurtFlash, stallSeverity(player, DEFAULT_FLIGHT_CONFIG)))
+
   let last = performance.now()
+  /** Whether the previous frame was running, so audio follows the edge and not the state. */
+  let wasPlaying = false
   function frame(now: number): void {
-    if (guide.isOpen()) {
-      // Drain the input edges so a jump pressed just before opening does not fire on
-      // close, and hold `last` at now so no time accumulates to lurch through when it
-      // does. The scene still renders, so the world stays visible behind the panel.
+    const reason = pauseReason({ pointerLocked, documentHidden, guideOpen: guide.isOpen() })
+    overlay.update(pauseOverlayModel(reason, everStarted))
+    const playing = reason === null
+    if (playing !== wasPlaying) {
+      // Driven from the transition rather than called every paused frame: suspend() and
+      // resume() move an AudioContext through a state machine, and a redundant pair of
+      // them on a context that is mid-transition is exactly what produces an audible click.
+      if (playing) { wind.resume(); combatAudio.resume() }
+      else { wind.suspend(); combatAudio.suspend() }
+      wasPlaying = playing
+    }
+    if (!playing) {
+      // Drain the input edges so a jump pressed just before pausing does not fire on
+      // resume, and hold `last` at now so no time accumulates to lurch through when it
+      // does. The scene still renders rather than going blank: on the guide branch that
+      // has always meant the world stays visible behind the panel; now that the very
+      // first frame can land here too, it is the priming block above -- not this render
+      // call -- that is what makes "still renders" mean "renders the spawn" instead of
+      // "renders wherever the renderer's default camera happened to start."
       input.sample()
       last = now
       renderer.render(scene, camera)

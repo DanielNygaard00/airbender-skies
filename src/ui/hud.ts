@@ -147,6 +147,21 @@ const STYLE = `
 .hud-fade { position: fixed; inset: 0; background: #000; pointer-events: none;
   opacity: 0; }
 .hud-hint { margin-top: 8px; font-size: 12px; opacity: .45; }
+/* The pause card (src/ui/pause-overlay.ts) repeats this same "H — guide" hint, and its
+   backdrop is translucent rather than opaque, so without this rule the front door shows
+   the hint twice at once. The alpha itself is deliberately not quoted here: it lives in the
+   .pause rule's own background in that file, and a copy of the number in this comment would
+   have nothing to catch it drifting from the one that actually renders.
+
+   Narrow on purpose, and worth knowing where it does *not* apply. .pause.is-on is off
+   whenever the guide is the pause reason -- pauseOverlayModel returns an invisible card
+   there, since the guide is already a full-screen panel that says the game is paused -- so
+   this rule never fires in the guide case. The guide's own backdrop is translucent too, not
+   opaque, which leaves this hint faintly legible behind the panel. Pre-existing and
+   cosmetic, and left alone rather than answered with a second rule keyed off the guide; the
+   point of saying so is that a reader must not conclude from the rule above that the guide
+   case is already covered. */
+body:has(.pause.is-on) .hud-hint { visibility: hidden; }
 `
 
 export function createHud(parent: HTMLElement) {

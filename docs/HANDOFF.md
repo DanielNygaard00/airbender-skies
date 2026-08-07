@@ -1383,6 +1383,145 @@ None of this cycle has been played. The browser harness still cannot hold pointe
 every figure above comes from the synthetic-controller test harness described under
 "Repo-specific traps," not from a human with a mouse.
 
+**Pause whenever the mouse is not captured, plus a click-to-play card over the first
+frame.** Before this cycle the game had three separate holes. Escape released the pointer
+lock but the simulation kept running underneath it, so the look direction froze mid-turn
+while the patrol kept closing. Backgrounding the tab did the same — nothing told the loop
+the player had looked away. And the very first frame simulated immediately, with no cue
+telling a new player to click the canvas before anything happened, so a falling spawn was
+already falling before the pointer lock had ever been requested.
+
+`src/core/pause.ts` is the fix's pure core: `pauseReason(i)` takes three booleans
+(`pointerLocked`, `documentHidden`, `guideOpen`) and returns which one is holding the game,
+or `null` exactly when it should run — there is deliberately no separate `isPlaying`
+predicate, since an earlier draft had one and nothing but a test kept the two from
+drifting apart. Pointer lock is now the signal for whether the game runs at all: losing it
+is what Escape does, and `main.ts` tracks `pointerLocked` off `pointerlockchange` rather
+than off any of its own state. `documentHidden` is tracked as a fully separate input,
+off `visibilitychange`, rather than being folded into `pointerLocked` — hiding a tab very
+probably drops the lock too, which would make the second input redundant, but that could
+not be verified in this harness (see below), and keeping it separate gives the right
+answer either way. `src/ui/pause-overlay.ts` renders the card `pauseOverlayModel` describes
+— "Airbender Skies" / "Click to play" before the lock has ever been held, "Paused" / "Click
+to resume" after — and `main.ts`'s `frame()` drives audio from the play/pause transition
+edge, calling `suspend()`/`resume()` on both `createWindAudio()` and `createCombatAudio()`
+only when the state actually flips, not on every paused frame.
+
+**Four claims stayed unverified, plainly, because this harness cannot hold a pointer
+lock** — `requestPointerLock` errors immediately since the harness never receives OS
+focus, and pointer lock is this cycle's whole subject:
+
+1. That pressing Escape actually brings the card up in a real browser.
+2. That clicking the canvas actually takes the card down and resumes the game.
+3. That Chrome's post-Escape re-lock cooldown behaves the way the design assumes.
+4. That suspending both audio contexts actually silences a backgrounded tab.
+
+What *was* verified in the dev server: the card sits in the DOM with the correct
+first-play copy and `pointer-events: none` (so it never steals the click the canvas needs
+to request the lock). Whether the game actually held at frame zero needs a word of care —
+see the correction directly below, added during this cycle's review — because the first
+attempt at that check overstated what it had shown.
+
+**A correction to the paragraph above, and the front-door frame bug that prompted it.**
+The pause hold was first "confirmed" by driving 300 synthetic frames under the preview
+pane's genuine `document.hidden === true` and observing that the HUD's altitude readout
+never left its pre-first-update empty string. That observation is real, but empty-then-
+still-empty is exactly what a *broken* pause would also produce if the drive script never
+actually invoked `frame()`, or if `frame()` threw before reaching `renderer.render`, or for
+any of several other reasons unrelated to `pauseReason` doing its job — nothing in that run
+distinguished "the pause held" from "nothing ran." Writing it up as confirmation was the
+same mistake this document elsewhere warns against: an observation that was consistent with
+the claim got read as proof of it.
+
+The review that caught this also caught a second, more serious bug the first check's own
+blind spot was hiding: `syncVisuals()` and `hud.update()` are only ever reached from inside
+the *playing* branch of `frame()` (via `stepper.advance`'s render callback and `update()`
+respectively), and on a fresh load the game starts paused. Before a fix landed, the front
+door's actual first paint was the camera and avatar sitting at `createRenderer`'s default
+transform — inside the home island's volume, since the island is centred on the world
+origin — with all four HUD meter fills stuck at their unset CSS `width: 100%` and blank
+altitude/airspeed text, because `hud.update()` had never run once to overwrite them. The
+"HUD stayed empty" observation above was consistent with the pause holding correctly *and*
+with this bug, and could not tell the two apart. `main.ts` now primes the presentation
+layer once — recording the enemy interpolators, calling `followSun`, `syncVisuals` and
+`hud.update()` a single time — before the loop starts, so the very first paint shows the
+real spawn rather than an uninitialised scene.
+
+The two halves of that claim rest on different kinds of evidence, and conflating them is
+the same overstatement the paragraph above exists to correct, so they are kept apart here.
+**The HUD half was measured**, by screenshot (a screenshot forces one paint even in a
+hidden tab): before the fix, the four meter bars were solid and full and altitude/airspeed
+were blank; after it, all four bars were correctly invisible (full stats hide their own
+bars by design) and the readout showed a real `14 m` / `0 m/s`. **The camera half was
+reasoned, not measured**: `syncVisuals` is the only writer of `cameraPosition`, and it is
+unreachable from the paused branch, so the priming call is by construction the transform
+the first paint uses. No coordinate readout backs that up — `camera.position` is not
+exposed to the console — so it is a closed static argument about who writes what, and
+should be read as one.
+
+**A third part of that same first paint was still wrong after this fix, and the
+whole-branch review at the end of the cycle caught it.** The animation mixer was never
+primed either, and the priming block could not have primed it: `avatar.setAnimation()` and
+`avatar.update()` are reachable only from the playing branch, and the `character.glb`
+promise cannot settle until after `start()`'s synchronous body — the priming block
+included — has finished. So no clip was ever selected and the mixer never advanced while
+the card was up. `avatar.poseNow()` now runs inside the loader's own `then` callback, the
+one place that can both see the loaded model and reach it before the player clicks; it
+exists as its own method because `setAnimation` starts its action at weight 0 and needs a
+tick of the mixer to land the pose (see its comment in `src/player/avatar.ts` for why the
+tick is exactly the fade length, and for what else that tick does).
+
+**What the card actually showed was measured afterwards, and it was not the rest pose this
+paragraph first claimed.** That claim rested on reading a pair of before-and-after
+screenshots, and both halves of the reading were wrong. `attachModel` composes the glide
+clip *before* it creates the mixer, and `pitchOnto` in `src/player/glide-pose.ts` writes the
+composed quaternions straight into the live bones and never restores them — arms sampled
+from `Punch` at 5%, legs from `Walk` at 60%. `sampleBones` in that same file already carries
+the warning that it poses the model as a side effect and that callers must not measure it
+afterwards expecting the bind pose; nothing was heeding it. So what the front door showed
+was `buildGlideClip`'s leftover composed glide sample: arms raised to head height on a
+character standing on the ground. World bone positions over the real
+`public/models/character.glb`, in the GLB's own units:
+
+| stage | LeftHand | RightHand | max key-joint move vs rest |
+| --- | --- | --- | --- |
+| loader output (GLB rest pose) | `0.863, 2.494, 0.821` | `-1.091, 2.501, -0.554` | — |
+| after `attachModel`, no clip, no tick | `0.751, 4.547, 0.429` | `-0.130, 4.127, 1.195` | 2.57 |
+| after `poseNow('idle')` | `0.875, 2.458, 0.782` | `-1.064, 2.462, -0.574` | 0.058 |
+
+The head sits at y ≈ 4.43 in that middle row, so both hands really are up at head height
+there. The fix is still a real improvement — 2.60 units of travel for the right hand, and a
+standing idle beats arms-raised-while-standing — but the honest description is that it lands
+the character within 0.06 units of the rest pose rather than rescuing it from one. The part
+of the finding worth keeping is the side effect itself: `attachModel` returns with the model
+posed, which is a live trap for anything that reads bones after it, and `attachModel`,
+`poseNow` and the call site in `main.ts` now all say so.
+
+**And the clip it poses is `idle`, not a fall.** `createPlayerState` returns `mode: 'ground'`,
+`grounded: true` and zero velocity, so `animationFor(player)` returns `'idle'` — the correct
+clip for a standing spawn. The code was never wrong here; only the prose was, which
+described the second screenshot as "a real airborne pose". That reading came from taking the
+`14 m` altitude readout as evidence of being airborne, and it is not: `14` is the island's
+ground height plus `SPAWN_CLEARANCE` of 2, measured from sea level, and says nothing about
+the `grounded` flag.
+
+Worth noting for the register above: this was a *regression* introduced by making the game
+pause at frame zero, not a pre-existing bug. Before this cycle the unposed frame existed
+too, but `update()` ran immediately, so it lasted one frame instead of as long as the player
+left the card up.
+
+With that fixed, the pause-hold claim was re-established properly: forcing this file's own
+`pointerlockchange` and `visibilitychange` listeners to report `pointerLocked: true` and
+`documentHidden: false` (via `Object.defineProperty` on `document.hidden` and
+`pointerLockElement`, then dispatching the two events — a labelled exercise of this file's
+own listeners, not a claim about a real pointer lock grant) and driving the loop showed
+altitude actually falling, 14 m to 12 m over the first 15-30 driven frames as the spawn
+settled onto the ground, with airspeed rising then dropping back to 0. That is the control
+the first pass lacked: proof the instrument can see motion when the game is genuinely
+playing, which is what makes "altitude never left 14 m" mean something when read back under
+a real, unforced `documentHidden === true`. Both directions were checked with the same
+hook-and-drive technique so the comparison is apples to apples.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
@@ -1628,8 +1767,57 @@ makes that true. The countermeasure is the one this section has been circling al
 plainly here for the first time: red-proof a pin by *making the forbidden change* and watching
 the suite react, not by reasoning about whether the fixture would catch it.
 
-Worth recording alongside it: this cycle had four of my own quantitative or causal claims
-corrected by measurement rather than caught by the person who made them — the "ramps in over
+**The pause and front-door cycle added three more — the tenth, eleventh and twelfth — all
+three in `src/core/pause.test.ts`, the only new test file it produced.** Every one was a
+point in a small, fully enumerable parameter space that no assertion actually pinned, and
+every one was found by making the mutation and watching the suite, not by reading the
+assertions and judging them adequate.
+
+| The gap | The mutation that survived | What caught it in the end |
+| --- | --- | --- |
+| `pauseOverlayModel('guide', false)` was never called anywhere in the file | suppressing the card for the guide only when `everStarted` — `reason === 'guide' && everStarted` in place of `reason === 'guide'` | a table over all 8 `(reason, everStarted)` points, added during the task-1 review round |
+| `pauseReason` had no exact-reason assertion at `pointerLocked: true, documentHidden: true, guideOpen: false` | returning `'unlocked'` instead of `'hidden'` on the branch where the lock is still held | `'reports the reason this table names for every combination'`, which pins all eight combinations as one object comparison |
+| `OverlayModel.hint` was unasserted at all four points where the card is invisible | `HIDDEN.hint = 'H — guide'`, i.e. a non-empty hint on the invisible path | the same 8-point table, extended from three fields to all four and compared as whole objects |
+
+Two things generalise from them. First, the register above is now unanimous: **twelve for
+twelve, the gap was found by making the forbidden change, and none of the twelve by reading
+the assertion and reasoning about what it covered.** That is no longer a lesson from one
+cycle; it is the only method that has ever worked here.
+
+Second, and new: **a test's name can be what hides the gap.** The eleventh sat behind
+`'names a reason for every combination with any pausing cause'`, which sounds exactly like
+the test that pins the reasons and in fact pinned only that each reason was non-null — and
+a reviewer scanning the file for "is the precedence covered?" would read that name and stop
+looking. It was also non-discriminating in its own right: it and the null-point test above it
+both pinned the same single no-cause combination, so no mutation could redden one without the
+other. It has been replaced by the exhaustive expected-reason table, whose name says what it
+does. When a test's name overstates its assertions, the name is a defect, not a nicety.
+
+**The correction pass that closed this cycle added nothing to the count of twelve, and that
+is the point: its findings were the feel batch's shape, not this register's.** Three claims
+about the front-door frame reached committed prose without ever being measured — that the
+unposed character stood in the GLB's rest pose (it stood in `buildGlideClip`'s leftover
+composed sample, arms at head height), that the pose it landed in was airborne (it is `idle`,
+and correctly so), and that `poseNow`'s single tick lands the pose "whole" at the clip's start
+(it lands the clip at t = FADE_SECONDS, at one float ulp short of full weight). All three came
+from reading a screenshot and from reasoning about what the mixer *ought* to do; all three
+were corrected by measuring bone positions over the real GLB and by reading three's own
+`AnimationAction._update`. The register's own standing advice named the method that found
+them: verify with something other than the reasoning that produced the claim.
+
+The fourth finding is the one that belongs to the rule the feel batch left behind. `poseNow`'s
+whole reason for existing — that it leaves the action at effectively full weight where
+`setAnimation` plus `avatar.update(0)` leaves it at 0 — was asserted nowhere, and the report
+that shipped it argued a test was impossible because it would only exercise a mock. That was
+false on the file's own evidence: `avatar.test.ts` already ran a real `AnimationMixer` over a
+fake GLTF, and already parsed `public/models/character.glb` in node to assert measured knee
+angles. `'createAvatar poseNow'` now pins the claim, red-proofed the mandatory way by ticking
+`0` instead of `FADE_SECONDS` and watching both of its tests fail. **"A test here would only
+test a mock" is a claim about the harness, and this file's harness is the thing to check
+before making it.**
+
+Worth recording alongside the ninth: the wind-on-foot cycle had four of my own quantitative
+or causal claims corrected by measurement rather than caught by the person who made them — the "ramps in over
 the response time" claim about where the horizontal wind term was placed, the scooter-authority
 justification for that same placement, the `liftScale` neutralisation's literal-but-vacuous
 reading, and the glider fixture above. Each was caught by someone re-deriving the number rather
@@ -1642,7 +1830,16 @@ In the order I would take them:
 1. **Play it.** Nothing here has been played. An hour with the live build will find
    more than the next feature will add, and will tell you which of the tuning values
    above are wrong.
-2. **§4.6's non-lethality scoring is built now.** A knockdown pays `downGain: 14`; a
+2. **Playtest the pause and front-door cycle specifically.** This is the one piece of
+   "play it" that cannot be satisfied by any amount of testing in this environment,
+   because the harness cannot hold a pointer lock. On a real click, confirm: Escape
+   brings the "Paused" card up and stops the simulation; clicking the canvas again takes
+   it down and resumes cleanly, with no banked input firing on the way back in; Chrome's
+   post-Escape re-lock cooldown does not leave the game stuck showing "Click to resume"
+   for a click that silently failed to re-lock; and switching away to another tab and
+   back leaves both the wind and combat audio actually silent while backgrounded, not
+   just paused visually.
+3. **§4.6's non-lethality scoring is built now.** A knockdown pays `downGain: 14`; a
    soldier lost to a fall over the world floor pays `accidentDownGain: 5`, about a
    third. This item previously said the missing piece was giving enemies fall physics
    and "paying that removal more than an in-place knockdown" — both halves were wrong.
@@ -1653,12 +1850,12 @@ In the order I would take them:
    purpose (needs an act structure that does not exist yet), and every accident type
    besides the world floor — water, a crushing prop, one soldier's blast downing
    another are all still unbuilt.
-3. **Archers are built now.** They pressure altitude, which is the axis the whole flight
+4. **Archers are built now.** They pressure altitude, which is the axis the whole flight
    model is about — see "Archers, and the axis that was missing" above for what changed
    and what is still just an unplayed guess. What they unblock is Air Wall and §4.5's
    redirected-projectile Focus source; both are natural candidates for whichever cycle
    comes after playing this one.
-4. **Then either** the terrain API change that unblocks wall-riding, **or** a second
+5. **Then either** the terrain API change that unblocks wall-riding, **or** a second
    region from §3.3 to prove the world structure generalises.
 
 Sections of the design doc are the natural unit of work. Each one is roughly a

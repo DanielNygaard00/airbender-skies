@@ -112,6 +112,21 @@ export function createCombatAudio() {
       burst(level, 0.1, 4200, 900)
     },
 
+    /**
+     * Stop the audio clock, for the same reason `audio.ts` does: a paused or hidden tab
+     * must not keep making noise. Any burst already scheduled resumes where it left off
+     * rather than being cut, which is what suspending a context means.
+     *
+     * A no-op with no context, matching every other method here.
+     */
+    suspend(): void {
+      void context?.suspend()
+    },
+
+    resume(): void {
+      void context?.resume()
+    },
+
     dispose(): void {
       void context?.close()
       context = null

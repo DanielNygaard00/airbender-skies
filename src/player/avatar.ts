@@ -114,6 +114,51 @@ export function createAvatar() {
     }
   }
 
+  /**
+   * Cross-fade into the clip for `name`. A plain function rather than a method on the
+   * returned object only so `poseNow` below can call it; the behaviour is unchanged.
+   */
+  function setAnimation(name: AnimationName): void {
+    if (name === current) return
+    const entry = clips.get(name)
+    if (!mixer || !entry) {
+      // No model or no matching clip: the placeholder simply does not animate.
+      current = name
+      return
+    }
+    const next = mixer.clipAction(entry.clip)
+    const previous = current ? clips.get(current) : undefined
+    if (previous && previous.clip === entry.clip) {
+      // Two states can share one clip (fall and glide both borrow Jump when no
+      // glide clip exists), and mixer.clipAction(clip) returns the same
+      // AnimationAction for the same clip — so this is not a transition
+      // between two actions but the same action continuing under a new name.
+      // Fading it out and back in would fade it against itself: reset()
+      // calls stopFading(), cancelling the fadeOut before it does anything,
+      // and the weight ramping 0→1 during fadeIn leaves the remainder of the
+      // blend (1 − weight) filled from the bind pose saved by
+      // PropertyMixer.saveOriginalState, snapping the skeleton to bind pose
+      // for a frame before easing back into the held pose. Keep the action's
+      // current weight and time instead of restarting its fade.
+      next.stopFading()
+      next.setEffectiveWeight(1)
+      next.paused = false
+      next.enabled = true
+      next.play()
+    } else {
+      if (previous) mixer.clipAction(previous.clip).fadeOut(FADE_SECONDS)
+      next.reset().fadeIn(FADE_SECONDS).play()
+    }
+    // A frozen state has no clip of its own — it holds one frame of a borrowed
+    // one. timeScale = 0 stops playback while leaving the fade's weight
+    // blending to run, where `paused` would stall that too. Restoring 1 is not
+    // optional: fall and glide share the jump clip, and therefore share one
+    // action, so a glide that left timeScale at 0 would freeze falling as well.
+    next.timeScale = entry.freeze ? 0 : 1
+    if (entry.freeze) next.time = FREEZE_TIME
+    current = name
+  }
+
   return {
     object,
 
@@ -146,6 +191,14 @@ export function createAvatar() {
       // mixers over these same bones. A frozen jump frame is the fallback the
       // plan hands us, and it reads as crouching in mid-air, so prefer a pose
       // composed for the purpose whenever one can be built.
+      //
+      // Sampling is destructive, and nothing here undoes it: the throwaway mixers
+      // leave the bones holding the sampled frames, and `pitchOnto` writes the
+      // composed quaternions in on top of that. So `attachModel` returns with the
+      // model standing in a half-glide rather than in its rest pose, and it stays
+      // that way until something ticks a clip onto it. Anything that reads bones
+      // straight after this call is reading that leftover, not the bind pose —
+      // see `sampleBones` in glide-pose.ts, which carries the same warning.
       const composed = plan.get('glide')?.freeze
         ? buildGlideClip(gltf.scene, gltf.animations)
         : null
@@ -166,45 +219,48 @@ export function createAvatar() {
       current = null
     },
 
-    setAnimation(name: AnimationName): void {
-      if (name === current) return
-      const entry = clips.get(name)
-      if (!mixer || !entry) {
-        // No model or no matching clip: the placeholder simply does not animate.
-        current = name
-        return
-      }
-      const next = mixer.clipAction(entry.clip)
-      const previous = current ? clips.get(current) : undefined
-      if (previous && previous.clip === entry.clip) {
-        // Two states can share one clip (fall and glide both borrow Jump when no
-        // glide clip exists), and mixer.clipAction(clip) returns the same
-        // AnimationAction for the same clip — so this is not a transition
-        // between two actions but the same action continuing under a new name.
-        // Fading it out and back in would fade it against itself: reset()
-        // calls stopFading(), cancelling the fadeOut before it does anything,
-        // and the weight ramping 0→1 during fadeIn leaves the remainder of the
-        // blend (1 − weight) filled from the bind pose saved by
-        // PropertyMixer.saveOriginalState, snapping the skeleton to bind pose
-        // for a frame before easing back into the held pose. Keep the action's
-        // current weight and time instead of restarting its fade.
-        next.stopFading()
-        next.setEffectiveWeight(1)
-        next.paused = false
-        next.enabled = true
-        next.play()
-      } else {
-        if (previous) mixer.clipAction(previous.clip).fadeOut(FADE_SECONDS)
-        next.reset().fadeIn(FADE_SECONDS).play()
-      }
-      // A frozen state has no clip of its own — it holds one frame of a borrowed
-      // one. timeScale = 0 stops playback while leaving the fade's weight
-      // blending to run, where `paused` would stall that too. Restoring 1 is not
-      // optional: fall and glide share the jump clip, and therefore share one
-      // action, so a glide that left timeScale at 0 would freeze falling as well.
-      next.timeScale = entry.freeze ? 0 : 1
-      if (entry.freeze) next.time = FREEZE_TIME
-      current = name
+    setAnimation,
+
+    /**
+     * Select `name` and land its pose on the model in one call, for a caller that has
+     * no render loop ticking the mixer for it.
+     *
+     * `setAnimation` alone is not enough: it starts the new action at weight 0 and
+     * leaves `fadeIn` to ramp it up over FADE_SECONDS of *mixer* time, so a model that
+     * is never ticked keeps whatever pose `attachModel` happened to leave it in — which
+     * is not the GLB's rest pose, because composing the glide clip poses these same
+     * bones on the way past. Nor is a following `update(0)` enough: at mixer time 0 the
+     * fade's weight interpolant is still at 0, so the clip blends in at zero strength
+     * and that leftover pose stays on screen. One tick of exactly FADE_SECONDS puts the
+     * mixer clock on the far end of the interpolant, where the clip does reach the model.
+     *
+     * Two things about that tick want stating exactly, because both are easy to assume
+     * away in the other direction.
+     *
+     * It advances the clip as well as the weight. `AnimationAction._update` calls
+     * `_updateTime(deltaTime)` before `_updateWeight(time)`, so what lands is the clip
+     * at t = FADE_SECONDS, not the clip at its start. Immaterial for the `idle` the
+     * front door asks for, which is a ten-second subtle loop either way. A trap for any
+     * other name, and `fall` is the sharp one: it borrows the one-second `Jump` clip, so
+     * this would show that clip's opening launch phase, root animated upward, with the
+     * character hanging clear of its own feet. `avatar.test.ts` pins both halves.
+     *
+     * And the weight lands within a float epsilon of full rather than exactly full.
+     * `_scheduleFading` stores the interpolant's `parameterPositions` in a
+     * `Float32Array` while `mixer.time` is a double, so `_updateWeight`'s `time > pp[1]`
+     * test is false at exactly FADE_SECONDS: `stopFading()` never fires, the weight
+     * comes back one ulp short of 1, and the fade interpolant stays live until the first
+     * real tick. Both consequences sit far below anything visible, but the pose does not
+     * quite land whole, and the remainder is filled from the pose underneath it.
+     *
+     * The paused front door is the caller this exists for: `main.ts` reaches
+     * `setAnimation` and `update` only from the playing branch of its loop, and the
+     * character model always finishes loading after that branch has been bypassed, so
+     * without this nothing would pose the character for as long as the card is up.
+     */
+    poseNow(name: AnimationName): void {
+      setAnimation(name)
+      mixer?.update(FADE_SECONDS)
     },
 
     /**
