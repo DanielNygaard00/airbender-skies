@@ -51,6 +51,23 @@ export function createWindAudio() {
       )
     },
 
+    /**
+     * Stop the audio clock. Called when the game pauses, which includes a hidden tab:
+     * `update` is driven from the render callback, and a hidden tab stops receiving
+     * animation frames, so without this the GainNode simply holds the last airspeed's
+     * value and the roar carries on in the background.
+     *
+     * A no-op with no context, which is the state this module already falls back to when
+     * the browser blocks audio, so pausing a game whose audio never started is harmless.
+     */
+    suspend(): void {
+      void context?.suspend()
+    },
+
+    resume(): void {
+      void context?.resume()
+    },
+
     dispose(): void {
       source?.stop()
       void context?.close()
