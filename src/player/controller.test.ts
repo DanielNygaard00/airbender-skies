@@ -655,6 +655,10 @@ describe('an exhausted glider does not buzz', () => {
     // not silent. Eliminating the chatter entirely would need true hysteresis and a
     // "was bending" field on PlayerState, which is deliberately out of scope; see the
     // task report for why 210 is accepted as the real fix rather than chasing 0.
+    //
+    // This exact number is a tripwire for that follow-up, not just a record: it would
+    // redden if the floor were removed (back to 300) and it would redden just the same if
+    // someone later added hysteresis without updating this assertion (down to 0).
     expect(engagedFrames()).toBe(210)
   })
 })
