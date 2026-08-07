@@ -4,11 +4,12 @@ Written 2026-07-31, updated 2026-08-04 for the enemy health bars, updated 2026-0
 for the impact feel and encounter lifecycle work, and again 2026-08-05 for the aim tell and
 stall readability work, and again 2026-08-06 for archers and projectiles, and again
 2026-08-06 for terrain collision, and again 2026-08-06 for the Slipstream breath cost, and
-again 2026-08-07 for the feel batch. This is a recap for whoever picks the project up next,
-including a future session with no memory of the work below.
+again 2026-08-07 for the feel batch, and again 2026-08-07 for wind on foot. This is a recap
+for whoever picks the project up next, including a future session with no memory of the work
+below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 1379 tests across 86 files,
+**Repo state:** 1387 tests across 86 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -1300,6 +1301,88 @@ cycle has been played — the browser harness still cannot hold pointer lock, so
 in this section comes from the synthetic-controller test harness, not from a human with a
 mouse.
 
+**Wind on foot.** `src/world/wind.ts` opens by saying the air is level geometry rather than
+weather — "the air is terrain: lift is something the player reads and routes through, the
+way they read a ledge" — but that was only true for the glider. `controllerStep` sampled
+`deps.windAt` in the glider branch alone, so a body on foot fell exactly as it would through
+still air no matter what a level had placed underneath it. Measured before this cycle: a
+player falling from y 200 for one second inside a fabricated 500 m/s² updraft landed at
+y 189.833333 — identical, to six decimals, to the still-air control. After the fix, the same
+fixture lands at y 444.000000.
+
+`groundStep` (`src/player/ground-move.ts`) gained a seventh parameter, `wind: WindSample`,
+defaulting to `stillAir()`, and folds its acceleration into an airborne body's velocity, both
+horizontal and vertical. `controllerStep`'s ground branch (`src/player/controller.ts`) now
+samples `deps.windAt` and passes the result through; the glider branch's own sample, and
+everything else in that half of the file, is untouched.
+
+Three deliberate limits, each with its own reason. The air only ever acts while airborne — a
+grounded body is braced, and pushing it while grounded would put wind in a tug-of-war with the
+ground snap, which is the sole owner of vertical placement down there. Only `wind.accel` is
+ever read, never `wind.liftScale` — that field scales a wing's own lift, so dead air correctly
+does nothing to a body on foot: dead air is a volume where a wing stops working, not one where
+gravity itself changes, and there is no wing here to stop working. And a jump frame still sets
+its own vertical speed outright, ahead of wind being added, so a jump's height stays the
+jump's and the air only acts on the arc that follows it.
+
+The ground branch samples with `state.forward`, the flattened camera direction — ridge lift
+and rivers both need to know which way the sampler points, the same reason the glider branch
+has always taken a heading argument. The glider's own sample was left exactly where it already
+was, after `steerToward` runs, because that ordering is what lets a bank in mid-turn change how
+much a ridge lifts. Moving it earlier looks harmless — same function, same two arguments — and
+is exactly the substitution the ninth unfalsifiable assertion (see "Testing discipline" below)
+turned out to hinge on.
+
+Measured figures, reproduced independently and used here rather than invented. A river of
+120 m/s² drifts a falling body to x 15.718324 in one second. Horizontal wind saturates rather
+than accelerating without bound: it lands in `state.velocity`, and `easeHorizontal` blends
+whatever is sitting there back toward a desired velocity of zero on every following frame, so
+the push settles at a plateau of `accel / groundResponse` — measured 18.16 m/s for the
+120 m/s² river. Vertical wind has no such counterpart, since gravity's own term never decays,
+so it integrates unopposed instead — the actual reason a sustained updraft keeps climbing while
+a sustained river settles toward a fixed drift speed rather than growing with a longer fall.
+The glider's own behaviour is pinned unchanged at y 299.714708 / z −44.783956, under a
+heading-sensitive sampler and a trimmed glide — see "Testing discipline" for why the pin needed
+replacing before that number meant anything at all.
+
+**Islands have no collidable underside, so a sustained upward force can push a body through
+one — the more important of two defects this cycle records rather than fixes.** An upward ray
+cast from beneath `home` or `climb-north` returns `null`; `resolveMovement` ignores
+ground-facing normals by design, and the ground snap only ever runs when `velocity.y <= 0`, so
+a rising body meets no opposition at all. Measured: a constant +40 m/s² from y 380 sails
+straight through the spire's surface at y 564.13 and out to y 875. The threshold is sustained
+net upward acceleration of roughly twice gravity. Shipped levels do not reach it — the
+strongest real sample anywhere in the level data is 23.4 against a gravity of 20, and only at
+the spire thermal's own core, and every run from beneath an island using the real level sampler
+fell to the world floor instead of climbing through. Horizontal wind is safe at any magnitude
+tried (50000 m/s² still stopped 3.6 m short of the needle's centre) and downward wind is safe
+too (−308 m/s impacts were still caught by the snap). This is a pre-existing gap in the
+collision layer — the glider's own thrust could already reach it — and wind on foot is merely
+the first mechanism able to sustain a climb long enough to matter, since a body with no wing
+has no other way to generate lift of its own.
+
+**`WindDef.strength` means two different things depending on `kind`, and nothing validates
+which one a level author meant.** A thermal's `strength: 13` cancels about 65% of gravity; a
+river's `strength: 26` buys about 3.7 m/s of terminal horizontal drift. The same numeric range
+reads as "noticeably weakens gravity" for one kind and "a gentle push" for the other, with no
+shared unit or scale between them — a level-authoring hazard worth naming, not fixing here.
+
+**A consequence worth flagging for play, not a bug.** A thermal now gives the `climb-north` /
+`spire` / `beacon` progression a second route: a player can ride one up on foot and reach the
+same place a glider deployment used to be required for. Whether that is a shortcut worth
+closing is a tuning question for whoever next plays the game with a mouse in hand, and this
+cycle deliberately does not pre-empt it.
+
+**Out of scope, and why.** Arrows: `Projectile` drift would interact with the archer's
+`aggroRange` and `strikeRange`, both tuned against still air two cycles ago — moving them now
+would be a balance change wearing a physics change's clothes. Enemies: they are ground-snapped,
+so wind does nothing to one until knockback puts it airborne, at which point it would need care
+not to drift a soldier off an island rim and cheapen §4.6's accident-versus-knockdown scoring.
+
+None of this cycle has been played. The browser harness still cannot hold pointer lock, so
+every figure above comes from the synthetic-controller test harness described under
+"Repo-specific traps," not from a human with a mouse.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
@@ -1526,6 +1609,31 @@ measured figure in this cycle carries an assertion, not a comment — the two pi
 in `ground-move.test.ts`, and the three pinned displacements in `dash-trail.test.ts`. A wrong
 number in a comment can survive indefinitely; a wrong number in an assertion fails the very
 next run.
+
+**Wind on foot produced the ninth assertion that could not fail across four cycles — and it
+was the one guarding the constraint this project had made mandatory: leave the glider's own
+wind sample exactly where it is.** The glider pin's original fixture made `steerToward` a
+no-op twice over — the sampler was constant in both of its arguments, and `lookDirection`
+already equalled `forward`, so there was no heading left to turn toward. A reviewer proved the
+gap by committing the forbidden change itself — moving the glider's wind sample from after
+`steerToward` to before it — and watching the entire suite, pin included, stay green. The
+replacement fixture uses a heading-sensitive sampler and a trimmed glide, and it reddens the
+same violation with roughly an 18× margin.
+
+The transferable lesson: **a test that pins behaviour is only as good as the fixture's ability
+to distinguish the two implementations it is meant to tell apart.** All eight assertions
+recorded above this one were a relationship or a value that both the correct and the broken
+version satisfied; this one shows that the fixture, not the assertion's shape, can be what
+makes that true. The countermeasure is the one this section has been circling all along, stated
+plainly here for the first time: red-proof a pin by *making the forbidden change* and watching
+the suite react, not by reasoning about whether the fixture would catch it.
+
+Worth recording alongside it: this cycle had four of my own quantitative or causal claims
+corrected by measurement rather than caught by the person who made them — the "ramps in over
+the response time" claim about where the horizontal wind term was placed, the scooter-authority
+justification for that same placement, the `liftScale` neutralisation's literal-but-vacuous
+reading, and the glider fixture above. Each was caught by someone re-deriving the number rather
+than trusting the reasoning that produced it.
 
 ## Suggested next steps
 
