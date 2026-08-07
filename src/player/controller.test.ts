@@ -6,6 +6,7 @@ import {
   DEFAULT_SLIPSTREAM_CONFIG, DEFAULT_STAFF_CONFIG,
 } from '../core/config'
 import { isSwinging, staffBusy, staffOf } from './staff'
+import { stillAir } from '../world/wind'
 import type { InputState, PlayerState, TerrainQuery } from '../core/types'
 
 const flatGround: TerrainQuery = {
@@ -376,6 +377,59 @@ describe('the controller flies through the level\'s wind', () => {
       ...deps(voidWorld), windAt: () => ({ accel: new Vector3(), liftScale: 1 }),
     })
     expect(before.velocity.y).toBeCloseTo(explicit.velocity.y, 9)
+  })
+})
+
+describe('the ground branch feels the air too', () => {
+  it('feeds the air to a falling player on foot, not only to the glider', () => {
+    // groundStep's wind parameter defaults to still air, so the danger is that the wiring
+    // is simply absent and every test still passes. This is the test of the wiring.
+    const windy = { ...deps(voidWorld), windAt: () => ({ accel: new Vector3(0, 500, 0), liftScale: 1 }) }
+    const calm = deps(voidWorld)
+    const start = player({ position: new Vector3(0, 200, 0), grounded: false, velocity: new Vector3() })
+    let lifted = start
+    let falling = start
+    for (let frame = 0; frame < 60; frame++) {
+      lifted = controllerStep(lifted, input(), 1 / 60, windy)
+      falling = controllerStep(falling, input(), 1 / 60, calm)
+    }
+    expect(lifted.position.y).toBeGreaterThan(falling.position.y)
+  })
+
+  it('asks the air about the direction the character faces', () => {
+    // A ridge lifts anyone moving along its face and a river carries anyone moving with it,
+    // so the heading is part of the question. This asserts the argument reaches the sampler
+    // rather than that some heading was passed.
+    const seen: Vector3[] = []
+    const spying = {
+      ...deps(voidWorld),
+      windAt: (_p: Vector3, forward: Vector3) => { seen.push(forward.clone()); return stillAir() },
+    }
+    const facing = new Vector3(1, 0, 0)
+    controllerStep(
+      player({ position: new Vector3(0, 200, 0), grounded: false, forward: facing }),
+      input(), 1 / 60, spying,
+    )
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen[0]!.x).toBeCloseTo(1, 6)
+  })
+
+  it('leaves a glide exactly as it was', () => {
+    // "Do not touch the glider" is an intention, and intentions need tests. A glide with a
+    // sampler present must land where it did before this cycle.
+    const windy = { ...deps(flatGround), windAt: () => stillAir() }
+    let g = player({
+      mode: 'glider', position: new Vector3(0, 300, 0), velocity: new Vector3(0, 0, -30),
+      forward: new Vector3(0, 0, -1), grounded: false,
+    })
+    for (let frame = 0; frame < 120; frame++) {
+      g = controllerStep(g, input({ lookDirection: new Vector3(0, 0, -1) }), 1 / 60, windy)
+    }
+    // Measured against this exact code, stable across repeated runs (deterministic
+    // simulation, no RNG involved), and asserted so a later change to the glider's wind
+    // sampling cannot pass unnoticed.
+    expect(g.position.y).toBeCloseTo(295.6804, 4)
+    expect(g.position.z).toBeCloseTo(-54.2603, 4)
   })
 })
 

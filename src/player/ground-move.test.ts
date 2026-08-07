@@ -3,6 +3,7 @@ import { Vector3 } from 'three'
 import { groundStep, desiredVelocity, easeHorizontal, horizontalForward } from './ground-move'
 import { scooterTurnAuthority } from './scooter'
 import { DEFAULT_GROUND_CONFIG as G, DEFAULT_COLLISION_CONFIG as COLLISION } from '../core/config'
+import { stillAir, type WindSample } from '../world/wind'
 import type { InputState, PlayerState, TerrainQuery } from '../core/types'
 
 /** Flat ground at y=0 everywhere, so movement can be reasoned about exactly. */
@@ -416,6 +417,72 @@ describe('the air-assisted run', () => {
     }
     const released = groundStep(s, input({ forward: 0 }), 1 / 60, flatGround, G, COLLISION)
     expect(Math.hypot(released.velocity.x, released.velocity.z)).toBeGreaterThan(0)
+  })
+})
+
+describe('the air acts on a body that is off the ground', () => {
+  const UPDRAFT = { accel: new Vector3(0, 500, 0), liftScale: 1 }
+  const RIVER = { accel: new Vector3(120, 0, 0), liftScale: 1 }
+
+  /** One second of falling from y 200 over the void, with and without the air. */
+  const fallTo = (wind: WindSample) => {
+    let s = player({ position: new Vector3(0, 200, 0), grounded: false, velocity: new Vector3() })
+    for (let frame = 0; frame < 60; frame++) {
+      s = groundStep(s, input(), 1 / 60, voidWorld, G, COLLISION, wind)
+    }
+    return s.position
+  }
+
+  it('lifts a falling player in an updraft', () => {
+    // Measured before this change: still air and a 500 m/s^2 updraft both put the player
+    // at y 189.8 after a second -- indistinguishable, because groundStep never saw the
+    // air at all. Compared against the still-air control rather than against a bound,
+    // so the assertion cannot be satisfied by the broken behaviour.
+    //
+    // Measured after this change, against this exact code: still air lands at y
+    // 189.8333 (unchanged), and the 500 m/s^2 updraft carries the player up to y 444
+    // instead of down. Both are pinned so neither figure can drift unnoticed.
+    expect(fallTo(stillAir()).y).toBeCloseTo(189.8333, 4)
+    expect(fallTo(UPDRAFT).y).toBeCloseTo(444, 4)
+    expect(fallTo(UPDRAFT).y).toBeGreaterThan(fallTo(stillAir()).y)
+  })
+
+  it('carries a falling player along a river', () => {
+    // Measured against this exact code: a second of falling through a 120 m/s^2
+    // horizontal river carries the player to x 15.7183, against x 0 in still air.
+    expect(fallTo(stillAir()).x).toBeCloseTo(0, 4)
+    expect(fallTo(RIVER).x).toBeCloseTo(15.7183, 4)
+    expect(fallTo(RIVER).x).toBeGreaterThan(fallTo(stillAir()).x)
+  })
+
+  it('leaves a grounded player braced against it', () => {
+    // The airborne limit. A player standing on rock is braced, and pushing them would also
+    // fight the ground snap, which owns vertical placement for a grounded body.
+    const grounded = () => {
+      let s = player({ position: new Vector3(0, 0, 0), grounded: true })
+      for (let frame = 0; frame < 60; frame++) {
+        s = groundStep(s, input(), 1 / 60, flatGround, G, COLLISION, UPDRAFT)
+      }
+      return s.position
+    }
+    expect(grounded().y).toBeCloseTo(0, 6)
+  })
+
+  it('ignores liftScale, because a body without a wing has no lift to scale', () => {
+    // Dead air is defined as a volume where a wing stops working, not one where gravity
+    // changes. So it must do nothing at all on foot.
+    const dead = { accel: new Vector3(), liftScale: 0 }
+    expect(fallTo(dead).toArray()).toEqual(fallTo(stillAir()).toArray())
+  })
+
+  it('defaults to still air when no sample is given', () => {
+    let withDefault = player({ position: new Vector3(0, 200, 0), grounded: false })
+    let explicit = player({ position: new Vector3(0, 200, 0), grounded: false })
+    for (let frame = 0; frame < 60; frame++) {
+      withDefault = groundStep(withDefault, input(), 1 / 60, voidWorld, G, COLLISION)
+      explicit = groundStep(explicit, input(), 1 / 60, voidWorld, G, COLLISION, stillAir())
+    }
+    expect(withDefault.position.toArray()).toEqual(explicit.position.toArray())
   })
 })
 
