@@ -491,9 +491,9 @@ function start(): void {
       ))
       dashKick = 1
     }
-    // Decays over roughly the dash's own duration, so the kick is gone by the time the
-    // burst is.
-    dashKick = stepPulse(dashKick, dt, 1 / DEFAULT_GROUND_CONFIG.dashDurationSeconds)
+    // Decays at the same rate the dash impulse itself does -- groundResponse is what
+    // easeHorizontal bleeds it off at -- so the kick is gone by the time the burst is.
+    dashKick = stepPulse(dashKick, dt, DEFAULT_GROUND_CONFIG.groundResponse)
 
     // A Slipstream fired iff its elapsed timer went from null to running this frame,
     // the same before/after comparison the dash trail above uses. The origin is where

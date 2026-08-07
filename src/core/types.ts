@@ -226,8 +226,6 @@ export interface GroundConfig {
   maxDashChain: number
   /** Speed added by one dash. */
   dashSpeed: number
-  /** How long a dash impulse takes to decay away. */
-  dashDurationSeconds: number
   /** Recovery owed once the chain is spent. */
   dashRecoverySeconds: number
 }

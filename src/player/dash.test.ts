@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { idleDash, stepDash, canDash, dashDecay } from './dash'
+import { idleDash, stepDash, canDash } from './dash'
 import { DEFAULT_GROUND_CONFIG as C } from '../core/config'
 
 const NORTH = new Vector3(0, 0, -1)
@@ -71,17 +71,6 @@ describe('the dash impulse', () => {
   it('falls back to a sane direction from a degenerate heading', () => {
     const nowhere = stepDash(idleDash(), true, new Vector3(0, 1, 0), true, 1 / 60, C)
     expect(nowhere.impulse!.length()).toBeCloseTo(C.dashSpeed, 4)
-  })
-
-  it('decays rather than being a permanent speed gain', () => {
-    // Otherwise chaining dashes would compound into unbounded velocity.
-    expect(dashDecay(0, C)).toBeCloseTo(1, 6)
-    expect(dashDecay(C.dashDurationSeconds, C)).toBeCloseTo(0, 6)
-    expect(dashDecay(C.dashDurationSeconds / 2, C)).toBeCloseTo(0.5, 6)
-  })
-
-  it('never reports negative decay past the end of the burst', () => {
-    expect(dashDecay(C.dashDurationSeconds * 10, C)).toBe(0)
   })
 })
 

@@ -24,6 +24,23 @@ const LAST_LENGTH = 1.35
 const FIRST_OPACITY = 0.45
 const LAST_OPACITY = 0.85
 
+/**
+ * The distance an impulse of `dashSpeed` covers while `easeHorizontal` bleeds it off at
+ * `groundResponse` -- which is what the dash actually does. It used to be sized from
+ * `dashSpeed * dashDurationSeconds`, 5.72 m, for a dash that covers 3.94 m: that config
+ * value looked live and the simulation never read it, so it has been deleted.
+ *
+ * Authority is taken as 1, the on-foot case. A dash while riding a scooter decays more
+ * slowly and so travels further, but by less than a frame's worth of movement, which is
+ * not worth a second trail length.
+ *
+ * Exported so a test can compare it against a dash actually driven through `groundStep`,
+ * rather than only checking this formula against itself.
+ */
+export function trailLength(c: GroundConfig): number {
+  return c.dashSpeed / c.groundResponse
+}
+
 export function createDashTrail(
   origin: Vector3,
   heading: Vector3,
@@ -35,7 +52,7 @@ export function createDashTrail(
   const span = Math.max(1, c.maxDashChain - 1)
   const t = MathUtils.clamp((chain - 1) / span, 0, 1)
 
-  const covered = c.dashSpeed * c.dashDurationSeconds
+  const covered = trailLength(c)
   const length = covered * MathUtils.lerp(FIRST_LENGTH, LAST_LENGTH, t)
   const peak = MathUtils.lerp(FIRST_OPACITY, LAST_OPACITY, t)
 

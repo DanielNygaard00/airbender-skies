@@ -102,7 +102,6 @@ export const DEFAULT_GROUND_CONFIG: GroundConfig = {
   scooterTierDrop: 0.34,
   maxDashChain: 3,
   dashSpeed: 26,
-  dashDurationSeconds: 0.22,
   dashRecoverySeconds: 0.7,
 }
 

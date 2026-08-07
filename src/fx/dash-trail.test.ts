@@ -1,9 +1,52 @@
 import { describe, it, expect } from 'vitest'
 import { Mesh, Quaternion, Vector3 } from 'three'
-import { createDashTrail } from './dash-trail'
-import { DEFAULT_GROUND_CONFIG } from '../core/config'
-import type { GroundConfig } from '../core/types'
+import { createDashTrail, trailLength } from './dash-trail'
+import { DEFAULT_GROUND_CONFIG, DEFAULT_COLLISION_CONFIG } from '../core/config'
+import { groundStep } from '../player/ground-move'
+import type { GroundConfig, InputState, PlayerState, TerrainQuery } from '../core/types'
 import type { Effect } from './effect'
+
+/** Flat ground at y=0 everywhere, so a driven dash has nothing else to react to. */
+const flatGround: TerrainQuery = {
+  groundHeightAt: () => 0,
+  raycast: (from, direction, maxDistance) =>
+    direction.y < -0.9 * direction.length() && from.y >= 0 && from.y - maxDistance <= 0
+      ? { point: new Vector3(from.x, 0, from.z), normal: new Vector3(0, 1, 0), islandId: 'flat' }
+      : null,
+}
+
+const input = (over: Partial<InputState> = {}): InputState => ({
+  lookDirection: new Vector3(0, 0, -1), forward: 0, strafe: 0,
+  sprint: false, tuck: false, actionPressed: false, actionHeld: false, actionReleased: false,
+  scooterPressed: false, dashPressed: false, gustPressed: false, avatarStatePressed: false,
+  vortexHeld: false, vortexReleased: false, slipstreamPressed: false, staffPressed: false,
+  ...over,
+})
+const player = (over: Partial<PlayerState> = {}): PlayerState => ({
+  mode: 'ground', position: new Vector3(0, 0, 0), velocity: new Vector3(),
+  forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
+  grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0,
+  scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+  slipstreamElapsed: null, slipstreamCooldown: 0,
+  staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, ...over,
+})
+
+/**
+ * Horizontal distance a single dash actually covers: fired on the first frame from a
+ * standstill on flat ground, with no movement keys held after, for 120 frames -- the same
+ * shape the original 3.94 m measurement used.
+ */
+function dashDisplacement(): number {
+  let s = player()
+  const origin = s.position.clone()
+  for (let frame = 0; frame < 120; frame++) {
+    s = groundStep(
+      s, input({ dashPressed: frame === 0 }), 1 / 60,
+      flatGround, DEFAULT_GROUND_CONFIG, DEFAULT_COLLISION_CONFIG,
+    )
+  }
+  return Math.hypot(s.position.x - origin.x, s.position.z - origin.z)
+}
 
 const ORIGIN = new Vector3(0, 5, 0)
 const HEADING = new Vector3(0, 0, 1)
@@ -34,13 +77,15 @@ describe('createDashTrail', () => {
     expect(doubled).toBeGreaterThan(normal * 1.8)
   })
 
-  it('lengthens with a longer dash duration too', () => {
-    const slowBurn: GroundConfig = {
-      ...DEFAULT_GROUND_CONFIG,
-      dashDurationSeconds: DEFAULT_GROUND_CONFIG.dashDurationSeconds * 2,
+  it('lengthens when the ground response is softer, so the impulse takes longer to bleed off', () => {
+    // Replaces a test that used to vary dashDurationSeconds, a config value the
+    // simulation never read. groundResponse is the rate that actually governs how long
+    // the impulse survives, so it is what the trail must react to instead.
+    const softer: GroundConfig = {
+      ...DEFAULT_GROUND_CONFIG, groundResponse: DEFAULT_GROUND_CONFIG.groundResponse / 2,
     }
     const normal = lengthOf(createDashTrail(ORIGIN, HEADING, 1, DEFAULT_GROUND_CONFIG))
-    expect(lengthOf(createDashTrail(ORIGIN, HEADING, 1, slowBurn)))
+    expect(lengthOf(createDashTrail(ORIGIN, HEADING, 1, softer)))
       .toBeGreaterThan(normal * 1.8)
   })
 
@@ -112,5 +157,24 @@ describe('createDashTrail', () => {
   it('disposes without throwing', () => {
     const trail = createDashTrail(ORIGIN, HEADING, 1, DEFAULT_GROUND_CONFIG)
     expect(() => trail.dispose()).not.toThrow()
+  })
+})
+
+describe('the dash trail is as long as the dash', () => {
+  it('is sized from the rate the dash actually decays at', () => {
+    expect(trailLength(DEFAULT_GROUND_CONFIG))
+      .toBeCloseTo(DEFAULT_GROUND_CONFIG.dashSpeed / DEFAULT_GROUND_CONFIG.groundResponse, 6)
+  })
+
+  it('matches the ground a real dash covers, within a frame of travel', () => {
+    // The assertion that would have caught the original defect: the trail was drawn
+    // 5.72 m long for a dash that covers 3.94 m, because it was sized from
+    // dashDurationSeconds -- a config value the simulation never read.
+    const covered = dashDisplacement()
+    // The 3.94 m figure from the brief, pinned so it cannot drift unnoticed the way
+    // Task 1's turn-time comment did.
+    expect(covered).toBeCloseTo(3.94, 2)
+    expect(Math.abs(trailLength(DEFAULT_GROUND_CONFIG) - covered))
+      .toBeLessThan(DEFAULT_GROUND_CONFIG.dashSpeed / 60)
   })
 })
