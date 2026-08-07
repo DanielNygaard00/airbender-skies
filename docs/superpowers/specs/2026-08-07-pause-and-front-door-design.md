@@ -46,10 +46,10 @@ export interface PauseInputs {
 
 export type PauseReason = 'unlocked' | 'hidden' | 'guide'
 
-/** True only when the mouse is captured, the tab is visible, and the guide is closed. */
-export function isPlaying(i: PauseInputs): boolean
-
-/** Which reason to show when several apply at once, or null while playing. */
+/**
+ * Which reason to show when several apply at once, and null exactly when the game runs.
+ * One function, so "is it playing" and "why not" cannot disagree.
+ */
 export function pauseReason(i: PauseInputs): PauseReason | null
 
 export interface OverlayModel {
@@ -66,7 +66,12 @@ export function pauseOverlayModel(
 ): OverlayModel
 ```
 
-`isPlaying` is the conjunction: `pointerLocked && !documentHidden && !guideOpen`.
+`pauseReason` is the only verdict. An earlier draft of this design also had an `isPlaying`
+returning the conjunction `pointerLocked && !documentHidden && !guideOpen`, which is a second
+independent implementation of the same question — and `main.ts` would have called only one of
+them, so nothing in the codebase would have noticed them drifting apart. Dropped, along with
+the test that would have existed only to hold them together. Callers ask
+`pauseReason(i) === null`.
 
 `pauseReason` orders the causes `guide`, then `hidden`, then `unlocked`. The guide wins
 because it is the only cause the player chose on purpose, and telling someone who opened the
@@ -168,10 +173,8 @@ function frame(now: number): void {
 }
 ```
 
-The branch is taken on `reason !== null` rather than on `!isPlaying(inputs)` so that only one
-of the two functions decides whether the game runs. Both exist — `isPlaying` is the readable
-name and the one other callers would want — but they must agree, and the way to keep them
-agreeing is a test, not a second call site.
+The reason is computed once and used for both decisions — whether to advance the simulation
+and what the card says — so there is no second predicate to keep in step with the first.
 
 The scene still renders while paused, so the world stays visible behind the card — the
 behaviour the guide branch already had, and the reason the card can afford to be small.
@@ -201,18 +204,18 @@ mid-transition is exactly the sort of thing that produces an audible click.
 
 `src/core/pause.test.ts`:
 
-- **All eight combinations of the three inputs, asserting `isPlaying` for each.** This is the
+- **All eight combinations of the three inputs, asserting the reason for each.** This is the
   shape that discriminates, and it is the point: a test that fixes `documentHidden` at
   `false` and varies only the other two passes an implementation that ignores
-  `documentHidden` altogether. The named neutralisation is to delete one conjunct from
-  `isPlaying` and confirm the suite reddens — once per conjunct, three runs, so no conjunct is
-  load-bearing only in the author's head.
+  `documentHidden` altogether — which is the one input this design added on purpose, because
+  the browser behaviour that would have made it redundant could not be verified.
+- **Exactly one of the eight combinations yields `null`**, asserted as *which* one rather than
+  as a count: a bare "one combination plays" passes an implementation where the wrong
+  combination is the playing one.
 - **Reason precedence with several causes at once**, including all three true, asserting the
-  full order rather than one pair. Deleting a branch from `pauseReason` must redden.
-- **`isPlaying(i)` and `pauseReason(i) === null` agree across all eight combinations.** The
-  two functions answer the same question and `main.ts` calls only one of them, so nothing else
-  would notice them drifting apart. Asserted over the same table as the first item rather than
-  on a hand-picked case, because a disagreement would appear in exactly one combination.
+  full order rather than one pair. Deleting a branch from `pauseReason` must redden, and every
+  branch must be reachable from the table — a branch nothing can reach is dead code wearing a
+  feature's clothes.
 - **The two wordings**, asserted as the distinct strings a player reads: `everStarted` false
   gives `Click to play`, true gives `Click to resume`. Asserting only that the two differ
   would pass an implementation that swapped them.
