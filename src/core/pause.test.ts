@@ -103,4 +103,63 @@ describe('pauseOverlayModel', () => {
       }
     }
   })
+
+  /**
+   * The parameter space is 4 reasons (including null) x 2 everStarted states = 8 points.
+   * The cases above assert title/action at only 6 of those -- ('guide', false) was never
+   * called at all, and ('hidden', false) was only ever checked through .hint -- so a
+   * mutation confined to either point had nothing to catch it. Table-driven so every point
+   * is visible at a glance rather than requiring a reader to reconstruct which 6 of 8 the
+   * scattered cases above actually cover.
+   */
+  it('covers every (reason, everStarted) point for visible, title, and action', () => {
+    const cases: Array<{
+      reason: PauseReason | null
+      everStarted: boolean
+      visible: boolean
+      title: string
+      action: string
+    }> = [
+      { reason: null, everStarted: false, visible: false, title: '', action: '' },
+      { reason: null, everStarted: true, visible: false, title: '', action: '' },
+      { reason: 'guide', everStarted: false, visible: false, title: '', action: '' },
+      { reason: 'guide', everStarted: true, visible: false, title: '', action: '' },
+      {
+        reason: 'unlocked',
+        everStarted: false,
+        visible: true,
+        title: 'Airbender Skies',
+        action: 'Click to play',
+      },
+      {
+        reason: 'unlocked',
+        everStarted: true,
+        visible: true,
+        title: 'Paused',
+        action: 'Click to resume',
+      },
+      {
+        reason: 'hidden',
+        everStarted: false,
+        visible: true,
+        title: 'Airbender Skies',
+        action: 'Click to play',
+      },
+      {
+        reason: 'hidden',
+        everStarted: true,
+        visible: true,
+        title: 'Paused',
+        action: 'Click to resume',
+      },
+    ]
+
+    for (const { reason, everStarted, visible, title, action } of cases) {
+      const model = pauseOverlayModel(reason, everStarted)
+      const point = `reason=${reason} everStarted=${everStarted}`
+      expect(model.visible, point).toBe(visible)
+      expect(model.title, point).toBe(title)
+      expect(model.action, point).toBe(action)
+    }
+  })
 })
