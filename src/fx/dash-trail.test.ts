@@ -48,6 +48,31 @@ function dashDisplacement(): number {
   return Math.hypot(s.position.x - origin.x, s.position.z - origin.z)
 }
 
+/**
+ * The extra ground a dash buys, isolated from ordinary running: forward held for 120
+ * frames with and without the dash fired on frame 0, from the same starting state, then
+ * the two end positions differenced. Forward is held (rather than released, as
+ * `dashDisplacement` above does) because this is the shape that also works while riding a
+ * scooter -- a stationary scooter is not a state the game has, `stepScooter` treats it as
+ * parked and stops charging, but says nothing about steering authority while moving, which
+ * is the thing under test here.
+ */
+function marginalDashDisplacement(over: Partial<PlayerState> = {}): number {
+  const run = (dash: boolean) => {
+    let s = player(over)
+    for (let frame = 0; frame < 120; frame++) {
+      s = groundStep(
+        s, input({ forward: 1, dashPressed: dash && frame === 0 }), 1 / 60,
+        flatGround, DEFAULT_GROUND_CONFIG, DEFAULT_COLLISION_CONFIG,
+      )
+    }
+    return s.position
+  }
+  const withDash = run(true)
+  const withoutDash = run(false)
+  return Math.hypot(withDash.x - withoutDash.x, withDash.z - withoutDash.z)
+}
+
 const ORIGIN = new Vector3(0, 5, 0)
 const HEADING = new Vector3(0, 0, 1)
 
@@ -171,10 +196,40 @@ describe('the dash trail is as long as the dash', () => {
     // 5.72 m long for a dash that covers 3.94 m, because it was sized from
     // dashDurationSeconds -- a config value the simulation never read.
     const covered = dashDisplacement()
-    // The 3.94 m figure from the brief, pinned so it cannot drift unnoticed the way
-    // Task 1's turn-time comment did.
-    expect(covered).toBeCloseTo(3.94, 2)
+    // Pinned to the measured figure at real precision, not rounded to 3.94: at two
+    // decimal places the rounded figure left only 3% headroom against the 0.005
+    // tolerance toBeCloseTo(x, 2) implies, which is not the margin a regression guard
+    // needs.
+    expect(covered).toBeCloseTo(3.935, 3)
     expect(Math.abs(trailLength(DEFAULT_GROUND_CONFIG) - covered))
       .toBeLessThan(DEFAULT_GROUND_CONFIG.dashSpeed / 60)
+  })
+})
+
+describe('a scooter dash outruns the trail drawn for it', () => {
+  // These figures back the comment on trailLength in dash-trail.ts. Pinned here for the
+  // same reason as everywhere else in this batch: a number that only lives in a comment
+  // is a number nobody has checked, and that is exactly how Task 1 shipped a wrong one.
+  //
+  // Targets carry full measured precision rather than the three decimals the comment
+  // shows, so `toBeCloseTo(x, 3)`'s 0.0005 tolerance has real headroom instead of sitting
+  // a coin-flip away from the nearest rounding, the way `toBeCloseTo(3.94, 2)` did before
+  // finding 5 caught it.
+  it('on foot, roughly matches the drawn length', () => {
+    expect(marginalDashDisplacement()).toBeCloseTo(3.935161, 3)
+  })
+
+  it('on a scooter at charge 0, travels roughly twice as far as the trail', () => {
+    // Authority halves at charge 0 (scooterTurnFactor 0.5), and authority scales
+    // groundResponse directly, so the decay time constant doubles.
+    expect(marginalDashDisplacement({ scooterActive: true, scooterCharge: 0 }))
+      .toBeCloseTo(8.093587, 3)
+  })
+
+  it('on a scooter at charge 1, travels roughly four times as far as the trail', () => {
+    // Authority is a quarter at charge 1 (scooterTurnFactor 0.5 minus
+    // scooterChargeTurnPenalty 0.25), so the decay time constant quadruples.
+    expect(marginalDashDisplacement({ scooterActive: true, scooterCharge: 1 }))
+      .toBeCloseTo(14.619641, 3)
   })
 })
