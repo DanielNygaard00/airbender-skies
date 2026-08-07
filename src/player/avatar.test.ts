@@ -35,6 +35,27 @@ function fakeGltf(
   return { scene, animations } as unknown as GLTF
 }
 
+/**
+ * Parse the shipped model in node, for the tests that need the real rig rather than a
+ * box. Each caller gets its own parse: `attachModel` poses the bones it is handed as a
+ * side effect of composing the glide clip, so a shared GLTF would let one test's pose
+ * leak into the next one's measurements.
+ */
+async function loadCommittedModel(): Promise<GLTF> {
+  const modelPath = fileURLToPath(
+    new URL('../../public/models/character.glb', import.meta.url),
+  )
+  const bytes = readFileSync(modelPath)
+  const arrayBuffer = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer
+
+  return await new Promise<GLTF>((resolve, reject) => {
+    new GLTFLoader().parse(arrayBuffer, '', resolve, reject)
+  })
+}
+
 function spanOf(object: Object3D) {
   object.updateMatrixWorld(true)
   const box = new Box3().setFromObject(object)
@@ -228,6 +249,92 @@ describe('createAvatar frozen poses', () => {
   })
 })
 
+describe('createAvatar poseNow', () => {
+  /**
+   * FADE_SECONDS from avatar.ts, which keeps it private. Restated here because the
+   * length of poseNow's single tick is exactly what these tests are about.
+   */
+  const FADE_SECONDS = 0.18
+
+  /** fakeGltf's default model is 3.6 tall, so its mesh binds at half that. */
+  const BIND_Y = 1.8
+
+  function bodyY(avatar: ReturnType<typeof createAvatar>): number {
+    const body = avatar.object.getObjectByName('Body')
+    if (!body) throw new Error('fixture mesh missing')
+    return body.position.y
+  }
+
+  it('lands the pose where setAnimation and a zero-length tick leave the bind pose', () => {
+    // THE REASON THE METHOD EXISTS, and the claim its own comment makes. setAnimation
+    // starts its action at weight 0 and leaves fadeIn to ramp it up over FADE_SECONDS of
+    // mixer time; at mixer time 0 that interpolant still evaluates to 0, so a following
+    // update(0) blends the clip in at no strength at all and the bind pose survives.
+    const unposed = createAvatar()
+    unposed.attachModel(fakeGltf(['Idle']))
+    unposed.setAnimation('idle')
+    unposed.update(0)
+    expect(bodyY(unposed)).toBe(BIND_Y)
+
+    const posed = createAvatar()
+    posed.attachModel(fakeGltf(['Idle']))
+    posed.poseNow('idle')
+
+    // fakeGltf's clips carry Body.position.y linearly from 0 to 1 over one second, so the
+    // value read back off the model reports the clip time the pose was sampled at. It is
+    // FADE_SECONDS rather than 0 because AnimationAction._update advances the action's
+    // clip time before it evaluates the fade's weight, so the one tick that lands the
+    // weight moves the playhead by the same amount.
+    expect(bodyY(posed)).toBeCloseTo(FADE_SECONDS, 6)
+
+    // Effectively full weight, but not exactly full, which is why the line above is a
+    // tolerance rather than an equality: _scheduleFading stores the fade's end time in a
+    // Float32Array while mixer.time is a double, so `time > parameterPositions[1]` is
+    // false at exactly FADE_SECONDS, stopFading() never fires, and the weight comes back
+    // one float ulp short of 1. What is left over is that fraction of the bind pose,
+    // which sits above the sampled value here — so "not exactly full" is observable as a
+    // strict inequality with a known sign, rather than only as a loose tolerance.
+    expect(bodyY(posed)).toBeGreaterThan(FADE_SECONDS)
+  })
+
+  it('samples the shipped model FADE_SECONDS into the clip rather than at its start', async () => {
+    // Immaterial for the only clip main.ts asks poseNow for -- Idle is a ten-second
+    // subtle loop, so a fifth of a second in is indistinguishable from its start, and the
+    // character stands with its feet on the ground either way. The offset is a latent
+    // trap for every other clip name, though, which is why poseNow documents it: `fall`
+    // borrows the one-second Jump clip, whose opening launch phase animates the root
+    // upward, so poseNow('fall') would hang the character clear of its own feet.
+    const gltf = await loadCommittedModel()
+
+    const durations = new Map(gltf.animations.map((clip) => [clip.name, clip.duration]))
+    expect(durations.get('Human Armature|Idle')).toBe(10)
+    expect(durations.get('Human Armature|Jump')).toBe(1)
+
+    /** Lowest toe joint, which is where this model's feet are. */
+    const lowestToe = (avatar: ReturnType<typeof createAvatar>): number => {
+      avatar.object.updateMatrixWorld(true)
+      const toes = ['LeftToeBase', 'LeftToe_End', 'RightToeBase', 'RightToe_End']
+        .map((name) => avatar.object.getObjectByName(name))
+      let lowest = Infinity
+      for (const toe of toes) {
+        if (!toe) throw new Error('toe joint missing')
+        lowest = Math.min(lowest, toe.getWorldPosition(new Vector3()).y)
+      }
+      return lowest
+    }
+
+    const idle = createAvatar()
+    idle.attachModel(gltf)
+    idle.poseNow('idle')
+    expect(lowestToe(idle)).toBeCloseTo(0, 1)
+
+    const falling = createAvatar()
+    falling.attachModel(await loadCommittedModel())
+    falling.poseNow('fall')
+    expect(lowestToe(falling)).toBeCloseTo(0.64, 2)
+  })
+})
+
 describe('createAvatar pose continuity', () => {
   // fall and glide both resolve to the model's Jump clip when no glide clip
   // exists, so mixer.clipAction(clip) hands back the very same AnimationAction
@@ -288,18 +395,7 @@ describe('createAvatar with the real committed model', () => {
   // skinned-measurement regression. It also pins the clip names and MODEL_YAW
   // that the shipped asset actually resolves to.
   it('fits, seats, and resolves animations for public/models/character.glb', async () => {
-    const modelPath = fileURLToPath(
-      new URL('../../public/models/character.glb', import.meta.url),
-    )
-    const buffer = readFileSync(modelPath)
-    const arrayBuffer = buffer.buffer.slice(
-      buffer.byteOffset,
-      buffer.byteOffset + buffer.byteLength,
-    ) as ArrayBuffer
-
-    const gltf = await new Promise<GLTF>((resolve, reject) => {
-      new GLTFLoader().parse(arrayBuffer, '', resolve, reject)
-    })
+    const gltf = await loadCommittedModel()
 
     const avatar = createAvatar()
     avatar.attachModel(gltf)
@@ -321,18 +417,7 @@ describe('createAvatar with the real committed model', () => {
     // END TO END: the composed glide pose has to actually reach the character.
     // Freezing the borrowed jump clip left one knee bent to 69 degrees, which
     // reads as sitting down in mid-air.
-    const modelPath = fileURLToPath(
-      new URL('../../public/models/character.glb', import.meta.url),
-    )
-    const buffer = readFileSync(modelPath)
-    const arrayBuffer = buffer.buffer.slice(
-      buffer.byteOffset,
-      buffer.byteOffset + buffer.byteLength,
-    ) as ArrayBuffer
-
-    const gltf = await new Promise<GLTF>((resolve, reject) => {
-      new GLTFLoader().parse(arrayBuffer, '', resolve, reject)
-    })
+    const gltf = await loadCommittedModel()
 
     const avatar = createAvatar()
     avatar.attachModel(gltf)
@@ -366,17 +451,7 @@ describe('createAvatar with the real committed model', () => {
     // model. Bounding boxes cannot express it either — the wing's lowest point is a
     // forward fan tip overhanging past the shoulders with no body beneath it, so
     // this measures surface to surface instead.
-    const modelPath = fileURLToPath(
-      new URL('../../public/models/character.glb', import.meta.url),
-    )
-    const bytes = readFileSync(modelPath)
-    const arrayBuffer = bytes.buffer.slice(
-      bytes.byteOffset,
-      bytes.byteOffset + bytes.byteLength,
-    ) as ArrayBuffer
-    const gltf = await new Promise<GLTF>((resolve, reject) => {
-      new GLTFLoader().parse(arrayBuffer, '', resolve, reject)
-    })
+    const gltf = await loadCommittedModel()
 
     const avatar = createAvatar()
     avatar.attachModel(gltf)

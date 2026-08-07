@@ -1465,18 +1465,50 @@ primed either, and the priming block could not have primed it: `avatar.setAnimat
 `avatar.update()` are reachable only from the playing branch, and the `character.glb`
 promise cannot settle until after `start()`'s synchronous body — the priming block
 included — has finished. So no clip was ever selected and the mixer never advanced while
-the card was up, and the character stood in the GLB's own rest pose for the entire front
-door. `avatar.poseNow()` now runs inside the loader's own `then` callback, the one place
-that can both see the loaded model and reach it before the player clicks; it exists as its
-own method because `setAnimation` starts its action at weight 0 and needs a tick of the
-mixer to land the pose (see its comment in `src/player/avatar.ts` for why the tick is
-exactly the fade length). Confirmed by screenshot with the card up, before and after, same
-spawn and same camera in both: the character upright with its arms hanging flat at its
-sides in the first, and in a real airborne pose — one elbow bent, the other arm swung
-back, legs apart, torso leaning — in the second. Worth noting for the register above: this
-was a *regression* introduced by making the game pause at frame zero, not a pre-existing
-bug. Before this cycle the unposed frame existed too, but `update()` ran immediately, so it
-lasted one frame instead of as long as the player left the card up.
+the card was up. `avatar.poseNow()` now runs inside the loader's own `then` callback, the
+one place that can both see the loaded model and reach it before the player clicks; it
+exists as its own method because `setAnimation` starts its action at weight 0 and needs a
+tick of the mixer to land the pose (see its comment in `src/player/avatar.ts` for why the
+tick is exactly the fade length, and for what else that tick does).
+
+**What the card actually showed was measured afterwards, and it was not the rest pose this
+paragraph first claimed.** That claim rested on reading a pair of before-and-after
+screenshots, and both halves of the reading were wrong. `attachModel` composes the glide
+clip *before* it creates the mixer, and `pitchOnto` in `src/player/glide-pose.ts` writes the
+composed quaternions straight into the live bones and never restores them — arms sampled
+from `Punch` at 5%, legs from `Walk` at 60%. `sampleBones` in that same file already carries
+the warning that it poses the model as a side effect and that callers must not measure it
+afterwards expecting the bind pose; nothing was heeding it. So what the front door showed
+was `buildGlideClip`'s leftover composed glide sample: arms raised to head height on a
+character standing on the ground. World bone positions over the real
+`public/models/character.glb`, in the GLB's own units:
+
+| stage | LeftHand | RightHand | max key-joint move vs rest |
+| --- | --- | --- | --- |
+| loader output (GLB rest pose) | `0.863, 2.494, 0.821` | `-1.091, 2.501, -0.554` | — |
+| after `attachModel`, no clip, no tick | `0.751, 4.547, 0.429` | `-0.130, 4.127, 1.195` | 2.57 |
+| after `poseNow('idle')` | `0.875, 2.458, 0.782` | `-1.064, 2.462, -0.574` | 0.058 |
+
+The head sits at y ≈ 4.43 in that middle row, so both hands really are up at head height
+there. The fix is still a real improvement — 2.60 units of travel for the right hand, and a
+standing idle beats arms-raised-while-standing — but the honest description is that it lands
+the character within 0.06 units of the rest pose rather than rescuing it from one. The part
+of the finding worth keeping is the side effect itself: `attachModel` returns with the model
+posed, which is a live trap for anything that reads bones after it, and `attachModel`,
+`poseNow` and the call site in `main.ts` now all say so.
+
+**And the clip it poses is `idle`, not a fall.** `createPlayerState` returns `mode: 'ground'`,
+`grounded: true` and zero velocity, so `animationFor(player)` returns `'idle'` — the correct
+clip for a standing spawn. The code was never wrong here; only the prose was, which
+described the second screenshot as "a real airborne pose". That reading came from taking the
+`14 m` altitude readout as evidence of being airborne, and it is not: `14` is the island's
+ground height plus `SPAWN_CLEARANCE` of 2, measured from sea level, and says nothing about
+the `grounded` flag.
+
+Worth noting for the register above: this was a *regression* introduced by making the game
+pause at frame zero, not a pre-existing bug. Before this cycle the unposed frame existed
+too, but `update()` ran immediately, so it lasted one frame instead of as long as the player
+left the card up.
 
 With that fixed, the pause-hold claim was re-established properly: forcing this file's own
 `pointerlockchange` and `visibilitychange` listeners to report `pointerLocked: true` and
@@ -1760,6 +1792,29 @@ looking. It was also non-discriminating in its own right: it and the null-point 
 both pinned the same single no-cause combination, so no mutation could redden one without the
 other. It has been replaced by the exhaustive expected-reason table, whose name says what it
 does. When a test's name overstates its assertions, the name is a defect, not a nicety.
+
+**The correction pass that closed this cycle added nothing to the count of twelve, and that
+is the point: its findings were the feel batch's shape, not this register's.** Three claims
+about the front-door frame reached committed prose without ever being measured — that the
+unposed character stood in the GLB's rest pose (it stood in `buildGlideClip`'s leftover
+composed sample, arms at head height), that the pose it landed in was airborne (it is `idle`,
+and correctly so), and that `poseNow`'s single tick lands the pose "whole" at the clip's start
+(it lands the clip at t = FADE_SECONDS, at one float ulp short of full weight). All three came
+from reading a screenshot and from reasoning about what the mixer *ought* to do; all three
+were corrected by measuring bone positions over the real GLB and by reading three's own
+`AnimationAction._update`. The register's own standing advice named the method that found
+them: verify with something other than the reasoning that produced the claim.
+
+The fourth finding is the one that belongs to the rule the feel batch left behind. `poseNow`'s
+whole reason for existing — that it leaves the action at effectively full weight where
+`setAnimation` plus `avatar.update(0)` leaves it at 0 — was asserted nowhere, and the report
+that shipped it argued a test was impossible because it would only exercise a mock. That was
+false on the file's own evidence: `avatar.test.ts` already ran a real `AnimationMixer` over a
+fake GLTF, and already parsed `public/models/character.glb` in node to assert measured knee
+angles. `'createAvatar poseNow'` now pins the claim, red-proofed the mandatory way by ticking
+`0` instead of `FADE_SECONDS` and watching both of its tests fail. **"A test here would only
+test a mock" is a claim about the harness, and this file's harness is the thing to check
+before making it.**
 
 Worth recording alongside the ninth: the wind-on-foot cycle had four of my own quantitative
 or causal claims corrected by measurement rather than caught by the person who made them — the "ramps in over

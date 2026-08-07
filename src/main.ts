@@ -242,9 +242,13 @@ function start(): void {
     // body has finished, so the model is always attached after that block has run. And
     // nothing later covers it either while the front door is up -- setAnimation() and
     // avatar.update() are reached only from the playing branch of frame() -- so before
-    // this call the character stood in character.glb's own rest pose, arms straight down,
-    // for as long as the player left the card up. poseNow rather than setAnimation because
-    // the fade needs a tick of the mixer to actually reach the model; see its own comment.
+    // this call the character stood in whatever pose attachModel had left it in, for as
+    // long as the player left the card up. Not character.glb's rest pose: attachModel
+    // composes the glide clip before it builds the mixer, and sampling bones for that
+    // pose writes into the live bones without ever restoring them, so what the card
+    // showed was a leftover half-glide -- arms raised to head height on a character
+    // standing on the ground. poseNow rather than setAnimation because the fade needs a
+    // tick of the mixer to actually reach the model; see its own comment.
     avatar.poseNow(animationFor(player))
   })
 

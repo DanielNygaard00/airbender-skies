@@ -191,6 +191,14 @@ export function createAvatar() {
       // mixers over these same bones. A frozen jump frame is the fallback the
       // plan hands us, and it reads as crouching in mid-air, so prefer a pose
       // composed for the purpose whenever one can be built.
+      //
+      // Sampling is destructive, and nothing here undoes it: the throwaway mixers
+      // leave the bones holding the sampled frames, and `pitchOnto` writes the
+      // composed quaternions in on top of that. So `attachModel` returns with the
+      // model standing in a half-glide rather than in its rest pose, and it stays
+      // that way until something ticks a clip onto it. Anything that reads bones
+      // straight after this call is reading that leftover, not the bind pose —
+      // see `sampleBones` in glide-pose.ts, which carries the same warning.
       const composed = plan.get('glide')?.freeze
         ? buildGlideClip(gltf.scene, gltf.animations)
         : null
@@ -219,12 +227,31 @@ export function createAvatar() {
      *
      * `setAnimation` alone is not enough: it starts the new action at weight 0 and
      * leaves `fadeIn` to ramp it up over FADE_SECONDS of *mixer* time, so a model that
-     * is never ticked keeps whatever pose the GLB's rest position gives it. Nor is a
-     * following `update(0)` enough — at mixer time 0 the fade's weight interpolant is
-     * still at 0, which blends the clip in at zero strength and leaves the same rest
-     * pose showing. One tick of exactly FADE_SECONDS puts the mixer clock on the far
-     * end of that interpolant, where it evaluates to full weight, so the pose applies
-     * whole on the single tick.
+     * is never ticked keeps whatever pose `attachModel` happened to leave it in — which
+     * is not the GLB's rest pose, because composing the glide clip poses these same
+     * bones on the way past. Nor is a following `update(0)` enough: at mixer time 0 the
+     * fade's weight interpolant is still at 0, so the clip blends in at zero strength
+     * and that leftover pose stays on screen. One tick of exactly FADE_SECONDS puts the
+     * mixer clock on the far end of the interpolant, where the clip does reach the model.
+     *
+     * Two things about that tick want stating exactly, because both are easy to assume
+     * away in the other direction.
+     *
+     * It advances the clip as well as the weight. `AnimationAction._update` calls
+     * `_updateTime(deltaTime)` before `_updateWeight(time)`, so what lands is the clip
+     * at t = FADE_SECONDS, not the clip at its start. Immaterial for the `idle` the
+     * front door asks for, which is a ten-second subtle loop either way. A trap for any
+     * other name, and `fall` is the sharp one: it borrows the one-second `Jump` clip, so
+     * this would show that clip's opening launch phase, root animated upward, with the
+     * character hanging clear of its own feet. `avatar.test.ts` pins both halves.
+     *
+     * And the weight lands within a float epsilon of full rather than exactly full.
+     * `_scheduleFading` stores the interpolant's `parameterPositions` in a
+     * `Float32Array` while `mixer.time` is a double, so `_updateWeight`'s `time > pp[1]`
+     * test is false at exactly FADE_SECONDS: `stopFading()` never fires, the weight
+     * comes back one ulp short of 1, and the fade interpolant stays live until the first
+     * real tick. Both consequences sit far below anything visible, but the pose does not
+     * quite land whole, and the remainder is filled from the pose underneath it.
      *
      * The paused front door is the caller this exists for: `main.ts` reaches
      * `setAnimation` and `update` only from the playing branch of its loop, and the
