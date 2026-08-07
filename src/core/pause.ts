@@ -44,11 +44,16 @@ export function pauseReason(i: PauseInputs): PauseReason | null {
   return null
 }
 
+/**
+ * Read-only throughout, because HIDDEN below is one shared object handed to every caller
+ * that asks for an invisible card. Nothing writes into a model today, and a caller that
+ * did would be editing every future invisible card as well.
+ */
 export interface OverlayModel {
-  visible: boolean
-  title: string
-  action: string
-  hint: string
+  readonly visible: boolean
+  readonly title: string
+  readonly action: string
+  readonly hint: string
 }
 
 const HIDDEN: OverlayModel = { visible: false, title: '', action: '', hint: '' }

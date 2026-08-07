@@ -87,7 +87,8 @@ The copy:
 | `null` | `false` | — | — |
 | `unlocked`, never started | `true` | `Airbender Skies` | `Click to play` |
 | `unlocked`, started | `true` | `Paused` | `Click to resume` |
-| `hidden` | `true` | `Paused` | `Click to resume` |
+| `hidden`, never started | `true` | `Airbender Skies` | `Click to play` |
+| `hidden`, started | `true` | `Paused` | `Click to resume` |
 | `guide` | `false` | — | — |
 
 `hint` is `H — guide` whenever the card is visible.
@@ -96,10 +97,24 @@ The guide reason yields an invisible card deliberately: the guide already fills 
 and already says "The game is paused" in its own subtitle. Two stacked panels saying the same
 thing is a defect, not a belt-and-braces.
 
-`hidden` sharing the started wording is also deliberate. Nobody is looking at a hidden tab, so
-the copy only matters on the way back — at which point "Paused / Click to resume" is exactly
-right. It is listed as its own row rather than folded into `unlocked` so that the table is a
-total function of the reason, with no case left to the reader.
+**Correction: the `hidden` row above was wrong as first written, and this paragraph with
+it.** The original table gave `hidden` a single row reading `Paused` / `Click to resume`
+unconditionally, and this paragraph called that deliberate: nobody is looking at a hidden
+tab, so the copy only matters on the way back, at which point a resume is what it is. That
+argument silently assumed the player had already played. They may not have: open the page in
+a background tab and then switch to it, and the first thing they ever see is the card, at
+`('hidden', everStarted: false)`. Inviting someone who has never played to "resume" is
+wrong, and "Click to play" is the right words for that state whatever the reason behind it.
+
+The implementation is the version that is right, and it was right from the start —
+`pauseOverlayModel` branches on `everStarted` alone, so it never distinguished the two
+reasons, and `pause.test.ts` pins `('hidden', false)` to `Airbender Skies` / `Click to
+play`. The table above has been corrected to two rows to match it, rather than the
+implementation changed to match the table. What survives from the original reasoning is only
+the narrower half: `everStarted: true` is by far the commoner way to reach `hidden`, and
+there "Paused / Click to resume" is exactly right. `hidden` keeps its own rows rather than
+being folded into `unlocked` so that the table stays a total function of the reason, with no
+case left to the reader — which is precisely the property that made the wrong row visible.
 
 ### `src/ui/pause-overlay.ts` — new, the DOM half
 

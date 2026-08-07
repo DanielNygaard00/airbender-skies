@@ -1445,10 +1445,38 @@ altitude/airspeed text, because `hud.update()` had never run once to overwrite t
 with this bug, and could not tell the two apart. `main.ts` now primes the presentation
 layer once — recording the enemy interpolators, calling `followSun`, `syncVisuals` and
 `hud.update()` a single time — before the loop starts, so the very first paint shows the
-real spawn rather than an uninitialised scene. Confirmed by screenshot (a screenshot forces
-one paint even in a hidden tab): before the fix, the four meter bars were solid and full
-and altitude/airspeed were blank; after it, all four bars were correctly invisible (full
-stats hide their own bars by design) and the readout showed a real `14 m` / `0 m/s`.
+real spawn rather than an uninitialised scene.
+
+The two halves of that claim rest on different kinds of evidence, and conflating them is
+the same overstatement the paragraph above exists to correct, so they are kept apart here.
+**The HUD half was measured**, by screenshot (a screenshot forces one paint even in a
+hidden tab): before the fix, the four meter bars were solid and full and altitude/airspeed
+were blank; after it, all four bars were correctly invisible (full stats hide their own
+bars by design) and the readout showed a real `14 m` / `0 m/s`. **The camera half was
+reasoned, not measured**: `syncVisuals` is the only writer of `cameraPosition`, and it is
+unreachable from the paused branch, so the priming call is by construction the transform
+the first paint uses. No coordinate readout backs that up — `camera.position` is not
+exposed to the console — so it is a closed static argument about who writes what, and
+should be read as one.
+
+**A third part of that same first paint was still wrong after this fix, and the
+whole-branch review at the end of the cycle caught it.** The animation mixer was never
+primed either, and the priming block could not have primed it: `avatar.setAnimation()` and
+`avatar.update()` are reachable only from the playing branch, and the `character.glb`
+promise cannot settle until after `start()`'s synchronous body — the priming block
+included — has finished. So no clip was ever selected and the mixer never advanced while
+the card was up, and the character stood in the GLB's own rest pose for the entire front
+door. `avatar.poseNow()` now runs inside the loader's own `then` callback, the one place
+that can both see the loaded model and reach it before the player clicks; it exists as its
+own method because `setAnimation` starts its action at weight 0 and needs a tick of the
+mixer to land the pose (see its comment in `src/player/avatar.ts` for why the tick is
+exactly the fade length). Confirmed by screenshot with the card up, before and after, same
+spawn and same camera in both: the character upright with its arms hanging flat at its
+sides in the first, and in a real airborne pose — one elbow bent, the other arm swung
+back, legs apart, torso leaning — in the second. Worth noting for the register above: this
+was a *regression* introduced by making the game pause at frame zero, not a pre-existing
+bug. Before this cycle the unposed frame existed too, but `update()` ran immediately, so it
+lasted one frame instead of as long as the player left the card up.
 
 With that fixed, the pause-hold claim was re-established properly: forcing this file's own
 `pointerlockchange` and `visibilitychange` listeners to report `pointerLocked: true` and
@@ -1707,8 +1735,34 @@ makes that true. The countermeasure is the one this section has been circling al
 plainly here for the first time: red-proof a pin by *making the forbidden change* and watching
 the suite react, not by reasoning about whether the fixture would catch it.
 
-Worth recording alongside it: this cycle had four of my own quantitative or causal claims
-corrected by measurement rather than caught by the person who made them — the "ramps in over
+**The pause and front-door cycle added three more — the tenth, eleventh and twelfth — all
+three in `src/core/pause.test.ts`, the only new test file it produced.** Every one was a
+point in a small, fully enumerable parameter space that no assertion actually pinned, and
+every one was found by making the mutation and watching the suite, not by reading the
+assertions and judging them adequate.
+
+| The gap | The mutation that survived | What caught it in the end |
+| --- | --- | --- |
+| `pauseOverlayModel('guide', false)` was never called anywhere in the file | suppressing the card for the guide only when `everStarted` — `reason === 'guide' && everStarted` in place of `reason === 'guide'` | a table over all 8 `(reason, everStarted)` points, added during the task-1 review round |
+| `pauseReason` had no exact-reason assertion at `pointerLocked: true, documentHidden: true, guideOpen: false` | returning `'unlocked'` instead of `'hidden'` on the branch where the lock is still held | `'reports the reason this table names for every combination'`, which pins all eight combinations as one object comparison |
+| `OverlayModel.hint` was unasserted at all four points where the card is invisible | `HIDDEN.hint = 'H — guide'`, i.e. a non-empty hint on the invisible path | the same 8-point table, extended from three fields to all four and compared as whole objects |
+
+Two things generalise from them. First, the register above is now unanimous: **twelve for
+twelve, the gap was found by making the forbidden change, and none of the twelve by reading
+the assertion and reasoning about what it covered.** That is no longer a lesson from one
+cycle; it is the only method that has ever worked here.
+
+Second, and new: **a test's name can be what hides the gap.** The eleventh sat behind
+`'names a reason for every combination with any pausing cause'`, which sounds exactly like
+the test that pins the reasons and in fact pinned only that each reason was non-null — and
+a reviewer scanning the file for "is the precedence covered?" would read that name and stop
+looking. It was also non-discriminating in its own right: it and the null-point test above it
+both pinned the same single no-cause combination, so no mutation could redden one without the
+other. It has been replaced by the exhaustive expected-reason table, whose name says what it
+does. When a test's name overstates its assertions, the name is a defect, not a nicety.
+
+Worth recording alongside the ninth: the wind-on-foot cycle had four of my own quantitative
+or causal claims corrected by measurement rather than caught by the person who made them — the "ramps in over
 the response time" claim about where the horizontal wind term was placed, the scooter-authority
 justification for that same placement, the `liftScale` neutralisation's literal-but-vacuous
 reading, and the glider fixture above. Each was caught by someone re-deriving the number rather

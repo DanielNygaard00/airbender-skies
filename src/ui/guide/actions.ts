@@ -198,15 +198,19 @@ export const ACTIONS: readonly GameAction[] = [
     detail: 'Opens and closes this panel, and pauses while it is open.',
   },
   {
-    // This row is read from inside the very panel it describes, where Escape does
-    // something else entirely (closes the panel, same as H — see panel.ts's own
-    // subtitle) and "pauses the game" is vacuous, since the guide being open is already
-    // one of pauseReason's own reasons. The detail says both things so neither context
-    // reads as wrong.
+    // This row is read from inside the very panel it describes, so the detail has to
+    // describe both contexts. Escape is the browser's own pointer-lock release key and
+    // nothing in this codebase can decline it: panel.ts closes the guide on Escape but
+    // never touches the lock, so in the guide the two effects happen together — the panel
+    // closes and the mouse is released — and what the player lands on is the "Paused"
+    // card, not the game. That is the one way Escape differs from H here, and an earlier
+    // wording that called them "the same as H" got it wrong in both halves.
     key: 'Escape', name: 'Pause', mode: 'both', available: always,
-    detail: 'While this guide is open, closes it — the same as H. Otherwise it releases '
-      + 'the mouse, so the game pauses and the "Paused" card comes up. Click the canvas '
-      + 'to grab the mouse back and resume.',
+    detail: 'During play, releases the mouse, so the game pauses and the "Paused" card '
+      + 'comes up; click the canvas to take the mouse back and resume. While this guide is '
+      + 'open, it closes the guide — but the browser releases the mouse all the same, so '
+      + 'you land on the "Paused" card rather than back in the game. H is the one that '
+      + 'closes the guide and returns you straight to playing.',
   },
 ]
 

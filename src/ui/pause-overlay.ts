@@ -7,6 +7,13 @@ import type { OverlayModel } from '../core/pause'
  * no DOM to build against. The decision about what the card says, and whether it is shown
  * at all, lives in `src/core/pause.ts` and is tested there.
  */
+/*
+ * `.pause` and `is-on` below are load-bearing outside this file: src/ui/hud.ts's own
+ * stylesheet hides the HUD's duplicate "H — guide" hint through the cross-file selector
+ * `body:has(.pause.is-on)`. Renaming either from this side silently un-hides that hint and
+ * nothing goes red -- the test environment is node, so neither file has a test that touches
+ * the DOM. Rename both together, or not at all.
+ */
 const STYLE = `
 .pause { position: fixed; inset: 0; display: grid; place-items: center;
   /* Never interactive. The canvas underneath owns the click that requests the pointer

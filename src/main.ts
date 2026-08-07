@@ -237,6 +237,15 @@ function start(): void {
     avatar.attachModel(gltf)
     // The model's meshes arrive after the first frame, so they miss the initial pass.
     enableShadows(avatar.object)
+    // Pose the character here rather than in the priming block below, for the reason the
+    // priming block cannot do it: this promise cannot settle before start()'s synchronous
+    // body has finished, so the model is always attached after that block has run. And
+    // nothing later covers it either while the front door is up -- setAnimation() and
+    // avatar.update() are reached only from the playing branch of frame() -- so before
+    // this call the character stood in character.glb's own rest pose, arms straight down,
+    // for as long as the player left the card up. poseNow rather than setAnimation because
+    // the fade needs a tick of the mixer to actually reach the model; see its own comment.
+    avatar.poseNow(animationFor(player))
   })
 
   const input = new InputTracker(window, canvas)
@@ -304,6 +313,10 @@ function start(): void {
     },
   }
 
+  // The clone only carries the declaration; the value is dead. Both the priming block near
+  // the bottom of this function and every later syncVisuals call overwrite it before
+  // anything reads it, so this does not mean "the camera starts where the renderer put it"
+  // -- which is exactly the false premise the front door's first paint bug rested on.
   let cameraPosition = camera.position.clone()
 
   // Rendered frames outnumber simulation steps on high-refresh displays. update()

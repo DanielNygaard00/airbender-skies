@@ -27,11 +27,51 @@ describe('pauseReason', () => {
     expect(playing.map(label)).toEqual(['locked=true hidden=false guide=false'])
   })
 
-  it('names a reason for every combination with any pausing cause', () => {
+  it('enumerates all eight combinations of the three inputs', () => {
+    // Both numbers the comment above ALL_INPUTS quotes, asserted here rather than left as
+    // prose: eight rows, and three fields per row, which is what makes eight the whole
+    // space. Distinctness too -- a duplicated row would let the table below look
+    // exhaustive while silently missing a point.
+    expect(ALL_INPUTS).toHaveLength(8)
+    expect(new Set(ALL_INPUTS.map(label)).size).toBe(8)
     for (const i of ALL_INPUTS) {
-      const anyCause = !i.pointerLocked || i.documentHidden || i.guideOpen
-      expect(pauseReason(i) !== null, label(i)).toBe(anyCause)
+      expect(Object.keys(i).sort(), label(i))
+        .toEqual(['documentHidden', 'guideOpen', 'pointerLocked'])
     }
+  })
+
+  /**
+   * The exact reason for every one of the eight combinations, in one table.
+   *
+   * This replaces a weaker test that asserted only `pauseReason(i) !== null` per
+   * combination. That one could not fail independently of the null test above -- both
+   * pinned non-null-ness at the same single no-cause point, so no mutation reddened one
+   * without the other -- and worse, its name sounded as though it pinned the reasons when
+   * it pinned only their existence.
+   *
+   * The point it left uncovered was `locked=true hidden=true guide=false`: nothing in the
+   * file asserted an exact reason there, so swapping `pauseReason`'s `'hidden'` for
+   * `'unlocked'` on the lock-held branch survived the whole suite. That is the point
+   * `documentHidden` exists as a separate input for -- a hidden tab that kept its lock is
+   * exactly the state this design could not verify a browser never produces -- so it is
+   * the last point that should have been left unpinned.
+   */
+  it('reports the reason this table names for every combination', () => {
+    const expected: Record<string, PauseReason | null> = {
+      'locked=false hidden=false guide=false': 'unlocked',
+      'locked=false hidden=false guide=true': 'guide',
+      'locked=false hidden=true guide=false': 'hidden',
+      'locked=false hidden=true guide=true': 'guide',
+      'locked=true hidden=false guide=false': null,
+      'locked=true hidden=false guide=true': 'guide',
+      // The lock is held and the tab is still hidden. See the comment above.
+      'locked=true hidden=true guide=false': 'hidden',
+      'locked=true hidden=true guide=true': 'guide',
+    }
+    // Compared as whole objects, so a combination missing from either side fails too
+    // rather than being skipped.
+    const actual = Object.fromEntries(ALL_INPUTS.map((i) => [label(i), pauseReason(i)]))
+    expect(actual).toEqual(expected)
   })
 
   it('prefers the guide over every other cause', () => {
@@ -111,25 +151,42 @@ describe('pauseOverlayModel', () => {
    * mutation confined to either point had nothing to catch it. Table-driven so every point
    * is visible at a glance rather than requiring a reader to reconstruct which 6 of 8 the
    * scattered cases above actually cover.
+   *
+   * All four fields of the model, not three. The first version of this table stopped one
+   * field short of `hint`, and `hint` is only otherwise touched by the loop above, which
+   * visits the two visible reasons and never the invisible ones -- so rewriting the empty
+   * hint on the invisible path to some non-empty string survived the whole suite. The
+   * empty value is load-bearing rather than incidental: `pause-overlay.ts` writes the
+   * model's text even while the card is invisible, precisely so the card never fades in
+   * carrying the previous state's wording.
    */
-  it('covers every (reason, everStarted) point for visible, title, and action', () => {
+  it('covers every (reason, everStarted) point for all four fields of the model', () => {
     const cases: Array<{
       reason: PauseReason | null
       everStarted: boolean
       visible: boolean
       title: string
       action: string
+      hint: string
     }> = [
-      { reason: null, everStarted: false, visible: false, title: '', action: '' },
-      { reason: null, everStarted: true, visible: false, title: '', action: '' },
-      { reason: 'guide', everStarted: false, visible: false, title: '', action: '' },
-      { reason: 'guide', everStarted: true, visible: false, title: '', action: '' },
+      { reason: null, everStarted: false, visible: false, title: '', action: '', hint: '' },
+      { reason: null, everStarted: true, visible: false, title: '', action: '', hint: '' },
+      {
+        reason: 'guide',
+        everStarted: false,
+        visible: false,
+        title: '',
+        action: '',
+        hint: '',
+      },
+      { reason: 'guide', everStarted: true, visible: false, title: '', action: '', hint: '' },
       {
         reason: 'unlocked',
         everStarted: false,
         visible: true,
         title: 'Airbender Skies',
         action: 'Click to play',
+        hint: 'H — guide',
       },
       {
         reason: 'unlocked',
@@ -137,6 +194,7 @@ describe('pauseOverlayModel', () => {
         visible: true,
         title: 'Paused',
         action: 'Click to resume',
+        hint: 'H — guide',
       },
       {
         reason: 'hidden',
@@ -144,6 +202,7 @@ describe('pauseOverlayModel', () => {
         visible: true,
         title: 'Airbender Skies',
         action: 'Click to play',
+        hint: 'H — guide',
       },
       {
         reason: 'hidden',
@@ -151,15 +210,15 @@ describe('pauseOverlayModel', () => {
         visible: true,
         title: 'Paused',
         action: 'Click to resume',
+        hint: 'H — guide',
       },
     ]
 
-    for (const { reason, everStarted, visible, title, action } of cases) {
-      const model = pauseOverlayModel(reason, everStarted)
+    for (const { reason, everStarted, ...want } of cases) {
       const point = `reason=${reason} everStarted=${everStarted}`
-      expect(model.visible, point).toBe(visible)
-      expect(model.title, point).toBe(title)
-      expect(model.action, point).toBe(action)
+      // Compared as a whole object, so a field added to OverlayModel and left out of this
+      // table fails here instead of going unasserted the way `hint` did.
+      expect(pauseOverlayModel(reason, everStarted), point).toEqual(want)
     }
   })
 })

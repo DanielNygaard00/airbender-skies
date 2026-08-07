@@ -107,7 +107,16 @@ export class InputTracker {
       this.pitch = clampPitch(this.pitch - e.movementY * MOUSE_SENSITIVITY)
     })
 
-    const requestLock = () => void canvas.requestPointerLock()
+    // The rejection is caught and dropped rather than voided. Chrome refuses a re-lock
+    // inside its short post-Escape cooldown, and a voided rejected promise raises an
+    // unhandled rejection in the console -- which, now that Escape-then-click is the
+    // ordinary way to resume, would appear in every session. Discarding it is right rather
+    // than merely quiet: nothing here needs to know the attempt failed, because the pause
+    // card is driven by `pointerlockchange` and not by this call, so a refused attempt
+    // simply leaves the card up and the next click works. Optional-chained even though the
+    // DOM lib types the return as a plain Promise: browsers only started returning one
+    // fairly recently, and older ones return undefined, where a bare .catch would throw.
+    const requestLock = () => { canvas.requestPointerLock()?.catch(() => {}) }
     canvas.addEventListener('click', requestLock)
     this.listeners.push(() => canvas.removeEventListener('click', requestLock))
 
