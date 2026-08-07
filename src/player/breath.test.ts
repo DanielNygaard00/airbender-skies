@@ -48,9 +48,19 @@ describe('canBend', () => {
     expect(canBend({ breath: F.bendFloor, maxBreath: 100 }, F)).toBe(true)
   })
 
-  it('the floor buys most of a second of thrust', () => {
-    // The reason the number is 15 rather than something token: an exhausted player gets a
-    // legible beat of thrust, then a beat of nothing, instead of a per-frame flicker.
+  it('bendFloor is a config-shape check, not a behavioural one', () => {
+    // This does not exercise canBend or the duty cycle at all -- it is pure arithmetic on
+    // DEFAULT_FLIGHT_CONFIG, and it passes unchanged even with canBend reverted to
+    // `breath > 0`, because it never calls canBend. See controller.test.ts's "cuts the
+    // duty cycle rather than only moving where it oscillates" for the test that actually
+    // exercises the floor's effect (300 of 600 frames engaged with no floor, 210 of 600
+    // with bendFloor 15 -- the floor slows the buzz, it does not silence it; a clean
+    // "beat of thrust, then a beat of nothing" would need true hysteresis, which canBend
+    // deliberately does not have).
+    //
+    // What this check does confirm: bendFloor is sized in the same units as a real second
+    // of thrust, not set to some token value like 1 that would drain in a single frame and
+    // be indistinguishable from no floor at all.
     expect(F.bendFloor / F.breathDrainPerSecond).toBeGreaterThan(0.5)
   })
 })

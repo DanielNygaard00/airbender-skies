@@ -161,6 +161,15 @@ describe('availability in the air', () => {
     expect(can('Hover', gliding({ breath: 0 }))).toBe(false)
   })
 
+  it('withholds thrust and hover below the floor, even with breath to spare', () => {
+    // breath: 0 above does not actually exercise canBend's floor: it reads false whether
+    // canBend is `breath > 0` or `breath >= bendFloor`, so it would not catch hasBreath
+    // being wired to the wrong predicate. 10 is nonzero but under DEFAULT_FLIGHT_CONFIG's
+    // bendFloor of 15, so this is true under the old rule and false under the real one.
+    expect(can('Airbending thrust', gliding({ breath: 10 }))).toBe(false)
+    expect(can('Hover', gliding({ breath: 10 }))).toBe(false)
+  })
+
   it('withholds thrust on the ground', () => {
     expect(can('Airbending thrust')).toBe(false)
   })
