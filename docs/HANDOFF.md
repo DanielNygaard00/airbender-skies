@@ -1383,6 +1383,50 @@ None of this cycle has been played. The browser harness still cannot hold pointe
 every figure above comes from the synthetic-controller test harness described under
 "Repo-specific traps," not from a human with a mouse.
 
+**Pause whenever the mouse is not captured, plus a click-to-play card over the first
+frame.** Before this cycle the game had three separate holes. Escape released the pointer
+lock but the simulation kept running underneath it, so the look direction froze mid-turn
+while the patrol kept closing. Backgrounding the tab did the same — nothing told the loop
+the player had looked away. And the very first frame simulated immediately, with no cue
+telling a new player to click the canvas before anything happened, so a falling spawn was
+already falling before the pointer lock had ever been requested.
+
+`src/core/pause.ts` is the fix's pure core: `pauseReason(i)` takes three booleans
+(`pointerLocked`, `documentHidden`, `guideOpen`) and returns which one is holding the game,
+or `null` exactly when it should run — there is deliberately no separate `isPlaying`
+predicate, since an earlier draft had one and nothing but a test kept the two from
+drifting apart. Pointer lock is now the signal for whether the game runs at all: losing it
+is what Escape does, and `main.ts` tracks `pointerLocked` off `pointerlockchange` rather
+than off any of its own state. `documentHidden` is tracked as a fully separate input,
+off `visibilitychange`, rather than being folded into `pointerLocked` — hiding a tab very
+probably drops the lock too, which would make the second input redundant, but that could
+not be verified in this harness (see below), and keeping it separate gives the right
+answer either way. `src/ui/pause-overlay.ts` renders the card `pauseOverlayModel` describes
+— "Airbender Skies" / "Click to play" before the lock has ever been held, "Paused" / "Click
+to resume" after — and `main.ts`'s `frame()` drives audio from the play/pause transition
+edge, calling `suspend()`/`resume()` on both `createWindAudio()` and `createCombatAudio()`
+only when the state actually flips, not on every paused frame.
+
+**Four claims stayed unverified, plainly, because this harness cannot hold a pointer
+lock** — `requestPointerLock` errors immediately since the harness never receives OS
+focus, and pointer lock is this cycle's whole subject:
+
+1. That pressing Escape actually brings the card up in a real browser.
+2. That clicking the canvas actually takes the card down and resumes the game.
+3. That Chrome's post-Escape re-lock cooldown behaves the way the design assumes.
+4. That suspending both audio contexts actually silences a backgrounded tab.
+
+What *was* verified in the dev server: the card sits in the DOM with the correct
+first-play copy and `pointer-events: none` (so it never steals the click the canvas needs
+to request the lock), and — because the preview pane reports `document.visibilityState ===
+'hidden'`, which this cycle's own `documentHidden` input now treats as a pause reason —
+the game held at frame zero: the HUD's altitude readout never left its pre-first-update
+empty state, including across 300 frames driven with a stepped synthetic clock (the
+`window.requestAnimationFrame` capture-and-drive technique below), because `update()` is
+never called on the paused branch of `frame()`. That confirms the pause holds under a
+real `documentHidden` reading; it says nothing about pointer lock, which no environment
+available here can exercise.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
@@ -1642,7 +1686,16 @@ In the order I would take them:
 1. **Play it.** Nothing here has been played. An hour with the live build will find
    more than the next feature will add, and will tell you which of the tuning values
    above are wrong.
-2. **§4.6's non-lethality scoring is built now.** A knockdown pays `downGain: 14`; a
+2. **Playtest the pause and front-door cycle specifically.** This is the one piece of
+   "play it" that cannot be satisfied by any amount of testing in this environment,
+   because the harness cannot hold a pointer lock. On a real click, confirm: Escape
+   brings the "Paused" card up and stops the simulation; clicking the canvas again takes
+   it down and resumes cleanly, with no banked input firing on the way back in; Chrome's
+   post-Escape re-lock cooldown does not leave the game stuck showing "Click to resume"
+   for a click that silently failed to re-lock; and switching away to another tab and
+   back leaves both the wind and combat audio actually silent while backgrounded, not
+   just paused visually.
+3. **§4.6's non-lethality scoring is built now.** A knockdown pays `downGain: 14`; a
    soldier lost to a fall over the world floor pays `accidentDownGain: 5`, about a
    third. This item previously said the missing piece was giving enemies fall physics
    and "paying that removal more than an in-place knockdown" — both halves were wrong.
@@ -1653,12 +1706,12 @@ In the order I would take them:
    purpose (needs an act structure that does not exist yet), and every accident type
    besides the world floor — water, a crushing prop, one soldier's blast downing
    another are all still unbuilt.
-3. **Archers are built now.** They pressure altitude, which is the axis the whole flight
+4. **Archers are built now.** They pressure altitude, which is the axis the whole flight
    model is about — see "Archers, and the axis that was missing" above for what changed
    and what is still just an unplayed guess. What they unblock is Air Wall and §4.5's
    redirected-projectile Focus source; both are natural candidates for whichever cycle
    comes after playing this one.
-4. **Then either** the terrain API change that unblocks wall-riding, **or** a second
+5. **Then either** the terrain API change that unblocks wall-riding, **or** a second
    region from §3.3 to prove the world structure generalises.
 
 Sections of the design doc are the natural unit of work. Each one is roughly a

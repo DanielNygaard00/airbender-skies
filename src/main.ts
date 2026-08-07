@@ -60,6 +60,8 @@ import { animationFor, chargeSquashScale } from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
 import { createHud, hudModelFor } from './ui/hud'
 import { createGuide, guideModelFor } from './ui/guide/panel'
+import { pauseReason, pauseOverlayModel } from './core/pause'
+import { createPauseOverlay } from './ui/pause-overlay'
 import { canGust, canVortex } from './combat/encounter'
 import { isArmed } from './focus/avatar-state'
 import { createWindAudio } from './fx/audio'
@@ -238,7 +240,22 @@ function start(): void {
   })
 
   const input = new InputTracker(window, canvas)
+  // Pointer lock is the signal for "the mouse is aiming rather than pointing", and losing
+  // it is what Escape does. Before this, Escape released the mouse and the simulation
+  // carried on: the look direction froze wherever it was and the patrol kept closing.
+  let pointerLocked = document.pointerLockElement === canvas
+  let documentHidden = document.hidden
+  /** True from the first time the lock is actually held, which is what "play" means here. */
+  let everStarted = pointerLocked
+  document.addEventListener('pointerlockchange', () => {
+    pointerLocked = document.pointerLockElement === canvas
+    if (pointerLocked) everStarted = true
+  })
+  document.addEventListener('visibilitychange', () => {
+    documentHidden = document.hidden
+  })
   const hud = createHud(document.body)
+  const overlay = createPauseOverlay(document.body)
   // Rebuilt on open rather than per frame: the simulation is paused while the guide is
   // up, so there is nothing to refresh. `canGust` and `isArmed` are asked here rather
   // than inside the guide, so a fight object and an Avatar State never reach the UI.
@@ -882,11 +899,26 @@ function start(): void {
   })
 
   let last = performance.now()
+  /** Whether the previous frame was running, so audio follows the edge and not the state. */
+  let wasPlaying = false
   function frame(now: number): void {
-    if (guide.isOpen()) {
-      // Drain the input edges so a jump pressed just before opening does not fire on
-      // close, and hold `last` at now so no time accumulates to lurch through when it
-      // does. The scene still renders, so the world stays visible behind the panel.
+    const reason = pauseReason({ pointerLocked, documentHidden, guideOpen: guide.isOpen() })
+    overlay.update(pauseOverlayModel(reason, everStarted))
+    const playing = reason === null
+    if (playing !== wasPlaying) {
+      // Driven from the transition rather than called every paused frame: suspend() and
+      // resume() move an AudioContext through a state machine, and a redundant pair of
+      // them on a context that is mid-transition is exactly what produces an audible click.
+      if (playing) { wind.resume(); combatAudio.resume() }
+      else { wind.suspend(); combatAudio.suspend() }
+      wasPlaying = playing
+    }
+    if (!playing) {
+      // Drain the input edges so a jump pressed just before pausing does not fire on
+      // resume, and hold `last` at now so no time accumulates to lurch through when it
+      // does. The scene still renders, so the world stays visible behind the card.
+      // This is the treatment the guide branch already had; the guide is now one of the
+      // reasons rather than the only one.
       input.sample()
       last = now
       renderer.render(scene, camera)

@@ -197,6 +197,11 @@ export const ACTIONS: readonly GameAction[] = [
     key: 'H', name: 'This guide', mode: 'both', available: always,
     detail: 'Opens and closes this panel, and pauses while it is open.',
   },
+  {
+    key: 'Escape', name: 'Pause', mode: 'both', available: always,
+    detail: 'Releases the mouse and pauses the game. Click the canvas to grab the mouse '
+      + 'back and resume.',
+  },
 ]
 
 /**
