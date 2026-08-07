@@ -3,12 +3,12 @@
 Written 2026-07-31, updated 2026-08-04 for the enemy health bars, updated 2026-08-05
 for the impact feel and encounter lifecycle work, and again 2026-08-05 for the aim tell and
 stall readability work, and again 2026-08-06 for archers and projectiles, and again
-2026-08-06 for terrain collision, and again 2026-08-06 for the Slipstream breath cost. This
-is a recap for whoever picks the project up next, including a future session with no memory
-of the work below.
+2026-08-06 for terrain collision, and again 2026-08-06 for the Slipstream breath cost, and
+again 2026-08-07 for the feel batch. This is a recap for whoever picks the project up next,
+including a future session with no memory of the work below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 1367 tests across 86 files,
+**Repo state:** 1379 tests across 86 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -494,9 +494,14 @@ each of them is named in a module a test can import, and none of them is buried 
 (`accidentDownGain`). Not that any of them are right.
 
 `HURT_FLASH_DECAY_PER_SECOND` in particular started life as a `const` in `main.ts` and was moved
-here for exactly this reason. The only derived value left in `main.ts` is the dash kick's decay
-rate, `1 / DEFAULT_GROUND_CONFIG.dashDurationSeconds`, which is not a tuning value at all — it
-falls out of the dash's real duration, and that is where it should stay.
+here for exactly this reason. This section used to say the dash kick's own decay rate should
+stay derived in `main.ts`, as `1 / DEFAULT_GROUND_CONFIG.dashDurationSeconds`, rather than
+named as a tuning value — `dashDurationSeconds` has since been deleted (the feel batch, below,
+found the simulation never actually read it), and the kick now reads a named
+`DASH_KICK_DECAY_PER_SECOND` from `src/fx/config.ts` instead, deliberately keeping its own
+0.22 s lifetime rather than chasing the dash's real and differently-shaped decay. See "The dash
+trail was drawn for a dash that doesn't happen" below for why deriving one from the other would
+have been wrong a second way.
 
 **The aim tell.** `src/fx/aim-tell.ts` gives the gust a preview instead of leaving its reach to
 be learned by throwing it at people. A ground chevron sits `markerDistance` (3 units) along
@@ -1198,6 +1203,103 @@ so no part of this cycle — the breath drain, the gate, the tilt, the sweep abo
 played with a mouse in hand. Every number above comes from the synthetic-controller harness the
 terrain collision and Focus work already used, not from a human.
 
+**The feel batch: four independent, measured defects in systems that already shipped.**
+Each of the four was a mismatch between what a mechanism claimed to do and what it actually
+did, found by measuring rather than by reading the code and trusting it — none needed a
+design decision, and none of the four fixes touched a value that was merely a guess about
+feel.
+
+**1. The air scooter's turn trade did not exist.** `scooterTurnAuthority`
+(`src/player/scooter.ts`) is the design document's "doubles speed and halves steering," and
+`groundStep` fed it into `desiredVelocity`, where it scaled the strafe axis only. On foot the
+heading comes from the camera, not from strafe, so what actually governs a turn is
+`groundResponse` inside `easeHorizontal` — and that function never saw `authority` at all. A
+90-degree turn measured **0.45 s on foot, 0.45 s at charge 0, and 0.45 s at charge 1** —
+identical; the scooter doubled your speed and cost nothing. `authority` now scales
+`easeHorizontal`'s response rate directly and no longer touches the axis inside
+`desiredVelocity`, so there is one mechanism instead of two half-working ones. After:
+**0.45 s on foot (unchanged), 0.8833 s at charge 0** (53/60 exactly, `authority` 0.5 — plain
+`scooterTurnFactor` with no charge spent) **and 1.75 s at charge 1** (exact; `authority`
+0.25, `scooterTurnFactor` minus `scooterChargeTurnPenalty`). Both figures are pinned by
+`toBeCloseTo` assertions in `ground-move.test.ts`, not left sitting in a comment — see the
+process note under "Testing discipline" below for why that distinction turned out to matter.
+
+**2. `Shift` meant three things, and the tangle had a measurable cost.** It was sprint while
+held, the scooter toggle on keydown, and hover in the glider — so the same key that summoned
+the scooter also changed its speed for as long as it stayed down. Measured at identical
+charge 0.26, both genuinely riding: **27.5 m/s with `Shift` held against 14.8 m/s released.**
+The scooter now lives on `Z`; `Shift` keeps sprint and hover, which are the same idea in both
+postures. The README already described the scooter and sprint as two separate keys before
+the code did — the documentation was the honest artifact and the code was the problem, and
+that is the second time in three cycles this exact pattern has shown up (the Slipstream
+dodge's guide text, recorded earlier in this document, was the first). Worth naming as a
+pattern rather than a coincidence: twice now, this codebase's own prose has been a more
+reliable description of the intended design than the mechanism that was supposed to
+implement it.
+
+**3. Thrust buzzed at empty breath, and the fix reduces the buzz rather than removing it.**
+`canBend` was `breath > 0` with no floor, so thrust engaged on **300 of 600 frames** — a 50%
+duty cycle at 30 Hz — as breath oscillated across zero. `bendFloor` at 15 brings that to
+**210 of 600**, a 40% duty cycle. That is a real improvement, but not the improvement
+originally claimed: `canBend` is re-evaluated every frame against the floor, so it gates AT
+15 rather than at 0 and still ping-pongs — just around a higher number. The original claim,
+that the floor would buy "a beat of thrust, then a beat of nothing," was wrong, and is now
+corrected in three places: `src/core/types.ts`'s `bendFloor` doc comment, the comment above
+`canBend` in `src/player/breath.ts`, and `breath.test.ts`. The floor is kept anyway,
+re-justified on what it actually does rather than on what it was hoped to do: thrust now
+needs a real reserve of breath in hand rather than a merely non-zero bar, so an empty bar is
+a genuine interruption regardless of the buzz. **True elimination needs a "was bending" flag
+on `PlayerState`** — hysteresis, not a threshold — and that is the larger improvement and the
+available next step; `breath.test.ts`'s `toBe(210)` is left in place as a tripwire for it, so
+building the flag will turn this assertion red on purpose rather than let it keep passing
+with a meaning that has quietly changed underneath it.
+
+**4. The dash trail was drawn for a dash that doesn't happen.** It was sized
+`dashSpeed × dashDurationSeconds` — a config value the simulation never actually read —
+drawing **5.72 m** for a dash that measures **3.94 m** on foot. `trailLength`
+(`src/fx/dash-trail.ts`) is now `dashSpeed / groundResponse`, which is what `easeHorizontal`
+actually integrates to as it bleeds the dash's impulse off exponentially, and it draws
+**3.714 m**. Marginal displacement is pinned by test at three authorities: on foot
+**3.935161 m**, scooter charge 0 **8.093587 m**, charge 1 **14.619641 m** — the scooter
+spread is the interesting part. Authority scales `groundResponse` directly, so it scales the
+decay *time constant* the same way, and a riding dash travels roughly twice as far at charge
+0 and four times as far at charge 1 as the trail drawn for it. The trail is deliberately not
+resized for either case: it is sized for the common, on-foot case, and scaling it live would
+mean threading the rider's charge down into an effect that currently only takes the static
+config. `dashDurationSeconds` and the never-called `dashDecay` are both deleted from
+`GroundConfig`.
+
+**The FOV kick's decay rate needed correcting alongside finding 4, for a subtler reason than
+"the config value it read is gone."** The dash's camera-FOV kick decays through `stepPulse`,
+and until this cycle its rate was read directly off
+`1 / DEFAULT_GROUND_CONFIG.dashDurationSeconds` — the same value finding 4 deleted. It is now
+a named `DASH_KICK_DECAY_PER_SECOND = 1 / 0.22` in `src/fx/config.ts`, deliberately keeping
+the kick's old 0.22 s lifetime rather than tracking the dash's real decay: the kick is a
+cosmetic camera flourish with no obligation to match the dash's own curve. Reading
+`groundResponse` directly, which an earlier draft of this fix proposed as "the same quantity
+expressed directly," would have been wrong in a different way — `stepPulse` decays linearly
+while the dash decays exponentially, so that substitution would have shortened the kick's
+lifetime by 35% and ended it while 37% of the dash's real burst was still under way.
+
+**A cross-cycle interaction worth recording, because it is benign and easy to assume
+otherwise.** `main` already carries terrain collision and the Slipstream's 28-breath dodge
+cost. The breath bands are now: below 15, neither bend nor dodge; 15 to 27.99, thrust and
+hover but no dodge; 28 and up, both. `bendFloor` *narrows* a "can bend, cannot dodge" band
+that already existed — from (0, 28) to [15, 28) — rather than creating it. The genuinely new
+interaction: a dodge fired between 28 and 42.99 breath now lands below the floor, killing
+thrust and hover for up to 1.25 s where before they would have buzzed at half duty. No
+soft-lock results — a breathless glider still generates lift on its own.
+
+**What is still not done, carried forward rather than fixed here.** The scooter's `clipped`
+tier drop is still hardcoded `false` at `ground-move.ts:85`; terrain collision has since made
+a wall genuinely detectable, via `resolveMovement`'s hit normal, so wiring it in is now
+available rather than blocked. `scooterTurnFactor` (0.5) and `scooterChargeTurnPenalty`
+(0.25) can finally be judged in play instead of retuned blind, now that they drive a
+mechanism that actually turns the player. The breath hysteresis above. And none of this
+cycle has been played — the browser harness still cannot hold pointer lock, so every number
+in this section comes from the synthetic-controller test harness, not from a human with a
+mouse.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
@@ -1266,11 +1368,14 @@ ride lasts and what breaks it — which nothing in `src/player/` does yet.
 is a considered guess, verified by unit tests and isolated renders but never by a
 human playing the game. The most suspect are `hoverDamping`, `weightShiftTurnRate`,
 `baseTurnRate` (dropped from 2.2 to 0.9, which materially changed how the mouse
-feels), `groundResponse`, `dashSpeed`, the scooter accumulator rates, every wind
-strength, every value in `src/focus/config.ts`, the pressureWave block in
-`src/combat/config.ts`, and every lifetime, opacity and tint in `src/fx/`. Treat them as a starting point. Of that last block, the
-damage cliff — where the slam starts downing a soldier in one hit, around 30.6 m/s of
-descent — is the value most worth feeling out by hand.
+feels), `groundResponse`, `dashSpeed`, the scooter accumulator rates, `scooterTurnFactor`
+and `scooterChargeTurnPenalty` (newly worth judging in play now that the feel batch made
+them drive a mechanism that actually turns the player, rather than one that measured
+identically at every charge), every wind strength, every value in `src/focus/config.ts`, the
+pressureWave block in `src/combat/config.ts`, and every lifetime, opacity and tint in
+`src/fx/`. Treat them as a starting point. Of that last block, the damage cliff — where the
+slam starts downing a soldier in one hit, around 30.6 m/s of descent — is the value most
+worth feeling out by hand.
 
 Focus is the one exception, and only partly. Its build-arm-trigger-end cycle was
 exercised in the running game (see the visibility note below): a clean glide fills the
@@ -1399,6 +1504,28 @@ return the identical `(0, 0, 1)` — dot zero and unit length against that headi
 either way. Same failure as the terrain collision cycle's five above it: a relationship that
 both the correct and the broken implementation satisfy. The fix, as always, was reading what the
 test could actually distinguish rather than trusting that a green run meant the claim was true.
+
+**The feel batch produced a new failure shape, sitting beside the eight unfalsifiable
+assertions the previous two cycles recorded above rather than adding a ninth: three
+quantitative claims were asserted from reasoning instead of measured, and each reached
+committed code as an unasserted comment before being caught.** The scooter's turn times were
+first recorded as 0.767 s and 1.633 s — both wrong; the real, measured figures are 0.8833 s
+(53/60 exactly) and 1.75 s (exact). The wrong numbers survived a review round because nothing
+asserted them: they were prose in a comment above code whose actual behaviour nobody had
+re-derived. Separately, a comment claimed a riding dash travels further than the trail drawn
+for it "by less than a frame's worth of movement" — the real gap is 10x and 25x over that
+budget at the scooter's two charge levels, because authority scales `groundResponse`, the
+*rate*, not the impulse, and the reasoning behind the comment had scaled the wrong one. And a
+third comment called the FOV kick's new decay rate "the same quantity expressed directly" as
+the dash's own decay — it is not: `stepPulse` decays linearly while the dash decays
+exponentially, so the same-looking substitution would have shortened the kick's lifetime by
+35%. None of the three were disguised tautologies of the kind this section is usually about;
+the common thread is that a number reached by reasoning was handed onward as fact without
+ever being checked against the thing it described. The countermeasure now in the code: every
+measured figure in this cycle carries an assertion, not a comment — the two pinned turn times
+in `ground-move.test.ts`, and the three pinned displacements in `dash-trail.test.ts`. A wrong
+number in a comment can survive indefinitely; a wrong number in an assertion fails the very
+next run.
 
 ## Suggested next steps
 
