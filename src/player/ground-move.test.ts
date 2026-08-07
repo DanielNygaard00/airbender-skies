@@ -360,11 +360,18 @@ describe('the scooter trades turning for speed', () => {
     // 0.45 -- identical -- because authority scaled the strafe axis, which the camera-
     // relative heading barely uses, instead of the easing rate that actually turns you.
     expect(turnTime(scooterTurnAuthority(0, G))).toBeGreaterThan(turnTime(1) * 1.5)
+    // The exact figure from the comment above, pinned so it cannot drift from the code
+    // unnoticed the way it did the first time this was measured: the comment originally
+    // read 0.767 s here, wrong by a full frame count, and it took a reviewer plus an
+    // independent run to catch it.
+    expect(turnTime(scooterTurnAuthority(0, G))).toBeCloseTo(53 / 60, 3)
   })
 
   it('turns slower still as the accumulator fills', () => {
     expect(turnTime(scooterTurnAuthority(1, G)))
       .toBeGreaterThan(turnTime(scooterTurnAuthority(0, G)))
+    // Same self-enforcement as above: the comment claimed 1.633 s originally, also wrong.
+    expect(turnTime(scooterTurnAuthority(1, G))).toBeCloseTo(7 / 4, 3)
   })
 
   it('leaves an on-foot turn exactly as it was', () => {
