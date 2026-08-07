@@ -14,7 +14,8 @@ back down to a walking stick.
 | `Mouse left` | Staff combo — up to three wide horizontal swings that hit everyone in front of you; keep swinging to continue, the third sweeps wider and shoves much harder | — |
 | `W` / `S` | Walk forward / back | Airbending thrust / flare |
 | `A` / `D` | Strafe | Shift your weight — this is how you steer |
-| `Shift` | Air scooter (tap to ride, tap to step off) — or hold to sprint instead, which also raises the scooter's speed | Hover — hold position in mid-air |
+| `Z` | Air scooter — tap to ride, tap to step off | — |
+| `Shift` | Sprint — stacks with the air scooter, so sprinting while riding is faster than riding alone | Hover — hold position in mid-air |
 | `Q` | Air blast dash — three in a chain, then a short recovery | — |
 | `F` | Gust — a wide sweep of air that knocks enemies back | Gust |
 | `E` | Avatar State — once the pip under your Focus bar is full | Avatar State |

@@ -24,6 +24,29 @@ const LAST_LENGTH = 1.35
 const FIRST_OPACITY = 0.45
 const LAST_OPACITY = 0.85
 
+/**
+ * The distance an impulse of `dashSpeed` covers while `easeHorizontal` bleeds it off at
+ * `groundResponse` -- which is what the dash actually does. It used to be sized from
+ * `dashSpeed * dashDurationSeconds`, 5.72 m, for a dash that covers 3.94 m: that config
+ * value looked live and the simulation never read it, so it has been deleted.
+ *
+ * Authority is taken as 1, the on-foot case: drawn length is then within half a frame's
+ * travel of a real on-foot dash (3.935 m measured against 3.714 m drawn). Riding a
+ * scooter is not free of this gap. Authority scales `groundResponse` directly, so it
+ * scales the decay time constant the same way: a scooter dash travels roughly twice as
+ * far at charge 0 (8.094 m measured, authority 0.5) and four times as far at charge 1
+ * (14.620 m measured, authority 0.25) as the figure this trail draws. The trail is
+ * deliberately not resized for either case -- it is drawn for the common, on-foot case,
+ * and scaling it live would need the rider's charge threaded down to an effect that
+ * currently only takes the static config.
+ *
+ * Exported so a test can compare it against a dash actually driven through `groundStep`,
+ * rather than only checking this formula against itself.
+ */
+export function trailLength(c: GroundConfig): number {
+  return c.dashSpeed / c.groundResponse
+}
+
 export function createDashTrail(
   origin: Vector3,
   heading: Vector3,
@@ -35,7 +58,7 @@ export function createDashTrail(
   const span = Math.max(1, c.maxDashChain - 1)
   const t = MathUtils.clamp((chain - 1) / span, 0, 1)
 
-  const covered = c.dashSpeed * c.dashDurationSeconds
+  const covered = trailLength(c)
   const length = covered * MathUtils.lerp(FIRST_LENGTH, LAST_LENGTH, t)
   const peak = MathUtils.lerp(FIRST_OPACITY, LAST_OPACITY, t)
 

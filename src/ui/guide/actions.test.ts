@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { Vector3 } from 'three'
 import { ACTIONS, actionKeys, type ActionContext } from './actions'
-import { DEFAULT_GROUND_CONFIG } from '../../core/config'
+import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG } from '../../core/config'
 import { DEFAULT_COMBAT_CONFIG } from '../../combat/config'
 import type { PlayerState } from '../../core/types'
 
@@ -21,6 +21,7 @@ const p = (over: Partial<PlayerState> = {}): PlayerState => ({
 const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({
   player: p(),
   ground: DEFAULT_GROUND_CONFIG,
+  flight: DEFAULT_FLIGHT_CONFIG,
   wave: DEFAULT_COMBAT_CONFIG.pressureWave,
   gustReady: true,
   avatarStateReady: false,
@@ -158,6 +159,15 @@ describe('availability in the air', () => {
   it('withholds thrust and hover at empty breath', () => {
     expect(can('Airbending thrust', gliding({ breath: 0 }))).toBe(false)
     expect(can('Hover', gliding({ breath: 0 }))).toBe(false)
+  })
+
+  it('withholds thrust and hover below the floor, even with breath to spare', () => {
+    // breath: 0 above does not actually exercise canBend's floor: it reads false whether
+    // canBend is `breath > 0` or `breath >= bendFloor`, so it would not catch hasBreath
+    // being wired to the wrong predicate. 10 is nonzero but under DEFAULT_FLIGHT_CONFIG's
+    // bendFloor of 15, so this is true under the old rule and false under the real one.
+    expect(can('Airbending thrust', gliding({ breath: 10 }))).toBe(false)
+    expect(can('Hover', gliding({ breath: 10 }))).toBe(false)
   })
 
   it('withholds thrust on the ground', () => {

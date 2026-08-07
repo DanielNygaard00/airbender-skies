@@ -1,4 +1,4 @@
-import { MathUtils, Vector3 } from 'three'
+import { Vector3 } from 'three'
 import type { GroundConfig } from '../core/types'
 
 /**
@@ -73,15 +73,4 @@ export function stepDash(
     state: { used, recovery: used >= c.maxDashChain ? c.dashRecoverySeconds : 0 },
     impulse: direction.multiplyScalar(c.dashSpeed),
   }
-}
-
-/**
- * How much of a dash impulse survives after `elapsed` seconds.
- *
- * The burst decays rather than being a permanent speed gain, so a dash is a
- * displacement tool and cannot be chained into unbounded velocity.
- */
-export function dashDecay(elapsed: number, c: GroundConfig): number {
-  if (c.dashDurationSeconds <= 0) return 0
-  return MathUtils.clamp(1 - elapsed / c.dashDurationSeconds, 0, 1)
 }

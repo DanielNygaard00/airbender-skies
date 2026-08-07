@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { stepBreath, canBend, applyShrineBonus } from './breath'
 import { DEFAULT_FLIGHT_CONFIG as C } from '../core/config'
 
+// F is this file's alias for DEFAULT_FLIGHT_CONFIG, matching the C alias already in use.
+const F = C
+
 const full = { breath: 100, maxBreath: 100 }
 
 describe('stepBreath', () => {
@@ -37,12 +40,28 @@ describe('stepBreath', () => {
 })
 
 describe('canBend', () => {
-  it('is false when out of breath', () => {
-    expect(canBend({ breath: 0, maxBreath: 100 })).toBe(false)
+  it('cannot bend below the floor', () => {
+    expect(canBend({ breath: F.bendFloor - 0.01, maxBreath: 100 }, F)).toBe(false)
   })
 
-  it('is true with breath remaining', () => {
-    expect(canBend({ breath: 0.5, maxBreath: 100 })).toBe(true)
+  it('can bend at exactly the floor', () => {
+    expect(canBend({ breath: F.bendFloor, maxBreath: 100 }, F)).toBe(true)
+  })
+
+  it('bendFloor is a config-shape check, not a behavioural one', () => {
+    // This does not exercise canBend or the duty cycle at all -- it is pure arithmetic on
+    // DEFAULT_FLIGHT_CONFIG, and it passes unchanged even with canBend reverted to
+    // `breath > 0`, because it never calls canBend. See controller.test.ts's "cuts the
+    // duty cycle rather than only moving where it oscillates" for the test that actually
+    // exercises the floor's effect (300 of 600 frames engaged with no floor, 210 of 600
+    // with bendFloor 15 -- the floor slows the buzz, it does not silence it; a clean
+    // "beat of thrust, then a beat of nothing" would need true hysteresis, which canBend
+    // deliberately does not have).
+    //
+    // What this check does confirm: bendFloor is sized in the same units as a real second
+    // of thrust, not set to some token value like 1 that would drain in a single frame and
+    // be indistinguishable from no floor at all.
+    expect(F.bendFloor / F.breathDrainPerSecond).toBeGreaterThan(0.5)
   })
 })
 

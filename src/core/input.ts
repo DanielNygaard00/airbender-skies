@@ -80,8 +80,12 @@ export class InputTracker {
         e.preventDefault()
       }
       // Both are toggles or one-shots, so auto-repeat must not re-fire them either:
-      // a held Shift would otherwise flip the scooter on and off every frame.
-      if (!e.repeat && (e.code === 'ShiftLeft' || e.code === 'ShiftRight')) {
+      // a held key would otherwise flip the scooter on and off every frame. This used to be
+      // Shift, which also meant sprint and hover, so the key that summoned the scooter also
+      // raised its speed while still held -- measured at identical charge, cruise was
+      // 27.5 m/s with Shift held against 14.8 m/s released. Z has no other meaning, so
+      // riding the scooter and sprinting are independent choices now.
+      if (!e.repeat && e.code === 'KeyZ') {
         this.scooterPressed = true
       }
       if (!e.repeat && e.code === 'KeyQ') this.dashPressed = true

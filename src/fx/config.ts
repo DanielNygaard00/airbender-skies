@@ -49,6 +49,22 @@ export interface ShakeConfig {
  */
 export const HURT_FLASH_DECAY_PER_SECOND = 4
 
+/**
+ * How fast the dash's FOV kick fades, in units of full-strength-per-second.
+ *
+ * `stepPulse` decays linearly, so this is `1 / lifetimeSeconds`: a 0.22 s kick, same as
+ * before `dashDurationSeconds` was deleted from `GroundConfig`. That config value never
+ * drove the dash simulation itself -- `easeHorizontal` bleeds the dash impulse off
+ * exponentially at `groundResponse` instead, which is a different curve entirely -- but
+ * this kick is a cosmetic camera flourish with no such obligation, and 0.22 s already
+ * played fine, so there was no reason to also change how long it lasts. Named and kept
+ * here, independent of `GroundConfig`, rather than reusing `groundResponse` and pretending
+ * a linear pulse and an exponential decay are "the same quantity expressed directly" --
+ * they are not: at `groundResponse` 7 that reads as 1/7 s, a 35% shorter kick, and it would
+ * end while 37% of the dash's own burst was still live.
+ */
+export const DASH_KICK_DECAY_PER_SECOND = 1 / 0.22
+
 export const DEFAULT_SHAKE_CONFIG: ShakeConfig = {
   slamMinAmplitude: 0.15,
   slamMaxAmplitude: 0.35,

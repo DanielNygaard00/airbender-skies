@@ -29,6 +29,14 @@ export const DEFAULT_FLIGHT_CONFIG: FlightConfig = {
   breathRegenPerSecond: 12,
   breathRegenGroundedMultiplier: 2.5,
   shrineBreathBonusFraction: 0.1,
+  // canBend is re-evaluated every frame against this floor, so it gates AT the floor
+  // rather than at zero: breath sits at 15, thrust takes it to 14.7, the gate closes,
+  // regeneration walks it back up in about a frame and a half, and it engages again. That
+  // still slows the buzz -- measured at 210 of 600 frames engaged, down from 300 of 600
+  // with no floor -- but it does not stop it, and it does not buy a clean run of thrust.
+  // What the floor buys instead: thrust now needs 15 breath in hand, so an empty bar is a
+  // real interruption rather than something a player can limp along on fumes with.
+  bendFloor: 15,
 }
 
 export function validateFlightConfig(c: FlightConfig): void {
@@ -61,6 +69,13 @@ export function validateFlightConfig(c: FlightConfig): void {
       `FlightConfig.stallSpeed (${c.stallSpeed}) must be below turnRateSpeedRef (${c.turnRateSpeedRef})`,
     )
   }
+  if (!(c.bendFloor > 0) || !(c.bendFloor < c.baseMaxBreath)) {
+    throw new Error(
+      `FlightConfig.bendFloor (${c.bendFloor}) must sit strictly between 0 and ` +
+      `baseMaxBreath (${c.baseMaxBreath}): at 0 there is no floor and at the ceiling the ` +
+      'glider could never bend at all',
+    )
+  }
 }
 
 import type { GroundConfig } from './types'
@@ -91,7 +106,6 @@ export const DEFAULT_GROUND_CONFIG: GroundConfig = {
   scooterTierDrop: 0.34,
   maxDashChain: 3,
   dashSpeed: 26,
-  dashDurationSeconds: 0.22,
   dashRecoverySeconds: 0.7,
 }
 

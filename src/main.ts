@@ -69,7 +69,8 @@ import {
 } from './fx/hitstop'
 import { noShake, triggerShake, stepShake, shakeOffset, slamShakeAmplitude } from './fx/shake'
 import {
-  DEFAULT_HITSTOP_CONFIG, DEFAULT_SHAKE_CONFIG, HURT_FLASH_DECAY_PER_SECOND,
+  DASH_KICK_DECAY_PER_SECOND, DEFAULT_HITSTOP_CONFIG, DEFAULT_SHAKE_CONFIG,
+  HURT_FLASH_DECAY_PER_SECOND,
 } from './fx/config'
 import { stepPulse } from './fx/pulse'
 import { impactTargets } from './fx/impact-targets'
@@ -246,6 +247,7 @@ function start(): void {
     guide.update(guideModelFor({
       player,
       ground: DEFAULT_GROUND_CONFIG,
+      flight: DEFAULT_FLIGHT_CONFIG,
       wave: DEFAULT_COMBAT_CONFIG.pressureWave,
       gustReady: canGust(encounter),
       avatarStateReady: isArmed(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
@@ -490,9 +492,10 @@ function start(): void {
       ))
       dashKick = 1
     }
-    // Decays over roughly the dash's own duration, so the kick is gone by the time the
-    // burst is.
-    dashKick = stepPulse(dashKick, dt, 1 / DEFAULT_GROUND_CONFIG.dashDurationSeconds)
+    // A cosmetic camera flourish, not a restatement of the dash's own decay -- see
+    // DASH_KICK_DECAY_PER_SECOND for why it keeps its own 0.22 s lifetime rather than
+    // borrowing groundResponse, which decays a different curve at a different rate.
+    dashKick = stepPulse(dashKick, dt, DASH_KICK_DECAY_PER_SECOND)
 
     // A Slipstream fired iff its elapsed timer went from null to running this frame,
     // the same before/after comparison the dash trail above uses. The origin is where

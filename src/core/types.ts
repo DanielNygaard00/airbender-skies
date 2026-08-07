@@ -164,6 +164,21 @@ export interface FlightConfig {
   breathRegenGroundedMultiplier: number
   /** Each shrine adds this fraction of baseMaxBreath to the maximum. */
   shrineBreathBonusFraction: number
+  /**
+   * Breath needed to start bending, as opposed to zero.
+   *
+   * Without a floor, an empty bar oscillates: regeneration adds a fraction, the drain takes
+   * slightly more, and thrust flickers on and off every other frame -- measured at 300 of
+   * 600 frames engaged, which reads as a buzz rather than as exhaustion.
+   *
+   * The floor slows that buzz rather than silencing it: canBend is re-evaluated every
+   * frame with no memory of "was already bending", so it gates at the floor the same way
+   * the old code gated at zero. Measured with bendFloor 15: 210 of 600 frames still
+   * engaged, down from 300. The floor's independent, still-valid value is that thrust now
+   * needs a real reserve of breath rather than a merely non-zero bar -- see canBend in
+   * breath.ts for the full account and why true elimination is a separate piece of work.
+   */
+  bendFloor: number
 }
 
 export interface GroundConfig {
@@ -218,8 +233,6 @@ export interface GroundConfig {
   maxDashChain: number
   /** Speed added by one dash. */
   dashSpeed: number
-  /** How long a dash impulse takes to decay away. */
-  dashDurationSeconds: number
   /** Recovery owed once the chain is spent. */
   dashRecoverySeconds: number
 }

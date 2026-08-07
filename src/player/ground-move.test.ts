@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { groundStep, desiredVelocity, horizontalForward } from './ground-move'
+import { groundStep, desiredVelocity, easeHorizontal, horizontalForward } from './ground-move'
+import { scooterTurnAuthority } from './scooter'
 import { DEFAULT_GROUND_CONFIG as G, DEFAULT_COLLISION_CONFIG as COLLISION } from '../core/config'
 import type { InputState, PlayerState, TerrainQuery } from '../core/types'
 
@@ -331,6 +332,52 @@ describe('the air scooter on the ground', () => {
     const clean = settle({}, 3, mount())
     const carving = settle({ strafe: 1 }, 2, clean)
     expect(carving.scooterCharge).toBeLessThan(clean.scooterCharge)
+  })
+})
+
+describe('the scooter trades turning for speed', () => {
+  /** Seconds for velocity to come within 0.05 rad of a 90-degree change of desired heading. */
+  const turnTime = (authority: number) => {
+    const north = input({ forward: 1, sprint: true, lookDirection: new Vector3(0, 0, -1) })
+    const east = input({ forward: 1, sprint: true, lookDirection: new Vector3(1, 0, 0) })
+    let v = desiredVelocity(north, G)
+    const target = desiredVelocity(east, G)
+    for (let frame = 0; frame < 1200; frame++) {
+      if (v.angleTo(target) < 0.05) return frame / 60
+      v = easeHorizontal(v, target, 1 / 60, G, authority)
+    }
+    return Infinity
+  }
+
+  // Measured by running this exact helper against this exact code, after moving authority
+  // from the strafe axis to the easing rate (step 4 of the task-1 brief): 0.45 s on foot
+  // (authority 1, unchanged), 0.8833 s at charge 0 (rounded from 53/60 s exactly; authority
+  // 0.5, i.e. scooterTurnFactor with no charge spent), and 1.75 s at charge 1 (exact;
+  // authority 0.25, i.e. scooterTurnFactor 0.5 minus scooterChargeTurnPenalty 0.25). The
+  // spec's back-of-envelope guess of roughly 0.9 s and 1.8 s was close.
+  it('turns slower on a scooter than on foot', () => {
+    // The measurement that made this a defect: before the fix these were 0.45, 0.45 and
+    // 0.45 -- identical -- because authority scaled the strafe axis, which the camera-
+    // relative heading barely uses, instead of the easing rate that actually turns you.
+    expect(turnTime(scooterTurnAuthority(0, G))).toBeGreaterThan(turnTime(1) * 1.5)
+    // The exact figure from the comment above, pinned so it cannot drift from the code
+    // unnoticed the way it did the first time this was measured: the comment originally
+    // read 0.767 s here, wrong by a full frame count, and it took a reviewer plus an
+    // independent run to catch it.
+    expect(turnTime(scooterTurnAuthority(0, G))).toBeCloseTo(53 / 60, 3)
+  })
+
+  it('turns slower still as the accumulator fills', () => {
+    expect(turnTime(scooterTurnAuthority(1, G)))
+      .toBeGreaterThan(turnTime(scooterTurnAuthority(0, G)))
+    // Same self-enforcement as above: the comment claimed 1.633 s originally, also wrong.
+    expect(turnTime(scooterTurnAuthority(1, G))).toBeCloseTo(7 / 4, 3)
+  })
+
+  it('leaves an on-foot turn exactly as it was', () => {
+    // authority defaults to 1, so nothing off a scooter changes. If this moves, the fix
+    // has leaked into ordinary running.
+    expect(turnTime(1)).toBeCloseTo(0.45, 2)
   })
 })
 
