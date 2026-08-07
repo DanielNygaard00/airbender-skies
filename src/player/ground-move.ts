@@ -116,11 +116,20 @@ export function groundStep(
   // Added after easing and the dash impulse, not folded into `desired` before them: both of
   // those already settled on a velocity this frame, and the air is a further push on top of
   // that outcome, the same way the dash's own impulse is added on top rather than eased
-  // toward. Folding it earlier would let `easeHorizontal`'s exponential blend chase it like
-  // stick input, smearing an instantaneous acceleration into something that ramps in over
-  // the response time instead of applying in full this frame -- and it would let the
-  // scooter's reduced turn authority mute how hard the world's air pushes a rider around,
-  // which has nothing to do with steering.
+  // toward, rather than being treated as something the player asked for.
+  //
+  // A consequence of landing in `state.velocity` this way, worth knowing rather than
+  // avoiding: next frame `easeHorizontal` blends whatever is sitting there back toward the
+  // stick's desired velocity (zero with no input held), so the horizontal push does not
+  // accumulate indefinitely -- it settles at a plateau of `accel / c.groundResponse`
+  // (measured: 18.1623 for the 120 m/s^2 river below, against a nominal groundResponse of
+  // 7), the fixed point of "push once, decay once" repeated every frame. The vertical
+  // component has no such decay counterpart -- gravity's own term is undamped -- so it
+  // integrates without bound instead, which is why a sustained updraft keeps climbing while
+  // a sustained river settles into a fixed drift speed rather than accelerating forever.
+  // The scooter's reduced turn authority cannot be part of that story either way: stepScooter
+  // deactivates the scooter the instant the body leaves the ground, and wind here only ever
+  // applies while airborne, so the two conditions never overlap.
   //
   // wind.liftScale is deliberately ignored. It multiplies a wing's own lift, and a body
   // without a wing has none to scale, so dead air does nothing on foot. That is correct:
