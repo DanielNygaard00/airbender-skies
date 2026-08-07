@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3, MathUtils } from 'three'
-import { clampPitch, lookDirectionFrom, toInputState, PITCH_LIMIT } from './input'
+import { clampPitch, lookDirectionFrom, toInputState, InputTracker, PITCH_LIMIT } from './input'
 
 describe('clampPitch', () => {
   it('leaves a level view alone', () => {
@@ -90,6 +90,56 @@ describe('toInputState', () => {
     expect(s.forward).toBe(0)
     expect(s.strafe).toBe(0)
     expect(s.sprint).toBe(false)
+  })
+
+})
+
+/**
+ * `scooterPressed` is an edge flag `InputTracker`'s own `keydown` listener sets, not
+ * something `toInputState` derives from the held set -- so a `toInputState`-only test of
+ * the binding would pass unchanged if the listener still keyed off `ShiftLeft`, which is
+ * exactly the kind of assertion that cannot fail. Dispatching a real `keydown` at a tracker
+ * and reading `scooterPressed` off `sample()` is the version with teeth. `Event` stands in
+ * for `KeyboardEvent`, which the Node test environment does not provide: the listener only
+ * reads `.code`, `.repeat` and calls `.preventDefault()`, all of which a plain `Event` with
+ * `code`/`repeat` assigned onto it satisfies at runtime.
+ */
+const keydown = (code: string, repeat = false) =>
+  Object.assign(new Event('keydown'), { code, repeat }) as KeyboardEvent
+
+const fakeCanvas = {
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  requestPointerLock: () => {},
+} as unknown as HTMLCanvasElement
+
+describe('InputTracker and the scooter key', () => {
+  it('rides the scooter on Z', () => {
+    const target = new EventTarget()
+    const tracker = new InputTracker(target, fakeCanvas)
+    target.dispatchEvent(keydown('KeyZ'))
+    expect(tracker.sample().scooterPressed).toBe(true)
+  })
+
+  it('no longer rides the scooter on Shift', () => {
+    // Shift used to toggle the scooter as well as meaning sprint and hover, so the key
+    // that summoned it also changed its speed while still held -- measured at identical
+    // charge, cruise was 27.5 m/s with Shift held against 14.8 m/s released.
+    const target = new EventTarget()
+    const tracker = new InputTracker(target, fakeCanvas)
+    target.dispatchEvent(keydown('ShiftLeft'))
+    const state = tracker.sample()
+    expect(state.scooterPressed).toBe(false)
+    expect(state.sprint).toBe(true)
+  })
+
+  it('does not re-fire the toggle on auto-repeat', () => {
+    const target = new EventTarget()
+    const tracker = new InputTracker(target, fakeCanvas)
+    target.dispatchEvent(keydown('KeyZ'))
+    tracker.sample() // Clears the edge from the first, real press.
+    target.dispatchEvent(keydown('KeyZ', true))
+    expect(tracker.sample().scooterPressed).toBe(false)
   })
 })
 

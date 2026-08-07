@@ -18,20 +18,21 @@ export function horizontalForward(lookDirection: Vector3): Vector3 {
 /**
  * Camera-relative desired horizontal velocity. Normalised so diagonals are not faster.
  *
- * `speedScale` carries the scooter's speed multiplier, and `authority` scales the
- * steering component, which is how riding trades manoeuvrability for speed.
+ * `speedScale` still carries the scooter's speed multiplier. Steering is no longer this
+ * function's business: it used to also take an `authority` that scaled the strafe axis
+ * here, but the heading comes from the camera, not from strafe, so that scaling barely
+ * touched the turn — see `easeHorizontal`, which is where authority actually lives now.
  */
 export function desiredVelocity(
   input: InputState,
   c: GroundConfig,
   speedScale = 1,
-  authority = 1,
 ): Vector3 {
   const forward = horizontalForward(input.lookDirection)
   const right = new Vector3().crossVectors(forward, WORLD_UP).normalize()
   const move = forward
     .multiplyScalar(input.forward)
-    .addScaledVector(right, input.strafe * authority)
+    .addScaledVector(right, input.strafe)
   if (move.lengthSq() < 1e-8) return new Vector3()
   const base = input.sprint ? c.runSpeed : c.walkSpeed
   return move.normalize().multiplyScalar(base * speedScale)
@@ -40,17 +41,25 @@ export function desiredVelocity(
 /**
  * Ease horizontal velocity towards what the player asked for.
  *
- * The design doc's air-assisted run has soft acceleration and slides on stops, so
- * ground speed chases the stick rather than snapping to it. Exponential easing is
- * used so the result is independent of frame rate.
+ * The design doc's air-assisted run has soft acceleration and slides on stops, so ground
+ * speed chases the stick rather than snapping to it. Exponential easing is used so the
+ * result is independent of frame rate.
+ *
+ * `authority` is how much steering the mover keeps, 1 being full on-foot control. It scales
+ * the response rate, because that is what actually turns you: the heading comes from the
+ * camera, so a rider who kept full response would carve exactly as tightly as a runner no
+ * matter what the accumulator said. It used to scale the strafe axis inside
+ * `desiredVelocity` instead, which measured as no effect at all -- a 90-degree turn took
+ * 0.45 seconds on foot, at charge 0 and at charge 1 alike.
  */
 export function easeHorizontal(
   current: Vector3,
   desired: Vector3,
   dt: number,
   c: GroundConfig,
+  authority = 1,
 ): Vector3 {
-  const blend = 1 - Math.exp(-c.groundResponse * dt)
+  const blend = 1 - Math.exp(-c.groundResponse * authority * dt)
   return new Vector3(
     current.x + (desired.x - current.x) * blend,
     0,
@@ -81,10 +90,10 @@ export function groundStep(
   const speedScale = scooter.active ? scooterSpeedMultiplier(scooter.charge, c) : 1
   const authority = scooter.active ? scooterTurnAuthority(scooter.charge, c) : 1
 
-  const desired = desiredVelocity(input, c, speedScale, authority)
-    .multiplyScalar(jump.walkFactor)
-  // Eased rather than assigned, so the run leans into turns and slides on stops.
-  const horizontal = easeHorizontal(state.velocity, desired, dt, c)
+  const desired = desiredVelocity(input, c, speedScale).multiplyScalar(jump.walkFactor)
+  // Eased rather than assigned, so the run leans into turns and slides on stops -- and at
+  // reduced authority the lean becomes a genuine cost, which is the scooter's whole trade.
+  const horizontal = easeHorizontal(state.velocity, desired, dt, c, authority)
 
   // The dash is an impulse on top, which is what lets it cancel out of anything.
   const dash = stepDash(

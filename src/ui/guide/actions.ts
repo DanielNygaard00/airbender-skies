@@ -97,15 +97,16 @@ export const ACTIONS: readonly GameAction[] = [
     detail: 'This is how you steer. The mouse only trims; the turn comes from here.',
   },
   {
-    key: 'Shift', press: 'tap', name: 'Air scooter', mode: 'ground', available: standing,
+    key: 'Z', press: 'tap', name: 'Air scooter', mode: 'ground', available: standing,
     detail: 'Tap to ride, tap to step off. Doubles your speed and halves your steering; ' +
       'holding a clean line builds a hidden charge that makes it faster still. Leaving ' +
       'the ground — a jump, a fall off a ledge, or stepping off — stows it and loses the charge.',
   },
   {
     key: 'Shift', press: 'hold', name: 'Sprint', mode: 'ground', available: onGround,
-    detail: 'Hold to run instead of walk, nearly doubling your base speed. It stacks with ' +
-      'the air scooter too — riding with Shift held is faster than riding without it.',
+    detail: 'Hold to run instead of walk, nearly doubling your base speed. Independent of ' +
+      'the scooter, and it stacks with riding one — sprinting on a scooter is faster than ' +
+      'riding without it.',
   },
   {
     key: 'Shift', press: 'hold', name: 'Hover', mode: 'glider', available: hasBreath,
