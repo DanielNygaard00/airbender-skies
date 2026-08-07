@@ -3,6 +3,7 @@ import { Vector3 } from 'three'
 import { groundStep, desiredVelocity, easeHorizontal, horizontalForward } from './ground-move'
 import { scooterTurnAuthority } from './scooter'
 import { DEFAULT_GROUND_CONFIG as G, DEFAULT_COLLISION_CONFIG as COLLISION } from '../core/config'
+import { stillAir, type WindSample } from '../world/wind'
 import type { InputState, PlayerState, TerrainQuery } from '../core/types'
 
 /** Flat ground at y=0 everywhere, so movement can be reasoned about exactly. */
@@ -416,6 +417,88 @@ describe('the air-assisted run', () => {
     }
     const released = groundStep(s, input({ forward: 0 }), 1 / 60, flatGround, G, COLLISION)
     expect(Math.hypot(released.velocity.x, released.velocity.z)).toBeGreaterThan(0)
+  })
+})
+
+describe('the air acts on a body that is off the ground', () => {
+  const UPDRAFT = { accel: new Vector3(0, 500, 0), liftScale: 1 }
+  const RIVER = { accel: new Vector3(120, 0, 0), liftScale: 1 }
+  /** Both an updraft and a river at once, so bracing has to hold on both axes at once. */
+  const GALE = { accel: new Vector3(120, 500, 0), liftScale: 1 }
+
+  /** One second of falling from y 200 over the void, with and without the air. */
+  const fallTo = (wind: WindSample) => {
+    let s = player({ position: new Vector3(0, 200, 0), grounded: false, velocity: new Vector3() })
+    for (let frame = 0; frame < 60; frame++) {
+      s = groundStep(s, input(), 1 / 60, voidWorld, G, COLLISION, wind)
+    }
+    return s.position
+  }
+
+  it('lifts a falling player in an updraft', () => {
+    // Measured before this change: still air and a 500 m/s^2 updraft both put the player
+    // at y 189.8 after a second -- indistinguishable, because groundStep never saw the
+    // air at all. Compared against the still-air control rather than against a bound,
+    // so the assertion cannot be satisfied by the broken behaviour.
+    //
+    // Measured after this change, against this exact code: still air lands at y
+    // 189.8333 (unchanged), and the 500 m/s^2 updraft carries the player up to y 444
+    // instead of down. Both are pinned so neither figure can drift unnoticed.
+    expect(fallTo(stillAir()).y).toBeCloseTo(189.8333, 4)
+    expect(fallTo(UPDRAFT).y).toBeCloseTo(444, 4)
+    expect(fallTo(UPDRAFT).y).toBeGreaterThan(fallTo(stillAir()).y)
+  })
+
+  it('carries a falling player along a river', () => {
+    // Measured against this exact code: a second of falling through a 120 m/s^2
+    // horizontal river carries the player to x 15.7183, against x 0 in still air.
+    expect(fallTo(stillAir()).x).toBeCloseTo(0, 4)
+    expect(fallTo(RIVER).x).toBeCloseTo(15.7183, 4)
+    expect(fallTo(RIVER).x).toBeGreaterThan(fallTo(stillAir()).x)
+  })
+
+  it('leaves a grounded player braced against it', () => {
+    // The airborne limit. A player standing on rock is braced, and pushing them would also
+    // fight the ground snap, which owns vertical placement for a grounded body.
+    //
+    // Uses GALE rather than the vertical-only UPDRAFT: UPDRAFT's horizontal accel is zero,
+    // so a guard that dropped only the horizontal half of the airborne check (leaving the
+    // vertical half intact) would still pass an x-only wind test -- and it would still leave
+    // a grounded player sliding sideways through a level's river with no key held. Asserting
+    // both axes against a wind that has both components is what actually exercises that.
+    const grounded = () => {
+      let s = player({ position: new Vector3(0, 0, 0), grounded: true })
+      for (let frame = 0; frame < 60; frame++) {
+        s = groundStep(s, input(), 1 / 60, flatGround, G, COLLISION, GALE)
+      }
+      return s.position
+    }
+    expect(grounded().x).toBeCloseTo(0, 6)
+    expect(grounded().y).toBeCloseTo(0, 6)
+  })
+
+  it('does not let dead air zero out the whole vertical velocity, only a wing\'s own lift', () => {
+    // Dead air is defined as a volume where a wing stops working, not one where gravity
+    // changes. So it must do nothing at all on foot.
+    //
+    // Scope note: this catches liftScale being applied to the whole settled velocityY (as it
+    // would be if someone copied the glider's pattern of scaling its lift term wholesale).
+    // It does NOT catch liftScale multiplying only the wind's own contribution
+    // (`wind.accel.y * dt * wind.liftScale`) while leaving gravity's term alone, because
+    // `dead.accel` is the zero vector here and 0 times any liftScale is still 0. See the
+    // task-1 report for the neutralisation that exposed this gap.
+    const dead = { accel: new Vector3(), liftScale: 0 }
+    expect(fallTo(dead).toArray()).toEqual(fallTo(stillAir()).toArray())
+  })
+
+  it('defaults to still air when no sample is given', () => {
+    let withDefault = player({ position: new Vector3(0, 200, 0), grounded: false })
+    let explicit = player({ position: new Vector3(0, 200, 0), grounded: false })
+    for (let frame = 0; frame < 60; frame++) {
+      withDefault = groundStep(withDefault, input(), 1 / 60, voidWorld, G, COLLISION)
+      explicit = groundStep(explicit, input(), 1 / 60, voidWorld, G, COLLISION, stillAir())
+    }
+    expect(withDefault.position.toArray()).toEqual(explicit.position.toArray())
   })
 })
 

@@ -6,6 +6,7 @@ import {
   DEFAULT_SLIPSTREAM_CONFIG, DEFAULT_STAFF_CONFIG,
 } from '../core/config'
 import { isSwinging, staffBusy, staffOf } from './staff'
+import { stillAir } from '../world/wind'
 import type { InputState, PlayerState, TerrainQuery } from '../core/types'
 
 const flatGround: TerrainQuery = {
@@ -376,6 +377,84 @@ describe('the controller flies through the level\'s wind', () => {
       ...deps(voidWorld), windAt: () => ({ accel: new Vector3(), liftScale: 1 }),
     })
     expect(before.velocity.y).toBeCloseTo(explicit.velocity.y, 9)
+  })
+})
+
+describe('the ground branch feels the air too', () => {
+  it('feeds the air to a falling player on foot, not only to the glider', () => {
+    // groundStep's wind parameter defaults to still air, so the danger is that the wiring
+    // is simply absent and every test still passes. This is the test of the wiring.
+    const windy = { ...deps(voidWorld), windAt: () => ({ accel: new Vector3(0, 500, 0), liftScale: 1 }) }
+    const calm = deps(voidWorld)
+    const start = player({ position: new Vector3(0, 200, 0), grounded: false, velocity: new Vector3() })
+    let lifted = start
+    let falling = start
+    for (let frame = 0; frame < 60; frame++) {
+      lifted = controllerStep(lifted, input(), 1 / 60, windy)
+      falling = controllerStep(falling, input(), 1 / 60, calm)
+    }
+    expect(lifted.position.y).toBeGreaterThan(falling.position.y)
+  })
+
+  it('asks the air about the direction the character faces', () => {
+    // A ridge lifts anyone moving along its face and a river carries anyone moving with it,
+    // so the heading is part of the question. This asserts the argument reaches the sampler
+    // rather than that some heading was passed.
+    const seen: Vector3[] = []
+    const spying = {
+      ...deps(voidWorld),
+      windAt: (_p: Vector3, forward: Vector3) => { seen.push(forward.clone()); return stillAir() },
+    }
+    const facing = new Vector3(1, 0, 0)
+    controllerStep(
+      player({ position: new Vector3(0, 200, 0), grounded: false, forward: facing }),
+      input(), 1 / 60, spying,
+    )
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen[0]!.x).toBeCloseTo(1, 6)
+  })
+
+  it('leaves a glide exactly as it was', () => {
+    // "Do not touch the glider" is an intention, and intentions need tests. A glide with a
+    // sampler present must land where it did before this cycle -- including the *ordering*
+    // of the sample relative to steerToward, which is the actual thing "do not touch"
+    // protects: the glider samples wind with its steered heading, after steerToward has run,
+    // so ridge lift responds to trimming.
+    //
+    // The first version of this test used `windAt: () => stillAir()` with lookDirection
+    // equal to forward, and it could not have caught that ordering moving: a constant
+    // sampler ignores the heading argument outright, and steerToward was a no-op because
+    // there was nothing to steer toward -- sampling before or after it produced the exact
+    // same pin either way. This fixture is heading-sensitive, the way a real ridge is (lift
+    // scales with alignment to the ridge's axis), and the glide is trimmed -- lookDirection
+    // differs from forward, so steerToward actually turns the nose over the run -- so the
+    // two orderings diverge and the pin can tell them apart.
+    const RIDGE_AXIS = new Vector3(1, 0, 0)
+    const ridgeStrength = 15
+    const ridgeSampler = (_p: Vector3, forward: Vector3) => {
+      const flat = new Vector3(forward.x, 0, forward.z)
+      if (flat.lengthSq() > 1e-8) flat.normalize()
+      const along = Math.abs(flat.dot(RIDGE_AXIS))
+      return { accel: new Vector3(0, ridgeStrength * along, 0), liftScale: 1 }
+    }
+    const windy = { ...deps(flatGround), windAt: ridgeSampler }
+    let g = player({
+      mode: 'glider', position: new Vector3(0, 300, 0), velocity: new Vector3(0, 0, -30),
+      forward: new Vector3(0, 0, -1), grounded: false,
+    })
+    // Trimmed: lookDirection points off to the side of forward, so steerToward spends the
+    // whole run turning the nose toward it rather than holding a heading that is already met.
+    const look = new Vector3(1, 0, -1).normalize()
+    for (let frame = 0; frame < 120; frame++) {
+      g = controllerStep(g, input({ lookDirection: look }), 1 / 60, windy)
+    }
+    // Measured against this exact code, stable across repeated runs (deterministic
+    // simulation, no RNG involved), and asserted so a later change to the glider's wind
+    // sampling -- including moving it ahead of steerToward -- cannot pass unnoticed. Moving
+    // the sample before steerToward (using state.forward in place of the steered `forward`)
+    // was checked against this test and reddened it: see the task-1 report for the figures.
+    expect(g.position.y).toBeCloseTo(299.7147, 4)
+    expect(g.position.z).toBeCloseTo(-44.7840, 4)
   })
 })
 

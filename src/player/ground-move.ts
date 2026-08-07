@@ -5,6 +5,7 @@ import { stepScooter, scooterSpeedMultiplier, scooterTurnAuthority } from './sco
 import { stepDash } from './dash'
 import { raycastDown } from '../world/terrain-query'
 import { resolveMovement, type CollisionConfig } from '../world/collision'
+import { stillAir, type WindSample } from '../world/wind'
 
 const WORLD_UP = new Vector3(0, 1, 0)
 
@@ -74,6 +75,7 @@ export function groundStep(
   terrain: TerrainQuery,
   c: GroundConfig,
   collision: CollisionConfig,
+  wind: WindSample = stillAir(),
 ): PlayerState {
   const jump = stepJump(state, input, dt, c)
 
@@ -106,9 +108,44 @@ export function groundStep(
   )
   if (dash.impulse) horizontal.add(dash.impulse)
 
+  // The air, applied only while airborne: a player standing on rock is braced against a
+  // thermal, and pushing a grounded body would fight the ground snap, which owns vertical
+  // placement down there. Same division of labour terrain collision already keeps -- one
+  // system owns the surface and the others leave it alone.
+  //
+  // Added after easing and the dash impulse, not folded into `desired` before them: both of
+  // those already settled on a velocity this frame, and the air is a further push on top of
+  // that outcome, the same way the dash's own impulse is added on top rather than eased
+  // toward, rather than being treated as something the player asked for.
+  //
+  // A consequence of landing in `state.velocity` this way, worth knowing rather than
+  // avoiding: next frame `easeHorizontal` blends whatever is sitting there back toward the
+  // stick's desired velocity (zero with no input held), so the horizontal push does not
+  // accumulate indefinitely -- it settles at a plateau of `accel / c.groundResponse`
+  // (measured: 18.1623 for the 120 m/s^2 river below, against a nominal groundResponse of
+  // 7), the fixed point of "push once, decay once" repeated every frame. The vertical
+  // component has no such decay counterpart -- gravity's own term is undamped -- so it
+  // integrates without bound instead, which is why a sustained updraft keeps climbing while
+  // a sustained river settles into a fixed drift speed rather than accelerating forever.
+  // The scooter's reduced turn authority cannot be part of that story either way: stepScooter
+  // deactivates the scooter the instant the body leaves the ground, and wind here only ever
+  // applies while airborne, so the two conditions never overlap.
+  //
+  // wind.liftScale is deliberately ignored. It multiplies a wing's own lift, and a body
+  // without a wing has none to scale, so dead air does nothing on foot. That is correct:
+  // dead air is a volume where a wing stops working, not one where gravity changes.
+  const airborne = !state.grounded
+  if (airborne) {
+    horizontal.x += wind.accel.x * dt
+    horizontal.z += wind.accel.z * dt
+  }
+
+  // Gravity, then the air. The ternary's first branch, a jump frame, overrides velocityY
+  // outright, so the air does not add to the instant of a jump -- only to the arc after
+  // it: a jump's height is the jump's, and the air acts on the flight that follows.
   const velocityY = jump.jumpVelocityY !== null
     ? jump.jumpVelocityY
-    : state.velocity.y - c.gravity * dt
+    : state.velocity.y - c.gravity * dt + (airborne ? wind.accel.y * dt : 0)
 
   const velocity = new Vector3(horizontal.x, velocityY, horizontal.z)
   const target = state.position.clone().addScaledVector(velocity, dt)

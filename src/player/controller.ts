@@ -188,7 +188,14 @@ export function controllerStep(
         grounded: false,
       }
     } else {
-      next = groundStep(state, input, dt, deps.terrain, deps.ground, deps.collision)
+      // Sampled with state.forward, which on foot is the flattened camera direction --
+      // where the character faces. Ridge lift and rivers ask which way the sampler points,
+      // so a falling player who turns to look along a river gets carried by it. The glider
+      // asks the same question with its steered heading, after steerToward has run; that
+      // sample stays where it is, because moving it would change which heading the glider
+      // asks with and its flight is the most heavily tested behaviour here.
+      const groundWind = deps.windAt ? deps.windAt(state.position, state.forward) : stillAir()
+      next = groundStep(state, input, dt, deps.terrain, deps.ground, deps.collision, groundWind)
     }
 
     // Gated on next.mode, not state.mode: a press that lands on the same frame the
