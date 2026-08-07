@@ -624,3 +624,37 @@ describe('the glider does not pass through terrain', () => {
     expect(withWall.position.toArray()).toEqual(without.position.toArray())
   })
 })
+
+describe('an exhausted glider does not buzz', () => {
+  /** Frames out of 600 on which thrust actually engaged, holding W from empty. */
+  const engagedFrames = () => {
+    let p = player({
+      mode: 'glider', breath: 0, grounded: false,
+      position: new Vector3(0, 300, 0), velocity: new Vector3(0, 0, -30),
+    })
+    let engaged = 0
+    for (let frame = 0; frame < 600; frame++) {
+      const before = p.breath
+      p = controllerStep(p, input({ forward: 1 }), 1 / 60, deps(flatGround))
+      // Breath failing to rise means the drain ran, which means thrust engaged.
+      if (p.breath <= before) engaged++
+    }
+    return engaged
+  }
+
+  it('cuts the duty cycle rather than only moving where it oscillates', () => {
+    // Measured before the fix: 300 of 600 frames, a 50 percent duty cycle at 30 Hz.
+    // A test asserting only "cannot bend at exactly 0" passes today and catches nothing.
+    //
+    // The floor does not reach zero engaged frames: `canBend` is a plain threshold with
+    // no memory of "was already bending" (deliberately -- see breath.ts), so once breath
+    // is back up at the floor it still ping-pongs across it, one drained frame at a time.
+    // What the floor buys is a 1.25 s delay before the first re-engagement (regenerating
+    // from 0 up to bendFloor 15 at 12/s) and a lower duty cycle once it starts (measured
+    // at 210 of 600 here, against 300 of 600 with no floor) -- slower and less frequent,
+    // not silent. Eliminating the chatter entirely would need true hysteresis and a
+    // "was bending" field on PlayerState, which is deliberately out of scope; see the
+    // task report for why 210 is accepted as the real fix rather than chasing 0.
+    expect(engagedFrames()).toBe(210)
+  })
+})

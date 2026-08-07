@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { Vector3 } from 'three'
 import { ACTIONS, actionKeys, type ActionContext } from './actions'
-import { DEFAULT_GROUND_CONFIG } from '../../core/config'
+import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG } from '../../core/config'
 import { DEFAULT_COMBAT_CONFIG } from '../../combat/config'
 import type { PlayerState } from '../../core/types'
 
@@ -21,6 +21,7 @@ const p = (over: Partial<PlayerState> = {}): PlayerState => ({
 const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({
   player: p(),
   ground: DEFAULT_GROUND_CONFIG,
+  flight: DEFAULT_FLIGHT_CONFIG,
   wave: DEFAULT_COMBAT_CONFIG.pressureWave,
   gustReady: true,
   avatarStateReady: false,

@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { stepBreath, canBend, applyShrineBonus } from './breath'
 import { DEFAULT_FLIGHT_CONFIG as C } from '../core/config'
 
+// F is this file's alias for DEFAULT_FLIGHT_CONFIG, matching the C alias already in use.
+const F = C
+
 const full = { breath: 100, maxBreath: 100 }
 
 describe('stepBreath', () => {
@@ -37,12 +40,18 @@ describe('stepBreath', () => {
 })
 
 describe('canBend', () => {
-  it('is false when out of breath', () => {
-    expect(canBend({ breath: 0, maxBreath: 100 })).toBe(false)
+  it('cannot bend below the floor', () => {
+    expect(canBend({ breath: F.bendFloor - 0.01, maxBreath: 100 }, F)).toBe(false)
   })
 
-  it('is true with breath remaining', () => {
-    expect(canBend({ breath: 0.5, maxBreath: 100 })).toBe(true)
+  it('can bend at exactly the floor', () => {
+    expect(canBend({ breath: F.bendFloor, maxBreath: 100 }, F)).toBe(true)
+  })
+
+  it('the floor buys most of a second of thrust', () => {
+    // The reason the number is 15 rather than something token: an exhausted player gets a
+    // legible beat of thrust, then a beat of nothing, instead of a per-frame flicker.
+    expect(F.bendFloor / F.breathDrainPerSecond).toBeGreaterThan(0.5)
   })
 })
 

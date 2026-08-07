@@ -164,6 +164,14 @@ export interface FlightConfig {
   breathRegenGroundedMultiplier: number
   /** Each shrine adds this fraction of baseMaxBreath to the maximum. */
   shrineBreathBonusFraction: number
+  /**
+   * Breath needed to start bending, as opposed to zero.
+   *
+   * Without a floor, an empty bar oscillates: regeneration adds a fraction, the drain takes
+   * slightly more, and thrust flickers on and off every other frame -- measured at 300 of
+   * 600 frames engaged, which reads as a buzz rather than as exhaustion.
+   */
+  bendFloor: number
 }
 
 export interface GroundConfig {

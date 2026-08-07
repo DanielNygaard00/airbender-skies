@@ -246,6 +246,7 @@ function start(): void {
     guide.update(guideModelFor({
       player,
       ground: DEFAULT_GROUND_CONFIG,
+      flight: DEFAULT_FLIGHT_CONFIG,
       wave: DEFAULT_COMBAT_CONFIG.pressureWave,
       gustReady: canGust(encounter),
       avatarStateReady: isArmed(avatarState, DEFAULT_AVATAR_STATE_CONFIG),

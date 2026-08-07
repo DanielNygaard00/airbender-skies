@@ -1,4 +1,4 @@
-import type { GroundConfig, PlayerState } from '../../core/types'
+import type { FlightConfig, GroundConfig, PlayerState } from '../../core/types'
 import type { PressureWaveConfig } from '../../combat/pressure-wave'
 import { canDash } from '../../player/dash'
 import { canAirJump } from '../../player/jump'
@@ -20,6 +20,8 @@ export interface ActionContext {
   player: PlayerState
   /** `canDash` and `canAirJump` both need it. */
   ground: GroundConfig
+  /** `canBend` needs it, for `hasBreath` below. */
+  flight: FlightConfig
   /** For the Pressure Wave's fall-speed threshold. */
   wave: PressureWaveConfig
   /**
@@ -57,7 +59,7 @@ const inGlider = (ctx: ActionContext): boolean => ctx.player.mode === 'glider'
 const standing = (ctx: ActionContext): boolean => onGround(ctx) && ctx.player.grounded
 const airborne = (ctx: ActionContext): boolean => onGround(ctx) && !ctx.player.grounded
 /** Gliding with breath left: both thrust and hover spend it, and neither works empty. */
-const hasBreath = (ctx: ActionContext): boolean => inGlider(ctx) && canBend(ctx.player)
+const hasBreath = (ctx: ActionContext): boolean => inGlider(ctx) && canBend(ctx.player, ctx.flight)
 
 export const ACTIONS: readonly GameAction[] = [
   {

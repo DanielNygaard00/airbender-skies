@@ -29,6 +29,10 @@ export const DEFAULT_FLIGHT_CONFIG: FlightConfig = {
   breathRegenPerSecond: 12,
   breathRegenGroundedMultiplier: 2.5,
   shrineBreathBonusFraction: 0.1,
+  // Against breathDrainPerSecond 18 this buys 0.83 s of thrust before the floor is hit, and
+  // at breathRegenPerSecond 12 it takes 1.25 s to earn back -- a beat of thrust, then a beat
+  // of nothing, instead of the 30 Hz flicker an empty bar produced with no floor at all.
+  bendFloor: 15,
 }
 
 export function validateFlightConfig(c: FlightConfig): void {
@@ -59,6 +63,13 @@ export function validateFlightConfig(c: FlightConfig): void {
   if (c.stallSpeed >= c.turnRateSpeedRef) {
     throw new Error(
       `FlightConfig.stallSpeed (${c.stallSpeed}) must be below turnRateSpeedRef (${c.turnRateSpeedRef})`,
+    )
+  }
+  if (!(c.bendFloor > 0) || !(c.bendFloor < c.baseMaxBreath)) {
+    throw new Error(
+      `FlightConfig.bendFloor (${c.bendFloor}) must sit strictly between 0 and ` +
+      `baseMaxBreath (${c.baseMaxBreath}): at 0 there is no floor and at the ceiling the ` +
+      'glider could never bend at all',
     )
   }
 }

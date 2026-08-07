@@ -217,10 +217,10 @@ export function controllerStep(
     }
   } else {
     const speed = state.velocity.length()
-    const thrusting = input.forward > 0 && canBend(state)
+    const thrusting = input.forward > 0 && canBend(state, deps.flight)
     // Thrust wins when both are held. They are opposite intentions, and going
     // faster is the one a player is more likely to want mid-manoeuvre.
-    const hovering = !thrusting && input.sprint && canBend(state)
+    const hovering = !thrusting && input.sprint && canBend(state, deps.flight)
     const forward = steerToward(
       state.forward, input.lookDirection, speed, input.strafe, dt, deps.flight,
     )

@@ -31,9 +31,19 @@ export function stepBreath(
   return { ...s, breath: MathUtils.clamp(s.breath + rate * dt, 0, s.maxBreath) }
 }
 
-/** Any airbending needs breath left, whether that is thrust or hover. */
-export function canBend(s: BreathState): boolean {
-  return s.breath > 0
+/**
+ * Any airbending needs breath in hand, not merely a non-zero bar.
+ *
+ * The floor is what stops an exhausted player buzzing. It converts the failure from a 30 Hz
+ * flicker into a rhythm: at `bendFloor` 15 against `breathDrainPerSecond` 18 a player gets
+ * 0.83 s of thrust, then 1.25 s of regeneration at 12/s to earn it back.
+ *
+ * Deliberately not true hysteresis. Remembering "was bending" would need a field on
+ * PlayerState carried through every respawn and save path, which is a real cost for a
+ * smaller improvement than the floor already buys.
+ */
+export function canBend(s: BreathState, c: FlightConfig): boolean {
+  return s.breath >= c.bendFloor
 }
 
 /** Collecting a shrine permanently raises the ceiling. */
