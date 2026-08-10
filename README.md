@@ -49,6 +49,11 @@ over.
 It cuts both ways: run your own health out and you go down too, waking up back at the island
 with a full bar of health, an empty bar of Focus, and the patrol exactly as you left it.
 
+A small reticle sits where your next attack will go, rather than in the middle of the screen,
+and warms when something is inside the gust's reach. When you take a hit, a wedge appears around
+it pointing at where the hit came from, and fades. A dodge shows one too, so slipping an attack
+still tells you where it was thrown from.
+
 Reach has a height as well as a distance. Every one of your moves — both staff arcs, the gust,
 the Vortex and the Pressure Wave — sweeps a band around your own footing rather than an endless
 column, so a soldier far enough below or above you is out of range even when it is squarely in
