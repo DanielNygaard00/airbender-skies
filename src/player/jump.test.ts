@@ -217,6 +217,8 @@ describe('coyote time', () => {
       for (let f = 0; f < frames; f++) t = Math.max(0, t - DT)
       return t
     }
+    expect(decayed(6)).toBe(2.0816681711721685e-17)
+    expect(G.coyoteSeconds - 6 * DT).toBe(0)
     for (let k = 1; k <= 6; k++) {
       const label = `${k} frames past the edge`
       const inWindow = player({ grounded: false, coyoteTime: decayed(k) })

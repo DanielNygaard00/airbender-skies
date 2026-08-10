@@ -129,11 +129,12 @@ describe('the deploy gate against the real archipelago', () => {
   })
 
   it('reaches faces that are effectively vertical, not merely brisk slopes', () => {
-    // 0.0040 against a wallNormalY of 0.5: these are not borderline cases sitting either side
-    // of a threshold, they are cliff. Pinned as a maximum rather than an exact double because
-    // it is the extreme of a sample, and the claim is about its order of magnitude.
+    // 0.0040 against a wallNormalY of 0.5: these are not borderline cases sitting either side of
+    // a threshold, they are cliff. Pinned to the figure the helper's own comment in
+    // `controller.ts` cites, and to five places rather than exactly, because the extreme of a
+    // sample is the one statistic here that a trivial change to the grid could move.
     const shallowest = Math.min(...walls.map((s) => s.normalY))
-    expect(shallowest).toBeLessThan(0.005)
+    expect(shallowest).toBeCloseTo(0.004, 5)
     expect(shallowest).toBeGreaterThan(0)
   })
 
