@@ -8,6 +8,7 @@ export function createWindAudio() {
   let source: AudioBufferSourceNode | null = null
   let gain: GainNode | null = null
   let filter: BiquadFilterNode | null = null
+  let volume = 1
 
   return {
     /** Must be called from a user gesture, or the browser blocks audio. */
@@ -45,10 +46,21 @@ export function createWindAudio() {
       if (!context || !gain || !filter) return
       const now = context.currentTime
       // Ramps rather than direct assignment, otherwise the audio clicks.
-      gain.gain.setTargetAtTime(windVolumeForSpeed(airspeed) * 0.35 + swell * 0.25, now, 0.1)
+      gain.gain.setTargetAtTime(
+        (windVolumeForSpeed(airspeed) * 0.35 + swell * 0.25) * volume, now, 0.1,
+      )
       filter.frequency.setTargetAtTime(
         400 + 900 * windPitchForSpeed(airspeed) + 700 * swell, now, 0.1,
       )
+    },
+
+    /**
+     * The player's master volume, applied on top of the airspeed mix. Stored rather than
+     * written straight to the gain node, because `update` recomputes that node every frame
+     * from airspeed and would overwrite a direct write on the next one.
+     */
+    setVolume(v: number): void {
+      volume = v
     },
 
     /**

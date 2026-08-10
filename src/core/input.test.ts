@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3, MathUtils } from 'three'
-import { clampPitch, lookDirectionFrom, toInputState, InputTracker, PITCH_LIMIT } from './input'
+import {
+  clampPitch,
+  lookDirectionFrom,
+  lookDelta,
+  toInputState,
+  InputTracker,
+  PITCH_LIMIT,
+  MOUSE_SENSITIVITY,
+} from './input'
 
 describe('clampPitch', () => {
   it('leaves a level view alone', () => {
@@ -41,6 +49,49 @@ describe('lookDirectionFrom', () => {
     const d = lookDirectionFrom(Math.PI / 2, 0)
     expect(d.x).toBeCloseTo(-1, 6)
     expect(d.z).toBeCloseTo(0, 6)
+  })
+})
+
+describe('lookDelta', () => {
+  it('at sensitivity 1 reproduces the base arithmetic exactly', () => {
+    const { yaw, pitch } = lookDelta(100, 50, 1, false)
+    // Asserted two ways on purpose: against the arithmetic, so a future rename of
+    // MOUSE_SENSITIVITY can't drift out of sync with the test, and against the literal
+    // it currently produces, so a change to the constant itself -- which would also change
+    // the arithmetic assertion, since both read the same export -- still fails a test.
+    expect(yaw).toBeCloseTo(-100 * MOUSE_SENSITIVITY, 10)
+    expect(pitch).toBeCloseTo(-50 * MOUSE_SENSITIVITY, 10)
+    expect(yaw).toBeCloseTo(-0.22, 10)
+    expect(pitch).toBeCloseTo(-0.11, 10)
+  })
+
+  it('sensitivity 2 doubles both axes', () => {
+    const base = lookDelta(100, 50, 1, false)
+    const doubled = lookDelta(100, 50, 2, false)
+    expect(doubled.yaw).toBeCloseTo(base.yaw * 2, 10)
+    expect(doubled.pitch).toBeCloseTo(base.pitch * 2, 10)
+  })
+
+  it('sensitivity 0.5 halves both axes', () => {
+    const base = lookDelta(100, 50, 1, false)
+    const halved = lookDelta(100, 50, 0.5, false)
+    expect(halved.yaw).toBeCloseTo(base.yaw * 0.5, 10)
+    expect(halved.pitch).toBeCloseTo(base.pitch * 0.5, 10)
+  })
+
+  it('invertY flips the pitch sign and leaves yaw alone', () => {
+    const normal = lookDelta(100, 50, 1, false)
+    const inverted = lookDelta(100, 50, 1, true)
+    expect(inverted.pitch).toBeCloseTo(-normal.pitch, 10)
+    // This is the half a wrong implementation is most likely to miss: inverting the
+    // vertical look must never touch yaw.
+    expect(inverted.yaw).toBeCloseTo(normal.yaw, 10)
+  })
+
+  it('applies sensitivity before invert, so magnitude matches either way', () => {
+    const inverted = lookDelta(100, 50, 2, true)
+    const notInverted = lookDelta(100, 50, 2, false)
+    expect(Math.abs(inverted.pitch)).toBeCloseTo(Math.abs(notInverted.pitch), 10)
   })
 })
 

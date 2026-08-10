@@ -48,12 +48,30 @@ export function toInputState(
   }
 }
 
-const MOUSE_SENSITIVITY = 0.0022
+/** Base look speed. The player's sensitivity setting is a multiplier on top of this, not a replacement for it — sensitivity 1 must reproduce today's feel exactly. */
+export const MOUSE_SENSITIVITY = 0.0022
+
+/** How far a mouse delta turns the view, given the player's sensitivity and invert choice. */
+export function lookDelta(
+  movementX: number,
+  movementY: number,
+  sensitivity: number,
+  invertY: boolean,
+): { yaw: number; pitch: number } {
+  const yaw = -movementX * MOUSE_SENSITIVITY * sensitivity
+  // Sensitivity scales the magnitude first; invert only ever flips the sign after that,
+  // so the two never interact in a way that would make inverted look feel faster or slower.
+  let pitch = -movementY * MOUSE_SENSITIVITY * sensitivity
+  if (invertY) pitch = -pitch
+  return { yaw, pitch }
+}
 
 export class InputTracker {
   private readonly held = new Set<string>()
   private yaw = 0
   private pitch = 0
+  private sensitivity = 1
+  private invertY = false
   private actionPressed = false
   private scooterPressed = false
   private dashPressed = false
@@ -103,8 +121,9 @@ export class InputTracker {
 
     on<MouseEvent>('mousemove', (e) => {
       if (document.pointerLockElement !== canvas) return
-      this.yaw -= e.movementX * MOUSE_SENSITIVITY
-      this.pitch = clampPitch(this.pitch - e.movementY * MOUSE_SENSITIVITY)
+      const { yaw, pitch } = lookDelta(e.movementX, e.movementY, this.sensitivity, this.invertY)
+      this.yaw += yaw
+      this.pitch = clampPitch(this.pitch + pitch)
     })
 
     // The rejection is caught and dropped rather than voided. Chrome refuses a re-lock
@@ -125,6 +144,12 @@ export class InputTracker {
       // on the page chrome would swing the staff.
       if (e.button === 0 && document.pointerLockElement === canvas) this.staffPressed = true
     })
+  }
+
+  /** Applies the settings panel's look preferences to subsequent mouse movement. */
+  setLook(sensitivity: number, invertY: boolean): void {
+    this.sensitivity = sensitivity
+    this.invertY = invertY
   }
 
   /** Call exactly once per frame: reading clears the action edge. */
