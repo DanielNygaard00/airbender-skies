@@ -4,9 +4,11 @@ import {
   inGust, gustImpulse, gustTargets, liveGustTargets, anyLiveGustTarget, type GustConfig,
 } from './gust'
 import { spawnEnemy, type Enemy, type EnemyConfig } from './enemy'
+import { DEFAULT_COMBAT_CONFIG } from './config'
 
 const G: GustConfig = {
-  range: 12, halfAngle: Math.PI / 3, damage: 0.5, knockback: 26, cooldownSeconds: 0.5,
+  range: 12, halfAngle: Math.PI / 3, verticalReach: 5,
+  damage: 0.5, knockback: 26, cooldownSeconds: 0.5,
 }
 const E: EnemyConfig = {
   maxHealth: 3, outOfCombatSeconds: 4, regenPerSecond: 0.4, moveSpeed: 4,
@@ -46,8 +48,27 @@ describe('the gust cone', () => {
     expect(inGust(ORIGIN, NORTH, new Vector3(0, 0, -G.range - 1), G)).toBe(false)
   })
 
-  it('ignores height, so it cannot be dodged by standing on a step', () => {
-    expect(inGust(ORIGIN, NORTH, new Vector3(0, 9, -6), G)).toBe(true)
+  it('cannot be dodged by standing on a step, but does not reach a whole storey up', () => {
+    // A step is what the reach is for; a soldier that far overhead is out of the sweep and
+    // has to be closed with. The heights come off the config so the pair keeps straddling
+    // the boundary if the value moves.
+    expect(inGust(ORIGIN, NORTH, new Vector3(0, G.verticalReach - 1, -6), G)).toBe(true)
+    expect(inGust(ORIGIN, NORTH, new Vector3(0, G.verticalReach + 1, -6), G)).toBe(false)
+  })
+
+  it('no longer reaches down an entire cliff face', () => {
+    // The defect this reach exists to close: before it, height was dropped before anything
+    // else, so a target 2000 m below a hovering player was inside the blast while the
+    // soldier's own 3D ranges could not answer.
+    expect(inGust(ORIGIN, NORTH, new Vector3(0, -2000, -6), G)).toBe(false)
+  })
+
+  it('ships as a sweep of air rather than a column of it', () => {
+    // Stated against the shipped range instead of restating 5. A sweep has to stay at least
+    // twice as wide as it is tall to read as one; past that the gust is a pillar the player
+    // can park beside a cliff and fire through.
+    const gust = DEFAULT_COMBAT_CONFIG.gust
+    expect(gust.verticalReach * 2).toBeLessThanOrEqual(gust.range)
   })
 
   it('catches several targets at once', () => {

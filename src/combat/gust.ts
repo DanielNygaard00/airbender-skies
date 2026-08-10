@@ -18,6 +18,12 @@ export interface GustConfig {
   range: number
   /** Half-angle of the cone, radians. Wide: this is a sweep, not a laser. */
   halfAngle: number
+  /**
+   * Half-height of the slab the blast fills. Declared here rather than inherited because
+   * `GustConfig` satisfies `ConeShape` structurally, and that structural match is what lets
+   * `inGust` delegate.
+   */
+  verticalReach: number
   /** Low on purpose. */
   damage: number
   /** High on purpose. */
@@ -27,7 +33,7 @@ export interface GustConfig {
 }
 
 /**
- * Whether a target lies inside the blast. Horizontal: a gust is a sweep, not a shot.
+ * Whether a target lies inside the blast. A flat sweep with a height band, not a shot.
  *
  * Kept as its own name over `inCone` for two reasons: `GustConfig` satisfies `ConeShape`
  * structurally so this costs nothing, and `src/fx/gust-cone.test.ts` uses this function as

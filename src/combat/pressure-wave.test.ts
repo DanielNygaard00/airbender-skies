@@ -13,6 +13,7 @@ const C: PressureWaveConfig = {
   fullImpactSpeed: 50,
   minRadius: 4,
   maxRadius: 12,
+  verticalReach: 4,
   minDamage: 0.5,
   maxDamage: 2.5,
   minKnockback: 10,
@@ -89,12 +90,33 @@ describe('waveTargets', () => {
     expect(ids.length).toBe(4)
   })
 
-  it('measures reach by horizontal distance alone, so height does not shelter anyone', () => {
-    const overhead = spawnEnemy('up', new Vector3(0, 40, 0), 'spear', DEFAULT_COMBAT_CONFIG.enemies.spear)
-    // Caught, because the horizontal distance is zero. Pinned deliberately: it matches
-    // how the gust measures reach, and every enemy in the game stands on the ground, so
-    // a vertical test would be untested complexity. Revisit when a flying enemy exists.
-    expect(waveTargets(ORIGIN, [overhead], 1, C).length).toBe(1)
+  it('measures reach as a disc rather than a sphere, so the radius does not shrink with height', () => {
+    // Both of these are inside the full radius of 12 horizontally and inside the vertical
+    // band. A 3D distance test would drop the second one, which is the falloff this move
+    // deliberately does not have.
+    const level = spawnEnemy('level', new Vector3(11, 0, 0), 'spear', DEFAULT_COMBAT_CONFIG.enemies.spear)
+    const raised = spawnEnemy('raised', new Vector3(11, C.verticalReach, 0), 'spear', DEFAULT_COMBAT_CONFIG.enemies.spear)
+    expect(waveTargets(ORIGIN, [level, raised], 1, C).map((e) => e.id)).toEqual(['level', 'raised'])
+  })
+
+  it('stops at the vertical reach, so a slam is a shockwave across the ground and not a sphere', () => {
+    // Zero horizontal distance in both cases, so only the height band decides. The heights
+    // come off the config, so the pair keeps straddling the boundary if the value moves.
+    const spawn = (id: string, y: number) =>
+      spawnEnemy(id, new Vector3(0, y, 0), 'spear', DEFAULT_COMBAT_CONFIG.enemies.spear)
+    expect(waveTargets(ORIGIN, [spawn('edge', C.verticalReach)], 1, C).map((e) => e.id))
+      .toEqual(['edge'])
+    expect(waveTargets(ORIGIN, [spawn('past', C.verticalReach + 0.01)], 1, C)).toEqual([])
+  })
+
+  it('keeps the shipped wave flatter than the gust it shares ground with', () => {
+    // Two claims about the shipped number instead of a restatement of it. Under the gust's
+    // band, because this is a shockwave across a surface and that is a sweep of open air;
+    // and under its own full radius, so growing the radius with fall speed makes the wave
+    // wider rather than turning it into a sphere.
+    const wave = DEFAULT_COMBAT_CONFIG.pressureWave
+    expect(wave.verticalReach).toBeLessThan(DEFAULT_COMBAT_CONFIG.gust.verticalReach)
+    expect(wave.verticalReach).toBeLessThan(wave.maxRadius)
   })
 })
 

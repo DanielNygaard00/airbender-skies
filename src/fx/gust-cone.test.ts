@@ -50,7 +50,12 @@ function drawnContains(cone: Effect, point: Vector3): boolean {
 function disagreements(forward: Vector3): string[] {
   const cone = createGustCone(ORIGIN, forward, C)
   // The cone is drawn at a fixed height above the origin; sample in that plane so the
-  // 2D containment check is meaningful. `inGust` ignores height entirely.
+  // 2D containment check is meaningful. That plane has to sit inside the gust's
+  // `verticalReach`, which the drawn height comfortably does — and if it ever stopped
+  // doing so, every sampled point would disagree and this test would say so rather than
+  // going quiet. What it compares is the drawn sector against the gust's horizontal
+  // footprint; the slab's thickness is deliberately not drawn, which the design records
+  // as a known cosmetic mismatch for the visuals phase.
   const y = fill(cone).getWorldPosition(new Vector3()).y
 
   const found: string[] = []

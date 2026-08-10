@@ -17,6 +17,11 @@ export interface VortexConfig {
   minChargeSeconds: number
   minRadius: number
   maxRadius: number
+  /**
+   * Half-height of the column the vortex gathers from. The tallest of the four moves,
+   * because a target it cannot reach is a target it cannot lift.
+   */
+  verticalReach: number
   minPullSpeed: number
   maxPullSpeed: number
   minLiftSpeed: number
@@ -34,12 +39,22 @@ export function vortexRadius(charge: number, c: VortexConfig): number {
   return MathUtils.lerp(c.minRadius, c.maxRadius, MathUtils.clamp(charge, 0, 1))
 }
 
-/** Everyone caught, named so a caller cannot forget the radius. */
+/**
+ * Everyone caught, named so a caller cannot forget the radius.
+ *
+ * A cylinder rather than a sphere, for the same reason the Pressure Wave is a disc: the
+ * radius answers "how far out" and `verticalReach` answers "how far up or down", and neither
+ * question should erode the other's answer.
+ */
 export function vortexTargets(
   origin: Vector3, enemies: readonly Enemy[], charge: number, c: VortexConfig,
 ): Enemy[] {
   const radius = vortexRadius(charge, c)
-  return enemies.filter((enemy) => horizontalDistance(origin, enemy.position) <= radius)
+  return enemies.filter(
+    (enemy) =>
+      horizontalDistance(origin, enemy.position) <= radius
+      && Math.abs(enemy.position.y - origin.y) <= c.verticalReach,
+  )
 }
 
 /** Inward pull plus lift. */

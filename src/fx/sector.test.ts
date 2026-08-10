@@ -51,7 +51,10 @@ describe('the drawn span agrees with the hit test', () => {
   // The same cross-check gust-cone.test.ts uses on the fired cone, applied to the helper:
   // compare the drawn sector against inCone, which decides membership by a completely
   // different mechanism (a dot product against the heading).
-  const shape: ConeShape = { range: 12, halfAngle: Math.PI / 3 }
+  // The vertical extent is not under test here: the sector helper is flat by construction
+  // and every probe point below sits at the origin's own height. Any positive value would
+  // do; the gust's is used because these are the gust's range and half-angle.
+  const shape: ConeShape = { range: 12, halfAngle: Math.PI / 3, verticalReach: 5 }
 
   it('marks every direction inside the span as inside the cone', () => {
     const { thetaStart, thetaLength } = sectorTheta(shape.halfAngle)

@@ -24,6 +24,22 @@ describe('staffShape', () => {
     // trade. Derived from config so retuning either side keeps this honest.
     expect(staffShape(false, A).range).toBeGreaterThan(E.strikeRange)
   })
+
+  it('swings to the same height on both arcs', () => {
+    // Asserted as equal to each other rather than as two literals: it is the same arm and the
+    // same body, so the finisher sweeps wider and shoves harder, not taller. A future change
+    // to one has to show up as a change to both.
+    expect(staffShape(true, A).verticalReach).toBe(staffShape(false, A).verticalReach)
+  })
+
+  it('reaches less high than the bending does, because it is an arm holding a stick', () => {
+    // Stated against the gust's band and the arc's own reach rather than restating 2.0. The
+    // staff is bounded by where the character can physically put the staff; a gust is moving
+    // air and is allowed more.
+    expect(staffShape(false, A).verticalReach)
+      .toBeLessThan(DEFAULT_COMBAT_CONFIG.gust.verticalReach)
+    expect(staffShape(false, A).verticalReach).toBeLessThan(staffShape(false, A).range)
+  })
 })
 
 describe('staffTargets', () => {

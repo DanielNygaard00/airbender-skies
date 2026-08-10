@@ -45,20 +45,27 @@ const C: CombatConfig = {
   // each of them goes red if hitRadius drops to 0 (nothing ever connects) or if maxSeconds
   // drops to 0 (every arrow expires before it arrives).
   projectile: { hitRadius: 0.9, maxSeconds: 4 },
-  gust: { range: 12, halfAngle: Math.PI / 3, damage: 0.5, knockback: 26, cooldownSeconds: 0.5 },
+  // The four vertical extents are round stand-ins for the shipped ones, in the same order of
+  // size. The fixtures in this file fight on level ground, so the band is not what any
+  // assertion here is measuring -- `cone.test.ts` and each move's own suite pin that.
+  gust: {
+    range: 12, halfAngle: Math.PI / 3, verticalReach: 5,
+    damage: 0.5, knockback: 26, cooldownSeconds: 0.5,
+  },
   pressureWave: {
-    minImpactSpeed: 10, fullImpactSpeed: 50, minRadius: 4, maxRadius: 12,
+    minImpactSpeed: 10, fullImpactSpeed: 50, minRadius: 4, maxRadius: 12, verticalReach: 4,
     minDamage: 0.5, maxDamage: 2.5, minKnockback: 10, maxKnockback: 30,
     bounceFactor: 0.5,
   },
   vortex: {
     maxChargeSeconds: 1.2, minChargeSeconds: 0.2, minRadius: 5, maxRadius: 12,
+    verticalReach: 8,
     minPullSpeed: 10, maxPullSpeed: 18, minLiftSpeed: 5, maxLiftSpeed: 11,
     cooldownSeconds: 3.5,
   },
   staffArc: {
-    opener: { range: 3.6, halfAngle: Math.PI / 2.2 },
-    finisher: { range: 4.2, halfAngle: Math.PI / 1.9 },
+    opener: { range: 3.6, halfAngle: Math.PI / 2.2, verticalReach: 2 },
+    finisher: { range: 4.2, halfAngle: Math.PI / 1.9, verticalReach: 2 },
     openerDamage: 0.7,
     finisherDamage: 1.2,
     openerKnockback: 4,

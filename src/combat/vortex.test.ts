@@ -50,6 +50,26 @@ describe('vortexTargets', () => {
     expect(vortexTargets(ORIGIN, [mid], 0, V)).toHaveLength(0)
     expect(vortexTargets(ORIGIN, [mid], 1, V)).toHaveLength(1)
   })
+
+  it('gathers within its vertical reach and no further', () => {
+    // Well inside the radius in both cases, so only the height band decides. Both heights
+    // come off the config, so the pair keeps straddling the boundary if the value moves.
+    const raised = (id: string, y: number) =>
+      spawnEnemy(id, new Vector3(V.minRadius - 1, y, 0), 'spear', E)
+    expect(vortexTargets(ORIGIN, [raised('edge', V.verticalReach)], 0, V).map((e) => e.id))
+      .toEqual(['edge'])
+    expect(vortexTargets(ORIGIN, [raised('past', V.verticalReach + 0.01)], 0, V))
+      .toHaveLength(0)
+  })
+
+  it('reaches taller than any other move but stays wider than it is tall', () => {
+    // Two claims about the shipped number rather than a restatement of it. Taller than the
+    // gust, because lifting enemies off their feet is the payoff and the gust only shoves
+    // them. Still under its own full radius, because a vortex is a place — a band past that
+    // would make it a column that happens to have a radius.
+    expect(V.verticalReach).toBeGreaterThan(DEFAULT_COMBAT_CONFIG.gust.verticalReach)
+    expect(V.verticalReach).toBeLessThan(V.maxRadius)
+  })
 })
 
 describe('vortexImpulse', () => {

@@ -20,6 +20,11 @@ export interface PressureWaveConfig {
   fullImpactSpeed: number
   minRadius: number
   maxRadius: number
+  /**
+   * Half-height of the disc the wave fills. A soldier further above or below the impact is
+   * out, however close they stand.
+   */
+  verticalReach: number
   minDamage: number
   maxDamage: number
   minKnockback: number
@@ -47,8 +52,10 @@ export function waveDamage(strength: number, c: PressureWaveConfig): number {
 /**
  * Everyone caught in one slam. Named so callers cannot forget the radius test.
  *
- * Horizontal distance only, matching how the gust measures its reach: the fight is a
- * ground fight, and an enemy is where they stand rather than where their head is.
+ * A disc rather than a sphere: the radius is measured horizontally, matching how the gust
+ * measures its reach, and height is a separate flat band. Measuring in 3D instead would make
+ * the reach shrink with every metre of height difference, which is a falloff nothing here
+ * asked for.
  */
 export function waveTargets(
   origin: Vector3,
@@ -57,7 +64,11 @@ export function waveTargets(
   c: PressureWaveConfig,
 ): Enemy[] {
   const radius = waveRadius(strength, c)
-  return enemies.filter((enemy) => horizontalDistance(origin, enemy.position) <= radius)
+  return enemies.filter(
+    (enemy) =>
+      horizontalDistance(origin, enemy.position) <= radius
+      && Math.abs(enemy.position.y - origin.y) <= c.verticalReach,
+  )
 }
 
 /**
