@@ -194,16 +194,18 @@ export const ACTIONS: readonly GameAction[] = [
     detail: 'Fold the wings back into a walking stick.',
   },
   {
-    // Closing the guide never touches the pointer lock, so where H lands you depends on
-    // whether there was a lock to come back to. Opened from play there is, and closing
-    // resumes; opened from the "Paused" card (whose own hint offers H) there is not, and
-    // closing simply uncovers the card again — pauseReason falls straight back to
-    // 'unlocked'. A row that described only the first case was wrong in the second.
+    // Rewritten for the settings section. This row used to say H "puts you back wherever
+    // you opened it from: straight into play if you were playing", which was true while
+    // closing the guide never touched the pointer lock and *opening* it never did either.
+    // Opening it now calls document.exitPointerLock (panel.ts, api.open) so the settings
+    // rows have a cursor to be dragged with, and closing still never re-acquires the lock,
+    // so there is no longer a case where H hands the player straight back into play. Both
+    // keys now land on the "Paused" card, and one click resumes.
     key: 'H', name: 'This guide', mode: 'both', available: always,
-    detail: 'Opens and closes this panel, and pauses while it is open. Closing it puts you '
-      + 'back wherever you opened it from: straight into play if you were playing, or the '
-      + '"Paused" card if you opened it from there, because closing the guide does not take '
-      + 'the mouse back on its own.',
+    detail: 'Opens and closes this panel, and pauses while it is open. Opening it also hands '
+      + 'the mouse back, which is what makes the settings at the bottom usable — so closing '
+      + 'it leaves you on the "Paused" card, and one click on the game takes the mouse back '
+      + 'and resumes.',
   },
   {
     // This row is read from inside the very panel it describes, so the detail has to
@@ -211,17 +213,19 @@ export const ACTIONS: readonly GameAction[] = [
     // nothing in this codebase can decline it: panel.ts closes the guide on Escape but
     // never touches the lock, so in the guide the two effects happen together — the panel
     // closes and the mouse is released — and what the player lands on is the "Paused"
-    // card, not the game. Escape and H therefore differ only when the guide was opened
-    // from play, where H hands the player back to the game and Escape does not: opened
-    // from the "Paused" card there is no lock to release, so both keys land in the same
-    // place. An earlier wording that called Escape "the same as H" got that wrong in both
-    // halves, and the wording that replaced it then overstated H in this third context.
+    // card, not the game.
+    //
+    // The last clause used to distinguish Escape from H, because H alone "leaves the mouse
+    // alone". That distinction is gone: opening the guide now releases the lock itself, so
+    // by the time either key closes the panel there is no lock left for Escape to release
+    // or for H to preserve, and both land on the same card. Two earlier wordings got this
+    // row wrong in three different ways; the one thing worth keeping is that nothing here
+    // can decline Escape.
     key: 'Escape', name: 'Pause', mode: 'both', available: always,
     detail: 'During play, releases the mouse, so the game pauses and the "Paused" card '
       + 'comes up; click the canvas to take the mouse back and resume. While this guide is '
-      + 'open, it closes the guide — but the browser releases the mouse all the same, so '
-      + 'you land on the "Paused" card rather than back in the game. H is the one that '
-      + 'leaves the mouse alone, so it returns you to whatever you opened the guide from.',
+      + 'open, it closes the guide, and you land on the "Paused" card — the same place H '
+      + 'lands you, since opening the guide has already released the mouse.',
   },
 ]
 

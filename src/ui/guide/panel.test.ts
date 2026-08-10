@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { guideModelFor, escape, rowHtml, columnHtml, notesHtml, type GuideRow } from './panel'
+import {
+  guideModelFor, escape, rowHtml, columnHtml, notesHtml, settingRowHtml, settingsHtml,
+  type GuideRow,
+} from './panel'
+import { settingsRows } from './settings-rows'
+import { defaultSettings } from '../../core/settings'
 import type { ActionContext } from './actions'
 import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG } from '../../core/config'
 import { DEFAULT_COMBAT_CONFIG } from '../../combat/config'
@@ -135,5 +140,44 @@ describe('HTML builders', () => {
     expect(html).toContain('Wind')
     expect(html).not.toContain('<script>x</script>')
     expect(html).toContain('&lt;script&gt;x&lt;/script&gt;')
+  })
+})
+
+describe('settings HTML builders', () => {
+  it('carries a slider row\'s bounds, step and value into the input', () => {
+    const html = settingRowHtml({
+      kind: 'slider', key: 'volume', label: 'Volume', value: 0.7,
+      min: 0, max: 1, step: 0.05, display: '70%',
+    })
+    expect(html).toContain('type="range"')
+    expect(html).toContain('data-setting="volume"')
+    expect(html).toContain('min="0"')
+    expect(html).toContain('max="1"')
+    expect(html).toContain('step="0.05"')
+    expect(html).toContain('value="0.7"')
+    expect(html).toContain('70%')
+  })
+
+  it('checks a toggle that is on and leaves one that is off unchecked', () => {
+    const on = settingRowHtml({ kind: 'toggle', key: 'muted', label: 'Mute', on: true })
+    const off = settingRowHtml({ kind: 'toggle', key: 'muted', label: 'Mute', on: false })
+    expect(on).toContain('checked')
+    expect(off).not.toContain('checked')
+  })
+
+  it('keeps a label carrying a script tag inert', () => {
+    const html = settingRowHtml({
+      kind: 'toggle', key: 'muted', label: '<script>alert(1)</script>', on: false,
+    })
+    expect(html).not.toContain('<script>alert(1)</script>')
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+  })
+
+  it('gives every row the class that opts it into pointer events', () => {
+    // The rows are the only part of the panel allowed to take a click, and the class is
+    // what carries that. Counting them here is what would catch a row rendered without it.
+    const rows = settingsRows(defaultSettings(false))
+    const html = settingsHtml(rows)
+    expect(html.split('class="guide-setting"').length - 1).toBe(rows.length)
   })
 })

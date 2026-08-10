@@ -5,12 +5,13 @@ for the impact feel and encounter lifecycle work, and again 2026-08-05 for the a
 stall readability work, and again 2026-08-06 for archers and projectiles, and again
 2026-08-06 for terrain collision, and again 2026-08-06 for the Slipstream breath cost, and
 again 2026-08-07 for the feel batch, and again 2026-08-07 for wind on foot, and again
-2026-08-10 for jump forgiveness, and again 2026-08-10 for vertical reach. This is a recap
+2026-08-10 for jump forgiveness, and again 2026-08-10 for vertical reach, and again 2026-08-10
+for settings and accessibility. This is a recap
 for whoever picks the project up next, including a future session with no memory of the work
 below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 1473 tests across 89 files,
+**Repo state:** 1525 tests across 92 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -1966,6 +1967,103 @@ There is still no crosshair and no hit-direction indicator;
 both were in the same analysis item as this defect and both are HUD readability work with their
 own design questions.
 
+## Settings and accessibility
+
+**There were no settings at all before this cycle, and `prefers-reduced-motion` was read
+nowhere in the codebase.** `MOUSE_SENSITIVITY = 0.0022` was a module constant in
+`src/core/input.ts` with no way to change it, there was no inverted vertical look, no volume
+control and no mute, and camera shake, hitstop, the full-screen red hurt flash, the Avatar
+State's gold vignette and the dash's FOV kick all fired unconditionally. There are now five
+settings — sensitivity, invert Y, volume, mute, reduce motion — in a section at the bottom of
+the guide panel.
+
+**The model is `src/core/settings.ts`, pure and tested.** `readSettings` is tolerant field by
+field rather than as a whole object, so junk in one field falls back to that field's default and
+leaves the others alone; a whole-object fallback would let one bad number reset every
+preference. Sensitivity is a **multiplier** on the old 0.0022 rather than a replacement for it,
+so sensitivity 1 reproduces the shipped feel exactly and a player who never opens the panel is
+unaffected. Range 0.25 to 4, clamped in the model, and `settingsRows` takes the slider bounds
+from the same two exported constants so the panel cannot offer a value the model would clamp
+away.
+
+**Mute does not zero the volume, and that is load-bearing.** `effectiveVolume(s)` returns 0
+when `s.muted` and `s.volume` otherwise, and nothing ever writes 0 into `volume` on mute — so
+unmuting restores exactly the level the player had set instead of a default. `main.ts`'s
+`applySettings` is the only place in the game that reads both fields together, and the volume
+slider deliberately draws `settings.volume` rather than the effective value, so a muted panel
+still shows what unmuting will restore.
+
+**The five motion scalars are deliberately not uniform, and two of them soften rather than
+vanish.** `motionScales` returns `shake` 0, `hurtFlash` 0 and `dashKick` 0 under reduce motion,
+because camera shake and a FOV punch are the vestibular triggers proper and a full-screen red
+pulse is closer to photosensitivity — none of the three carries information the player cannot
+get elsewhere. `hitstop` softens to 0.4 and `vignette` to 0.35 instead, for the same reason in
+two forms: the freeze is the main signal that a heavy hit landed, and a freeze is itself the
+absence of motion, so zeroing it costs legibility without buying comfort; the gold rim is how
+the player knows the Avatar State is running, which is information they still need. A single
+scalar applied to all five would be simpler and wrong — it would either delete the two signals
+or leave the three triggers running.
+
+They are applied in `src/main.ts`, each at the point the effect reaches the screen rather than
+where it is triggered. `shake` multiplies the vector `shakeOffset` writes, in `syncVisuals`;
+`hurtFlash` and `dashKick` multiply their `stepPulse` values at the `hud.update` and
+`camera.fov` calls (scaling the pulse instead would shorten each effect rather than dim it,
+since `stepPulse` decays at a fixed rate per second); `hitstop` is scaled inside a local
+`freeze()` helper that all three trigger sites go through, so there is one place the scale can
+be missing from rather than three. The vignette is the odd one out: it is a CSS opacity owned by
+`src/ui/hud.ts`, so `main.ts` writes `--vignette-scale` on the root element and the rule reads
+`opacity: var(--vignette-scale, 1)`. Threading it through `HudModel` instead would have meant a
+fourth trailing optional number on `hudModelFor`, which that file's own comment warns is the
+shape where a caller silently swaps two arguments.
+
+**Preferences are stored under their own key, not in `SaveData`.**
+`airbender-skies:settings:v1` in `src/core/settings-store.ts`, reusing `StorageLike` and the
+same never-throws pattern `loadSave` already uses. Progress and preferences have different
+lifetimes: a player who clears their shrines should not lose their sensitivity, and `SaveData`
+is versioned on its own schedule.
+
+**Opening the guide releases the pointer lock, and that single call is what the whole panel
+depends on.** While the canvas holds the lock there is no visible cursor, so no mouse-driven
+control is possible at all — that is what would otherwise have forced a keyboard-only settings
+panel. `api.open()` in `src/ui/guide/panel.ts` therefore calls `document.exitPointerLock()`. It
+composes with the pause cycle rather than fighting it: `pauseReason` orders its causes `guide`,
+`hidden`, `unlocked`, so with the guide open the reason stays `'guide'`, `pauseOverlayModel`
+returns an invisible card, and the player does not get a "Click to resume" card stacked on the
+panel they just opened. `src/core/pause.test.ts` already enumerates all eight input
+combinations, so that ordering is asserted; what no test asserts is that this call is what
+depends on it, which is why the call carries a long comment. **Do not delete it.**
+
+Closing the guide leaves the player unlocked, which drops them into exactly the click-to-resume
+flow Escape already uses. That changed what `H` does, and the `H` and `Escape` rows in
+`src/ui/guide/actions.ts` plus the README's control table were corrected for it: H used to hand
+a player straight back into play, and there is no longer any case where it does.
+
+**Only the settings rows take pointer events.** The panel keeps `pointer-events: none`
+everywhere else, and the reason is unchanged — a full-screen click sink over the canvas would
+swallow the click that requests the lock, which is how play resumes. The rows are the one
+exception and they are safe *because* the lock is deliberately released while the guide is open:
+there is no lock left for a swallowed click to cost, and the game is paused. That reasoning does
+not generalise to the panel root, so do not relax it there. One consequence needed handling:
+because the panel's empty space still passes clicks through to the canvas, `InputTracker` would
+request the lock again and take the cursor away from the one panel that needs it — so
+`main.ts`'s `pointerlockchange` handler releases the lock again whenever it is acquired while
+the guide is open.
+
+**What could not be verified, and it is this cycle's central interaction.** The pointer-lock
+release cannot be exercised in this environment at all. The harness never receives OS focus:
+`document.hasFocus()` is false and `canvas.requestPointerLock()` rejects with
+`WrongDocumentError: The root document of this element is not valid for pointer lock.` There is
+therefore never a lock to release, and — because `pauseReason` requires `pointerLocked` — the
+game cannot be made to run either, so none of the four in-code motion scalars could be watched
+taking effect in play. What *was* verified in a browser is recorded in
+`.superpowers/sdd/2026-08-07-settings-and-accessibility/task-3-report.md`: the section renders,
+the rows carry the loaded values, `getComputedStyle` reports `pointer-events: auto` on a row and
+`none` on the panel root, trusted clicks on a row's checkbox and its slider change the setting
+and persist it, muting leaves the stored volume untouched, and a written setting survives a
+reload. Whether any of it *feels* right is unverified as well — nobody has played this.
+Sensitivity 1 as the centre of a 0.25–4 range assumes the base 0.0022 is a sensible default,
+which no human has judged, and the 0.4 and 0.35 softening factors are argued guesses.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
@@ -2011,6 +2109,14 @@ From the design document, in rough order of how much is missing:
   the terrain collision cycle removed. `TerrainQuery` can now cast a lateral ray and
   collision now reports the normal it hit, both of which wall-riding needs; nothing has
   used either for that move yet.
+- **The rest of the settings panel.** Five settings exist (see "Settings and accessibility"),
+  and four things were deliberately left out of that cycle rather than forgotten. Key
+  rebinding is a real feature with its own storage shape, conflict detection and display
+  problems — and `InputTracker` reads `event.code`, so the physical WASD positions already
+  work on AZERTY and Dvorak, which is the part that matters most. Gamepad support is
+  genuinely separate work. A FOV slider and quality settings are real gaps, but neither is
+  accessibility, and quality settings want a performance pass first to have numbers to aim
+  at. Separate music and SFX sliders make no sense while there is no music.
 - **Standing the player back up.** A hole inherited from an earlier cycle and never part of
   any cycle's work since. (This bullet used to open "a pre-existing hole this cycle's
   playtesting exposed", which has travelled unchanged through several cycles and now reads as

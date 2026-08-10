@@ -23,8 +23,8 @@ back down to a walking stick.
 | `C` | Slipstream — a short dash, briefly unhittable | Slipstream |
 | `Ctrl` | Hold through a landing to slam | Tuck — fold the wings for a fast dive, and hold it through the landing to slam |
 | `Space` | Jump — twice, the second gains more height the faster you are rising | Deploy or stow the glider. Close to the ground the deploy gives way to the landing, so a press on the way down becomes a jump on touchdown rather than a glide you immediately stow |
-| `H` | Guide — every action, and whether you can use it right now. Closing it puts you back wherever you opened it from: play, or the pause card | Guide |
-| `Escape` | Pause — releases the mouse; click to resume. With the guide open it closes the guide and still releases the mouse, so you land on the pause card; `H` leaves the mouse alone, so it returns you to whatever you opened the guide from | Pause |
+| `H` | Guide — every action, and whether you can use it right now, plus the settings at the bottom of it. Opening it hands the mouse back, which is what makes those settings usable, so closing it leaves you on the pause card and one click resumes | Guide |
+| `Escape` | Pause — releases the mouse; click to resume. With the guide open it closes the guide and lands you on the pause card, the same place `H` lands you, since opening the guide already released the mouse | Pause |
 
 Gliding on its own can only trade altitude for distance, and it costs nothing. Airbending is
 what makes the difference: thrust is the only way to gain net altitude, and hovering holds you

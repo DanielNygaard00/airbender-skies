@@ -141,7 +141,12 @@ const STYLE = `
   transform-origin: left center; }
 .hud-vignette { position: fixed; inset: 0; pointer-events: none; opacity: 0;
   transition: opacity .35s; box-shadow: inset 0 0 180px 40px rgba(255,214,102,.55); }
-.hud-vignette.is-on { opacity: 1; }
+/* Through a custom property, so reduce-motion can soften the gold rim without this file
+   knowing what a setting is. main.ts writes --vignette-scale on the root element from
+   motionScales(settings).vignette whenever the settings change; the 1 fallback is what
+   makes the HUD correct on its own if nothing ever sets it. Softened rather than switched
+   off, because this rim is how the player knows the Avatar State is running. */
+.hud-vignette.is-on { opacity: var(--vignette-scale, 1); }
 .hud-hurt { position: fixed; inset: 0; pointer-events: none; opacity: 0;
   box-shadow: inset 0 0 220px 60px rgba(198,40,40,.75); }
 .hud-fade { position: fixed; inset: 0; background: #000; pointer-events: none;
