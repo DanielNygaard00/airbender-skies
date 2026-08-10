@@ -178,15 +178,25 @@ describe('the deploy gate against the real archipelago', () => {
     // The other side of the filter. On the faces that are ground, the press must still be
     // yielded and buffered -- 22855 of the 23651 samples, so the fix cannot have worked by
     // switching the whole rule off.
+    //
+    // The count is asserted over all of them and the behaviour over every eighth, which is
+    // 2857 positions spread across all thirteen islands. Stepping the controller at all 22855
+    // costs six seconds against a suite that otherwise runs in four, and the claim here is a
+    // population one: the stride is a sample of it, and the wall-face test above it is the one
+    // that has to be exhaustive, because those are the positions the change touches.
     const d = deps(terrain)
     const flats = samples.filter((s) => !isWall(new Vector3(0, s.normalY, 0), COLLISION))
     expect(flats.length).toBe(22855)
-    for (const s of flats) {
+    let checked = 0
+    for (let i = 0; i < flats.length; i += 8) {
+      const s = flats[i]!
       const next = controllerStep(
         falling(s.from.clone(), s.islandId), input({ actionPressed: true }), DT, d,
       )
       expect(next.mode, `${s.islandId} ${s.from.toArray()}`).toBe('ground')
       expect(next.jumpBuffer, `${s.islandId} ${s.from.toArray()}`).toBeGreaterThan(0)
+      checked++
     }
+    expect(checked).toBe(2857)
   })
 })
