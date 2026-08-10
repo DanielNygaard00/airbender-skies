@@ -238,3 +238,85 @@ How any of it feels. The 0.1 s windows are the platformer standard, not a measur
 game, and this environment cannot hold a pointer lock, so nothing in this cycle will have been
 played. The two windows and their interaction with `chargeThresholdSeconds` 0.2 are the values
 most worth a human's hands.
+
+---
+
+## Addendum: the buffer collided with the glider deploy
+
+**This section corrects the most serious omission in the design above.** The spec specified the
+buffer's arming condition as "airborne, a fresh press, no air jump left" and never checked that
+condition against the rest of the game's input handling. It is the same condition
+`controllerStep` already uses to deploy the glider:
+
+```ts
+if (input.actionPressed && !state.grounded && !canAirJump(state, deps.ground)
+    && !staffBusy(staffOf(state))) {
+```
+
+That gate runs *before* `groundStep`, so it consumes the press first. `Space` with no air jump
+left is the game's intended way to open the wings — jump, jump, then deploy — which means the
+press the buffer exists to catch is already spoken for.
+
+Measured through `controllerStep`:
+
+| state | press produces |
+| --- | --- |
+| airborne, air jump spent, staff idle | `mode: 'glider'`, `jumpBuffer` 0 |
+| airborne, air jump spent, mid-swing | `mode: 'ground'`, `jumpBuffer` 0.0833 |
+| airborne, air jump spent, `chain > 0` | `mode: 'ground'`, `jumpBuffer` 0.0833 |
+
+So in production the buffer could only ever arm while a staff swing, combo chain or recovery
+was live. The ordinary input the spec describes — press before landing — went ground jump, air
+jump, glider deploy, and never buffered. The cycle's second feature was very nearly dead code,
+and no test caught it because every buffer test called `groundStep` directly and so never met
+the gate that runs above it.
+
+### The fix: the deploy yields when you are about to land
+
+The deploy gate gains one more condition — it does not fire when the player would reach the
+ground before the buffer window expires. In that case the press falls through to `groundStep`,
+arms the buffer, and fires the jump on landing.
+
+The threshold needs **no new tuning value**, which is what makes it the right rule rather than
+a second guess: the question "would I land before the buffer expires?" is asked with
+`jumpBufferSeconds` itself. Predict the fall over that window from the current descent speed
+and gravity, cast down that far, and if there is ground within it, this press is a landing jump
+rather than a deploy.
+
+```ts
+/**
+ * How far the player will fall in one buffer window, from this descent speed.
+ *
+ * The distance is the same integration the simulation runs, so the prediction and the fall
+ * cannot disagree about where the ground is.
+ */
+export function fallWithinBufferWindow(velocityY: number, c: GroundConfig): number
+```
+
+Only while descending. A rising player is not about to land, and gating a deploy on the way up
+would break the documented combo where a slam bounce is re-deployed at the top of its arc.
+
+### What this changes about the deploy, and why it is an improvement rather than a cost
+
+Opening the wings three frames before hitting the ground was already a poor outcome — the
+deploy kick fires, the wings unfold, and the player lands and stows immediately. Making the
+deploy yield near the ground means the move goes where it was aimed. The design document calls
+the staff-versus-wing choice its central risk decision, and this does not touch that: the staff
+still blocks the deploy, and the deploy still costs the air jump first.
+
+What it does change is that a player pressing `Space` low over a ledge gets a jump rather than a
+glide. That is a real behavioural change to a documented control and it is the thing most worth
+judging in play.
+
+### Testing
+
+- The three-row table above, re-measured through `controllerStep`, with the staff-idle row now
+  arming the buffer when the ground is close.
+- A press at altitude still deploys — the same input, high up, must be unchanged, or the fix has
+  simply broken the glider.
+- A press while **rising** near the ground still deploys, so the slam-bounce re-deploy survives.
+- The buffered jump fires on landing through the full `controllerStep` path, not only through
+  `groundStep`. That is the gap that hid this defect: every existing buffer test bypasses the
+  gate.
+- The predicted fall distance matches the simulated fall over the same window, asserted against
+  a real integration rather than against the formula restated.
