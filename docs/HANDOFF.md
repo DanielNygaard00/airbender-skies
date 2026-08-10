@@ -1993,16 +1993,28 @@ unmuting restores exactly the level the player had set instead of a default. `ma
 slider deliberately draws `settings.volume` rather than the effective value, so a muted panel
 still shows what unmuting will restore.
 
-**The five motion scalars are deliberately not uniform, and two of them soften rather than
+**The six motion scalars are deliberately not uniform, and three of them soften rather than
 vanish.** `motionScales` returns `shake` 0, `hurtFlash` 0 and `dashKick` 0 under reduce motion,
 because camera shake and a FOV punch are the vestibular triggers proper and a full-screen red
 pulse is closer to photosensitivity — none of the three carries information the player cannot
-get elsewhere. `hitstop` softens to 0.4 and `vignette` to 0.35 instead, for the same reason in
-two forms: the freeze is the main signal that a heavy hit landed, and a freeze is itself the
-absence of motion, so zeroing it costs legibility without buying comfort; the gold rim is how
-the player knows the Avatar State is running, which is information they still need. A single
-scalar applied to all five would be simpler and wrong — it would either delete the two signals
-or leave the three triggers running.
+get elsewhere. `hitstop` softens to 0.4, `vignette` to 0.35 and `speedFov` to 0.35 instead, for
+the same reason in three forms: the freeze is the main signal that a heavy hit landed, and a
+freeze is itself the absence of motion, so zeroing it costs legibility without buying comfort;
+the gold rim is how the player knows the Avatar State is running; and a widening field of view is
+how fast flight reads as fast. A single scalar applied to all six would be simpler and wrong — it
+would either delete the three signals or leave the three triggers running.
+
+**`speedFov` is the sixth, and the final review of that cycle found it rather than the spec.**
+`fovForSpeed` widens the camera continuously with airspeed — 7° at 27.5 m/s and the full 14° at
+the 55 m/s reference, for as long as fast flight lasts — which makes it the largest and by far the
+most sustained motion effect in the game. The cycle had zeroed `dashKick` on the stated reasoning
+that a FOV punch is the other strong vestibular trigger, and then left this, the bigger instance
+of exactly that effect, unmentioned in the spec, the plan and the task report. It is softened
+rather than zeroed because it is a speed-*readability* cue, and 0.35 leaves a 4.9° swing — under
+the 6° dash punch the same cycle judged too strong as a transient, which is the argument for the
+number and is asserted as such in `src/core/settings.test.ts`. The scale reaches `fovForSpeed` as
+a second argument so that it multiplies the kick and never `BASE_FOV`: scaling the whole angle
+would narrow the camera to nothing at 0 instead of calming it.
 
 They are applied in `src/main.ts`, each at the point the effect reaches the screen rather than
 where it is triggered. `shake` multiplies the vector `shakeOffset` writes, in `syncVisuals`;
@@ -2010,11 +2022,20 @@ where it is triggered. `shake` multiplies the vector `shakeOffset` writes, in `s
 `camera.fov` calls (scaling the pulse instead would shorten each effect rather than dim it,
 since `stepPulse` decays at a fixed rate per second); `hitstop` is scaled inside a local
 `freeze()` helper that all three trigger sites go through, so there is one place the scale can
-be missing from rather than three. The vignette is the odd one out: it is a CSS opacity owned by
+be missing from rather than three. `speedFov` is passed into `fovForSpeed`, at the single
+`camera.fov` assignment. The vignette is the odd one out: it is a CSS opacity owned by
 `src/ui/hud.ts`, so `main.ts` writes `--vignette-scale` on the root element and the rule reads
 `opacity: var(--vignette-scale, 1)`. Threading it through `HudModel` instead would have meant a
 fourth trailing optional number on `hudModelFor`, which that file's own comment warns is the
 shape where a caller silently swaps two arguments.
+
+That `var(..., 1)` fallback is a convenience for a standalone HUD and a trap for a typo: a
+misspelling on either side falls through to a full-strength gold rim, so reduce motion would
+quietly stop softening the vignette with nothing red and nothing visibly wrong. The property name
+is therefore a single exported constant, `VIGNETTE_SCALE_PROPERTY` in `src/ui/hud.ts`, which
+`main.ts` imports and the stylesheet interpolates. `setProperty` takes any string so this is not a
+type error waiting to happen, but there is now one spelling rather than two — **do not inline the
+name back into either side.** `src/ui/hud.test.ts` asserts the rule still reads the property.
 
 **Preferences are stored under their own key, not in `SaveData`.**
 `airbender-skies:settings:v1` in `src/core/settings-store.ts`, reusing `StorageLike` and the
@@ -2054,15 +2075,50 @@ release cannot be exercised in this environment at all. The harness never receiv
 `document.hasFocus()` is false and `canvas.requestPointerLock()` rejects with
 `WrongDocumentError: The root document of this element is not valid for pointer lock.` There is
 therefore never a lock to release, and — because `pauseReason` requires `pointerLocked` — the
-game cannot be made to run either, so none of the four in-code motion scalars could be watched
+game cannot be made to run either, so none of the five in-code motion scalars could be watched
 taking effect in play. What *was* verified in a browser is recorded in
-`.superpowers/sdd/2026-08-07-settings-and-accessibility/task-3-report.md`: the section renders,
-the rows carry the loaded values, `getComputedStyle` reports `pointer-events: auto` on a row and
-`none` on the panel root, trusted clicks on a row's checkbox and its slider change the setting
-and persist it, muting leaves the stored volume untouched, and a written setting survives a
-reload. Whether any of it *feels* right is unverified as well — nobody has played this.
-Sensitivity 1 as the centre of a 0.25–4 range assumes the base 0.0022 is a sensible default,
-which no human has judged, and the 0.4 and 0.35 softening factors are argued guesses.
+`.superpowers/sdd/2026-08-07-settings-and-accessibility/task-3-report.md`, and it is worth reading
+in its own words rather than through this summary: the section renders, the rows carry the loaded
+values, `getComputedStyle` reports `pointer-events: auto` on a row and `none` on the panel root,
+trusted clicks changed and persisted the reduce-motion checkbox and both slider tracks — **invert
+Y was never clicked at all, and no drag was ever exercised as a drag**, only single clicks on a
+track, which fire the same `input` event a drag repeats — muting leaves the stored volume
+untouched, and a written setting survives a reload. The vignette's custom property was watched
+reaching the element's computed opacity, with the `is-on` class added by hand and the CSS
+transition disabled inline, because that tab never paints and the transition would otherwise never
+advance off its starting 0. Whether any of it *feels* right is unverified as well — nobody has
+played this. Sensitivity 1 as the centre of a 0.25–4 range assumes the base 0.0022 is a sensible
+default, which no human has judged, and the 0.4 and the two 0.35 softening factors are argued
+guesses.
+
+**The keyboard path to the panel, which that cycle nearly shipped broken.** `InputTracker` used to
+call `preventDefault()` on *every* Space keydown from its window-bound listener. `preventDefault`
+cancels a checkbox's activation behaviour whatever element the listener is on and whatever phase it
+runs in, Enter does not activate a checkbox, and there is no form here to submit — so Space was the
+only path to the panel's three toggle rows and it was being eaten. A keyboard-only player could
+reach neither invert Y, nor mute, nor **the reduce-motion switch itself**, in the cycle whose
+deliverable is an accessibility panel. It survived the cycle because it is pre-existing behaviour
+in `input.ts` and was judged out of scope, and because `prefers-reduced-motion` seeding the default
+happens to mitigate it — coincidentally, not by design. The final review rejected that. The Space
+claim is now gated on the event target through `shouldClaimSpace`, exported from
+`src/core/input.ts` and tested in both directions: a focused form control keeps Space, and
+everything else — `null`, `window`, the canvas — still gives it to the jump, because an unclaimed
+Space with nothing focused scrolls the page under the player.
+
+What works now, and it was checked by reading the code rather than by driving a keyboard, since
+this harness delivers no real key events to the page at all (measured: a capturing `window`
+`keydown` listener recorded zero events across three synthetic key presses): `H` opens the guide,
+Tab traverses the rows, Space toggles the three checkboxes, Arrow / Home / End / PageUp / PageDown
+reach a focused slider (`panel.ts`'s keydown handler yields to a focused `range` input rather than
+scrolling the panel — and only to a `range`, so those keys still scroll while a checkbox has
+focus), and `H` or Escape closes. The panel sets no `outline: none` anywhere, so the browser's own
+focus rings are intact.
+
+What remains open: **there is no focus treatment of the panel's own**, only the default UA ring on
+a dark translucent backdrop, which is a legibility question nobody has looked at. Nothing labels
+the rows for a screen reader beyond the `<label>` wrapping each control — no `aria-describedby`, no
+grouping role on the section, and no announcement when a setting changes. And none of the keyboard
+path above has been exercised by an actual key press in an actual browser, here or anywhere.
 
 ## What has NOT been built
 
@@ -2117,6 +2173,14 @@ From the design document, in rough order of how much is missing:
   genuinely separate work. A FOV slider and quality settings are real gaps, but neither is
   accessibility, and quality settings want a performance pass first to have numbers to aim
   at. Separate music and SFX sliders make no sense while there is no music.
+
+  *(A fifth item belongs on this list and was missing from it: the accessibility of the
+  accessibility panel. The keyboard path is operable — see the end of "Settings and
+  accessibility" for what was fixed and how it was established — but there is still no focus
+  treatment of the panel's own, no ARIA anywhere in the codebase beyond the implicit labelling
+  each row's `<label>` gives its control, nothing announced when a setting changes, and no
+  screen reader or real key press has ever touched any of it. That is the honest state, not a
+  deliberate exclusion.)*
 - **Standing the player back up.** A hole inherited from an earlier cycle and never part of
   any cycle's work since. (This bullet used to open "a pre-existing hole this cycle's
   playtesting exposed", which has travelled unchanged through several cycles and now reads as
