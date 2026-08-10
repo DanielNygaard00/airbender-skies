@@ -49,6 +49,15 @@ over.
 It cuts both ways: run your own health out and you go down too, waking up back at the island
 with a full bar of health, an empty bar of Focus, and the patrol exactly as you left it.
 
+Reach has a height as well as a distance. Every one of your moves — both staff arcs, the gust,
+the Vortex and the Pressure Wave — sweeps a band around your own footing rather than an endless
+column, so a soldier far enough below or above you is out of range even when it is squarely in
+front. Each move gets its own band, and they are not the same: a swing with a staff barely
+reaches past your own height, a gust of air reaches a good deal further, and the Vortex reaches
+furthest of all, because getting people off their feet is the whole point of it. Climbing above
+a fight is no longer a way to hit it for free. The archers always measured their range in three
+dimensions; now so do you.
+
 Height is a weapon. Hold `Ctrl` through a landing and the fall becomes a Pressure Wave — a
 ring of air that goes out in every direction, with no facing to aim and nobody safe behind
 you. How hard it hits scales with how fast you were falling: a short drop is a gust with no
