@@ -147,10 +147,16 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     // Close to the gust's 12 range, so a full slam is a crowd move.
     maxRadius: 11,
     /**
-     * The smallest of the four relative to its reach, and deliberately so. The fiction is a
-     * shockwave travelling out across the surface, and the radius grows with fall speed —
-     * so anything taller turns a full-strength slam into a sphere and the move stops reading
-     * as something that happens to the ground.
+     * The smallest of the four relative to its reach, and deliberately so: the fiction is a
+     * shockwave travelling out across the surface rather than a blast around the player.
+     *
+     * Bounded by `minRadius` above it, not by `maxRadius`. A full slam reaches 11 and is
+     * decisively wider than it is tall, so full strength never constrains this number. The
+     * *weakest* slam does: its radius is `minRadius`, which this value already exactly
+     * equals, so a minimum-strength wave is a ball rather than a disc, and anything taller
+     * makes the smallest slam a column. That equality is where the argument for this number
+     * is thinnest and is the case the archipelago measurement has to settle —
+     * `pressure-wave.test.ts` pins the comparison against `minRadius` for that reason.
      */
     verticalReach: 4.0,
     minDamage: 0.6,

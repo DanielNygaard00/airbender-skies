@@ -45,9 +45,14 @@ const C: CombatConfig = {
   // each of them goes red if hitRadius drops to 0 (nothing ever connects) or if maxSeconds
   // drops to 0 (every arrow expires before it arrives).
   projectile: { hitRadius: 0.9, maxSeconds: 4 },
-  // The four vertical extents are round stand-ins for the shipped ones, in the same order of
-  // size. The fixtures in this file fight on level ground, so the band is not what any
-  // assertion here is measuring -- `cone.test.ts` and each move's own suite pin that.
+  // The four vertical extents below are byte-identical duplicates of the shipped values, not
+  // independent choices: 5, 4, 8 and 2 are exactly what DEFAULT_COMBAT_CONFIG carries. That
+  // breaks the convention the numbers around them follow -- the archer's strikeRange is
+  // deliberately distinct from the real config so a fixture that accidentally read it would be
+  // visible -- and it is tolerable only because no assertion in this file measures a height:
+  // every fixture here fights on level ground. A fixture that ever needs one must read the
+  // shipped value rather than trust these to have kept up with it. `cone.test.ts` and each
+  // move's own suite are what actually pin the extents.
   gust: {
     range: 12, halfAngle: Math.PI / 3, verticalReach: 5,
     damage: 0.5, knockback: 26, cooldownSeconds: 0.5,

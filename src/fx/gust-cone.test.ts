@@ -71,11 +71,17 @@ function disagreements(forward: Vector3): string[] {
 }
 
 describe('createGustCone', () => {
-  it('draws exactly the volume the gust hits', () => {
-    // The promise of this effect is that what you see is what you hit. Verified by a
-    // different mechanism than the code uses — sampling the real hit test against the
-    // drawn geometry's own transform — rather than by asserting the geometry equals the
-    // config, which would pass for any orientation.
+  it('draws exactly the footprint the gust hits, and deliberately says nothing about its height', () => {
+    // What this covers: the drawn sector matches the cone's horizontal footprint. Verified by
+    // a different mechanism than the code uses — sampling the real hit test against the drawn
+    // geometry's own transform — rather than by asserting the geometry equals the config,
+    // which would pass for any orientation.
+    //
+    // What it does not cover, stated because the name used to promise it: the hit volume is a
+    // slab of half-height `verticalReach` and this shape is a flat sector, so the effect
+    // under-draws what the move hits by twice that in height. Giving the effect a real
+    // thickness is visuals work with its own cycle. **A green run here is not evidence that
+    // the hit volume is flat**, which is the exact misreading the design set out to prevent.
     // Named offenders, so a failure is a bug report rather than a puzzle.
     expect(disagreements(new Vector3(0, 0, 1)).slice(0, 8)).toEqual([])
   })

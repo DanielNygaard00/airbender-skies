@@ -91,12 +91,20 @@ describe('waveTargets', () => {
   })
 
   it('measures reach as a disc rather than a sphere, so the radius does not shrink with height', () => {
-    // Both of these are inside the full radius of 12 horizontally and inside the vertical
-    // band. A 3D distance test would drop the second one, which is the falloff this move
-    // deliberately does not have.
-    const level = spawnEnemy('level', new Vector3(11, 0, 0), 'spear', DEFAULT_COMBAT_CONFIG.enemies.spear)
-    const raised = spawnEnemy('raised', new Vector3(11, C.verticalReach, 0), 'spear', DEFAULT_COMBAT_CONFIG.enemies.spear)
-    expect(waveTargets(ORIGIN, [level, raised], 1, C).map((e) => e.id)).toEqual(['level', 'raised'])
+    const radius = waveRadius(1, C)
+    // Just inside the full radius horizontally, and at the top of the band. For this to tell
+    // a disc from a sphere the raised one has to sit *outside* a sphere of the same radius,
+    // which is a property of three numbers and easy to get wrong by hand -- so it is
+    // asserted here rather than worked out in a comment. An earlier version of this test
+    // used a horizontal offset of 11 against a fixture radius of 12, which is inside the
+    // sphere too, and a 3D-distance implementation passed it.
+    const out = radius - 0.1
+    expect(Math.hypot(out, C.verticalReach)).toBeGreaterThan(radius)
+
+    const spawn = (id: string, y: number) =>
+      spawnEnemy(id, new Vector3(out, y, 0), 'spear', DEFAULT_COMBAT_CONFIG.enemies.spear)
+    expect(waveTargets(ORIGIN, [spawn('level', 0), spawn('raised', C.verticalReach)], 1, C)
+      .map((e) => e.id)).toEqual(['level', 'raised'])
   })
 
   it('stops at the vertical reach, so a slam is a shockwave across the ground and not a sphere', () => {
@@ -109,14 +117,19 @@ describe('waveTargets', () => {
     expect(waveTargets(ORIGIN, [spawn('past', C.verticalReach + 0.01)], 1, C)).toEqual([])
   })
 
-  it('keeps the shipped wave flatter than the gust it shares ground with', () => {
+  it('keeps the shipped wave no taller than the weakest slam is wide', () => {
     // Two claims about the shipped number instead of a restatement of it. Under the gust's
-    // band, because this is a shockwave across a surface and that is a sweep of open air;
-    // and under its own full radius, so growing the radius with fall speed makes the wave
-    // wider rather than turning it into a sphere.
+    // band, because this is a shockwave across a surface and that is a sweep of open air.
+    //
+    // And bounded by `minRadius`, not `maxRadius`. The full slam's radius of 11 is never the
+    // binding case -- 4 against 11 is decisively wider than tall. The *weakest* slam is:
+    // its radius is `minRadius`, so this is the comparison that decides whether the smallest
+    // wave is a disc or a ball. `toBeLessThanOrEqual` because the two are currently equal,
+    // which is exactly as thin as that argument gets and is the case the archipelago
+    // measurement has to settle.
     const wave = DEFAULT_COMBAT_CONFIG.pressureWave
     expect(wave.verticalReach).toBeLessThan(DEFAULT_COMBAT_CONFIG.gust.verticalReach)
-    expect(wave.verticalReach).toBeLessThan(wave.maxRadius)
+    expect(wave.verticalReach).toBeLessThanOrEqual(wave.minRadius)
   })
 })
 
