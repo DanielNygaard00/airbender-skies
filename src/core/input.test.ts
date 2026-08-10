@@ -8,6 +8,7 @@ import {
   InputTracker,
   PITCH_LIMIT,
   MOUSE_SENSITIVITY,
+  shouldClaimSpace,
 } from './input'
 
 describe('clampPitch', () => {
@@ -156,7 +157,10 @@ describe('toInputState', () => {
  * `code`/`repeat` assigned onto it satisfies at runtime.
  */
 const keydown = (code: string, repeat = false) =>
-  Object.assign(new Event('keydown'), { code, repeat }) as KeyboardEvent
+  Object.assign(new Event('keydown', { cancelable: true }), { code, repeat }) as KeyboardEvent
+// `cancelable` matters and is not decoration: a real keydown is cancelable, and on an event
+// that is not, `preventDefault()` is a no-op and `defaultPrevented` never becomes true — so
+// the Space-claiming assertions below would pass against any implementation.
 
 const fakeCanvas = {
   addEventListener: () => {},
@@ -222,5 +226,109 @@ describe('the Avatar State trigger', () => {
     const gusting = toInputState(new Set(), LOOK, false, false, false, false, true, false)
     expect(gusting.gustPressed).toBe(true)
     expect(gusting.avatarStatePressed).toBe(false)
+  })
+})
+
+/**
+ * A fake element, as the predicate sees one: it reads `tagName` and nothing else, which is
+ * the whole reason it takes an `EventTarget` instead of being a method on the tracker.
+ */
+const el = (tagName: string) => ({ tagName }) as unknown as EventTarget
+
+describe('shouldClaimSpace', () => {
+  it('claims Space when nothing is focused', () => {
+    // The jump has to be the default. An unclaimed Space with no focus scrolls the page
+    // out from under the player, which is worse than the bug the gate fixes.
+    expect(shouldClaimSpace(null)).toBe(true)
+  })
+
+  it('claims Space for the canvas and for targets with no tag at all', () => {
+    expect(shouldClaimSpace(el('CANVAS'))).toBe(true)
+    // `window` and `document` are both plausible targets on a window-bound listener and
+    // neither has a tagName; a naive `target.tagName.toUpperCase()` would throw on them.
+    expect(shouldClaimSpace(new EventTarget())).toBe(true)
+    expect(shouldClaimSpace({} as EventTarget)).toBe(true)
+  })
+
+  it('leaves Space to a focused form control', () => {
+    // A checkbox is the case that matters: the panel's invert-Y, mute and reduce-motion
+    // rows are checkboxes, and Space is the only key that activates one.
+    expect(shouldClaimSpace(el('INPUT'))).toBe(false)
+    expect(shouldClaimSpace(el('BUTTON'))).toBe(false)
+    expect(shouldClaimSpace(el('SELECT'))).toBe(false)
+    expect(shouldClaimSpace(el('TEXTAREA'))).toBe(false)
+  })
+
+  it('matches a tag name whatever its case', () => {
+    // HTML tagName is upper-case, but XML-serialised documents report it as authored.
+    expect(shouldClaimSpace(el('input'))).toBe(false)
+  })
+})
+
+/**
+ * Deliver a keydown to the tracker's own listener with a `target` of our choosing.
+ *
+ * `dispatchEvent` sets `target` to the object doing the dispatching, so the
+ * focused-checkbox case is not reachable through it — hence capturing the handler. The
+ * event is a plain object rather than an `Event`: `target` is a getter on `Event`, so
+ * assigning one onto a real instance throws in a module's strict mode.
+ */
+function trackerListener(): { tracker: InputTracker; press: (target: unknown) => boolean } {
+  const handlers = new Map<string, (e: Event) => void>()
+  const target = {
+    addEventListener: (type: string, fn: (e: Event) => void) => { handlers.set(type, fn) },
+    removeEventListener: () => {},
+  } as unknown as EventTarget
+  const tracker = new InputTracker(target, fakeCanvas)
+  const handler = handlers.get('keydown')
+  if (!handler) throw new Error('InputTracker registered no keydown listener')
+  return {
+    tracker,
+    press: (eventTarget: unknown): boolean => {
+      let prevented = false
+      handler({
+        code: 'Space', repeat: false, target: eventTarget,
+        preventDefault: () => { prevented = true },
+      } as unknown as Event)
+      return prevented
+    },
+  }
+}
+
+describe('the Space key and focused controls', () => {
+  it('claims Space and jumps when the press is aimed at the canvas', () => {
+    const { tracker, press } = trackerListener()
+    expect(press(el('CANVAS'))).toBe(true)
+    expect(tracker.sample().actionPressed).toBe(true)
+  })
+
+  it('does not claim Space aimed at a checkbox, so the checkbox can still toggle', () => {
+    // The defect this replaced: the window-bound listener prevented the default of every
+    // Space press, which cancels a checkbox's activation behaviour whatever phase the
+    // listener ran in — so the settings panel's three toggle rows, reduce motion included,
+    // could not be operated from the keyboard at all.
+    const { press } = trackerListener()
+    expect(press(el('INPUT'))).toBe(false)
+  })
+
+  it('still records the jump edge for a press it did not claim', () => {
+    // Deliberate: the guide is open in that case, so the game is paused and `main.ts`'s
+    // paused branch drains the edge with its per-frame `sample()`. Leaving the edge out
+    // here would instead make the tracker's state depend on what happened to be focused.
+    const { tracker, press } = trackerListener()
+    press(el('INPUT'))
+    expect(tracker.sample().actionPressed).toBe(true)
+  })
+
+  it('claims a Space delivered through a real dispatch with nothing focusable', () => {
+    // The end-to-end direction, on a real Event rather than the plain object above: an
+    // EventTarget has no tagName, so this is the "nothing focused" case, and
+    // `defaultPrevented` is the browser-visible half of the claim.
+    const target = new EventTarget()
+    const tracker = new InputTracker(target, fakeCanvas)
+    const event = keydown('Space')
+    target.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+    expect(tracker.sample().actionPressed).toBe(true)
   })
 })
