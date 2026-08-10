@@ -857,27 +857,33 @@ describe('the Pressure Wave against real landing positions', () => {
     // sampling.
     expect(coverageFloor).toBeGreaterThan(0.9925)
     expect(coverageFloor).toBeLessThan(0.9931)
-    // The inner pair is about **this file's 0.05 m sampling specifically**, not about the
-    // ground. It is here so that retuning `verticalReach` in either direction reddens something
-    // tight, and it is labelled so nobody reads it as a fact about the island. If `DISC_STEP`
-    // ever changes, this is the pair to re-measure and the pair above is the one to trust.
-    expect(coverageFloor).toBeGreaterThan(0.9928)
-    expect(coverageFloor).toBeLessThan(0.9929)
+    // The tighter pair that pins this file's own 0.05 m sampling is at the bottom of this test,
+    // with the other sampling-specific figures.
 
-    // **Where the shortfall is, which is the fact the owner decision actually rests on.** All
-    // 144 failing samples on this grid sit in the outermost 0.204 m of the disc — every one at
-    // 3.796 m or further from the soldier, none anywhere in the interior — inside a single
-    // bearing wedge from −64.7° to −30.1°, which is one face of terrain rather than a ring.
-    expect(failing.length).toBe(144)
-    expect(Math.min(...failing.map((f) => f.d))).toBeGreaterThan(3.796)
-    expect(radius - Math.min(...failing.map((f) => f.d))).toBeLessThan(0.204)
+    // **Where the shortfall is, which is the fact the owner decision actually rests on: it is
+    // one face of one overhang, not a thin ring around the whole disc.** Split into a terrain
+    // claim and a sampling claim for the same reason the coverage figures above are.
+    //
+    // Terrain first, at bounds that hold at 0.05 m, 0.02 m and 0.01 m alike: every failing
+    // sample sits in the outermost 0.21 m of the disc — none anywhere in its interior — and all
+    // of them lie inside a single bearing wedge under 38° wide on the −67°..−29° side.
+    const leastD = Math.min(...failing.map((f) => f.d))
+    const leastBearing = Math.min(...failing.map((f) => f.bearing))
+    const mostBearing = Math.max(...failing.map((f) => f.bearing))
+    expect(failing.length).toBeGreaterThan(0)
+    expect(leastD).toBeGreaterThan(3.79)
+    expect(radius - leastD).toBeLessThan(0.21)
     expect(Math.max(...failing.map((f) => f.d))).toBeLessThan(radius + 1e-9)
-    expect(Math.min(...failing.map((f) => f.bearing))).toBeGreaterThan(-64.8)
-    expect(Math.max(...failing.map((f) => f.bearing))).toBeLessThan(-30.0)
-    // And every one of them stands on the overhang rather than on solid ground: a second `home`
-    // surface lies below each, at least 0.5 m down and in fact never less than 34.2 m down,
-    // which is the island's own underside. A player who lands there has landed on a lip above
-    // the soldier, not beside it.
+    expect(leastBearing).toBeGreaterThan(-67)
+    expect(mostBearing).toBeLessThan(-29)
+    expect(mostBearing - leastBearing).toBeLessThan(38)
+
+    // And every failing sample stands on the overhang rather than on solid ground: a second
+    // `home` surface lies below each one, at least 0.5 m down and in fact never less than 34.1 m
+    // down, which is the island's own underside. A player who lands there has landed on a lip
+    // above the soldier, not beside it. This one is grid-robust in the direction that matters —
+    // refining the grid can only add samples, and more samples can only lower the minimum, so
+    // the `> 0.5` floor is the claim and the two-sided pin is a measurement beside it.
     let leastAir = Infinity
     for (const f of failing) {
       const under = terrain.raycast(
@@ -887,7 +893,7 @@ describe('the Pressure Wave against real landing positions', () => {
       leastAir = Math.min(leastAir, f.height - under!.point.y)
     }
     expect(leastAir).toBeGreaterThan(0.5)
-    expect(leastAir).toBeGreaterThan(34.2)
+    expect(leastAir).toBeGreaterThan(34.1)
     expect(leastAir).toBeLessThan(34.3)
 
     // **What is deliberately no longer asserted here.** The old block pinned the least gap among
@@ -906,5 +912,25 @@ describe('the Pressure Wave against real landing positions', () => {
     // `docs/HANDOFF.md` and in the spec's third correction block.
     expect(worstOverall).toBeGreaterThan(C.pressureWave.minRadius)
     expect(C.pressureWave.verticalReach).toBe(C.pressureWave.minRadius)
+
+    // **Everything below this line pins this file's 0.05 m sampling rather than the island**, and
+    // it is deliberately last in the test so that refining `DISC_STEP` fails here and nowhere
+    // above it. That is the property the old version of this test lacked: its grid-artifact pins
+    // sat in the middle of terrain claims with nothing distinguishing them, which is how a
+    // coverage bound the geometry does not support went unnoticed.
+    //
+    // The figures: 144 failing samples out of 20081, reaching in to 3.796 m — the outermost
+    // 0.2036 m — across a wedge from −64.7° to −30.1°, with a coverage floor of 99.28%. At 0.01 m
+    // the same wedge holds 3530 samples reaching in to 3.7933 m across −66.3°..−29.5°, at 99.30%.
+    // If `DISC_STEP` moves, these are the numbers to re-measure; the bounds above are the ones to
+    // trust. They are kept tight rather than loosened so that a retune of `verticalReach` in
+    // either direction reddens something exact.
+    expect(failing.length).toBe(144)
+    expect(leastD).toBeGreaterThan(3.796)
+    expect(radius - leastD).toBeLessThan(0.204)
+    expect(leastBearing).toBeGreaterThan(-64.8)
+    expect(mostBearing).toBeLessThan(-30.0)
+    expect(coverageFloor).toBeGreaterThan(0.9928)
+    expect(coverageFloor).toBeLessThan(0.9929)
   })
 })
