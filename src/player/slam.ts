@@ -56,6 +56,21 @@ export function detectSlam(
  * false` — clearing it while the player is standing on the surface is safe, because
  * `groundStep` snaps only a player who was already grounded or who is descending onto
  * the surface, and a bouncing player is neither.
+ *
+ * `coyoteTime: 0` is not belt-and-braces, and it is the reason this function has to know
+ * about the jump at all. The frame this reads was a *grounded* frame, so `groundStep` left
+ * the coyote window full; carrying that into the air alongside `grounded: false` hands the
+ * player a free ground jump for the next six frames, and a ground jump overrides the bounce
+ * with a slower velocity. Measured before this line existed: a 34.333 m/s slam bounces at
+ * 15.450 m/s and peaks 5.839 m up, and a tap on any of the next six frames replaced that with
+ * 9.000 m/s and a 2.100 m peak — worse than pressing nothing, and worse than the 18.270 m/s
+ * air jump the same tap bought before coyote time existed. A bounce is the game giving the
+ * player height, so it closes the window exactly as a jump does.
+ *
+ * `jumpBuffer` deliberately needs no clearing: unlike the window, it is not pinned by being
+ * grounded, and `grounded: false` here leaves it decaying in the air on the normal schedule.
+ * Nor can a buffered press eat a slam — it fires only from a state that was already grounded,
+ * and `detectSlam` requires the frame before the landing not to have been.
  */
 export function applyBounce(
   player: PlayerState,
@@ -71,5 +86,6 @@ export function applyBounce(
     ),
     grounded: false,
     airJumpsUsed: 0,
+    coyoteTime: 0,
   }
 }

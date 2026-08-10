@@ -6,14 +6,14 @@ import { flightStep } from './flight'
 import { steerToward } from './steering'
 import { stepBreath, canBend } from './breath'
 import { groundStep } from './ground-move'
-import { canAirJump } from './jump'
+import { canAirJump, fallWithinBufferWindow } from './jump'
 import { stillAir, type WindSample } from '../world/wind'
 import { stepSlipstream, dodgeHeading, type SlipstreamConfig } from './slipstream'
 import {
   idleStaff, staffBusy, staffOf, stepStaff, type StaffConfig, type StaffSwing,
 } from './staff'
 import { raycastDown } from '../world/terrain-query'
-import { resolveMovement, type CollisionConfig } from '../world/collision'
+import { isWall, resolveMovement, type CollisionConfig } from '../world/collision'
 
 export interface ControllerDeps {
   terrain: TerrainQuery
@@ -63,10 +63,51 @@ function idleStaffFields(): Pick<
   }
 }
 
+/**
+ * Whether the ground is close enough that a press belongs to the landing rather than to the
+ * wings.
+ *
+ * The terrain question behind the deploy gate below, kept out of the condition itself so the
+ * gate stays readable and so the raycast only runs on frames that have already satisfied
+ * every cheap test above it.
+ *
+ * `reach > 0` short-circuits two cases at once rather than restating them: a rising player,
+ * whose reach `fallWithinBufferWindow` reports as zero, and a `jumpBufferSeconds` of zero,
+ * which switches the whole rule off along with the buffer it serves. Neither wants a cast,
+ * and neither wants the deploy blocked.
+ *
+ * Cast from `state.position` rather than from the eye-height probe `groundStep` uses,
+ * because the two ask different questions: that probe asks whether ground is underfoot
+ * *now*, and this asks how much further there is to fall. An airborne descending body lands
+ * when its position reaches the surface height, so the distance to cast is the distance from
+ * the position, not from above it.
+ *
+ * The hit has to be real ground rather than merely a hit, and `isWall` is the same threshold
+ * `resolveMovement` uses to decide what the body is held off rather than seated on. A face
+ * steeper than `wallNormalY` is not somewhere a fall ends: collision pushes the body `radius`
+ * clear of it and it skims on down, so a press yielded to such a face buys neither a glide
+ * nor a jump, which is strictly worse than the defect this whole gate exists to fix.
+ *
+ * The faces that matter are not downward-facing overhangs -- front-side culling makes those
+ * unhittable, which is why an earlier pass reasoned the filter unnecessary. They are faces
+ * that point upward and are simply too steep: the rims and flanks of every island, which a
+ * downward ray hits perfectly well. Measured over the real archipelago in
+ * `wall-face-reach.test.ts`: 3.37% of the downward hits a descending player gets are faces
+ * `isWall` rejects, the shallowest of them at `normal.y` 0.0040, and on `needle` it is 17.31%
+ * of the island. Every one of those positions satisfied the unfiltered condition, so the
+ * missing filter was the whole of the fault rather than one contributor to it.
+ */
+function aboutToLand(state: PlayerState, deps: ControllerDeps): boolean {
+  const reach = fallWithinBufferWindow(state.velocity.y, deps.ground)
+  if (!(reach > 0)) return false
+  const hit = raycastDown(deps.terrain, state.position, reach)
+  return hit !== null && !isWall(hit.normal, deps.collision)
+}
+
 export function isFinitePlayer(s: PlayerState): boolean {
   const nums = [
     ...s.position.toArray(), ...s.velocity.toArray(), ...s.forward.toArray(),
-    s.breath, s.maxBreath, s.airJumpsUsed, s.chargeTime,
+    s.breath, s.maxBreath, s.airJumpsUsed, s.chargeTime, s.coyoteTime, s.jumpBuffer,
   ]
   return nums.every(Number.isFinite)
 }
@@ -101,7 +142,8 @@ export function respawn(state: PlayerState, deps: ControllerDeps): PlayerState {
     breath: maxBreath,
     maxBreath,
     airJumpsUsed: 0,
-    chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+    chargeTime: 0, coyoteTime: 0, jumpBuffer: 0,
+    scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
     slipstreamElapsed: null, slipstreamCooldown: 0,
     ...idleStaffFields(),
   }
@@ -129,7 +171,8 @@ export function safeRespawn(state: PlayerState, deps: ControllerDeps): PlayerSta
     grounded: false,
     lastGroundIslandId: null,
     airJumpsUsed: 0,
-    chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+    chargeTime: 0, coyoteTime: 0, jumpBuffer: 0,
+    scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
     slipstreamElapsed: null, slipstreamCooldown: 0,
     ...idleStaffFields(),
   }
@@ -168,15 +211,27 @@ export function controllerStep(
 
   if (state.mode === 'ground') {
     if (input.actionPressed && !state.grounded && !canAirJump(state, deps.ground)
-        && !staffBusy(staffOf(state))) {
-      // Deploy the glider mid-fall — but only once the air jump is spent, and only
-      // once the staff is free. The glider IS the staff, folded across the back and
+        && !staffBusy(staffOf(state)) && !aboutToLand(state, deps)) {
+      // Deploy the glider mid-fall — but only once the air jump is spent, only once
+      // the staff is free, and only while there is still air left to use the wing in.
+      // The glider IS the staff, folded across the back and
       // unfolding fan leaves on deploy: it cannot open while it is out swinging, and
       // that is the design document's central risk decision, not a restriction
       // bolted on afterward. Grounded presses charge or jump; airborne presses with
       // reserve double-jump. Both are handled by groundStep.
       // The wings snapping open adds a kick rather than only preserving momentum,
       // so a well-timed deploy out of a jump is rewarded.
+      //
+      // `aboutToLand` is the newest of the four conditions, and it is what stops this gate
+      // eating the jump buffer whole. The rest of the gate was otherwise identical to the
+      // buffer's arming branch in `stepJump` minus `staffBusy`, and this runs first, so
+      // `Space` with no air jump left opened the wings and the buffer could only ever arm
+      // while a swing, a chain or a recovery was live. Measured through this function before
+      // the condition existed: airborne with the air jump spent and the staff idle gave
+      // `mode: 'glider'` and `jumpBuffer` 0 whether the ground was 200 m away or half a
+      // metre. Yielding near the ground costs the deploy nothing worth keeping -- wings that
+      // open three frames before touchdown unfold, kick and stow again -- and the press falls
+      // through to `groundStep`, arms the buffer, and becomes a jump on the landing instead.
       const launched = state.velocity.clone()
       launched.y += deps.flight.deployKick
       next = {
@@ -186,6 +241,27 @@ export function controllerStep(
         position: state.position.clone(),
         velocity: launched,
         grounded: false,
+        // Both forgiveness counters are dropped rather than carried, for one reason: nothing
+        // in glider mode advances either of them. The countdowns live in `groundStep`, which
+        // does not run below. So anything carried across this line stops being 0.1 s of memory
+        // and becomes 0.1 s of *ground-mode* time spread over an unbounded stretch of wall
+        // clock — stow the glider (the branch below), touch down a few frames later, and a
+        // press or an edge from before a minute-long glide is still live.
+        //
+        // Zeroed here rather than at the stow because this is the only entrance to glider
+        // mode, so closing the entrance closes every path through it.
+        //
+        // `coyoteTime` is dropped as a statement about this line rather than as insurance. It
+        // used to be left out on the argument that the gate above cannot see an open window —
+        // deploying requires the air jump to be spent, and spending it zeroes the window. That
+        // argument is true at `maxAirJumps` 1 and false at 0, where `canAirJump` is never
+        // satisfied and the gate opens to a player who has just walked off a ledge with the
+        // window full. Measured at that config, with nothing else changed: the window survived
+        // the deploy, 120 glide frames and the stow, and a release then fired a 9.000 m/s
+        // ground jump with the air jump untouched. Zeroing a documented config value is
+        // supposed to degrade safely in this codebase, so the line is cheaper than the proof.
+        coyoteTime: 0,
+        jumpBuffer: 0,
       }
     } else {
       // Sampled with state.forward, which on foot is the flattened camera direction --
@@ -271,7 +347,8 @@ export function controllerStep(
         })(),
         lastGroundIslandId: hit.islandId,
         airJumpsUsed: 0,
-        chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+        chargeTime: 0, coyoteTime: 0, jumpBuffer: 0,
+        scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
       }
     }
   }

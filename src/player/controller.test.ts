@@ -5,6 +5,7 @@ import {
   DEFAULT_COLLISION_CONFIG, DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG,
   DEFAULT_SLIPSTREAM_CONFIG, DEFAULT_STAFF_CONFIG,
 } from '../core/config'
+import { fallWithinBufferWindow } from './jump'
 import { isSwinging, staffBusy, staffOf } from './staff'
 import { stillAir } from '../world/wind'
 import type { InputState, PlayerState, TerrainQuery } from '../core/types'
@@ -23,6 +24,27 @@ const flatGround: TerrainQuery = {
       : null,
 }
 const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycast: () => null }
+
+/**
+ * Flat ground at y=0 that reports the surface normal it is given, so a test can ask what the
+ * deploy gate does about steepness without needing a real island's rim.
+ *
+ * The normal is built as `(0, normalY, sqrt(1 - normalY^2))` and deliberately left
+ * un-normalised: that expression is already unit to within a float ulp, and running
+ * `normalize()` over it would perturb `normal.y` off the exact value the test is about --
+ * 0.5, the `wallNormalY` threshold itself, comes back as 0.5000000000000001.
+ */
+const groundTiltedBy = (normalY: number): TerrainQuery => ({
+  groundHeightAt: () => 0,
+  raycast: (from, direction, maxDistance) =>
+    direction.y < -0.9 * direction.length() && from.y >= 0 && from.y - maxDistance <= 0
+      ? {
+        point: new Vector3(from.x, 0, from.z),
+        normal: new Vector3(0, normalY, Math.sqrt(1 - normalY * normalY)),
+        islandId: 'tilted',
+      }
+      : null,
+})
 
 /**
  * Flat ground at y=0 with a vertical wall facing -X at x = 20. The wall answers only
@@ -78,7 +100,7 @@ const input = (over: Partial<InputState> = {}): InputState => ({
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({
   mode: 'ground', position: new Vector3(0, 0, 0), velocity: new Vector3(),
   forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
-  grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0, slipstreamElapsed: null, slipstreamCooldown: 0,
+  grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0, coyoteTime: 0, jumpBuffer: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0, slipstreamElapsed: null, slipstreamCooldown: 0,
   staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, ...over,
 })
 
@@ -108,6 +130,73 @@ describe('mode switching', () => {
       1 / 60, deps(voidWorld),
     )
     expect(s.forward.x).toBeCloseTo(1, 5)
+  })
+
+  it('deploying the glider drops a buffered jump press', () => {
+    // The buffer's countdown lives in groundStep, which does not run in glider mode, so a
+    // buffer carried across the deploy is frozen for the whole glide -- see the next test,
+    // which pins the freeze. Carried, it stops being 0.1 s of memory and becomes 0.1 s of
+    // ground-mode time spread over an unbounded stretch of wall clock: stow the glider, touch
+    // down within a few frames, and a press from before a minute-long glide fires a jump.
+    const falling = player({
+      position: new Vector3(0, 200, 0), grounded: false, velocity: new Vector3(0, -12, 0),
+      airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps,
+      jumpBuffer: DEFAULT_GROUND_CONFIG.jumpBufferSeconds,
+    })
+    const s = controllerStep(falling, input({ actionPressed: true }), 1 / 60, deps(voidWorld))
+    expect(s.mode).toBe('glider')
+    expect(s.jumpBuffer).toBe(0)
+  })
+
+  it('deploying the glider drops the coyote window too, even with no air jump to spend', () => {
+    // At the shipped tuning this cannot be reached, and that was the old argument for leaving
+    // the window alone here: deploying requires the air jump to be spent, and spending it
+    // zeroes the window. The argument holds at maxAirJumps 1 and fails at 0, where canAirJump
+    // is never satisfied and the gate opens to a player who has simply walked off a ledge. So
+    // this test runs at 0 -- the natural "off" value for the field, which is supposed to
+    // degrade safely rather than open a hole. Asserting it at the default would be vacuous,
+    // which is exactly why the invariant went unguarded.
+    const noAirJumps = { ...DEFAULT_GROUND_CONFIG, maxAirJumps: 0 }
+    const D = { ...deps(voidWorld), ground: noAirJumps }
+    // Walked off a ledge with Space pressed: airborne, window full, one frame of charge live.
+    const offTheLedge = player({
+      position: new Vector3(0, 500, 0), grounded: false,
+      coyoteTime: noAirJumps.coyoteSeconds, chargeTime: 1 / 60,
+    })
+
+    const deployed = controllerStep(offTheLedge, input({ actionPressed: true }), 1 / 60, D)
+    expect(deployed.mode).toBe('glider')
+    expect(deployed.coyoteTime).toBe(0)
+
+    // And the symptom end to end, since the freeze makes the window outlive any glide: two
+    // seconds of gliding, stow, release. Measured before the fix, at this config: 9.000 m/s
+    // with the air jump untouched -- a ground jump two seconds after the edge.
+    let s = deployed
+    for (let f = 0; f < 120; f++) s = controllerStep(s, input(), 1 / 60, D)
+    const stowed = controllerStep(s, input({ actionPressed: true }), 1 / 60, D)
+    expect(stowed.mode).toBe('ground')
+    expect(stowed.grounded).toBe(false)
+    const released = controllerStep(stowed, input({ actionReleased: true }), 1 / 60, D)
+    expect(released.velocity.y).not.toBe(DEFAULT_GROUND_CONFIG.jumpSpeed)
+    expect(released.velocity.y).toBeLessThan(0)
+    expect(released.airJumpsUsed).toBe(0)
+  })
+
+  it('does not advance a buffered press while gliding, which is why the deploy drops it', () => {
+    // The mechanism behind the test above, asserted rather than argued: nothing in the glider
+    // branch touches either forgiveness counter, so whatever enters glider mode stays exactly
+    // as it was for as long as the glide lasts. That is what makes clearing the buffer at the
+    // entrance the fix rather than clearing it at the stow -- and the two seconds below would
+    // have been eight frames of it, had anything been counting.
+    const gliding = player({
+      mode: 'glider', position: new Vector3(0, 300, 0), grounded: false,
+      velocity: new Vector3(0, 0, -20), jumpBuffer: 0.07, coyoteTime: 0.03,
+    })
+    let s = gliding
+    for (let f = 0; f < 120; f++) s = controllerStep(s, input(), 1 / 60, deps(voidWorld))
+    expect(s.mode).toBe('glider')
+    expect(s.jumpBuffer).toBe(0.07)
+    expect(s.coyoteTime).toBe(0.03)
   })
 
   it('pressing action in the air while flying stows the glider', () => {
@@ -140,6 +229,224 @@ describe('mode switching', () => {
       const s = controllerStep(afterDouble, input({ actionPressed: true }), 1 / 60, deps(voidWorld))
       expect(s.mode).toBe('glider')
     })
+  })
+})
+
+describe('the glider deploy yields to a landing', () => {
+  const G = DEFAULT_GROUND_CONFIG
+
+  /**
+   * Airborne with the air jump spent, descending at 10 m/s, half a metre above flat ground.
+   *
+   * Half a metre against a reach of 1.1 m at this speed (`ground-move.test.ts` pins the
+   * figure), so the ground is comfortably inside the window rather than at its edge -- the
+   * edge gets its own test below.
+   */
+  const nearGround = (over: Partial<PlayerState> = {}) => player({
+    position: new Vector3(0, 0.5, 0), grounded: false, velocity: new Vector3(0, -10, 0),
+    airJumpsUsed: G.maxAirJumps, ...over,
+  })
+
+  /** Mid-swing: the staff is out, so nothing here can open the wings anyway. */
+  const midSwing = { staffChain: 1, staffElapsed: 0.05, staffRecovery: 0, staffSinceSwing: 0 }
+  /** Between swings with the combo alive -- `staffBusy`'s `chain > 0` case. */
+  const chained = { staffChain: 1, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0.02 }
+
+  it('arms the buffer where it used to open the wings, whatever the staff is doing', () => {
+    // The addendum's measured table, re-measured through controllerStep with the ground close.
+    // Before the fix the first row read `mode: 'glider'`, `jumpBuffer` 0 at any altitude: the
+    // deploy gate's preconditions were the buffer's arming branch minus `staffBusy`, and the
+    // gate runs first, so the ordinary press the buffer exists to catch went to the wings and
+    // the buffer could only ever arm behind a live swing, chain or recovery -- rows two and
+    // three, which is why they were already what they are.
+    const rows: Array<readonly [string, Partial<PlayerState>]> = [
+      ['staff idle', {}],
+      ['mid-swing', midSwing],
+      ['chain > 0', chained],
+    ]
+    for (const [label, staff] of rows) {
+      const s = controllerStep(
+        nearGround(staff), input({ actionPressed: true }), 1 / 60, deps(flatGround),
+      )
+      expect(s.mode, label).toBe('ground')
+      expect(s.jumpBuffer, label).toBe(0.08333333333333334)
+      // Not merely "did not deploy": the press has to have been spent on the buffer rather
+      // than dropped, and no air jump may be conjured out of it.
+      expect(s.airJumpsUsed, label).toBe(G.maxAirJumps)
+      expect(s.velocity.y, label).toBeLessThan(0)
+    }
+  })
+
+  it('still deploys at altitude, where nothing is about to be landed on', () => {
+    // Without this the fix could have simply broken the glider and the rest of this describe
+    // would read as a success. Flat ground exists here, 200 m below -- so this asserts the
+    // gate consulted the terrain and found nothing in reach, not that terrain was absent.
+    const s = controllerStep(
+      player({
+        position: new Vector3(0, 200, 0), grounded: false, velocity: new Vector3(0, -10, 0),
+        airJumpsUsed: G.maxAirJumps,
+      }),
+      input({ actionPressed: true }), 1 / 60, deps(flatGround),
+    )
+    expect(s.mode).toBe('glider')
+    expect(s.jumpBuffer).toBe(0)
+  })
+
+  it('still deploys while rising near the ground, so the slam-bounce re-deploy survives', () => {
+    // The bounce's own measured launch speed, 15.450 m/s out of a 34.333 m/s slam
+    // (`ground-move.test.ts`'s slam table), a hand's width off the deck. A reach computed from
+    // an unsigned speed would suppress this, and §4.3's dive -> wave -> re-deploy would be
+    // gone.
+    //
+    // The fixture is not the state a real bounce leaves, and the comment here used to say it
+    // was: `applyBounce` sets `airJumpsUsed: 0`, so the first press out of a bounce spends the
+    // air jump rather than reaching this gate at all -- asserted below on the same rising
+    // state, at the 18.270 m/s `ground-move.test.ts`'s slam table also pins. Spending the
+    // reserve in the fixture is what puts the press in front of the gate, which is the only
+    // thing this test is about: that the reach is signed. The combo's second press, after the
+    // air jump, is the one that really does arrive here.
+    const rising = { position: new Vector3(0, 0.1, 0), grounded: false,
+      velocity: new Vector3(0, 15.449999999999985, 0) }
+    const s = controllerStep(
+      player({ ...rising, airJumpsUsed: G.maxAirJumps }),
+      input({ actionPressed: true }), 1 / 60, deps(flatGround),
+    )
+    expect(s.mode).toBe('glider')
+
+    const withReserve = controllerStep(
+      player(rising), input({ actionPressed: true }), 1 / 60, deps(flatGround),
+    )
+    expect(withReserve.mode).toBe('ground')
+    expect(withReserve.velocity.y).toBe(18.26999999999999)
+  })
+
+  describe('and only to ground it could actually land on', () => {
+    /**
+     * The gate's terrain question, asked across the threshold that decides what counts as
+     * ground anywhere else in the game: `isWall`'s `wallNormalY`, 0.5.
+     *
+     * Steeper than that and the fall does not end there -- `resolveMovement` holds the body
+     * `radius` clear of the face and it skims on down -- so yielding the press to it buys
+     * neither a glide nor a jump. `wall-face-reach.test.ts` measures how much of the real
+     * archipelago is such a face (3.37% of what a descending player's ray finds, and 17.31% of
+     * `needle`); this pins the rule itself, where the boundary can be placed exactly.
+     */
+    const wallish = [0.05, 0.3, 0.49]
+    const groundish = [0.5, 0.51, 0.9]
+
+    it('treats a face steeper than the wall threshold exactly as it treats open air', () => {
+      // The control is the same press over `voidWorld`, rather than a restatement of what the
+      // deploy does: whatever open air produces, a wall face has to produce too.
+      const openAir = controllerStep(
+        nearGround(), input({ actionPressed: true }), 1 / 60, deps(voidWorld),
+      )
+      expect(openAir.mode).toBe('glider')
+      expect(openAir.jumpBuffer).toBe(0)
+      for (const normalY of wallish) {
+        const s = controllerStep(
+          nearGround(), input({ actionPressed: true }), 1 / 60, deps(groundTiltedBy(normalY)),
+        )
+        expect(s.mode, `normal.y ${normalY}`).toBe(openAir.mode)
+        expect(s.jumpBuffer, `normal.y ${normalY}`).toBe(openAir.jumpBuffer)
+      }
+    })
+
+    it('still yields to a face at or above it, and the jump still arrives', () => {
+      // 0.5 is in this list on purpose: `isWall` is a strict `<`, so the threshold's own value
+      // is ground, and a filter written with `<=` would fail here and nowhere else.
+      for (const normalY of groundish) {
+        const terrain = groundTiltedBy(normalY)
+        const pressed = controllerStep(
+          nearGround(), input({ actionPressed: true }), 1 / 60, deps(terrain),
+        )
+        expect(pressed.mode, `normal.y ${normalY}`).toBe('ground')
+        expect(pressed.jumpBuffer, `normal.y ${normalY}`).toBe(0.08333333333333334)
+
+        let s = pressed
+        let launchSpeed = Number.NaN
+        for (let f = 1; f < 20 && Number.isNaN(launchSpeed); f++) {
+          s = controllerStep(s, input(), 1 / 60, deps(terrain))
+          if (s.velocity.y > 0) launchSpeed = s.velocity.y
+        }
+        expect(launchSpeed, `normal.y ${normalY}`).toBe(G.jumpSpeed)
+      }
+    })
+  })
+
+  it('turns the yielded press into a jump on landing, through the whole controller', () => {
+    // The gap that hid the defect for the whole cycle: every other buffer test calls
+    // groundStep directly and so never meets the deploy gate above it. This one presses once,
+    // mid-fall, and then holds nothing at all until the jump comes out.
+    let s = nearGround()
+    let sawGlider = false
+    let jumped = -1
+    let launchSpeed = Number.NaN
+    for (let f = 0; f < 20; f++) {
+      s = controllerStep(s, input({ actionPressed: f === 0 }), 1 / 60, deps(flatGround))
+      if (s.mode !== 'ground') sawGlider = true
+      if (jumped < 0 && s.velocity.y > 0) {
+        jumped = f
+        launchSpeed = s.velocity.y
+      }
+    }
+    expect(sawGlider).toBe(false)
+    // Touchdown is on frame 2 from half a metre at this speed, and the buffer is honoured on
+    // the frame after it: `stepJump` runs before the ground probe, so touchdown's own frame
+    // still reads an airborne state.
+    expect(jumped).toBe(3)
+    // The jump speed exactly, not merely upward: an air jump would also be upward, and the
+    // buffered press must fire the uncharged ground jump.
+    expect(launchSpeed).toBe(G.jumpSpeed)
+  })
+
+  it('yields at the far edge of its own reach, and the buffer still gets there', () => {
+    // The reason `fallWithinBufferWindow` being *short* of the real fall matters. The buffer's
+    // usable span is five frames rather than the six the window nominally buys, while the reach
+    // is a full window's worth of fall -- so the longest fall the gate ever yields to is where
+    // the two are closest, and it has to still work. It does because the simulated fall covers
+    // more ground than the prediction: the predicted reach is crossed in six frames, which puts
+    // the press at most five frames early. A prediction that erred the other way would open a
+    // band of heights where the press bought neither a glide nor a jump.
+    //
+    // The far edge is `fallWithinBufferWindow(-10, G)` itself, not a round number just inside
+    // it: 1.09 m stopped a centimetre short of the boundary and left the last centimetre of the
+    // reach -- the only part where the margin is actually thin -- unasserted. Measured, 1.1 m
+    // exactly still jumps, and on the same frame 1.09 m does: the last centimetre of the reach
+    // is inside the same frame's worth of fall, so it costs the buffer nothing.
+    const edge = fallWithinBufferWindow(-10, G)
+    expect(edge).toBe(1.1)
+    for (const [height, expected] of [[1.09, 6], [edge, 6]] as const) {
+      let s = nearGround({ position: new Vector3(0, height, 0) })
+      let jumped = -1
+      let launchSpeed = Number.NaN
+      for (let f = 0; f < 20; f++) {
+        s = controllerStep(s, input({ actionPressed: f === 0 }), 1 / 60, deps(flatGround))
+        expect(s.mode, `${height} m, frame ${f}`).toBe('ground')
+        if (jumped < 0 && s.velocity.y > 0) {
+          jumped = f
+          launchSpeed = s.velocity.y
+        }
+      }
+      expect(jumped, `${height} m`).toBe(expected)
+      expect(launchSpeed, `${height} m`).toBe(G.jumpSpeed)
+    }
+  })
+
+  it('does not reach past the fall the buffer can survive, which is the whole margin', () => {
+    // The far edge from the other side, and the assertion that guards the dead band. The gate
+    // may reach no further than a fall covers in one window, 1.1166666666666667 m at this speed
+    // (`ground-move.test.ts` pins that simulated figure) -- because a press yielded beyond it
+    // lands after the buffer has expired and buys neither a glide nor a jump. The margin
+    // between the shipped reach and that limit is 1.5%: 1.1 against 1.1166666666666667. So this
+    // row is what reddens a reach given slack, and the row above is what reddens a reach given
+    // less; between them the boundary is pinned from both sides.
+    const oneWindowOfFall = 1.1166666666666667
+    expect(oneWindowOfFall / fallWithinBufferWindow(-10, G)).toBeCloseTo(1.01515, 5)
+    const s = controllerStep(
+      nearGround({ position: new Vector3(0, oneWindowOfFall, 0) }),
+      input({ actionPressed: true }), 1 / 60, deps(flatGround),
+    )
+    expect(s.mode).toBe('glider')
   })
 })
 
@@ -238,6 +545,22 @@ describe('safety nets', () => {
     const broken = player({ position: new Vector3(NaN, 10, 0) })
     expect(Number.isFinite(controllerStep(broken, input(), 1 / 60, deps(voidWorld)).position.x))
       .toBe(true)
+  })
+
+  it('respawns on a non-finite forgiveness counter, like every other tracked field', () => {
+    // Both counters are fed by `dt` arithmetic, so both can carry a NaN, and `isFinitePlayer`
+    // is what stops one spreading. Nothing pinned their membership of that list: dropping them
+    // from it left the whole suite green, because a NaN counter changes no other field's value.
+    // Asserted on the respawn, which is the observable consequence -- a respawned player is
+    // grounded at the spawn point with both counters cleared.
+    for (const field of ['coyoteTime', 'jumpBuffer'] as const) {
+      const broken = player({ [field]: Number.NaN, position: new Vector3(5, 5, 5) })
+      const s = controllerStep(broken, input(), 1 / 60, deps(voidWorld))
+      expect(Number.isFinite(s[field]), field).toBe(true)
+      expect(s[field], field).toBe(0)
+      expect(s.position.toArray(), field).toEqual([0, 0, 0])
+      expect(s.grounded, field).toBe(true)
+    }
   })
 
   it('restores breath on respawn', () => {

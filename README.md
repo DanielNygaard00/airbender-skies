@@ -22,7 +22,7 @@ back down to a walking stick.
 | `R` | Vortex — hold to charge, release to pull nearby enemies inward and lift them off their feet | Vortex |
 | `C` | Slipstream — a short dash, briefly unhittable | Slipstream |
 | `Ctrl` | Hold through a landing to slam | Tuck — fold the wings for a fast dive, and hold it through the landing to slam |
-| `Space` | Jump — twice, the second gains more height the faster you are rising | Deploy or stow the glider |
+| `Space` | Jump — twice, the second gains more height the faster you are rising | Deploy or stow the glider. Close to the ground the deploy gives way to the landing, so a press on the way down becomes a jump on touchdown rather than a glide you immediately stow |
 | `H` | Guide — every action, and whether you can use it right now. Closing it puts you back wherever you opened it from: play, or the pause card | Guide |
 | `Escape` | Pause — releases the mouse; click to resume. With the guide open it closes the guide and still releases the mouse, so you land on the pause card; `H` leaves the mouse alone, so it returns you to whatever you opened the guide from | Pause |
 
@@ -35,7 +35,9 @@ is already flying. Collect air shrines to raise your maximum breath.
 On the ground, momentum is the resource. The run accelerates softly and slides on stops rather
 than snapping, the scooter doubles your speed while halving your steering, and holding a clean
 line on it builds a hidden accumulator that makes the ball tighter and faster — carve hard and you
-give it back. Landing never stops you dead; you skim out of it.
+give it back. Landing never stops you dead; you skim out of it. A jump is forgiven slightly at
+both ends: press it just after walking off an edge and it still counts, and press it just before
+you land and it waits for the ground rather than vanishing.
 
 A patrol of spear infantry holds the east side of the home island. They pressure your spacing:
 they close, they telegraph, and standing still costs health. Gust knocks them back and

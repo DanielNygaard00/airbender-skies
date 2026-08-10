@@ -94,6 +94,16 @@ export const DEFAULT_GROUND_CONFIG: GroundConfig = {
   chargeMaxSeconds: 1.5,
   chargedJumpSpeed: 20,
   chargeWalkFactor: 0.4,
+  // Both are 6 fixed steps at 60 Hz -- the common platformer standard, and argued
+  // guesses rather than a measurement of this game. Measured before they existed: a
+  // press on the last grounded frame released one frame later produced no jump at all,
+  // and a press released up to 8 frames before a landing produced nothing on landing.
+  // Both measurements are now asserted as the inverse claim, at those same frame counts,
+  // in `jump.test.ts` and `ground-move.test.ts`. One of them is only partly inverted: the
+  // buffer reaches 5 frames before touchdown, not 8, because 8 frames is 133 ms against
+  // this 100 ms window. The table in `ground-move.test.ts` pins where the edge falls.
+  coyoteSeconds: 0.1,
+  jumpBufferSeconds: 0.1,
   // Soft enough to lean into turns and slide on stops, per the doc's air-assisted
   // run, without feeling like ice.
   groundResponse: 7,

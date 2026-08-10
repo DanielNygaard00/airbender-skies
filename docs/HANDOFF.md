@@ -4,12 +4,13 @@ Written 2026-07-31, updated 2026-08-04 for the enemy health bars, updated 2026-0
 for the impact feel and encounter lifecycle work, and again 2026-08-05 for the aim tell and
 stall readability work, and again 2026-08-06 for archers and projectiles, and again
 2026-08-06 for terrain collision, and again 2026-08-06 for the Slipstream breath cost, and
-again 2026-08-07 for the feel batch, and again 2026-08-07 for wind on foot. This is a recap
+again 2026-08-07 for the feel batch, and again 2026-08-07 for wind on foot, and again
+2026-08-10 for jump forgiveness. This is a recap
 for whoever picks the project up next, including a future session with no memory of the work
 below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 1387 tests across 86 files,
+**Repo state:** 1451 tests across 88 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -49,7 +50,8 @@ scooter (`src/player/scooter.ts`) is a toggle that doubles speed, halves steerin
 carries a hidden accumulator that rewards a clean line. The blast dash
 (`src/player/dash.ts`) chains three times before a recovery and only fires from the
 ground. Jumps are in `src/player/jump.ts`, including a second jump that gains more
-height the faster the player is already rising.
+height the faster the player is already rising, and the two forgiveness windows written
+up at the end of this section.
 
 **Wind as terrain.** `src/world/wind.ts` models five kinds — thermal, ridge lift,
 wind river, downdraft, dead air — each a shape in the world with a rule. Placed per
@@ -1522,6 +1524,204 @@ playing, which is what makes "altitude never left 14 m" mean something when read
 a real, unforced `documentHidden === true`. Both directions were checked with the same
 hook-and-drive technique so the comparison is apples to apples.
 
+**Jump forgiveness: coyote time off a ledge, and a jump buffer across a landing.** Two
+standard platformer affordances were absent, and their absence was measured rather than
+assumed. Walking off a ledge with Space pressed on the last grounded frame and released one
+frame later produced a vertical speed of **-0.667 m/s** — one frame of gravity and nothing
+else. Not a weaker jump: no jump, and the air jump was not spent either, so the press simply
+vanished. The cause was that the jump fires on *release* while the airborne branch discarded
+`chargeTime` outright and fired only on a fresh press, so a press straddling an edge was
+charged on one side and thrown away on the other. Separately, with the air jump already spent
+and the press released mid-air, a press at 1, 2, 3, 5 or 8 frames before touchdown produced
+nothing on landing in all five cases. For scale, the height at stake is **2.09 m**: a single
+jump peaks at 2.100 m and a jump followed by an air jump at apex reaches 4.194 m.
+
+`coyoteTime` is **one rule and no edge detection**: pinned at `coyoteSeconds` while grounded,
+decaying by `dt` while airborne, zeroed by any jump. It needs no "did I leave the ground this
+frame" comparison, because the last grounded frame already left the window full. The zeroing
+is the subtle part — without it every ground jump would be a double jump for the next six
+frames, and a test starting from a standing frame is what pins it (starting from the bare
+`player()` fixture, whose `coyoteTime` is 0, the whole suite stayed green with the zeroing
+removed; that was found by making the change, not by reading the assertion).
+
+Both counters are written in `groundStep`, not `stepJump`, because `stepJump` runs before the
+ground probe and cannot know the authoritative `grounded` — the same split the function
+already used for `airJumpsUsed`. `JumpStep` gained `jumped` for that: `groundStep` needs to
+know a jump fired, and re-deriving it from `jumpVelocityY !== null` at the call site would be
+a second place to keep in step.
+
+**`chargeThresholdSeconds` is 0.2, twice the 0.1 s coyote window**, so the window cannot let a
+charge *complete* in the air. What it carries is a charge already earned on the ground: hold
+Space while walking, step off, release within the window, and the charged jump earned on solid
+rock is the one that fires. Measured, and it is the discriminating case in
+`ground-move.test.ts`: a walk that reaches the edge on frame 30 with 0.5 s of charge, released
+3 frames past the edge, fires at **13.0333 m/s** against a plain jump's 9. A charge *started*
+at the ledge can never mature inside the window; that is a real limit of these two numbers
+rather than a flaw in the mechanism, and it is pinned by a test rather than left to be found
+in play.
+
+**The buffer reaches 5 frames, not the 8 the spec expected.** `jumpBufferSeconds` 0.1 is six
+frames at 60 Hz and the countdown starts on the frame the press is made, so 1, 2, 3, 4 and 5
+frames before touchdown now jump on the frame after landing, and 6, 7 and 8 still do not. The
+design doc asked for all five of its measured timings including 8 frames, which is 133 ms
+against a 100 ms window — arithmetically impossible without raising the window, so the doc is
+wrong rather than the code. The whole table 1-8 is asserted so the boundary is pinned next to
+the inside of it. Two cautions on that boundary: the fifth frame survives only by
+floating-point residue (six subtractions of 1/60 from 0.1 leave 2.1e-17 rather than 0), and
+because `stepJump` runs before the ground probe, a buffered press is honoured on the frame
+*after* touchdown rather than on touchdown itself. If the window is ever retuned for feel,
+`jumpBufferSeconds` around 0.15 would make the doc's 8-frame case work and would move the
+boundary off the knife edge.
+
+**One edge is deliberately accepted, and it is milder than the spec claimed.** Press fresh
+inside the coyote window, then release after the window has closed: the jump is lost. The
+spec expected that release to fall through to the air-jump branch and spend the air jump, but
+measured, it does not — the air-jump branch fires only on a fresh press, and a release is not
+one, so nothing at all happens and the air jump stays in hand. Closing the edge properly would
+need a third state field recording "a coyote charge is live", and holding past 0.1 s off a
+ledge is not what this cycle existed to fix.
+
+No validator was added for the two config values, deliberately: a window of zero or below
+disables that one piece of forgiveness and leaves the old behaviour exactly as it was, which
+is a safe degradation rather than a broken state. Since that is an argument about an absence,
+it is asserted instead — a zero `coyoteSeconds` leaves the buffer working and a zero
+`jumpBufferSeconds` leaves coyote working, both as tests. Separately, both windows are pinned
+for *extent* and not only existence: the coyote window closes six frames past the edge and no
+later, and the buffer's table runs 1 to 8 frames. Without the first of those the suite passed at
+`coyoteSeconds` 0.05, 0.5 and 1.0 alike, and a full second is effectively unlimited free ground
+jumps off any surface.
+
+**The trap this cycle found the hard way: every spread of a `PlayerState` that flips `grounded`
+or `mode` is a place a forgiveness counter can escape.** There are eight such spreads — the two
+respawns, the glider deploy, the stow, the glider's per-frame step, the glider's landing, the
+slam bounce, and `groundStep`'s own return. Three could leak a counter, and two of those needed a
+line adding.
+
+`applyBounce` in `src/player/slam.ts` reads a *grounded* frame — where the coyote window is
+pinned full — and returns `grounded: false`, so it carried a complete window into the air on
+every Pressure Wave slam. A tap on any of the next six frames then fired a free ground jump that
+*replaced* the bounce: measured, a 34.333 m/s slam bounces at 15.450 m/s and peaks 5.839 m above
+the surface, and the tap turned that into 9.000 m/s and a 2.100 m peak — worse than pressing
+nothing, and worse than the 18.270 m/s air jump the same tap bought before this cycle existed. It
+now clears `coyoteTime`, and `ground-move.test.ts` asserts the peak rather than the velocity,
+because height is what the player sees. It deliberately does *not* clear `jumpBuffer`: unlike the
+window, the buffer is not pinned by being grounded, so `grounded: false` hands it back to the
+normal countdown rather than freezing it.
+
+The glider deploy in `src/player/controller.ts` is the second, and it needed both counters
+dropped. Nothing in glider mode advances either, so anything carried across the deploy stops
+being 0.1 s of memory and becomes 0.1 s of *ground-mode* time spread over an unbounded glide —
+stow the glider, touch down a few frames later, and a press or an edge from before a minute-long
+glide is still live. Zeroed at the deploy rather than at the stow because the deploy is the only
+entrance to glider mode. The window's line was initially left out on the argument that the gate
+cannot see an open window, since deploying requires the air jump to be spent and spending it
+zeroes the window; that argument is true at `maxAirJumps` 1 and false at 0, where `canAirJump` is
+never satisfied and the gate opens to someone who has just walked off a ledge. Measured at that
+config: the window survived the deploy, 120 glide frames and the stow, and a release then fired a
+9.000 m/s ground jump with the air jump untouched. A test pins it there, because an assertion at
+the shipped tuning would be vacuous — which is precisely how the hole stayed open.
+
+The third leakable spread, the glider's own landing, already zeroed both. `groundStep`'s return is
+not a leak in this sense: it is where the counters are computed.
+
+**The buffer was very nearly dead code, and the deploy gate is why.** The spec specified the
+buffer's arming condition as "airborne, a fresh press, no air jump left" and never checked it
+against the rest of the game's input handling. That is the *same* condition `controllerStep`
+already used to open the glider, minus `staffBusy` — and the deploy gate runs before
+`groundStep`, so it consumed the press first. `Space` with no air jump left is the documented way
+to open the wings: jump, jump, deploy. Measured through `controllerStep` before the fix: airborne
+with the air jump spent and the staff idle gave `mode: 'glider'` and `jumpBuffer` 0 whether the
+ground was 200 m away or half a metre. In production the buffer could therefore only ever arm
+while a staff swing, a combo chain or a recovery was live. No test caught it because every buffer
+test called `groundStep` directly and so never met the gate above it — the same blind spot the
+register below keeps finding, in a new place.
+
+**The fix: a fourth condition on the deploy gate, and the deploy yields to a landing.** The gate
+now reads `input.actionPressed && !state.grounded && !canAirJump(...) && !staffBusy(...) &&
+!aboutToLand(state, deps)`. `aboutToLand` asks whether the player would reach the ground before a
+buffered press expires; if so the press falls through to `groundStep`, arms the buffer, and
+becomes a jump on the landing. Opening the wings three frames before touchdown was already a poor
+outcome — unfold, kick, land, stow — so the move now goes where it was aimed. What genuinely
+changes is that a press low over a ledge buys a jump rather than a glide, and that is a real
+behavioural change to a documented control.
+
+**The threshold needs no new tuning value, which is what makes it the right rule rather than a
+second guess.** `fallWithinBufferWindow(velocityY, c)` predicts the fall over one
+`jumpBufferSeconds` from the current descent speed, so the window that decides how long a press
+is remembered is the same window that decides how close is too close to open the wings. It
+returns 0 while rising — a rising player is not about to land, and gating the deploy on the way
+up would break §4.3's slam-bounce re-deploy at the top of its arc — and a `jumpBufferSeconds` of
+0 gives a reach of 0, which leaves the deploy exactly as it was and keeps the "safe degradation,
+so no validator" claim true for the field that has none.
+
+**The correctness margin, which is thin and worth understanding before touching any of it.** The
+reach is the *closed-form* six-frame distance, while the buffer survives exactly six decays. Those
+two do not obviously meet, and if the reach were the longer of them there would be a band of
+heights where a press bought neither a glide nor a jump — strictly worse than the defect being
+fixed. It works because `groundStep` integrates semi-implicitly, applying each frame's whole
+gravity increment before it moves, so the simulated fall covers *more* ground per window than the
+closed form predicts. The surplus is exactly `½ × gravity × dt × jumpBufferSeconds` =
+**0.016667 m**, independent of descent speed: at 10 m/s, 1.1 m predicted against 1.1166667 m
+simulated. **In frames the margin is zero** — the predicted reach is crossed in six frames and no
+fewer, which is what puts the press inside the buffer rather than one frame past it.
+
+Two edits that look like improvements and open a dead band. Both were measured by making them:
+
+- **Replacing the closed form with a frame-by-frame replay that runs seven times instead of six.**
+  A `t += dt` loop is the natural way to write "the fall over one window" and it is off by one.
+  `jumpBufferSeconds / dt` is exactly 6, but six accumulated additions of `1/60` land on
+  0.09999999999999999, so a `while (t < c.jumpBufferSeconds)` loop takes a seventh step — the same
+  floating-point residue the buffer's own fifth frame survives on, read the other way round. At
+  −10 m/s that reports 1.3222 m of
+  reach against a buffer that can only honour 1.1167 m, and the measured dead band is **0.2050 m
+  wide** (heights 1.1170 m to 1.3220 m yield the press and then produce no jump). A closed form
+  with `t` accumulated seven times rather than a replay gives a reach of 1.3028 m and a 0.1855 m
+  band. Either way it is a fifth of a metre of heights where `Space` does nothing.
+- **Any slack added to the reach, of roughly 1.6% or more.** The whole margin is 1.5%
+  (1.1166667 / 1.1 = 1.01515), so there is nothing to spend. Measured: multiplying the reach by
+  1.016 opens a 0.0005 m band, and by 1.02 a 0.0050 m one; 1.0152 does not open one. A "round it
+  up to be safe" instinct is exactly backwards here — safety is on the short side.
+
+`controller.test.ts` pins the reach from both ends for that reason: 1.09 m and 1.1 m (the reach
+itself) both yield and both jump on frame 6, and a height of 1.1166667 m — one window's worth of
+simulated fall — must *not* yield. The first reddens a reach given less, the second a reach given
+more.
+
+**And the gate has to ask whether the hit is ground, not merely whether there is one.** The first
+implementation of `aboutToLand` treated any downward hit as a landing. That was deferred as minor
+on the argument that the only faces a downward ray could wrongly answer with are downward-facing
+overhangs, which front-side culling makes unhittable. True, and beside the point: the faces that
+actually occur are upward-facing and simply too steep to stand on — the rims and flanks of every
+island — and a downward ray finds those perfectly well. `resolveMovement` holds the body `radius`
+clear of a face steeper than `wallNormalY` rather than seating it, so the fall does not end there.
+The player skims the face, the buffer expires, and the press bought nothing: no glide, because the
+gate suppressed it, and no jump, because no landing ever came.
+
+Measured over the real archipelago, one sample per position of a 51 × 51 grid on each of the
+thirteen islands, half a metre above the surface, descending at 10 m/s with the air jump spent:
+
+| | before the filter | after |
+| --- | --- | --- |
+| downward hits on faces `isWall` rejects | 796 of 23651, **3.37%** | unchanged — it is geometry |
+| shallowest such `normal.y` | 0.0040, effectively vertical | unchanged |
+| `home` positions that yielded with no jump following | 1.86% | **0** |
+| `spire` | 7.26% | **0** |
+| `needle` | **17.03%** | **0** |
+| `beacon` | 1.59% | **0** |
+
+Every one of those failures sat on a wall-normal face and none anywhere else, so the missing
+filter was the whole of the fault rather than one contributor to it. The fix is one clause —
+`hit !== null && !isWall(hit.normal, deps.collision)` — and it needs no new tuning value either,
+because `wallNormalY` is already the threshold collision uses for exactly this question. Nothing
+in the 1439-test suite pinned either behaviour, which is why `wall-face-reach.test.ts` now exists:
+it builds the real islands and asserts the table above, alongside synthetic-normal tests in
+`controller.test.ts` that place the boundary exactly (0.05, 0.30, 0.49 behave as open air; 0.50 —
+`isWall` is a strict `<` — 0.51 and 0.90 yield and jump).
+
+**None of it was played.** The 0.1 s windows are the platformer standard rather than a
+measurement of this game, this environment cannot hold a pointer lock, and the two windows and
+their interaction with `chargeThresholdSeconds` 0.2 are the values most worth a human's hands.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
@@ -1567,8 +1767,11 @@ From the design document, in rough order of how much is missing:
   the terrain collision cycle removed. `TerrainQuery` can now cast a lateral ray and
   collision now reports the normal it hit, both of which wall-riding needs; nothing has
   used either for that move yet.
-- **Standing the player back up.** A pre-existing hole this cycle's playtesting exposed,
-  not part of this cycle's work: once the player's own health reaches 0, it stays at 0
+- **Standing the player back up.** A hole inherited from an earlier cycle and never part of
+  any cycle's work since. (This bullet used to open "a pre-existing hole this cycle's
+  playtesting exposed", which has travelled unchanged through several cycles and now reads as
+  a claim that somebody played the game here. Nobody has. It was found by reading
+  `stepHealth`, not by playing.) Once the player's own health reaches 0, it stays at 0
   for the rest of the session. `stepHealth` in `src/combat/health.ts` deliberately never
   regenerates off the floor, with a comment deferring the decision to "a system above
   this one" — and no such system exists in `main.ts`. `respawn` and `safeRespawn` in
@@ -1689,6 +1892,12 @@ that proved nothing:
 4. **Assertions that hold either way.** A height assertion for "the placeholder was
    removed" passed whether or not it was removed, because the replacement is the same
    height.
+5. **A fixture default that already equals the expectation.** `expect(j.airJumpsUsed).toBe(0)`
+   started from a fixture whose `airJumpsUsed` is 0, so it passed whether the code carried the
+   value forward or overwrote it with a literal 0. This one is not about the assertion's form at
+   all — the expected value is correct and the comparison is exact. The starting state is what
+   makes it unfalsifiable. Start from a value the right implementation must preserve and the
+   wrong one must destroy.
 
 The habit that caught all of them: after writing a test, **neutralise the feature in
 config and confirm the test goes red.** If it stays green, the test is decorative.
@@ -1779,8 +1988,8 @@ assertions and judging them adequate.
 | `pauseReason` had no exact-reason assertion at `pointerLocked: true, documentHidden: true, guideOpen: false` | returning `'unlocked'` instead of `'hidden'` on the branch where the lock is still held | `'reports the reason this table names for every combination'`, which pins all eight combinations as one object comparison |
 | `OverlayModel.hint` was unasserted at all four points where the card is invisible | `HIDDEN.hint = 'H — guide'`, i.e. a non-empty hint on the invisible path | the same 8-point table, extended from three fields to all four and compared as whole objects |
 
-Two things generalise from them. First, the register above is now unanimous: **twelve for
-twelve, the gap was found by making the forbidden change, and none of the twelve by reading
+Two things generalise from them. First, the register above is now unanimous: **fourteen for
+fourteen, the gap was found by making the forbidden change, and none of the fourteen by reading
 the assertion and reasoning about what it covered.** That is no longer a lesson from one
 cycle; it is the only method that has ever worked here.
 
@@ -1793,7 +2002,7 @@ both pinned the same single no-cause combination, so no mutation could redden on
 other. It has been replaced by the exhaustive expected-reason table, whose name says what it
 does. When a test's name overstates its assertions, the name is a defect, not a nicety.
 
-**The correction pass that closed this cycle added nothing to the count of twelve, and that
+**The correction pass that closed this cycle added nothing to the count, then twelve, and that
 is the point: its findings were the feel batch's shape, not this register's.** Three claims
 about the front-door frame reached committed prose without ever being measured — that the
 unposed character stood in the GLB's rest pose (it stood in `buildGlideClip`'s leftover
@@ -1815,6 +2024,36 @@ angles. `'createAvatar poseNow'` now pins the claim, red-proofed the mandatory w
 `0` instead of `FADE_SECONDS` and watching both of its tests fail. **"A test here would only
 test a mock" is a claim about the harness, and this file's harness is the thing to check
 before making it.**
+
+**Jump forgiveness produced the thirteenth and fourteenth, one during implementation and one
+found by the final review's mutation run.** Both are in the table below, and the fourteenth is the
+new shape recorded as item 5 of the list above — the first entry in this register whose defect is
+the fixture's *starting value* rather than the assertion's form or the fixture's ability to
+distinguish two implementations.
+
+| The gap | The mutation that survived | What caught it in the end |
+| --- | --- | --- |
+| Every test that could catch a third jump started from a fixture whose `coyoteTime` is 0, the one state in which the bug cannot appear | dropping the `jump.jumped ? 0 :` guard from `groundStep`'s `coyoteTime`, so a ground jump leaves the window open and every jump is a double jump for six frames | `'does not grant a third jump'` and `'a normal ground jump zeroes the window on the frame it fires'`, both rewritten to start from a state that has actually stood on the ground for a frame, the second asserting the full window before the jump |
+| `jump.test.ts`'s `'costs no air jump'` asserted `toBe(0)` from a fixture whose `airJumpsUsed` is 0 | setting the jump-buffer branch to `airJumpsUsed: 0` instead of carrying `state.airJumpsUsed` forward | the same test, started from `airJumpsUsed: G.maxAirJumps` — the only state a buffer can be armed in, since arming requires the reserve to be spent |
+
+The second one is a test defect only: `groundStep` resets `airJumpsUsed` on any grounded frame, so
+in production the branch cannot be caught doing it. That is worth saying rather than glossing,
+because it is the reason the mutation is harmless and the reason it survived — nothing downstream
+of the branch depends on the value it got wrong.
+
+**The same review run found something else that is not this register's shape and deserves its own
+name: a case that was never written at all.** Making the air-jump branch win over the coyote
+branch — a plain reordering of `stepJump`'s airborne branches — left all 1439 tests green. Not
+because an assertion was weak, but because every shipped coyote test pressed on the last
+*grounded* frame, so the coyote branch only ever saw the release. A press made one to six frames
+*after* the edge with an air jump still in hand — the actual coyote case, the thing the feature is
+named for — was exercised nowhere. It hid behind the tuning: `jumpSpeed` and `airJumpSpeed` are
+both 9, so the two outcomes are identical in velocity and only `airJumpsUsed` separates them. Two
+tests now cover it, a `stepJump` unit and a multi-frame `groundStep` run off a real ledge, and both
+redden under the reordering. The lesson is not about assertions: **when a feature's headline case
+and its edge cases are tested by the same fixture shape, check that the headline case is one of
+them.** Every coyote test in the file looked like a different timing of the same input, and none
+of them was the input the window exists for.
 
 Worth recording alongside the ninth: the wind-on-foot cycle had four of my own quantitative
 or causal claims corrected by measurement rather than caught by the person who made them — the "ramps in over
