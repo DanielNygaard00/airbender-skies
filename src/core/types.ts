@@ -52,6 +52,10 @@ export interface PlayerState {
   airJumpsUsed: number
   /** Seconds space has been held toward a charged jump. 0 = not charging. */
   chargeTime: number
+  /** Seconds of grace left to still jump as though grounded. Pinned while grounded. */
+  coyoteTime: number
+  /** Seconds left on a jump press remembered across a landing. */
+  jumpBuffer: number
   /** Riding the air scooter. */
   scooterActive: boolean
   /** The scooter's hidden speed accumulator, 0 to 1. */
@@ -210,6 +214,16 @@ export interface GroundConfig {
   chargedJumpSpeed: number
   /** Movement speed multiplier while charging. */
   chargeWalkFactor: number
+  /**
+   * Grace after walking off an edge during which a jump still counts as a ground jump.
+   *
+   * Note the interaction with `chargeThresholdSeconds`: at 0.1 against a threshold of 0.2,
+   * this window cannot let a charge *complete* in the air. What it carries is a charge
+   * already earned on the ground.
+   */
+  coyoteSeconds: number
+  /** How long a jump press is remembered across a landing. */
+  jumpBufferSeconds: number
   /**
    * How sharply ground speed chases the stick, per second. Low values give the
    * doc's soft acceleration and slide-on-stop instead of snapping to a stop.

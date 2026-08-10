@@ -66,7 +66,7 @@ function idleStaffFields(): Pick<
 export function isFinitePlayer(s: PlayerState): boolean {
   const nums = [
     ...s.position.toArray(), ...s.velocity.toArray(), ...s.forward.toArray(),
-    s.breath, s.maxBreath, s.airJumpsUsed, s.chargeTime,
+    s.breath, s.maxBreath, s.airJumpsUsed, s.chargeTime, s.coyoteTime, s.jumpBuffer,
   ]
   return nums.every(Number.isFinite)
 }
@@ -101,7 +101,8 @@ export function respawn(state: PlayerState, deps: ControllerDeps): PlayerState {
     breath: maxBreath,
     maxBreath,
     airJumpsUsed: 0,
-    chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+    chargeTime: 0, coyoteTime: 0, jumpBuffer: 0,
+    scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
     slipstreamElapsed: null, slipstreamCooldown: 0,
     ...idleStaffFields(),
   }
@@ -129,7 +130,8 @@ export function safeRespawn(state: PlayerState, deps: ControllerDeps): PlayerSta
     grounded: false,
     lastGroundIslandId: null,
     airJumpsUsed: 0,
-    chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+    chargeTime: 0, coyoteTime: 0, jumpBuffer: 0,
+    scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
     slipstreamElapsed: null, slipstreamCooldown: 0,
     ...idleStaffFields(),
   }
@@ -271,7 +273,8 @@ export function controllerStep(
         })(),
         lastGroundIslandId: hit.islandId,
         airJumpsUsed: 0,
-        chargeTime: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+        chargeTime: 0, coyoteTime: 0, jumpBuffer: 0,
+        scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
       }
     }
   }

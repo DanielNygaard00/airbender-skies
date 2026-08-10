@@ -120,6 +120,7 @@ function glider(): PlayerState {
     breath: 100, maxBreath: 100,
     grounded: false, lastGroundIslandId: 'home',
     airJumpsUsed: 0, chargeTime: 0,
+    coyoteTime: 0, jumpBuffer: 0,
     scooterActive: false, scooterCharge: 0,
     dashesUsed: 0, dashRecovery: 0,
     slipstreamElapsed: null, slipstreamCooldown: 0,
