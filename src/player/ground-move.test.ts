@@ -378,6 +378,24 @@ describe('coyote time at a ledge', () => {
       (leaving) => leaving + after,
     )
 
+  /**
+   * Press `delay` frames *after* the edge, already airborne, and release `hold` frames later.
+   *
+   * The distinction from `pressedAtTheEdge` above is the whole point: that one presses on the
+   * last grounded frame, so the grounded branch sees the press and only the release reaches the
+   * coyote branch. This one puts the press itself inside the window, which is the case the
+   * feature is named for and the one nothing covered.
+   */
+  const pressedAfterTheEdge = (delay: number, hold = 1, c = G) =>
+    offTheLedge(
+      (f, leaving) => f === leaving + delay
+        ? east({ actionPressed: true, actionHeld: true })
+        : f === leaving + delay + hold ? east({ actionReleased: true })
+        : f > leaving + delay ? east({ actionHeld: true }) : east(),
+      c,
+      (leaving) => leaving + delay + hold,
+    )
+
   it('the ledge distance is the frame-30 one, with a frame of tolerance either side', () => {
     // The fixture comment's numbers, asserted rather than left as prose. If the mover's
     // easing or the charge threshold ever moves, the discriminating case below stops being
@@ -418,6 +436,31 @@ describe('coyote time at a ledge', () => {
     const r = pressedAtTheEdge()
     expect(r.state.velocity.y).toBe(G.jumpSpeed)
     expect(r.state.airJumpsUsed).toBe(0)
+  })
+
+  it('a press made after the edge is still a ground jump, with the air jump untouched', () => {
+    // The case the coyote window exists for, walked through the real mover rather than asserted
+    // on `stepJump` alone: the player is already off the ledge when they press, with the air
+    // jump still in hand, and what comes out has to be the ground jump. Reordering `stepJump` so
+    // the air-jump branch is consulted before the coyote branch left every one of the 1439 tests
+    // green, because both jumps launch at 9 m/s at this tuning and only `airJumpsUsed` tells
+    // them apart.
+    //
+    // A press inside the window fires nothing on its own -- it charges, like any grounded press,
+    // and the release is what launches -- so both frames are asserted. Five is the last delay
+    // whose release still lands inside the window; the sixth's release is the accepted edge.
+    for (let delay = 1; delay <= 6; delay++) {
+      const atPress = pressedAfterTheEdge(delay, 0)
+      expect(atPress.state.velocity.y, `press ${delay} frames past the edge`).toBeLessThan(0)
+      expect(atPress.state.airJumpsUsed, `press ${delay} frames past the edge`).toBe(0)
+      expect(atPress.state.chargeTime, `press ${delay} frames past the edge`).toBe(DT)
+
+      if (delay > 5) continue
+      const released = pressedAfterTheEdge(delay)
+      expect(released.state.velocity.y, `release ${delay + 1} frames past`).toBe(G.jumpSpeed)
+      expect(released.state.airJumpsUsed, `release ${delay + 1} frames past`).toBe(0)
+      expect(released.state.coyoteTime, `release ${delay + 1} frames past`).toBe(0)
+    }
   })
 
   it('closes six frames past the edge and no later', () => {

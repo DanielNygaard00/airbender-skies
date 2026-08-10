@@ -196,6 +196,49 @@ describe('coyote time', () => {
     expect(j.jumpBuffer).toBe(0)
   })
 
+  it('a press made after the edge is a ground press, not the air jump', () => {
+    // The window's headline case, and it was untested until this pass. Every other coyote test
+    // here presses on the last *grounded* frame and only the release lands inside the window,
+    // so the coyote branch never saw a press at all -- and reordering `stepJump` so the air-jump
+    // branch is consulted first left all 1439 tests green. It hides behind the tuning:
+    // `jumpSpeed` and `airJumpSpeed` are both 9, so the two outcomes are indistinguishable by
+    // velocity, and `airJumpsUsed` is the only thing that separates them.
+    //
+    // The press itself must fire nothing: inside the window a press is a ground press, which
+    // charges and waits for the release. The air jump is still in hand throughout, which is
+    // what makes the case discriminating -- with the reserve spent there would be no air jump
+    // for a wrong branch order to reach for.
+    // Decayed one frame at a time rather than as `coyoteSeconds - k * DT`, because that is what
+    // `groundStep` does and the two do not agree at the far end: six single subtractions leave
+    // 2.08e-17, the residue the sixth frame's forgiveness rests on, while the multiplication
+    // lands on exactly 0 and closes the window a frame early.
+    const decayed = (frames: number) => {
+      let t = G.coyoteSeconds
+      for (let f = 0; f < frames; f++) t = Math.max(0, t - DT)
+      return t
+    }
+    for (let k = 1; k <= 6; k++) {
+      const label = `${k} frames past the edge`
+      const inWindow = player({ grounded: false, coyoteTime: decayed(k) })
+      const press = stepJump(inWindow, input({ actionPressed: true, actionHeld: true }), DT, G)
+      expect(press.jumpVelocityY, label).toBeNull()
+      expect(press.jumped, label).toBe(false)
+      expect(press.airJumpsUsed, label).toBe(0)
+      expect(press.chargeTime, label).toBe(DT)
+      // The sixth frame is the last one inside the window, so its release lands outside and is
+      // the accepted edge two tests down rather than a jump. Five is the last that jumps.
+      if (k > 5) continue
+      const release = stepJump(
+        player({
+          grounded: false, coyoteTime: decayed(k + 1), chargeTime: press.chargeTime,
+        }),
+        input({ actionReleased: true }), DT, G,
+      )
+      expect(release.jumpVelocityY, label).toBe(G.jumpSpeed)
+      expect(release.airJumpsUsed, label).toBe(0)
+    }
+  })
+
   it('carries the buffer forward untouched when nothing fires', () => {
     // groundStep owns the decay, so every non-firing return has to hand the buffer back
     // unchanged or the countdown would restart every frame.
@@ -225,8 +268,16 @@ describe('the jump buffer', () => {
   })
 
   it('costs no air jump', () => {
-    const j = stepJump(player({ jumpBuffer: G.jumpBufferSeconds }), input(), DT, G)
-    expect(j.airJumpsUsed).toBe(0)
+    // Started from a spent reserve rather than from the fixture's zero, and that is the whole
+    // test: `airJumpsUsed: 0` was both the fixture default and the expected value, so the
+    // assertion held whether this branch carried the reserve forward or overwrote it -- setting
+    // the branch to `airJumpsUsed: 0` left the suite green. A spent reserve is also the only
+    // state a buffer can be armed from, since arming requires the air jump to be gone.
+    const j = stepJump(
+      player({ jumpBuffer: G.jumpBufferSeconds, airJumpsUsed: G.maxAirJumps }), input(), DT, G,
+    )
+    expect(j.airJumpsUsed).toBe(G.maxAirJumps)
+    expect(j.jumpVelocityY).toBe(G.jumpSpeed)
   })
 })
 

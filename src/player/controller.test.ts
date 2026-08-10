@@ -5,6 +5,7 @@ import {
   DEFAULT_COLLISION_CONFIG, DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG,
   DEFAULT_SLIPSTREAM_CONFIG, DEFAULT_STAFF_CONFIG,
 } from '../core/config'
+import { fallWithinBufferWindow } from './jump'
 import { isSwinging, staffBusy, staffOf } from './staff'
 import { stillAir } from '../world/wind'
 import type { InputState, PlayerState, TerrainQuery } from '../core/types'
@@ -23,6 +24,27 @@ const flatGround: TerrainQuery = {
       : null,
 }
 const voidWorld: TerrainQuery = { groundHeightAt: () => null, raycast: () => null }
+
+/**
+ * Flat ground at y=0 that reports the surface normal it is given, so a test can ask what the
+ * deploy gate does about steepness without needing a real island's rim.
+ *
+ * The normal is built as `(0, normalY, sqrt(1 - normalY^2))` and deliberately left
+ * un-normalised: that expression is already unit to within a float ulp, and running
+ * `normalize()` over it would perturb `normal.y` off the exact value the test is about --
+ * 0.5, the `wallNormalY` threshold itself, comes back as 0.5000000000000001.
+ */
+const groundTiltedBy = (normalY: number): TerrainQuery => ({
+  groundHeightAt: () => 0,
+  raycast: (from, direction, maxDistance) =>
+    direction.y < -0.9 * direction.length() && from.y >= 0 && from.y - maxDistance <= 0
+      ? {
+        point: new Vector3(from.x, 0, from.z),
+        normal: new Vector3(0, normalY, Math.sqrt(1 - normalY * normalY)),
+        islandId: 'tilted',
+      }
+      : null,
+})
 
 /**
  * Flat ground at y=0 with a vertical wall facing -X at x = 20. The wall answers only
@@ -272,17 +294,83 @@ describe('the glider deploy yields to a landing', () => {
 
   it('still deploys while rising near the ground, so the slam-bounce re-deploy survives', () => {
     // The bounce's own measured launch speed, 15.450 m/s out of a 34.333 m/s slam
-    // (`ground-move.test.ts`'s slam table), a hand's width off the deck: the state §4.3's
-    // dive -> wave -> re-deploy is in at the instant the wings are meant to open. A reach
-    // computed from an unsigned speed would suppress this and the combo would be gone.
+    // (`ground-move.test.ts`'s slam table), a hand's width off the deck. A reach computed from
+    // an unsigned speed would suppress this, and §4.3's dive -> wave -> re-deploy would be
+    // gone.
+    //
+    // The fixture is not the state a real bounce leaves, and the comment here used to say it
+    // was: `applyBounce` sets `airJumpsUsed: 0`, so the first press out of a bounce spends the
+    // air jump rather than reaching this gate at all -- asserted below on the same rising
+    // state, at the 18.270 m/s `ground-move.test.ts`'s slam table also pins. Spending the
+    // reserve in the fixture is what puts the press in front of the gate, which is the only
+    // thing this test is about: that the reach is signed. The combo's second press, after the
+    // air jump, is the one that really does arrive here.
+    const rising = { position: new Vector3(0, 0.1, 0), grounded: false,
+      velocity: new Vector3(0, 15.449999999999985, 0) }
     const s = controllerStep(
-      player({
-        position: new Vector3(0, 0.1, 0), grounded: false,
-        velocity: new Vector3(0, 15.449999999999985, 0), airJumpsUsed: G.maxAirJumps,
-      }),
+      player({ ...rising, airJumpsUsed: G.maxAirJumps }),
       input({ actionPressed: true }), 1 / 60, deps(flatGround),
     )
     expect(s.mode).toBe('glider')
+
+    const withReserve = controllerStep(
+      player(rising), input({ actionPressed: true }), 1 / 60, deps(flatGround),
+    )
+    expect(withReserve.mode).toBe('ground')
+    expect(withReserve.velocity.y).toBe(18.26999999999999)
+  })
+
+  describe('and only to ground it could actually land on', () => {
+    /**
+     * The gate's terrain question, asked across the threshold that decides what counts as
+     * ground anywhere else in the game: `isWall`'s `wallNormalY`, 0.5.
+     *
+     * Steeper than that and the fall does not end there -- `resolveMovement` holds the body
+     * `radius` clear of the face and it skims on down -- so yielding the press to it buys
+     * neither a glide nor a jump. `wall-face-reach.test.ts` measures how much of the real
+     * archipelago is such a face (3.37% of what a descending player's ray finds, and 17.31% of
+     * `needle`); this pins the rule itself, where the boundary can be placed exactly.
+     */
+    const wallish = [0.05, 0.3, 0.49]
+    const groundish = [0.5, 0.51, 0.9]
+
+    it('treats a face steeper than the wall threshold exactly as it treats open air', () => {
+      // The control is the same press over `voidWorld`, rather than a restatement of what the
+      // deploy does: whatever open air produces, a wall face has to produce too.
+      const openAir = controllerStep(
+        nearGround(), input({ actionPressed: true }), 1 / 60, deps(voidWorld),
+      )
+      expect(openAir.mode).toBe('glider')
+      expect(openAir.jumpBuffer).toBe(0)
+      for (const normalY of wallish) {
+        const s = controllerStep(
+          nearGround(), input({ actionPressed: true }), 1 / 60, deps(groundTiltedBy(normalY)),
+        )
+        expect(s.mode, `normal.y ${normalY}`).toBe(openAir.mode)
+        expect(s.jumpBuffer, `normal.y ${normalY}`).toBe(openAir.jumpBuffer)
+      }
+    })
+
+    it('still yields to a face at or above it, and the jump still arrives', () => {
+      // 0.5 is in this list on purpose: `isWall` is a strict `<`, so the threshold's own value
+      // is ground, and a filter written with `<=` would fail here and nowhere else.
+      for (const normalY of groundish) {
+        const terrain = groundTiltedBy(normalY)
+        const pressed = controllerStep(
+          nearGround(), input({ actionPressed: true }), 1 / 60, deps(terrain),
+        )
+        expect(pressed.mode, `normal.y ${normalY}`).toBe('ground')
+        expect(pressed.jumpBuffer, `normal.y ${normalY}`).toBe(0.08333333333333334)
+
+        let s = pressed
+        let launchSpeed = Number.NaN
+        for (let f = 1; f < 20 && Number.isNaN(launchSpeed); f++) {
+          s = controllerStep(s, input(), 1 / 60, deps(terrain))
+          if (s.velocity.y > 0) launchSpeed = s.velocity.y
+        }
+        expect(launchSpeed, `normal.y ${normalY}`).toBe(G.jumpSpeed)
+      }
+    })
   })
 
   it('turns the yielded press into a jump on landing, through the whole controller', () => {
@@ -312,26 +400,53 @@ describe('the glider deploy yields to a landing', () => {
   })
 
   it('yields at the far edge of its own reach, and the buffer still gets there', () => {
-    // The reason `fallWithinBufferWindow` being *short* of the real fall matters. At 1.09 m
-    // the ground is only just inside the 1.1 m reach, so this is the longest fall the gate
-    // ever yields to -- and the buffer, whose usable span is five frames rather than six, has
-    // to survive it. It does because the simulated fall covers more ground than the
-    // prediction: 1.1 m of predicted reach is crossed in six frames, so the press is at most
-    // five frames early. A prediction that erred the other way would open a band of heights
-    // where the press bought neither a glide nor a jump.
-    let s = nearGround({ position: new Vector3(0, 1.09, 0) })
-    let jumped = -1
-    let launchSpeed = Number.NaN
-    for (let f = 0; f < 20; f++) {
-      s = controllerStep(s, input({ actionPressed: f === 0 }), 1 / 60, deps(flatGround))
-      expect(s.mode, `frame ${f}`).toBe('ground')
-      if (jumped < 0 && s.velocity.y > 0) {
-        jumped = f
-        launchSpeed = s.velocity.y
+    // The reason `fallWithinBufferWindow` being *short* of the real fall matters. The buffer's
+    // usable span is five frames rather than the six the window nominally buys, while the reach
+    // is a full window's worth of fall -- so the longest fall the gate ever yields to is where
+    // the two are closest, and it has to still work. It does because the simulated fall covers
+    // more ground than the prediction: the predicted reach is crossed in six frames, which puts
+    // the press at most five frames early. A prediction that erred the other way would open a
+    // band of heights where the press bought neither a glide nor a jump.
+    //
+    // The far edge is `fallWithinBufferWindow(-10, G)` itself, not a round number just inside
+    // it: 1.09 m stopped a centimetre short of the boundary and left the last centimetre of the
+    // reach -- the only part where the margin is actually thin -- unasserted. Measured, 1.1 m
+    // exactly still jumps, and on the same frame 1.09 m does: the last centimetre of the reach
+    // is inside the same frame's worth of fall, so it costs the buffer nothing.
+    const edge = fallWithinBufferWindow(-10, G)
+    expect(edge).toBe(1.1)
+    for (const [height, expected] of [[1.09, 6], [edge, 6]] as const) {
+      let s = nearGround({ position: new Vector3(0, height, 0) })
+      let jumped = -1
+      let launchSpeed = Number.NaN
+      for (let f = 0; f < 20; f++) {
+        s = controllerStep(s, input({ actionPressed: f === 0 }), 1 / 60, deps(flatGround))
+        expect(s.mode, `${height} m, frame ${f}`).toBe('ground')
+        if (jumped < 0 && s.velocity.y > 0) {
+          jumped = f
+          launchSpeed = s.velocity.y
+        }
       }
+      expect(jumped, `${height} m`).toBe(expected)
+      expect(launchSpeed, `${height} m`).toBe(G.jumpSpeed)
     }
-    expect(jumped).toBe(6)
-    expect(launchSpeed).toBe(G.jumpSpeed)
+  })
+
+  it('does not reach past the fall the buffer can survive, which is the whole margin', () => {
+    // The far edge from the other side, and the assertion that guards the dead band. The gate
+    // may reach no further than a fall covers in one window, 1.1166666666666667 m at this speed
+    // (`ground-move.test.ts` pins that simulated figure) -- because a press yielded beyond it
+    // lands after the buffer has expired and buys neither a glide nor a jump. The margin
+    // between the shipped reach and that limit is 1.5%: 1.1 against 1.1166666666666667. So this
+    // row is what reddens a reach given slack, and the row above is what reddens a reach given
+    // less; between them the boundary is pinned from both sides.
+    const oneWindowOfFall = 1.1166666666666667
+    expect(oneWindowOfFall / fallWithinBufferWindow(-10, G)).toBeCloseTo(1.01515, 5)
+    const s = controllerStep(
+      nearGround({ position: new Vector3(0, oneWindowOfFall, 0) }),
+      input({ actionPressed: true }), 1 / 60, deps(flatGround),
+    )
+    expect(s.mode).toBe('glider')
   })
 })
 
@@ -430,6 +545,22 @@ describe('safety nets', () => {
     const broken = player({ position: new Vector3(NaN, 10, 0) })
     expect(Number.isFinite(controllerStep(broken, input(), 1 / 60, deps(voidWorld)).position.x))
       .toBe(true)
+  })
+
+  it('respawns on a non-finite forgiveness counter, like every other tracked field', () => {
+    // Both counters are fed by `dt` arithmetic, so both can carry a NaN, and `isFinitePlayer`
+    // is what stops one spreading. Nothing pinned their membership of that list: dropping them
+    // from it left the whole suite green, because a NaN counter changes no other field's value.
+    // Asserted on the respawn, which is the observable consequence -- a respawned player is
+    // grounded at the spawn point with both counters cleared.
+    for (const field of ['coyoteTime', 'jumpBuffer'] as const) {
+      const broken = player({ [field]: Number.NaN, position: new Vector3(5, 5, 5) })
+      const s = controllerStep(broken, input(), 1 / 60, deps(voidWorld))
+      expect(Number.isFinite(s[field]), field).toBe(true)
+      expect(s[field], field).toBe(0)
+      expect(s.position.toArray(), field).toEqual([0, 0, 0])
+      expect(s.grounded, field).toBe(true)
+    }
   })
 
   it('restores breath on respawn', () => {

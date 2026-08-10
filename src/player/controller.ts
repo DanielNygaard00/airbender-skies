@@ -13,7 +13,7 @@ import {
   idleStaff, staffBusy, staffOf, stepStaff, type StaffConfig, type StaffSwing,
 } from './staff'
 import { raycastDown } from '../world/terrain-query'
-import { resolveMovement, type CollisionConfig } from '../world/collision'
+import { isWall, resolveMovement, type CollisionConfig } from '../world/collision'
 
 export interface ControllerDeps {
   terrain: TerrainQuery
@@ -81,10 +81,27 @@ function idleStaffFields(): Pick<
  * *now*, and this asks how much further there is to fall. An airborne descending body lands
  * when its position reaches the surface height, so the distance to cast is the distance from
  * the position, not from above it.
+ *
+ * The hit has to be real ground rather than merely a hit, and `isWall` is the same threshold
+ * `resolveMovement` uses to decide what the body is held off rather than seated on. A face
+ * steeper than `wallNormalY` is not somewhere a fall ends: collision pushes the body `radius`
+ * clear of it and it skims on down, so a press yielded to such a face buys neither a glide
+ * nor a jump, which is strictly worse than the defect this whole gate exists to fix.
+ *
+ * The faces that matter are not downward-facing overhangs -- front-side culling makes those
+ * unhittable, which is why an earlier pass reasoned the filter unnecessary. They are faces
+ * that point upward and are simply too steep: the rims and flanks of every island, which a
+ * downward ray hits perfectly well. Measured over the real archipelago in
+ * `wall-face-reach.test.ts`: 3.37% of the downward hits a descending player gets are faces
+ * `isWall` rejects, the shallowest of them at `normal.y` 0.0040, and on `needle` it is 17.31%
+ * of the island. Every one of those positions satisfied the unfiltered condition, so the
+ * missing filter was the whole of the fault rather than one contributor to it.
  */
 function aboutToLand(state: PlayerState, deps: ControllerDeps): boolean {
   const reach = fallWithinBufferWindow(state.velocity.y, deps.ground)
-  return reach > 0 && raycastDown(deps.terrain, state.position, reach) !== null
+  if (!(reach > 0)) return false
+  const hit = raycastDown(deps.terrain, state.position, reach)
+  return hit !== null && !isWall(hit.normal, deps.collision)
 }
 
 export function isFinitePlayer(s: PlayerState): boolean {
