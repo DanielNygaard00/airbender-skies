@@ -60,7 +60,7 @@ import { anyLiveGustTarget } from './combat/gust'
 import { stallSeverity } from './player/stall'
 import { animationFor, chargeSquashScale } from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
-import { createHud, hudModelFor } from './ui/hud'
+import { createHud, hudModelFor, VIGNETTE_SCALE_PROPERTY } from './ui/hud'
 import { createGuide, guideModelFor } from './ui/guide/panel'
 import { pauseReason, pauseOverlayModel } from './core/pause'
 import { createPauseOverlay } from './ui/pause-overlay'
@@ -360,7 +360,14 @@ function start(): void {
     // it is handed over as a custom property instead of being threaded through HudModel as
     // a fourth trailing optional number — which is the shape hud.ts itself warns about.
     // Set here rather than per frame: it changes only when the settings do.
-    document.documentElement.style.setProperty('--vignette-scale', String(motion.vignette))
+    //
+    // The property name is imported from hud.ts rather than written out, because the rule
+    // there falls back through `var(..., 1)` to a full-strength rim: a typo on either side
+    // would leave reduce motion quietly not softening the vignette, with nothing red and
+    // nothing to see. `setProperty` takes any string, so sharing the name cannot make that a
+    // type error — what it does is leave one spelling instead of two, which is the only
+    // defence available here. Do not inline the string back.
+    document.documentElement.style.setProperty(VIGNETTE_SCALE_PROPERTY, String(motion.vignette))
   }
   applySettings()
 
@@ -1004,7 +1011,20 @@ function start(): void {
     // would shorten the kick rather than shrink it. A FOV punch is the other strong
     // vestibular trigger, so this scalar is 0 under reduce motion, which leaves the field
     // of view exactly at `fovForSpeed`.
-    camera.fov = (player.mode === 'glider' ? fovForSpeed(player.velocity.length()) : fovForSpeed(0))
+    //
+    // The speed-reactive field of view is the sixth motion scalar, and it is the largest of
+    // the six: `fovForSpeed` widens the camera continuously with airspeed, by 14 degrees at
+    // the 55 m/s reference and still 7 at 27.5, for as long as the fast flight lasts —
+    // against the dash kick's 6 degrees for a fifth of a second. Reduce motion softens it to
+    // 0.35 rather than zeroing it, because the widening view is how speed reads as speed;
+    // `motionScales` carries the full argument. The scale reaches the kick and never
+    // `BASE_FOV`, which is why it is an argument to `fovForSpeed` and not a multiplier here.
+    //
+    // One `airspeed` in place of the two `fovForSpeed` calls this used to be: on foot the
+    // speed is a literal 0, so the branch only ever chose the argument, and two calls meant
+    // two places the scale could go missing from.
+    const airspeed = player.mode === 'glider' ? player.velocity.length() : 0
+    camera.fov = fovForSpeed(airspeed, motion.speedFov)
       + fovKickForDash(dashKick) * motion.dashKick
     camera.updateProjectionMatrix()
   }

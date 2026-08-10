@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { defaultSettings, readSettings, effectiveVolume, motionScales } from './settings'
+// Reached across from the fx layer deliberately: the `speedFov` scalar below is argued from
+// what `fovForSpeed` actually produces, and asserting those degrees is the only way the
+// argument in that comment can be wrong and caught.
+import { BASE_FOV, FX_SPEED_REFERENCE, MAX_DASH_FOV_KICK, fovForSpeed } from '../fx/mapping'
 
 describe('readSettings', () => {
   // Every fixture below gives the *other* fields non-default values. If the
@@ -148,6 +152,26 @@ describe('motionScales', () => {
   it('leaves vignette at full strength normally, and only softens it to 0.35 when reduced', () => {
     expect(normal.vignette).toBe(1)
     expect(reduced.vignette).toBe(0.35)
+  })
+
+  it('leaves speedFov at full strength normally, and only softens it to 0.35 when reduced', () => {
+    expect(normal.speedFov).toBe(1)
+    expect(reduced.speedFov).toBe(0.35)
+  })
+
+  it('softens the speed field of view to less than the dash punch it replaced', () => {
+    // The argument for 0.35 rather than 0, pinned. `fovForSpeed` swings 14 degrees across
+    // the speed range and this is the game's largest and most sustained motion effect, so
+    // it cannot be left alone; but it is also the cue that makes fast flight read as fast,
+    // so it is softened like `hitstop` and `vignette` rather than zeroed like `dashKick`.
+    // 0.35 leaves 4.9 degrees, which is under the 6-degree dash punch `dashKick` switches
+    // off entirely — the residual is quieter than the transient this cycle already
+    // rejected, which is what makes softening defensible instead of a half-measure.
+    const residual = fovForSpeed(FX_SPEED_REFERENCE, reduced.speedFov) - BASE_FOV
+    expect(residual).toBeCloseTo(4.9)
+    expect(residual).toBeLessThan(MAX_DASH_FOV_KICK)
+    // And it stays a cue: 20 m/s and 50 m/s still look different under reduce motion.
+    expect(fovForSpeed(50, reduced.speedFov)).toBeGreaterThan(fovForSpeed(20, reduced.speedFov))
   })
 })
 

@@ -11,8 +11,15 @@ export function speedIntensity(airspeed: number): number {
   return MathUtils.clamp(airspeed / FX_SPEED_REFERENCE, 0, 1)
 }
 
-export function fovForSpeed(airspeed: number): number {
-  return BASE_FOV + MAX_FOV_KICK * speedIntensity(airspeed)
+/**
+ * Field of view at a given airspeed.
+ *
+ * `scale` is the reduce-motion `speedFov` scalar. It multiplies the kick and never
+ * `BASE_FOV`, so scale 0 would leave the camera at 70 degrees rather than collapsing it to
+ * nothing, and the shipped default of 1 keeps this module correct read on its own.
+ */
+export function fovForSpeed(airspeed: number, scale = 1): number {
+  return BASE_FOV + MAX_FOV_KICK * speedIntensity(airspeed) * scale
 }
 
 export function windVolumeForSpeed(airspeed: number): number {

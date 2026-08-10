@@ -14,6 +14,8 @@ export interface MotionScales {
   dashKick: number
   hitstop: number
   vignette: number
+  /** The speed-reactive field of view. See the reasoning in `motionScales`. */
+  speedFov: number
 }
 
 export const SENSITIVITY_MIN = 0.25
@@ -78,14 +80,14 @@ export function effectiveVolume(s: Settings): number {
 }
 
 /**
- * Five independent scalars, not one, because reduced motion isn't a single
+ * Six independent scalars, not one, because reduced motion isn't a single
  * dial: some effects are pure vestibular triggers that should disappear
- * outright, and two are also the player's only signal for something they
+ * outright, and three are also the player's only signal for something they
  * need to know, so they're softened instead of removed.
  */
 export function motionScales(s: Settings): MotionScales {
   if (!s.reduceMotion) {
-    return { shake: 1, hurtFlash: 1, dashKick: 1, hitstop: 1, vignette: 1 }
+    return { shake: 1, hurtFlash: 1, dashKick: 1, hitstop: 1, vignette: 1, speedFov: 1 }
   }
   return {
     // Camera shake, the hurt flash, and the dash's FOV kick are the
@@ -100,5 +102,22 @@ export function motionScales(s: Settings): MotionScales {
     // The vignette marks the Avatar State being active, information the
     // player still needs, so it's softened rather than switched off.
     vignette: 0.35,
+    // The speed-reactive field of view, and it is the biggest motion effect in
+    // the game rather than an afterthought: `fovForSpeed` widens the camera
+    // continuously with airspeed, by 7 degrees at 27.5 m/s and the full 14 at
+    // the 55 m/s reference, for as long as the player flies fast. That is a
+    // larger and far more sustained version of exactly the effect `dashKick`
+    // is zeroed for above, where `MAX_DASH_FOV_KICK` is 6 degrees for a fifth
+    // of a second.
+    //
+    // Softened rather than removed, for the reason `hitstop` and `vignette`
+    // are: the widening view is how fast flight reads as fast, so deleting it
+    // costs the player speed information instead of buying comfort. 0.35 —
+    // the vignette's factor — leaves 4.9 degrees across the whole speed range,
+    // which is under the 6-degree dash punch this same cycle judged too strong
+    // as a transient, so the residual cannot be worse than what was switched
+    // off. Zeroing it would pin the camera at `BASE_FOV` and make 10 m/s and
+    // 50 m/s look identical.
+    speedFov: 0.35,
   }
 }
