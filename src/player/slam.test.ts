@@ -125,6 +125,26 @@ describe('applyBounce', () => {
     expect(applyBounce(before, { impactSpeed: 40, strength: 0.75 }, C).airJumpsUsed).toBe(0)
   })
 
+  it('closes the coyote window, so a tap cannot override the bounce', () => {
+    // A slam is read off a grounded frame, and a grounded frame is exactly where groundStep
+    // leaves the window full. Carried into the air alongside `grounded: false`, that window
+    // is a free ground jump for the next six frames -- and a ground jump *replaces* the
+    // bounce's velocity with a smaller one. `ground-move.test.ts` measures the height that
+    // costs; this is the field it comes down to.
+    const inWindow = p({ grounded: true, velocity: new Vector3(3, 0, 0), coyoteTime: 0.1 })
+    expect(applyBounce(inWindow, { impactSpeed: 40, strength: 0.75 }, C).coyoteTime).toBe(0)
+  })
+
+  it('leaves a buffered press alone, because the air is where it decays', () => {
+    // The deliberate asymmetry with the line above. Unlike the window, the buffer is not
+    // pinned by being grounded, so `grounded: false` hands it back to groundStep's normal
+    // countdown rather than freezing it. Nor can a buffered press eat a slam: it fires only
+    // from a state that was already grounded, and detectSlam refuses a frame whose
+    // predecessor was.
+    const buffered = p({ grounded: true, velocity: new Vector3(3, 0, 0), jumpBuffer: 0.07 })
+    expect(applyBounce(buffered, { impactSpeed: 40, strength: 0.75 }, C).jumpBuffer).toBe(0.07)
+  })
+
   it('keeps the horizontal momentum', () => {
     // The doc is explicit that landing never hard-stops the player.
     const bounced = applyBounce(landed(), { impactSpeed: 40, strength: 0.75 }, C)

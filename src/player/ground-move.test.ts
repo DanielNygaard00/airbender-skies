@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { groundStep, desiredVelocity, easeHorizontal, horizontalForward } from './ground-move'
 import { scooterTurnAuthority } from './scooter'
+import { detectSlam, applyBounce } from './slam'
 import { DEFAULT_GROUND_CONFIG as G, DEFAULT_COLLISION_CONFIG as COLLISION } from '../core/config'
+import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 import { stillAir, type WindSample } from '../world/wind'
 import type { InputState, PlayerState, TerrainQuery } from '../core/types'
 
@@ -312,14 +314,15 @@ describe('groundStep', () => {
 const DT = 1 / 60
 
 describe('coyote time at a ledge', () => {
-  const walker = (over: Partial<PlayerState> = {}) =>
-    // Measured, not derived: from 1.85 m back the walk below reaches the edge at x=0 on
-    // frame 30, so the charge is exactly 0.5 s of held Space earned on solid rock by the
-    // time the ground runs out -- which is the scenario the discriminating case needs. The
-    // distance is not simply walkSpeed x chargeWalkFactor x 0.5: the walk starts at rest,
-    // eases up, and is not slowed at all until chargeThresholdSeconds 0.2 has passed.
-    // Frames 29 and 31 sit at 1.8 m and 1.9 m, so the 0.05 m either side is the tolerance.
-    player({ position: new Vector3(-1.85, 0, 0), ...over })
+  // Measured, not derived: from 1.85 m back the charge-held walk below reaches the edge at
+  // x=0 on frame 30, so the charge is exactly 0.5 s earned on solid rock by the time the
+  // ground runs out -- which is the scenario the discriminating case needs. The distance is
+  // not simply walkSpeed x chargeWalkFactor x 0.5: the walk starts at rest, eases up, and is
+  // not slowed at all until chargeThresholdSeconds 0.2 has passed. The 0.05 m either side is
+  // the tolerance, and the neighbouring distances are asserted rather than only claimed --
+  // see 'the ledge distance is the frame-30 one' below.
+  const LEDGE_DISTANCE = 1.85
+  const walker = (from = LEDGE_DISTANCE) => player({ position: new Vector3(-from, 0, 0) })
   const east = (over: Partial<InputState> = {}) =>
     input({ forward: 1, lookDirection: new Vector3(1, 0, 0), ...over })
 
@@ -335,14 +338,15 @@ describe('coyote time at a ledge', () => {
     frameInput: (f: number, leaving: number) => InputState,
     c = G,
     lastFrame = (leaving: number) => leaving + 1,
+    from = LEDGE_DISTANCE,
   ) => {
-    let s = walker()
+    let s = walker(from)
     let leaving = -1
     for (let f = 0; leaving < 0 && f < 600; f++) {
       s = groundStep(s, frameInput(f, Infinity), DT, ledge, c, COLLISION)
       if (!s.grounded) leaving = f
     }
-    s = walker()
+    s = walker(from)
     let chargeAtRelease = 0
     for (let f = 0; f <= lastFrame(leaving); f++) {
       if (f === lastFrame(leaving)) chargeAtRelease = s.chargeTime
@@ -352,20 +356,37 @@ describe('coyote time at a ledge', () => {
   }
 
   /** Hold Space from a fresh press on frame 0, release `after` frames past the edge. */
-  const heldOffLedge = (after: number, c = G) =>
+  const heldOffLedge = (after: number, c = G, from = LEDGE_DISTANCE) =>
     offTheLedge(
       (f, leaving) => f === leaving + after
         ? east({ actionReleased: true })
         : east({ actionPressed: f === 0, actionHeld: true }),
       c,
       (leaving) => leaving + after,
+      from,
     )
 
-  /** Press on the last grounded frame, release one frame later, already airborne. */
-  const pressedAtTheEdge = (c = G) =>
-    offTheLedge((f, leaving) => f === leaving
-      ? east({ actionPressed: true, actionHeld: true })
-      : f === leaving + 1 ? east({ actionReleased: true }) : east(), c)
+  /** Press on the last grounded frame, release `after` frames later, already airborne. */
+  const pressedAtTheEdge = (after = 1, c = G) =>
+    offTheLedge(
+      (f, leaving) => f === leaving
+        ? east({ actionPressed: true, actionHeld: true })
+        : f === leaving + after ? east({ actionReleased: true })
+        : f > leaving ? east({ actionHeld: true }) : east(),
+      c,
+      (leaving) => leaving + after,
+    )
+
+  it('the ledge distance is the frame-30 one, with a frame of tolerance either side', () => {
+    // The fixture comment's numbers, asserted rather than left as prose. If the mover's
+    // easing or the charge threshold ever moves, the discriminating case below stops being
+    // "0.5 s of charge earned on the ground" and this is what says so.
+    const leavingFrom = (from: number) =>
+      heldOffLedge(3, G, from).leaving
+    expect(leavingFrom(1.8)).toBe(29)
+    expect(leavingFrom(LEDGE_DISTANCE)).toBe(30)
+    expect(leavingFrom(1.9)).toBe(31)
+  })
 
   it('carries a charge earned on the ground off the ledge', () => {
     // The discriminating case. A tap would fire jumpSpeed 9 and an air jump 9 too, so only
@@ -381,7 +402,9 @@ describe('coyote time at a ledge', () => {
     const r = heldOffLedge(3)
     expect(r.leaving).toBe(30)
     expect(r.chargeAtRelease).toBeCloseTo(0.55, 10)
-    expect(r.state.velocity.y).toBeCloseTo(13.0333, 4)
+    // The exact double, not a tolerance: this is a measurement, and a tolerance wide enough
+    // to be comfortable is also wide enough to hide the difference between two tunings.
+    expect(r.state.velocity.y).toBe(13.033333333333333)
     expect(r.state.airJumpsUsed).toBe(0)
   })
 
@@ -394,6 +417,31 @@ describe('coyote time at a ledge', () => {
     const r = pressedAtTheEdge()
     expect(r.state.velocity.y).toBe(G.jumpSpeed)
     expect(r.state.airJumpsUsed).toBe(0)
+  })
+
+  it('closes six frames past the edge and no later', () => {
+    // The window's *extent*, not just its existence. Without this every test in the file
+    // passes at any coyoteSeconds above zero: measured, the suite as it stood before this test
+    // was green at 0.05, 0.5 and even 1.0 seconds, and a full second is effectively unlimited
+    // free ground jumps off every surface.
+    //
+    // Six frames past the edge, which is the nominal 0.1 s / (1/60) even though the frame that
+    // leaves the ground already spends one decay of its own. The two cancel: the sixth decay
+    // leaves the same positive floating-point residue the buffer table's fifth row rests on,
+    // so the sixth frame past the edge is still inside and the seventh is the first out.
+    //
+    // Released as a tap either way: seven frames of hold is 0.1167 s, still short of
+    // chargeThresholdSeconds 0.2, so the speed is jumpSpeed exactly and not a partial charge.
+    const inside = pressedAtTheEdge(6)
+    expect(inside.state.velocity.y).toBe(G.jumpSpeed)
+    expect(inside.state.airJumpsUsed).toBe(0)
+
+    const outside = pressedAtTheEdge(7)
+    expect(outside.state.velocity.y).toBeLessThan(0)
+    // Not merely "no ground jump": the release must fall through every branch rather than
+    // being answered by the air jump, which would also fail the assertion above but for the
+    // wrong reason.
+    expect(outside.state.airJumpsUsed).toBe(0)
   })
 
   it('a normal ground jump zeroes the window on the frame it fires', () => {
@@ -449,7 +497,7 @@ describe('coyote time at a ledge', () => {
     // Half of the independence claim the "no validator" decision rests on: a zero window
     // disables its own piece of forgiveness and nothing else.
     const r = heldOffLedge(3, { ...G, jumpBufferSeconds: 0 })
-    expect(r.state.velocity.y).toBeCloseTo(13.0333, 4)
+    expect(r.state.velocity.y).toBe(13.033333333333333)
   })
 })
 
@@ -501,10 +549,15 @@ describe('the jump buffer across a landing', () => {
     //
     // Why 5 is the last one in and not 6: the countdown starts on the frame the press is made,
     // so a press 5 frames before touchdown has been decayed 6 times by the time a grounded
-    // frame reads it. Six decays of 1/60 leave 2.1e-17 rather than 0 -- floating-point
-    // residue, which is genuinely what carries the fifth frame over the line. The row is
-    // pinned as measured, but it is a knife edge: any change to how the countdown is
-    // accumulated could move it, and it is flagged in the task report for that reason.
+    // frame reads it, and six decays of 1/60 leave a positive residue rather than 0 --
+    // floating-point, which is genuinely what carries the fifth frame over the line. Asserted
+    // below rather than claimed here, in the arithmetic the decay itself performs.
+    let residue = G.jumpBufferSeconds
+    for (let d = 0; d < 6; d++) residue = Math.max(0, residue - DT)
+    expect(residue).toBeGreaterThan(0)
+    expect(residue).toBeLessThan(1e-16)
+    // And the seventh decay is what actually closes it, rather than the sixth landing on zero.
+    expect(Math.max(0, residue - DT)).toBe(0)
     const rows: Array<readonly [number, number]> = [
       [1, G.jumpSpeed], [2, G.jumpSpeed], [3, G.jumpSpeed], [4, G.jumpSpeed], [5, G.jumpSpeed],
       [6, 0], [7, 0], [8, 0],
@@ -524,6 +577,88 @@ describe('the jump buffer across a landing', () => {
   it('still works with the coyote window switched off', () => {
     // The other half of the independence claim.
     expect(buffered(2, { ...G, coyoteSeconds: 0 })).toBe(G.jumpSpeed)
+  })
+})
+
+describe('a slam bounce out of the coyote window', () => {
+  const PW = DEFAULT_COMBAT_CONFIG.pressureWave
+
+  /** Dive onto flat ground with the commit key held, then bounce out of the slam. */
+  const bounce = () => {
+    let s = player({
+      position: new Vector3(0, 30, 0), grounded: false, airJumpsUsed: G.maxAirJumps,
+    })
+    let before = s
+    for (let f = 0; f < 600; f++) {
+      before = s
+      s = groundStep(s, input({ tuck: true }), DT, flatGround, G, COLLISION)
+      if (s.grounded) break
+    }
+    const slam = detectSlam(before, s, true, false, PW)
+    expect(slam).not.toBeNull()
+    return { landed: s, slam: slam!, bounced: applyBounce(s, slam!, PW) }
+  }
+
+  /** Fly the bounce out to its peak, optionally tapping Space on frame `tapAt`. */
+  const flyOut = (tapAt: number | null) => {
+    let s = bounce().bounced
+    let peak = s.position.y
+    let speedAfterTap = NaN
+    let airJumpsUsed = 0
+    for (let f = 0; f < 400; f++) {
+      const tap = f === tapAt
+      s = groundStep(
+        s, tap ? input({ actionPressed: true, actionReleased: true }) : input(),
+        DT, flatGround, G, COLLISION,
+      )
+      if (tap) {
+        speedAfterTap = s.velocity.y
+        airJumpsUsed = s.airJumpsUsed
+      }
+      peak = Math.max(peak, s.position.y)
+      if (f > 0 && s.grounded) break
+    }
+    return { peak, speedAfterTap, airJumpsUsed }
+  }
+
+  it('reads a full window off the landing frame, which is why the bounce has to clear it', () => {
+    // The setup for everything below, and the reason this is a regression rather than a
+    // curiosity: a slam is detected on a grounded frame, and groundStep pins the window full
+    // on every grounded frame. So the state applyBounce is handed always has an open window,
+    // with no timing coincidence required.
+    const b = bounce()
+    expect(b.landed.coyoteTime).toBe(G.coyoteSeconds)
+    expect(b.slam.impactSpeed).toBeCloseTo(34.3333, 4)
+    expect(b.bounced.velocity.y).toBeCloseTo(15.45, 10)
+    expect(b.bounced.grounded).toBe(false)
+    expect(b.bounced.coyoteTime).toBe(0)
+  })
+
+  it('bounces to its own peak, and a tap out of it buys height rather than losing it', () => {
+    // The visible symptom, pinned as height rather than velocity. Measured with the window
+    // carried into the bounce: a tap on any of the six frames after it fired a *ground* jump
+    // that overrode the bounce, 15.450 m/s becoming 9.000, and the peak falling from 5.839 m
+    // to 2.100 m -- worse than pressing nothing at all, and worse than the 18.270 m/s air jump
+    // the same tap bought before this cycle existed. On the combo the design doc calls §4.3's,
+    // with no coincidence needed.
+    const untapped = flyOut(null)
+    expect(untapped.peak).toBeCloseTo(5.8394, 4)
+
+    const immediate = flyOut(0)
+    expect(immediate.speedAfterTap).toBeCloseTo(18.27, 10)
+    expect(immediate.airJumpsUsed).toBe(1)
+    expect(immediate.peak).toBeCloseTo(8.4975, 4)
+
+    // The whole span across the old window's edge, because the shape of the bug was a cliff:
+    // frames 0-6 lost height and frame 7, where the window closed, did not. A monotone series
+    // that never dips below the untapped bounce is the same claim without a magic frame in it.
+    let previous = 0
+    for (let f = 0; f <= 8; f++) {
+      const { peak } = flyOut(f)
+      expect(peak, `tap at frame ${f}`).toBeGreaterThan(untapped.peak)
+      expect(peak, `tap at frame ${f}`).toBeGreaterThan(previous)
+      previous = peak
+    }
   })
 })
 

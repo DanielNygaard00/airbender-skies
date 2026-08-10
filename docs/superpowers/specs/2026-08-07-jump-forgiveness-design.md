@@ -153,6 +153,16 @@ falls through to the air-jump branch and spends the air jump. Closing that would
 state field recording "a coyote charge is live", and holding past 0.1 s off a ledge is not the
 case this cycle exists to fix.
 
+**Correction: the release does not spend the air jump, and the sentence above was wrong about
+that from the start.** The air-jump branch fires on `input.actionPressed`, and a release is not
+a press, so such a release falls through *every* branch: no jump, no air jump spent, nothing
+buffered — which is the pre-cycle behaviour for that one input, exactly. Measured during
+implementation and now pinned by `jump.test.ts`'s "a press inside the window released after it
+closed is dropped", which asserts all three. So the accepted cost is the lost jump alone, and
+the edge is cheaper than this section claimed. What survives is the decision itself: the edge
+stays open, because closing it needs that third state field and holding past 0.1 s off a ledge
+is not this cycle's case.
+
 ## Out of scope
 
 - **Retuning `chargeThresholdSeconds`** so a charge could complete inside the coyote window.
@@ -184,6 +194,29 @@ it.
 - **All five buffer timings** — 1, 2, 3, 5 and 8 frames before landing, air jump already spent
   — each producing a jump on the landing frame. Asserted as a table so a fix that works at 1
   frame and not at 8 cannot pass.
+
+  **Correction: four of the five, not all five, and this bullet asked for something the chosen
+  numbers cannot do.** 8 frames at 60 Hz is 133 ms against a `jumpBufferSeconds` of 100 ms, so
+  the eighth-frame press is outside the window by arithmetic. Measured after implementation: 1,
+  2, 3, 4 and 5 frames before touchdown jump; 6, 7 and 8 do not. The last one in is the fifth
+  and not the sixth because the countdown starts on the frame the press is made, so a press five
+  frames out has been decayed six times before a grounded frame reads it. The measurement wins
+  and this bullet was wrong; the table in `ground-move.test.ts` runs 1 through 8 so the boundary
+  is asserted next to the inside of the window, and it keeps all five of the timings named here.
+  Raising `jumpBufferSeconds` to about 0.15 would honour the eighth frame, which is a feel
+  decision for whoever plays it rather than a defect to fix.
+
+- **The window's extent, not only its existence.** Added during review: the coyote window closes
+  six frames past the edge and no later, asserted as a jump at six and none at seven. Without it
+  the whole suite passes at any non-zero `coyoteSeconds` — measured green at 0.05, 0.5 and 1.0,
+  and a full second is unlimited free ground jumps off every surface.
+
+- **A slam bounce must close the window.** Also added during review, and a regression this
+  cycle's own first implementation shipped: `applyBounce` reads a grounded frame, where the
+  window is pinned full, and sets `grounded: false`. Carrying the window across that let a tap
+  in the next six frames override the bounce with a slower ground jump — 15.450 m/s becoming
+  9.000, peak 5.839 m becoming 2.100 m, on §4.3's combo and with no timing coincidence needed.
+  Asserted on the peak, because height is the symptom.
 - **A press outside the buffer window is still discarded**, at a timing beyond
   `jumpBufferSeconds`. Without this the buffer could be unbounded and every test above would
   still pass.

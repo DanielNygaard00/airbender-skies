@@ -110,6 +110,39 @@ describe('mode switching', () => {
     expect(s.forward.x).toBeCloseTo(1, 5)
   })
 
+  it('deploying the glider drops a buffered jump press', () => {
+    // The buffer's countdown lives in groundStep, which does not run in glider mode, so a
+    // buffer carried across the deploy is frozen for the whole glide -- see the next test,
+    // which pins the freeze. Carried, it stops being 0.1 s of memory and becomes 0.1 s of
+    // ground-mode time spread over an unbounded stretch of wall clock: stow the glider, touch
+    // down within a few frames, and a press from before a minute-long glide fires a jump.
+    const falling = player({
+      position: new Vector3(0, 200, 0), grounded: false, velocity: new Vector3(0, -12, 0),
+      airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps,
+      jumpBuffer: DEFAULT_GROUND_CONFIG.jumpBufferSeconds,
+    })
+    const s = controllerStep(falling, input({ actionPressed: true }), 1 / 60, deps(voidWorld))
+    expect(s.mode).toBe('glider')
+    expect(s.jumpBuffer).toBe(0)
+  })
+
+  it('does not advance a buffered press while gliding, which is why the deploy drops it', () => {
+    // The mechanism behind the test above, asserted rather than argued: nothing in the glider
+    // branch touches either forgiveness counter, so whatever enters glider mode stays exactly
+    // as it was for as long as the glide lasts. That is what makes clearing the buffer at the
+    // entrance the fix rather than clearing it at the stow -- and the two seconds below would
+    // have been eight frames of it, had anything been counting.
+    const gliding = player({
+      mode: 'glider', position: new Vector3(0, 300, 0), grounded: false,
+      velocity: new Vector3(0, 0, -20), jumpBuffer: 0.07, coyoteTime: 0.03,
+    })
+    let s = gliding
+    for (let f = 0; f < 120; f++) s = controllerStep(s, input(), 1 / 60, deps(voidWorld))
+    expect(s.mode).toBe('glider')
+    expect(s.jumpBuffer).toBe(0.07)
+    expect(s.coyoteTime).toBe(0.03)
+  })
+
   it('pressing action in the air while flying stows the glider', () => {
     const flying = player({
       mode: 'glider', position: new Vector3(0, 200, 0), grounded: false,

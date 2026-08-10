@@ -188,6 +188,23 @@ export function controllerStep(
         position: state.position.clone(),
         velocity: launched,
         grounded: false,
+        // Dropped rather than carried, because nothing in glider mode advances it: the
+        // countdown lives in `groundStep`, which does not run below. A buffer carried across
+        // this line stops being 0.1 s of memory and becomes 0.1 s of *ground-mode* time
+        // spread over an unbounded stretch of wall clock — so a press made before a
+        // minute-long glide could still fire a jump on the landing after it, as long as the
+        // player stows the glider (the branch below) and touches down within a few frames.
+        //
+        // Reachable but narrow: the gate above intercepts exactly the input that arms the
+        // buffer, so arming it needs `staffBusy` true on the arming frame and false on the
+        // next, which puts the arming press on the staff's last busy frame. Zeroed here
+        // rather than at the stow, because this is the only entrance to glider mode, and
+        // closing the entrance closes every path through it.
+        //
+        // `coyoteTime` needs no line of its own here, and that is a property of the gate
+        // rather than luck: deploying requires the air jump to be spent, and spending it
+        // zeroes the window, so this branch can never see an open one.
+        jumpBuffer: 0,
       }
     } else {
       // Sampled with state.forward, which on foot is the flattened camera direction --

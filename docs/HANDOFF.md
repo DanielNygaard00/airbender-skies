@@ -1584,7 +1584,30 @@ No validator was added for the two config values, deliberately: a window of zero
 disables that one piece of forgiveness and leaves the old behaviour exactly as it was, which
 is a safe degradation rather than a broken state. Since that is an argument about an absence,
 it is asserted instead — a zero `coyoteSeconds` leaves the buffer working and a zero
-`jumpBufferSeconds` leaves coyote working, both as tests.
+`jumpBufferSeconds` leaves coyote working, both as tests. Separately, both windows are pinned
+for *extent* and not only existence: the coyote window closes six frames past the edge and no
+later, and the buffer's table runs 1 to 8 frames. Without the first of those the suite passed at
+`coyoteSeconds` 0.05, 0.5 and 1.0 alike, and a full second is effectively unlimited free ground
+jumps off any surface.
+
+**The trap this cycle found the hard way: every spread of a `PlayerState` that flips `grounded`
+or `mode` is a place a forgiveness counter can escape.** There are three, and two of them
+needed a line adding. `applyBounce` in `src/player/slam.ts` reads a *grounded* frame — where the
+coyote window is pinned full — and returns `grounded: false`, so it carried a complete window
+into the air on every Pressure Wave slam. A tap on any of the next six frames then fired a free
+ground jump that *replaced* the bounce: measured, a 34.333 m/s slam bounces at 15.450 m/s and
+peaks 5.839 m up, and the tap turned that into 9.000 m/s and a 2.100 m peak — worse than
+pressing nothing, and worse than the 18.270 m/s air jump the same tap bought before this cycle
+existed. It now clears `coyoteTime`, and `ground-move.test.ts` asserts the peak rather than the
+velocity, because height is what the player sees. The glider deploy in
+`src/player/controller.ts` is the second: nothing in glider mode advances either counter, so a
+buffer carried across the deploy stopped being 0.1 s of memory and became 0.1 s of *ground-mode*
+time spread over an unbounded glide. It now clears `jumpBuffer` at the deploy — the only
+entrance to glider mode, so closing it closes every path through. `coyoteTime` needs neither
+line at the deploy nor anything at the stow, and for a stated reason rather than luck: deploying
+requires the air jump to be spent, and spending it zeroes the window. The third spread,
+the glider's own landing, already zeroed both. `groundStep` is not a spread site in this sense —
+it is where the counters are computed.
 
 **None of it was played.** The 0.1 s windows are the platformer standard rather than a
 measurement of this game, this environment cannot hold a pointer lock, and the two windows and
