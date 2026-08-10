@@ -3,6 +3,9 @@ import { Vector3 } from 'three'
 import { vortexCharge, vortexRadius, vortexTargets, vortexImpulse } from './vortex'
 import { spawnEnemy, horizontalDistance } from './enemy'
 import { DEFAULT_COMBAT_CONFIG } from './config'
+import { gustImpulse } from './gust'
+import { boostedCombatConfig } from '../focus/effects'
+import { DEFAULT_AVATAR_STATE_CONFIG } from '../focus/config'
 
 const V = DEFAULT_COMBAT_CONFIG.vortex
 const E = DEFAULT_COMBAT_CONFIG.enemies.spear
@@ -69,6 +72,88 @@ describe('vortexTargets', () => {
     // would make it a column that happens to have a radius.
     expect(V.verticalReach).toBeGreaterThan(DEFAULT_COMBAT_CONFIG.gust.verticalReach)
     expect(V.verticalReach).toBeLessThan(V.maxRadius)
+  })
+
+  it('lifts a target clean out of the staff\'s band, which is a real and untested behaviour change', () => {
+    // **The one consequence of giving the moves a vertical extent that nothing else in the
+    // suite covers, recorded here as arithmetic so it is at least pinned before anyone plays
+    // it.** Every enemy in `reach-geometry.test.ts` is snapped to terrain, so the whole
+    // real-geometry battery measures grounded targets only — and three of the four moves
+    // launch their targets.
+    //
+    // The vortex is the interesting case, and the *only* interesting case, because it pulls
+    // inward while it lifts: the horizontal distance to the caster shrinks, so nothing but
+    // the vertical band can put the target out of a follow-up's reach. A gust and a slam push
+    // outward, so their targets leave a staff's horizontal range long before height matters.
+    //
+    // Whether this is correct is a design question rather than a bug report: `docs/HANDOFF.md`
+    // already says the vortex's payoff is that an airborne enemy is inert, and that lift is
+    // the vortex's job and not the staff's. So a lifted target being briefly unreachable by
+    // the staff may be exactly right. It is measured and pinned here rather than judged.
+    const gravity = E.gravity
+    const staffBand = DEFAULT_COMBAT_CONFIG.staffArc.opener.verticalReach
+    const inside = at(V.minRadius - 1, 0)
+
+    // Ballistic apex from the lift the move actually applies, read off `vortexImpulse` rather
+    // than restated from the config, so it follows a retune of either number.
+    const lift = vortexImpulse(ORIGIN, inside, 1, V).y
+    const apex = (lift * lift) / (2 * gravity)
+    expect(apex).toBeGreaterThan(3.02)
+    expect(apex).toBeLessThan(3.03)
+    // Above the staff's band, which is the finding.
+    expect(apex).toBeGreaterThan(staffBand)
+
+    // And for how long. Total flight is 1.10 s; the target is above the staff's 2.0 for 0.640 s
+    // of it, 58.2% of its airtime.
+    const flight = (2 * lift) / gravity
+    expect(flight).toBeGreaterThan(1.09)
+    expect(flight).toBeLessThan(1.11)
+    const aboveBand = (2 * Math.sqrt(lift * lift - 2 * gravity * staffBand)) / gravity
+    expect(aboveBand).toBeGreaterThan(0.640)
+    expect(aboveBand).toBeLessThan(0.641)
+    expect(aboveBand / flight).toBeGreaterThan(0.581)
+    expect(aboveBand / flight).toBeLessThan(0.583)
+
+    // The charge at which it starts happening: about 66%, so it is not an edge case reachable
+    // only at a perfect full charge.
+    let threshold = 1
+    for (let t = 0; t <= 1; t += 0.0005) {
+      const y = vortexImpulse(ORIGIN, inside, t, V).y
+      if ((y * y) / (2 * gravity) > staffBand) { threshold = t; break }
+    }
+    expect(threshold).toBeGreaterThan(0.656)
+    expect(threshold).toBeLessThan(0.659)
+
+    // Inward, which is what makes the vertical band the binding one here. The target does not
+    // leave the horizontal footprint, so height is the only thing that can drop it.
+    expect(vortexImpulse(ORIGIN, inside, 1, V).x).toBeLessThan(0)
+    expect(horizontalDistance(ORIGIN, inside)).toBeLessThan(V.maxRadius)
+
+    // The contrast, so "only the vortex" is measured rather than assumed. A push of
+    // `knockback` against `knockbackDamping` travels `knockback / damping` before it stops,
+    // which for the gust's 26 is 10 m and for a full slam's 30 is 11.5 m — both well past the
+    // furthest the staff reaches, so those two targets leave horizontal range first.
+    const staffReach = DEFAULT_COMBAT_CONFIG.staffArc.finisher.range
+    expect(DEFAULT_COMBAT_CONFIG.gust.knockback / E.knockbackDamping).toBeGreaterThan(staffReach)
+    expect(DEFAULT_COMBAT_CONFIG.pressureWave.maxKnockback / E.knockbackDamping)
+      .toBeGreaterThan(staffReach)
+
+    // A plain gust's own lift does stay inside the staff's band — 1.06 m of apex — so it is
+    // not a second case. Avatar State's boosted gust is: at the ×1.5 knockback the apex is
+    // 2.377 m, past the staff's 2.0, and it is reached by pressing one key rather than by
+    // charging. Derived through `boostedCombatConfig` rather than by multiplying by hand, so
+    // it tracks whichever field that function decides to scale.
+    const plainGust = gustImpulse(ORIGIN, inside, DEFAULT_COMBAT_CONFIG.gust).y
+    expect((plainGust * plainGust) / (2 * gravity)).toBeGreaterThan(1.05)
+    expect((plainGust * plainGust) / (2 * gravity)).toBeLessThan(1.06)
+    expect((plainGust * plainGust) / (2 * gravity)).toBeLessThan(staffBand)
+    const boosted = gustImpulse(
+      ORIGIN, inside,
+      boostedCombatConfig(DEFAULT_COMBAT_CONFIG, true, DEFAULT_AVATAR_STATE_CONFIG).gust,
+    ).y
+    expect((boosted * boosted) / (2 * gravity)).toBeGreaterThan(2.376)
+    expect((boosted * boosted) / (2 * gravity)).toBeLessThan(2.378)
+    expect((boosted * boosted) / (2 * gravity)).toBeGreaterThan(staffBand)
   })
 })
 

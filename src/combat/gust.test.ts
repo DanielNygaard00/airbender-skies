@@ -14,6 +14,15 @@ const G: GustConfig = {
  * The character's standing height, which `avatar.ts` holds as `TARGET_HEIGHT` and
  * `avatar.test.ts` measures off the real rig. Restated rather than imported: the export does
  * not exist, and importing `avatar.ts` here would pull the GLTF loader in behind it.
+ *
+ * **Tracked debt, and the trigger for paying it is not the one first recorded.** The ledger
+ * said "fix before a fourth copy appears", which counts copies and misses the actual hazard:
+ * `avatar.ts` documents `TARGET_HEIGHT` as matching a *placeholder* capsule
+ * (`CapsuleGeometry(0.4, 1.0)`), so this 1.8 is a restatement of a stand-in. The staff's
+ * `verticalReach` of 2.0 has only 0.2 m of slack over a lower bound pinned to it. The trigger
+ * is **before the avatar model is replaced**, whether or not a fourth copy ever exists: the
+ * moment the real rig's height differs from 1.8, these bounds are measuring something that no
+ * longer exists and nothing here will say so.
  */
 const BODY_HEIGHT = 1.8
 const E: EnemyConfig = {

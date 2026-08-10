@@ -84,6 +84,57 @@ evidence built to decide it. If the measured worst case is comfortably inside 4.
 comes down until a minimum slam is decisively flatter than it is wide. If it is not, 4.0 was
 already too tight and the direction reverses.
 
+**Third correction: that bet was resolved, and neither of its two branches is what happened. The
+number did not move.** Read on its own, the paragraph above tells a reader that the measurement
+either landed comfortably inside 4.0 or moved the number. Both are false, and this block exists
+so nobody reaches either conclusion from the spec alone.
+
+*What was measured.* The measurement was built as described — the real vertical gaps between an
+aimed landing position and each home-island soldier, an aimed landing being real ground within
+`minRadius` of the soldier. The worst gap over all five soldiers is **4.2275 m**, on `archer-2`,
+4.00 m out on the slope above its shelf. That is **0.2275 m outside** the shipped 4.0, which is
+5.69% of the band. So the worst case is not inside 4.0 at all, let alone comfortably.
+
+A first pass reported that figure as 4.1404 m, which is not the terrain's worst gap but the worst
+of 797 samples on a 0.25 m grid. It does not settle until roughly 0.05 m sampling, and the
+coverage figure that went with it converged *below* the two-sided bound the test had pinned it at
+— so the assertion carrying the claim was green only because the grid stayed coarse. The full
+grid table and the corrected assertions are in `docs/HANDOFF.md` under "Vertical reach". The
+lesson worth carrying out of this spec: **a maximum read off a sampling grid is biased low, so a
+one-sided "the worst case is under X" reading from a coarse grid is always the optimistic one.**
+
+*Why the direction did not reverse either.* Because the two constraints crossed, and the crossing
+has no solution. Covering the whole aimed-landing disc needs a band of at least 4.2275, and
+`minRadius` is 4 — so any band that covers the disc makes the weakest qualifying slam more than
+5% taller than it is wide, which is exactly the column this section argues the move must never
+become. "4.0 was already too tight and the direction reverses" therefore does not follow: 4.0 is
+simultaneously too tight for full coverage and the largest value the flatness argument allows.
+
+*The owner's decision, taken against the corrected figures: leave all five extents where they
+are, including `pressureWave.verticalReach` at 4.0.* The rationale, in the order it carried
+weight:
+
+- **The shortfall is one face of one overhang, not a systematic shortage.** All 144 of the 144
+  failing samples sit in the outermost 0.204 m of the disc — none anywhere in its interior —
+  inside a single bearing wedge from −64.7° to −30.1°, and every one of them stands on ground
+  with air beneath it: a second `home` surface lies below each, never less than 34.2 m down. A
+  player who dives at the soldier and lands there has landed on a lip above it rather than beside
+  it, which is arguably a miss rather than a failure of reach. The lip is real and measured: at
+  `(17.182, −49.638)` the top surface is at y 5.8679 and the next one down at y 4.0604, a drop of
+  1.8076 m, both of them `home` geometry.
+- **Nothing is unreachable.** Every move keeps its full nominal standoff against every soldier
+  from some bearing, and on the walk-in the weakest slam keeps its full 4.00 m against all five.
+- **4.0 is already the ceiling this argument permits**, so growing it to 4.2275 buys 0.72% of one
+  soldier's aimed-landing disc and gives up the "flatter than the weakest slam is wide" property
+  outright — a bad trade on this document's own terms.
+- **Nothing has been played.** The five extents are this cycle's whole tuning surface and all five
+  want a human who has tried to gust a soldier off a ledge.
+
+The alternative still on the table if play disagrees is to widen `minRadius` to about 5 and raise
+`verticalReach` to 4.23 with it, which repairs the argument rather than abandoning it — but
+`minRadius` is outside this cycle's five values and widening it is also a crowd-control change,
+so it is two design decisions rather than one.
+
 All five are argued guesses, as every tuning value in this project is. What is not a guess is the
 *shape* of the set: the ground-hugging ring is shortest relative to its reach and the lifting
 column tallest, so the numbers tell a story instead of being uniform. If play says one is wrong,
@@ -116,6 +167,28 @@ effect a real thickness is a visuals change, and the visuals phase has not start
 recorded here and in the handoff so nobody later reads the flat sector as evidence that the hit
 volume is flat.
 
+**Correction: this section was written as a gust-only mismatch, and it is all five attack
+visuals.** Every attack effect in `src/fx/` is a flat shape and every hit volume is now a slab,
+so each one under-draws its own move by `2 × verticalReach`:
+
+| effect | move | height not drawn |
+| --- | --- | --- |
+| `src/fx/gust-cone.ts` | gust | 10 m |
+| `src/fx/aim-tell.ts` (the gust's preview sector) | gust | 10 m |
+| `src/fx/staff-arc-fx.ts` | both staff arcs | 4 m |
+| `src/fx/shockwave.ts` | Pressure Wave | 8 m |
+| `src/fx/vortex-ring.ts` | Vortex | 16 m |
+
+The two ring effects are flat `RingGeometry` rotated onto the horizontal plane and the staff arc
+is a flat sector, exactly like the cone — there was never a reason to expect them to differ, and
+naming only the gust made the disclosure read as narrower than the defect. The Vortex is the worst
+of the five in absolute terms, at 16 m of invisible extent.
+
+The same widening applies to the tests. Three cross-check tests compare a drawn shape against its
+hit test using probes that are all level with the caster, so `verticalReach` never participates in
+any of them: `gust-cone.test.ts`, `aim-tell.test.ts` and `staff-arc-fx.test.ts`. All three now say
+so in their names. A green run in any of them is not evidence that a hit volume is flat.
+
 ## Testing
 
 **The exploit test is the easy half and proves the least.** Asserting that a target 2000 m below
@@ -137,6 +210,13 @@ Specifically:
   wherever the ground allows and the patrol stands on ground of its own. Measure the real
   vertical gaps between a landing position and each soldier on the home island, and assert the
   measured worst case is inside 4.0 — or report that it is not, in which case the number moves.
+  **Resolved, and this bullet's "in which case the number moves" is not what happened: the worst
+  case is 4.2275 m, outside 4.0, and the number stayed. See the third correction block above for
+  the measurement, the crossing that makes both branches unavailable, and the owner's decision.**
+  Note also what this bullet got wrong about method rather than about the number: it asks for a
+  measurement without saying at what sampling density, and the first attempt used a grid coarse
+  enough to under-report the maximum by 0.09 m and to make a two-sided coverage pin pass that a
+  finer grid fails.
 - Each of the five extents is neutralised in turn by raising it far above its value, and the
   suite must redden. A value nothing pins is a value that can drift.
 

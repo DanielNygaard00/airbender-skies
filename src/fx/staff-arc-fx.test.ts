@@ -53,11 +53,19 @@ describe('createStaffArc', () => {
     expect(radius(finisher)).toBeGreaterThan(radius(opener))
   })
 
-  it('agrees with inCone about what is inside the sweep', () => {
+  it('agrees with inCone about the horizontal footprint of the sweep, and says nothing about its height', () => {
     // The honesty rule this repo holds attack effects to: a hit landing outside the drawn
     // arc reads as a bug. Checked against inCone, a different mechanism from the geometry.
     // Necessary but not sufficient — the gust cone passed a check like this while being
     // invisible on screen, so the in-game pass is what confirms it can be seen.
+    //
+    // **And not sufficient in a second way, which the old name "agrees with inCone about what
+    // is inside the sweep" hid.** Every probe below is built at `y = 0`, level with `ORIGIN`,
+    // so `staffShape`'s `verticalReach` never participates in the `inCone` call and this test
+    // passes for any band at all. The drawn arc is a flat sector while the swing's hit volume
+    // is a slab 2.0 m above and below the player, so the effect under-draws the swing's height
+    // by 4 m — the same cosmetic mismatch `docs/HANDOFF.md` records for the gust cone and the
+    // aim tell. Renamed to say which dimension it covers, following `gust-cone.test.ts`.
     const shape = staffShape(false, A)
     const arc = createStaffArc(ORIGIN, NORTH, shape)
     const fill = meshes(arc)[0]

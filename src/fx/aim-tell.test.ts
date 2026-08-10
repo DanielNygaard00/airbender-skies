@@ -131,10 +131,19 @@ describe('the cone preview', () => {
     tell.dispose()
   })
 
-  it('covers the volume the hit test covers', () => {
+  it('covers the horizontal footprint the hit test covers, and deliberately says nothing about its height', () => {
     // The independent cross-check, as with the fired cone: a point the preview's own span
     // contains must also be inside inCone. A preview drawn narrower than the hit volume
     // teaches the wrong spacing, which is the defect this whole cycle exists to fix.
+    //
+    // **The name used to say "covers the volume the hit test covers", and that was an
+    // overclaim.** Every probe below is flattened to `y = 0`, level with `ORIGIN`, so `|dy|`
+    // is zero at all of them and `gust.verticalReach` never participates in the `inCone`
+    // call. This test cannot tell a band of 5.0 from a band of 0.001, and the hit volume it
+    // compares against is a slab while the tell is a flat sector — the cosmetic mismatch
+    // recorded in `docs/HANDOFF.md`. The name now names the one dimension it checks, matching
+    // `gust-cone.test.ts`, which was renamed for exactly this reason during this cycle. A
+    // green run here is not evidence that the tell covers the hit volume.
     const tell = createAimTell()
     tell.update(ORIGIN, NORTH, true, true, GUST)
     // Required before localToWorld: nothing has added this tell to a scene, so no render

@@ -11,6 +11,13 @@ const E = DEFAULT_COMBAT_CONFIG.enemies.spear
  * `avatar.test.ts` measures off the real rig. Restated here rather than imported: the export
  * does not exist, and importing `avatar.ts` into a combat test would pull the GLTF loader in
  * behind it. If the rig's height ever moves, `avatar.test.ts` is the test that says so.
+ *
+ * **Tracked debt, with a corrected trigger.** The ledger's original trigger was "fix before a
+ * fourth copy appears", which counts copies rather than naming the hazard. `avatar.ts`
+ * documents `TARGET_HEIGHT` as matching a *placeholder* capsule, so this 1.8 restates a
+ * stand-in, and the staff's `verticalReach` of 2.0 carries only 0.2 m of slack over a lower
+ * bound derived from it. The real trigger is **before the avatar model is replaced**: at that
+ * moment these bounds silently start measuring a height the game no longer has.
  */
 const BODY_HEIGHT = 1.8
 const ORIGIN = new Vector3(0, 0, 0)
