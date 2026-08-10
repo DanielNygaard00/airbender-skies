@@ -48,12 +48,60 @@ export function toInputState(
   }
 }
 
-const MOUSE_SENSITIVITY = 0.0022
+/** Base look speed. The player's sensitivity setting is a multiplier on top of this, not a replacement for it — sensitivity 1 must reproduce today's feel exactly. */
+export const MOUSE_SENSITIVITY = 0.0022
+
+/** How far a mouse delta turns the view, given the player's sensitivity and invert choice. */
+export function lookDelta(
+  movementX: number,
+  movementY: number,
+  sensitivity: number,
+  invertY: boolean,
+): { yaw: number; pitch: number } {
+  const yaw = -movementX * MOUSE_SENSITIVITY * sensitivity
+  // Sensitivity scales the magnitude first; invert only ever flips the sign after that,
+  // so the two never interact in a way that would make inverted look feel faster or slower.
+  let pitch = -movementY * MOUSE_SENSITIVITY * sensitivity
+  if (invertY) pitch = -pitch
+  return { yaw, pitch }
+}
+
+/**
+ * Elements that own the Space key themselves.
+ *
+ * A checkbox is activated by Space and by nothing else: Enter does not activate one, and
+ * there is no form here for Enter to submit. So a `preventDefault()` on a Space keydown
+ * leaves a focused checkbox impossible to operate from the keyboard at all — and it does
+ * that regardless of which element the listener is bound to or which phase it runs in,
+ * because `preventDefault` cancels the activation behaviour rather than the propagation.
+ * The settings panel's three toggle rows are checkboxes, which is why this list exists.
+ */
+const SPACE_OWNING_TAGS = new Set(['INPUT', 'BUTTON', 'SELECT', 'TEXTAREA'])
+
+/**
+ * Whether the jump may claim this Space press — that is, `preventDefault()` it.
+ *
+ * A free function taking the event target rather than a method reading `document`, for the
+ * reason `lookDelta` above is one: the node test environment has no DOM, so the decision
+ * has to be exercisable by handing it plain objects and `null`. Duck-typed on `tagName`
+ * for the same reason — `instanceof HTMLInputElement` cannot be evaluated there.
+ *
+ * Anything that is not a form control claims Space, `null`, `window` and the canvas
+ * included. The default has to stay the jump: an unclaimed Space with nothing focused
+ * scrolls the page under the player, which is worse than the bug the gate fixes.
+ */
+export function shouldClaimSpace(target: EventTarget | null): boolean {
+  const tagName = (target as { tagName?: unknown } | null)?.tagName
+  if (typeof tagName !== 'string') return true
+  return !SPACE_OWNING_TAGS.has(tagName.toUpperCase())
+}
 
 export class InputTracker {
   private readonly held = new Set<string>()
   private yaw = 0
   private pitch = 0
+  private sensitivity = 1
+  private invertY = false
   private actionPressed = false
   private scooterPressed = false
   private dashPressed = false
@@ -77,7 +125,17 @@ export class InputTracker {
       if (e.code === 'Space') {
         // Auto-repeat must not re-fire the press edge — it would reset a charge.
         if (!e.repeat) this.actionPressed = true
-        e.preventDefault()
+        // Gated on the target, because this listener is bound to `window` and therefore
+        // also sees the Space press aimed at a focused checkbox in the settings panel.
+        // Claiming that one made the panel's three toggle rows keyboard-inoperable, in a
+        // panel whose whole purpose is accessibility. Everything else still claims it, so
+        // Space is still the jump and still does not scroll the page.
+        //
+        // The press edge above is deliberately still recorded even when the key belongs to
+        // a control: the guide is open in that case, so `pauseReason` is `'guide'` and
+        // `main.ts`'s paused branch calls `sample()` every frame precisely to drain edges,
+        // meaning a Space that toggled a checkbox cannot surface as a jump on resume.
+        if (shouldClaimSpace(e.target)) e.preventDefault()
       }
       // Both are toggles or one-shots, so auto-repeat must not re-fire them either:
       // a held key would otherwise flip the scooter on and off every frame. This used to be
@@ -103,8 +161,9 @@ export class InputTracker {
 
     on<MouseEvent>('mousemove', (e) => {
       if (document.pointerLockElement !== canvas) return
-      this.yaw -= e.movementX * MOUSE_SENSITIVITY
-      this.pitch = clampPitch(this.pitch - e.movementY * MOUSE_SENSITIVITY)
+      const { yaw, pitch } = lookDelta(e.movementX, e.movementY, this.sensitivity, this.invertY)
+      this.yaw += yaw
+      this.pitch = clampPitch(this.pitch + pitch)
     })
 
     // The rejection is caught and dropped rather than voided. Chrome refuses a re-lock
@@ -125,6 +184,12 @@ export class InputTracker {
       // on the page chrome would swing the staff.
       if (e.button === 0 && document.pointerLockElement === canvas) this.staffPressed = true
     })
+  }
+
+  /** Applies the settings panel's look preferences to subsequent mouse movement. */
+  setLook(sensitivity: number, invertY: boolean): void {
+    this.sensitivity = sensitivity
+    this.invertY = invertY
   }
 
   /** Call exactly once per frame: reading clears the action edge. */

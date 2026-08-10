@@ -28,6 +28,30 @@ describe('fovForSpeed', () => {
   it('stays within a sane range', () => {
     expect(fovForSpeed(1000)).toBeLessThanOrEqual(BASE_FOV + MAX_FOV_KICK)
   })
+
+  it('swings 14 degrees at the reference speed and 7 at half of it', () => {
+    // The two figures `motionScales`' `speedFov` comment argues from, written out as
+    // literals rather than derived from the constants: the point of the assertion is that
+    // the numbers quoted in that comment are the numbers this function actually produces.
+    // 27.5 m/s is not arbitrary either — it is the scooter cruise speed `input.ts` records.
+    expect(fovForSpeed(55) - BASE_FOV).toBeCloseTo(14)
+    expect(fovForSpeed(27.5) - BASE_FOV).toBeCloseTo(7)
+  })
+
+  it('scales the kick and never the base', () => {
+    // Reduce motion softens the speed kick through this argument. It has to leave BASE_FOV
+    // alone: a scale on the whole angle would narrow the camera to nothing at 0 and make
+    // the softened case a different lens rather than a calmer one.
+    expect(fovForSpeed(FX_SPEED_REFERENCE, 0)).toBe(BASE_FOV)
+    expect(fovForSpeed(0, 0)).toBe(BASE_FOV)
+    expect(fovForSpeed(FX_SPEED_REFERENCE, 0.5)).toBeCloseTo(BASE_FOV + MAX_FOV_KICK / 2)
+  })
+
+  it('is unscaled when no scale is given', () => {
+    // The default keeps this module correct on its own, and keeps a caller that has no
+    // settings to hand from silently getting a narrowed view.
+    expect(fovForSpeed(FX_SPEED_REFERENCE)).toBe(fovForSpeed(FX_SPEED_REFERENCE, 1))
+  })
 })
 
 describe('windVolumeForSpeed', () => {

@@ -8,6 +8,8 @@ import {
   DEFAULT_SLIPSTREAM_CONFIG, DEFAULT_STAFF_CONFIG, validateCollisionConfig, validateFlightConfig,
 } from './core/config'
 import { loadSave, writeSave } from './core/save'
+import { loadSettings, writeSettings } from './core/settings-store'
+import { effectiveVolume, motionScales, type MotionScales, type Settings } from './core/settings'
 import { loadGLTF } from './core/assets'
 import { buildWorld, type World } from './world/world'
 import { ARCHIPELAGO } from './world/levels/archipelago'
@@ -58,7 +60,7 @@ import { anyLiveGustTarget } from './combat/gust'
 import { stallSeverity } from './player/stall'
 import { animationFor, chargeSquashScale } from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
-import { createHud, hudModelFor } from './ui/hud'
+import { createHud, hudModelFor, VIGNETTE_SCALE_PROPERTY } from './ui/hud'
 import { createGuide, guideModelFor } from './ui/guide/panel'
 import { pauseReason, pauseOverlayModel } from './core/pause'
 import { createPauseOverlay } from './ui/pause-overlay'
@@ -108,6 +110,21 @@ function start(): void {
   enableShadows(world.group)
 
   const save = loadSave(localStorage, DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
+  // Read once, at startup, and only as the seed for `reduceMotion`'s default: once the
+  // player has touched that toggle their choice is what is stored, and the OS preference
+  // must not keep overriding it. Guarded because `matchMedia` is absent in some embedded
+  // webviews, where an unguarded call would take the whole game down at line one.
+  const prefersReducedMotion = typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  // Its own key, beside loadSave rather than inside it: progress and preferences have
+  // different lifetimes, so clearing one must not cost the other. See settings-store.ts.
+  let settings: Settings = loadSettings(localStorage, prefersReducedMotion)
+  /**
+   * The five reduce-motion scalars, recomputed by `applySettings` rather than per frame.
+   * `motionScales` is pure and cheap, but recomputing it in `update` and again in
+   * `syncVisuals` would be two reads that a future edit could let disagree.
+   */
+  let motion: MotionScales = motionScales(settings)
   let player = createPlayerState(ARCHIPELAGO, world.terrain, save, DEFAULT_FLIGHT_CONFIG)
   let shrines = placeShrines(ARCHIPELAGO, world.terrain, save.collectedShrines)
 
@@ -263,6 +280,16 @@ function start(): void {
   document.addEventListener('pointerlockchange', () => {
     pointerLocked = document.pointerLockElement === canvas
     if (pointerLocked) everStarted = true
+    // The guide releases the lock when it opens, and this is what keeps it released.
+    // The panel is `pointer-events: none` everywhere except its settings rows, which is
+    // deliberate — a full-screen click sink over the canvas would break the click that
+    // resumes play — but it means a click on the panel's empty space still reaches the
+    // canvas, where InputTracker requests the lock again. That leaves the game correctly
+    // paused (`pauseReason` puts `guide` ahead of `unlocked`) but with no cursor, on top of
+    // the one panel in the game that needs one. While the guide is up the lock buys
+    // nothing, so it is simply not allowed. No loop: the release fires this handler again
+    // with `pointerLockElement` null, and the condition is then false.
+    if (pointerLocked && guide.isOpen()) document.exitPointerLock()
   })
   document.addEventListener('visibilitychange', () => {
     documentHidden = document.hidden
@@ -287,7 +314,18 @@ function start(): void {
         player.breath,
         DEFAULT_SLIPSTREAM_CONFIG,
       ),
-    }))
+    }), settings)
+  }, (patch) => {
+    // A patch of one field, merged rather than assigned: the panel reports only what the
+    // player just touched and does not own the rest. Written through immediately — no apply
+    // button, since nothing here is expensive enough to batch and an apply button is a
+    // second state that can disagree with the first.
+    settings = { ...settings, ...patch }
+    applySettings()
+    // Failure is already swallowed by writeSettings (private browsing, a full quota), and
+    // deliberately not reported: a preference that does not persist is worth less than a
+    // game that keeps running.
+    writeSettings(localStorage, settings)
   })
   const wind = createWindAudio()
   // Both need a user gesture to unblock audio, and this is the one the wind audio
@@ -296,6 +334,42 @@ function start(): void {
     wind.start()
     combatAudio.start()
   }, { once: true })
+
+  /**
+   * Push the current settings out to everything that consumes them.
+   *
+   * One function for startup and for every later change, so a path that applies four of
+   * the five and forgets one cannot exist. Called below for the loaded values, and again
+   * from the guide's change callback above.
+   */
+  function applySettings(): void {
+    input.setLook(settings.sensitivity, settings.invertY)
+    // `effectiveVolume`, never `settings.volume`. Mute is a separate flag precisely so
+    // that it does not overwrite the level: zeroing `volume` on mute would work exactly
+    // once, and unmuting would then restore 0 — or a default — instead of what the player
+    // had set. This is the only place in the game that reads both fields together.
+    const volume = effectiveVolume(settings)
+    // Both audio modules store the value whether or not their AudioContext exists yet.
+    // That matters here and not somewhere else: this runs at startup, before the first
+    // click has unblocked audio, so at this point neither has a gain node to write to.
+    wind.setVolume(volume)
+    combatAudio.setVolume(volume)
+    motion = motionScales(settings)
+    // The fifth motion scalar. The other four are numbers this file multiplies at the
+    // point of application; the Avatar State vignette is a CSS opacity owned by hud.ts, so
+    // it is handed over as a custom property instead of being threaded through HudModel as
+    // a fourth trailing optional number — which is the shape hud.ts itself warns about.
+    // Set here rather than per frame: it changes only when the settings do.
+    //
+    // The property name is imported from hud.ts rather than written out, because the rule
+    // there falls back through `var(..., 1)` to a full-strength rim: a typo on either side
+    // would leave reduce motion quietly not softening the vignette, with nothing red and
+    // nothing to see. `setProperty` takes any string, so sharing the name cannot make that a
+    // type error — what it does is leave one spelling instead of two, which is the only
+    // defence available here. Do not inline the string back.
+    document.documentElement.style.setProperty(VIGNETTE_SCALE_PROPERTY, String(motion.vignette))
+  }
+  applySettings()
 
   const baseWindAt = windSampler(ARCHIPELAGO.winds ?? [])
 
@@ -377,6 +451,21 @@ function start(): void {
     playerPositionLerp.reset()
     playerForwardLerp.record(player.forward)
     playerForwardLerp.reset()
+  }
+
+  /**
+   * Every hitstop request in the game, scaled by the reduce-motion setting.
+   *
+   * A helper rather than the scale written at each of the three trigger sites below, so
+   * there is exactly one place it can be missing from. Softened rather than removed under
+   * reduce motion (0.4, from `motionScales`): the freeze is the main signal that a heavy
+   * hit landed, and a freeze is itself the absence of motion, so zeroing it would cost
+   * legibility without buying comfort. `triggerHitstop` returns the state untouched for a
+   * non-positive duration, so a scale of 0 would still be a clean no-op if this ever
+   * became one.
+   */
+  function freeze(seconds: number): void {
+    hitstop = triggerHitstop(hitstop, seconds * motion.hitstop)
   }
 
   function update(dt: number): void {
@@ -767,16 +856,16 @@ function start(): void {
     // Heavy events only. Never a gust: a move with a 0.45s cooldown that hitches on
     // every use is nausea, not weight.
     if (staffSwing?.finisher && fight.staffHitThisFrame.length > 0) {
-      hitstop = triggerHitstop(hitstop, DEFAULT_HITSTOP_CONFIG.finisherSeconds)
+      freeze(DEFAULT_HITSTOP_CONFIG.finisherSeconds)
     }
     if (bursts.downs.length > 0) {
-      hitstop = triggerHitstop(hitstop, DEFAULT_HITSTOP_CONFIG.downSeconds)
+      freeze(DEFAULT_HITSTOP_CONFIG.downSeconds)
       shake = triggerShake(
         shake, DEFAULT_SHAKE_CONFIG.downAmplitude, DEFAULT_SHAKE_CONFIG.downSeconds,
       )
     }
     if (slam) {
-      hitstop = triggerHitstop(hitstop, slamHitstopSeconds(slam.strength, DEFAULT_HITSTOP_CONFIG))
+      freeze(slamHitstopSeconds(slam.strength, DEFAULT_HITSTOP_CONFIG))
       shake = triggerShake(
         shake,
         slamShakeAmplitude(slam.strength, DEFAULT_SHAKE_CONFIG),
@@ -818,11 +907,18 @@ function start(): void {
       player.mode === 'glider' ? airspeed : 0,
       avatarActive ? AUDIO_SWELL : 0,
     )
+    // The hurt flash, scaled at the point of application rather than where the pulse is set
+    // to 1 above. `stepPulse` decays at a fixed rate per second, so scaling the peak would
+    // shorten the flash instead of dimming it, and a setting flipped mid-flash has to take
+    // effect on the flash already running. This is the only consumer of `hurtFlash` that can
+    // ever be non-zero: the `down` branch passes a literal 0, and the priming call near the
+    // bottom of this function runs before any hit can have landed.
+    const shownHurtFlash = hurtFlash * motion.hurtFlash
     hud.update(hudModelFor(player, encounter.playerHealth, {
       focus: focus.max > 0 ? focus.value / focus.max : 0,
       avatarCharge: armFraction(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
       avatarActive,
-    }, hurtFlash, stall))
+    }, shownHurtFlash, stall))
 
     playerPositionLerp.record(player.position)
     playerForwardLerp.record(player.forward)
@@ -900,10 +996,36 @@ function start(): void {
     // vibrate around him. lookAt keeps targeting the unshaken sampledPosition too:
     // shaking the target rotates the view instead of translating it, which reads as
     // the world tilting.
-    camera.position.copy(cameraPosition).add(shakeOffset(shake, shakeVec))
+    //
+    // Scaled by the reduce-motion shake scalar here, at the one point the offset reaches
+    // the camera, rather than at the three `triggerShake` calls in update(): one site
+    // instead of three, and it also covers a shake already running when the setting is
+    // flipped. Camera shake is the primary vestibular trigger, so the scalar is 0 rather
+    // than a softening, and multiplying the offset by 0 is a true zero — `shakeOffset`
+    // writes into `shakeVec` and returns it, so this scales the scratch it just filled.
+    camera.position.copy(cameraPosition)
+      .add(shakeOffset(shake, shakeVec).multiplyScalar(motion.shake))
     camera.lookAt(sampledPosition)
-    camera.fov = (player.mode === 'glider' ? fovForSpeed(player.velocity.length()) : fovForSpeed(0))
-      + fovKickForDash(dashKick)
+    // The dash's FOV kick, scaled at the point of application for the same reason the hurt
+    // flash is: `dashKick` is a `stepPulse` value with a fixed decay, so scaling the pulse
+    // would shorten the kick rather than shrink it. A FOV punch is the other strong
+    // vestibular trigger, so this scalar is 0 under reduce motion, which leaves the field
+    // of view exactly at `fovForSpeed`.
+    //
+    // The speed-reactive field of view is the sixth motion scalar, and it is the largest of
+    // the six: `fovForSpeed` widens the camera continuously with airspeed, by 14 degrees at
+    // the 55 m/s reference and still 7 at 27.5, for as long as the fast flight lasts —
+    // against the dash kick's 6 degrees for a fifth of a second. Reduce motion softens it to
+    // 0.35 rather than zeroing it, because the widening view is how speed reads as speed;
+    // `motionScales` carries the full argument. The scale reaches the kick and never
+    // `BASE_FOV`, which is why it is an argument to `fovForSpeed` and not a multiplier here.
+    //
+    // One `airspeed` in place of the two `fovForSpeed` calls this used to be: on foot the
+    // speed is a literal 0, so the branch only ever chose the argument, and two calls meant
+    // two places the scale could go missing from.
+    const airspeed = player.mode === 'glider' ? player.velocity.length() : 0
+    camera.fov = fovForSpeed(airspeed, motion.speedFov)
+      + fovKickForDash(dashKick) * motion.dashKick
     camera.updateProjectionMatrix()
   }
 

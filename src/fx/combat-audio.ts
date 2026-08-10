@@ -18,6 +18,7 @@ export function createCombatAudio() {
   let context: AudioContext | null = null
   let noise: AudioBuffer | null = null
   let master: GainNode | null = null
+  let volume = 1
 
   /** A short burst of filtered noise: air moving. */
   function burst(level: number, seconds: number, fromHz: number, toHz: number): void {
@@ -67,12 +68,27 @@ export function createCombatAudio() {
         for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1
         noise = buffer
         master = context.createGain()
-        master.gain.value = 1
+        // Applies whatever `setVolume` already stored. Settings load at startup, before the
+        // first user gesture that permits audio, so `setVolume` routinely runs before this
+        // node exists -- reading the stored value here instead of hardcoding 1 is what keeps
+        // that call from being silently lost the moment `start()` finally creates `master`.
+        master.gain.value = volume
         master.connect(context.destination)
       } catch (error) {
         console.warn('Combat audio unavailable, continuing without it.', error)
         context = null
       }
+    },
+
+    /**
+     * Stored whether or not `master` exists yet, and written straight to it when it does.
+     * `start()` waits for the first user gesture but settings load at startup, so this is
+     * routinely called first; storing the value is what lets `start()` pick it up instead
+     * of overwriting it with the unmuted default.
+     */
+    setVolume(v: number): void {
+      volume = v
+      if (master) master.gain.value = v
     },
 
     gust(): void {
