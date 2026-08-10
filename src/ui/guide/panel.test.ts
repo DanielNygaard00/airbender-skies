@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  guideModelFor, escape, rowHtml, columnHtml, notesHtml, settingRowHtml, settingsHtml,
+  guideModelFor, escape, rowHtml, columnHtml, notesHtml, settingRowHtml, settingsHtml, STYLE,
   type GuideRow,
 } from './panel'
 import { settingsRows } from './settings-rows'
@@ -179,5 +179,20 @@ describe('settings HTML builders', () => {
     const rows = settingsRows(defaultSettings(false))
     const html = settingsHtml(rows)
     expect(html.split('class="guide-setting"').length - 1).toBe(rows.length)
+    // Against a count derived from `Settings` too, not only from `rows.length`: both sides
+    // of the comparison above come from the same `rows`, so a `settingsRows` that returned
+    // nothing would satisfy it with 0 === 0.
+    expect(rows.length).toBe(Object.keys(defaultSettings(false)).length)
+  })
+
+  it('keeps the stylesheet rule that class opts the rows into', () => {
+    // The class is the marker; this is the behaviour. Deleting `pointer-events: auto` from
+    // `.guide-setting` leaves the whole suite green and the panel looking identical, while
+    // no click can reach a control — the panel root is `pointer-events: none` and there is
+    // no DOM here to notice. The root's `none` is asserted alongside it because it is
+    // load-bearing in the other direction: relaxing it there would put a full-screen click
+    // sink over the canvas and break the click that resumes play.
+    expect(STYLE).toMatch(/\.guide-setting\s*\{[^}]*pointer-events:\s*auto/)
+    expect(STYLE).toMatch(/\.guide\s*\{[^}]*pointer-events:\s*none/)
   })
 })

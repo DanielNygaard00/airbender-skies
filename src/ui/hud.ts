@@ -16,6 +16,22 @@ const HUD_TEXT_COLOUR = '#f3f6fb'
 /** The health bar's warm tint, reused so the HUD gains no new colour vocabulary. */
 const STALL_COLOUR = '#ff8f6b'
 
+/**
+ * The custom property `src/main.ts` writes the reduce-motion vignette scale into.
+ *
+ * Exported and imported rather than spelled out on both sides, because the failure mode is
+ * silent in the worst direction: the rule below falls back through `var(..., 1)` to a
+ * full-strength gold rim, so a typo on either side would leave reduce motion quietly not
+ * softening the vignette, with nothing red and nothing visibly broken.
+ *
+ * Sharing the name does not make a typo a type error — `setProperty` takes any string — but
+ * it does mean there is only one spelling in the codebase and the two sides cannot drift
+ * apart. Which is more than `src/ui/pause-overlay.ts` can manage for the same hazard with
+ * `.pause`/`is-on`, since a CSS selector cannot be shared this way and it has to settle for
+ * a rename-both-together warning. So: rename this constant freely, inline it never.
+ */
+export const VIGNETTE_SCALE_PROPERTY = '--vignette-scale'
+
 export function formatAltitude(y: number): string {
   return Number.isFinite(y) ? `${Math.round(y)} m` : `${NO_VALUE} m`
 }
@@ -115,7 +131,12 @@ export function hudModelFor(
   }
 }
 
-const STYLE = `
+/**
+ * Exported for one assertion, not for reuse: the vignette rule below is the only place in
+ * this stylesheet whose deletion changes behaviour rather than looks, and it takes
+ * `main.ts`'s reduce-motion softening with it without reddening anything.
+ */
+export const STYLE = `
 .hud { position: fixed; inset: auto auto 20px 20px; color: ${HUD_TEXT_COLOUR};
   font: 500 14px/1.4 system-ui, sans-serif; text-shadow: 0 1px 3px rgba(0,0,0,.6);
   pointer-events: none; }
@@ -142,11 +163,16 @@ const STYLE = `
 .hud-vignette { position: fixed; inset: 0; pointer-events: none; opacity: 0;
   transition: opacity .35s; box-shadow: inset 0 0 180px 40px rgba(255,214,102,.55); }
 /* Through a custom property, so reduce-motion can soften the gold rim without this file
-   knowing what a setting is. main.ts writes --vignette-scale on the root element from
+   knowing what a setting is. main.ts writes it on the root element from
    motionScales(settings).vignette whenever the settings change; the 1 fallback is what
    makes the HUD correct on its own if nothing ever sets it. Softened rather than switched
-   off, because this rim is how the player knows the Avatar State is running. */
-.hud-vignette.is-on { opacity: var(--vignette-scale, 1); }
+   off, because this rim is how the player knows the Avatar State is running.
+
+   The property name is interpolated from VIGNETTE_SCALE_PROPERTY, which main.ts writes
+   through as well, precisely so it cannot be misspelled on one side only: that fallback is
+   a convenience for a standalone HUD and a trap for a typo, since it would leave the rim at
+   full strength under reduce motion with nothing to notice. Do not inline the name. */
+.hud-vignette.is-on { opacity: var(${VIGNETTE_SCALE_PROPERTY}, 1); }
 .hud-hurt { position: fixed; inset: 0; pointer-events: none; opacity: 0;
   box-shadow: inset 0 0 220px 60px rgba(198,40,40,.75); }
 .hud-fade { position: fixed; inset: 0; background: #000; pointer-events: none;

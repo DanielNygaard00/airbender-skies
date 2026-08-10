@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { settingsRows, type SettingsRow } from './settings-rows'
+import { patchForRow, settingsRows, type SettingsRow } from './settings-rows'
 import {
   defaultSettings, SENSITIVITY_MAX, SENSITIVITY_MIN, type Settings,
 } from '../../core/settings'
@@ -92,6 +92,83 @@ describe('settingsRows', () => {
   })
 
   it('labels every row with something a player can read', () => {
-    for (const row of settingsRows(s())) expect(row.label.length).toBeGreaterThan(0)
+    const rows = settingsRows(s())
+    // The length assertion is not decoration: without it this loop is the one test in the
+    // file that a `settingsRows` returning `[]` would leave green, because a loop over
+    // nothing asserts nothing.
+    expect(rows.length).toBeGreaterThan(0)
+    for (const row of rows) expect(row.label.length).toBeGreaterThan(0)
+  })
+})
+
+const rowFor = (key: string): SettingsRow => {
+  // Taken from the real rows rather than written out, so these tests cannot pass against a
+  // row shape the panel does not actually render.
+  const row = settingsRows(s()).find((r) => r.key === key)
+  if (!row) throw new Error(`no settings row for ${key}`)
+  return row
+}
+
+describe('patchForRow', () => {
+  it('patches exactly the field its row names, for every row', () => {
+    // The test with the teeth. Swapping two branches of the mapping — `case 'muted':
+    // return { invertY: on }` — type-checks, since every branch returns the same
+    // `Partial<Settings>`, and it was undetectable while the mapping sat inside the DOM
+    // half of `panel.ts`: the whole suite stayed green through exactly that substitution.
+    const rows = settingsRows(s())
+    // Same reason the label test counts first: a loop over an empty list asserts nothing,
+    // and `settingsRows` returning `[]` would otherwise leave this one green.
+    expect(rows.length).toBeGreaterThan(0)
+    for (const row of rows) {
+      const patch = patchForRow(row, { value: '0.5', checked: true })
+      expect(Object.keys(patch ?? {})).toEqual([row.key])
+    }
+  })
+
+  it('reads a slider from the value and carries it through unrounded', () => {
+    expect(patchForRow(rowFor('sensitivity'), { value: '2.15', checked: false }))
+      .toEqual({ sensitivity: 2.15 })
+    expect(patchForRow(rowFor('volume'), { value: '0.35', checked: false }))
+      .toEqual({ volume: 0.35 })
+  })
+
+  it('reads a toggle from checked, both ways, and ignores the value', () => {
+    // `value` on a checkbox is the string "on" whether it is checked or not, so a mapping
+    // that read it would report every toggle as true.
+    expect(patchForRow(rowFor('invertY'), { value: 'on', checked: true })).toEqual({ invertY: true })
+    expect(patchForRow(rowFor('invertY'), { value: 'on', checked: false }))
+      .toEqual({ invertY: false })
+    expect(patchForRow(rowFor('muted'), { value: 'on', checked: true })).toEqual({ muted: true })
+    expect(patchForRow(rowFor('muted'), { value: 'on', checked: false })).toEqual({ muted: false })
+    expect(patchForRow(rowFor('reduceMotion'), { value: 'on', checked: true }))
+      .toEqual({ reduceMotion: true })
+    expect(patchForRow(rowFor('reduceMotion'), { value: 'on', checked: false }))
+      .toEqual({ reduceMotion: false })
+  })
+
+  it('discards a slider value that is not a number', () => {
+    // Storing NaN would be worse than dropping the edit: `readSettings` throws a non-finite
+    // field away on the next load, silently and only for that one field, so the player's
+    // sensitivity would revert without anything having told them.
+    expect(patchForRow(rowFor('sensitivity'), { value: 'loud', checked: false })).toBeNull()
+    expect(patchForRow(rowFor('volume'), { value: 'Infinity', checked: false })).toBeNull()
+  })
+
+  it('treats an empty slider value as 0 rather than discarding it', () => {
+    // `Number('')` is 0, not NaN, so an empty value is not what the guard above catches —
+    // and 0 is the right answer for both sliders anyway: silence for volume, and clamped up
+    // to SENSITIVITY_MIN by `readSettings` for sensitivity. Asserted because the comment
+    // this replaced claimed the guard covered the empty case, and it never did.
+    expect(patchForRow(rowFor('volume'), { value: '', checked: false })).toEqual({ volume: 0 })
+    expect(patchForRow(rowFor('sensitivity'), { value: '', checked: false }))
+      .toEqual({ sensitivity: 0 })
+  })
+
+  it('keeps a slider value the model would clamp, rather than dropping it', () => {
+    // Out of range is not the same as unparseable. `readSettings` clamps 9 to
+    // SENSITIVITY_MAX, which is a value the player gets; dropping the edit here would
+    // instead leave the slider showing a position that never took effect.
+    expect(patchForRow(rowFor('sensitivity'), { value: '9', checked: false }))
+      .toEqual({ sensitivity: 9 })
   })
 })

@@ -3,7 +3,7 @@ import type { Settings } from '../../core/settings'
 import type { WindKind } from '../../world/wind'
 import { ACTIONS, type ActionContext } from './actions'
 import { COMBOS, METERS, WIND_LEGEND, type Combo, type MeterNote } from './reference'
-import { settingsRows, type SettingsRow } from './settings-rows'
+import { patchForRow, settingsRows, type SettingsRow } from './settings-rows'
 
 /**
  * The guide panel: a pure model function, then the DOM, split the way hud.ts splits.
@@ -50,7 +50,14 @@ export function guideModelFor(ctx: ActionContext): GuideModel {
   }
 }
 
-const STYLE = `
+/**
+ * Exported for one assertion, not for reuse: `pointer-events` is the only rule in here
+ * whose deletion changes behaviour rather than looks, and it fails silently — the panel
+ * still renders, the rows still carry their class, and nothing in a node test environment
+ * notices that a click can no longer reach them. Counting `.guide-setting` classes in the
+ * markup asserts the marker; asserting the rule is what asserts the opt-in.
+ */
+export const STYLE = `
 .guide { position: fixed; inset: 0; display: none; overflow-y: auto;
   background: rgba(8,14,22,.86); color: #f3f6fb; pointer-events: none;
   font: 400 13px/1.5 system-ui, sans-serif; padding: 24px clamp(16px, 5vw, 64px); }
@@ -278,23 +285,12 @@ export function createGuide(
     const row = rows.find((r) => r.key === target.dataset.setting)
     if (!row) return
 
-    // Written out per key rather than built from a computed property, so the patch is
-    // typed as the field it actually sets and a renamed `Settings` field fails here.
-    let patch: Partial<Settings>
-    if (row.kind === 'slider') {
-      const value = Number(target.value)
-      // An empty or unparseable range value would otherwise store NaN, which readSettings
-      // would then throw away on the next load — silently, and only for that one field.
-      if (!Number.isFinite(value)) return
-      patch = row.key === 'sensitivity' ? { sensitivity: value } : { volume: value }
-    } else {
-      const on = target.checked
-      switch (row.key) {
-        case 'invertY': patch = { invertY: on }; break
-        case 'muted': patch = { muted: on }; break
-        case 'reduceMotion': patch = { reduceMotion: on }; break
-      }
-    }
+    // The key-to-field mapping lives in `settings-rows.ts`, next to the rows it mirrors,
+    // because it is pure logic and here it would be untestable: swapping two of its five
+    // branches type-checks and, while it sat in this function, reddened nothing at all.
+    // `target` satisfies `RowInput` structurally, so the element goes straight in.
+    const patch = patchForRow(row, target)
+    if (patch === null) return
 
     rendered = { ...rendered, ...patch }
     rows = settingsRows(rendered)
@@ -327,9 +323,14 @@ export function createGuide(
       api.close()
       return
     }
-    // A focused settings control keeps its own keys: Arrow and Page keys move a range
+    // A focused slider keeps its own keys: Arrow, Page, Home and End all move a range
     // input, and the switch below would preventDefault them out from under it.
-    if (e.target instanceof HTMLInputElement) return
+    //
+    // Narrowed to `range` rather than every input. A checkbox uses none of these keys, so
+    // yielding to one only cost the player the panel's scrolling while a toggle happened to
+    // be focused — which, since Tab walks straight from the sensitivity slider into the
+    // toggles, is most of the time a keyboard user spends in here.
+    if (e.target instanceof HTMLInputElement && e.target.type === 'range') return
     // The panel keeps `pointer-events: none` so it can never swallow a click meant
     // for the canvas underneath — that would break pointer lock. That also takes it
     // out of hit-testing, so the mouse wheel cannot reach it and it is not focusable

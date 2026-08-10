@@ -68,3 +68,48 @@ export function settingsRows(s: Settings): SettingsRow[] {
     { kind: 'toggle', key: 'reduceMotion', label: 'Reduce motion', on: s.reduceMotion },
   ]
 }
+
+/**
+ * What an edited control reads as.
+ *
+ * Structurally a subset of `HTMLInputElement`, so the DOM half passes the element straight
+ * in and the tests pass plain objects — there is no DOM in the node environment.
+ *
+ * Both fields always, rather than a union of a slider reading and a toggle reading. An
+ * `input` element carries both whatever its type is, so a union would only move the choice
+ * of which one to trust out to the caller, which is the half that cannot be tested.
+ */
+export interface RowInput {
+  value: string
+  checked: boolean
+}
+
+/**
+ * The `Settings` patch one edited row produces, or `null` for an edit to discard.
+ *
+ * Extracted from `createGuide`'s delegated listener for the reason `lookDelta` was
+ * extracted from `InputTracker`: a five-branch key-to-field mapping is precisely where two
+ * fields end up swapped, and inside the DOM half nothing could test it. Written out per key
+ * rather than built from a computed property, so each patch is typed as the field it sets
+ * and a renamed `Settings` field fails here — but a *swap* type-checks, since every branch
+ * returns the same `Partial<Settings>`, so being testable is the part that catches it.
+ */
+export function patchForRow(row: SettingsRow, input: RowInput): Partial<Settings> | null {
+  if (row.kind === 'slider') {
+    const value = Number(input.value)
+    // An unparseable range value would otherwise store NaN, which readSettings would then
+    // throw away on the next load — silently, and only for that one field.
+    //
+    // "Unparseable", not "empty": `Number('')` is 0, not NaN, so an empty value falls
+    // through this guard as a legitimate 0 — which is silence for volume and clamps to
+    // SENSITIVITY_MIN for sensitivity. That is the right outcome and it is not what this
+    // guard does; the comment this replaced claimed both cases and only one is true.
+    if (!Number.isFinite(value)) return null
+    return row.key === 'sensitivity' ? { sensitivity: value } : { volume: value }
+  }
+  switch (row.key) {
+    case 'invertY': return { invertY: input.checked }
+    case 'muted': return { muted: input.checked }
+    case 'reduceMotion': return { reduceMotion: input.checked }
+  }
+}

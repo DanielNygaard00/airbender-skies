@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { formatAltitude, formatAirspeed, breathFraction, hudModelFor } from './hud'
+import {
+  formatAltitude, formatAirspeed, breathFraction, hudModelFor, STYLE, VIGNETTE_SCALE_PROPERTY,
+} from './hud'
 import type { PlayerState } from '../core/types'
 
 const p = (over: Partial<PlayerState> = {}): PlayerState => ({
@@ -197,5 +199,17 @@ describe('the downed fade', () => {
   it('never lets a non-finite fade reach the DOM', () => {
     // Same rule the focus fractions follow: opacity is written straight into a style.
     expect(hudModelFor(p(), undefined, undefined, 0, 0, NaN).fade).toBe(0)
+  })
+})
+
+describe('the Avatar State vignette rule', () => {
+  it('reads its opacity from the custom property main.ts writes, with a fallback of 1', () => {
+    // The one behaviour in this stylesheet a node test can hold onto. reduce-motion softens
+    // the gold rim by writing VIGNETTE_SCALE_PROPERTY on the root element in main.ts; if
+    // this rule stops reading it, the rim goes back to full strength under reduce motion
+    // and nothing else changes — no error, no visual difference in the normal case, and
+    // main.ts has no tests of its own. The property name comes from the shared constant on
+    // both sides, so what is left to assert is that the rule still reads it at all.
+    expect(STYLE).toContain(`.hud-vignette.is-on { opacity: var(${VIGNETTE_SCALE_PROPERTY}, 1); }`)
   })
 })
