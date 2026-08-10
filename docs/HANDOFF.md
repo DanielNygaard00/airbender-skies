@@ -5,12 +5,12 @@ for the impact feel and encounter lifecycle work, and again 2026-08-05 for the a
 stall readability work, and again 2026-08-06 for archers and projectiles, and again
 2026-08-06 for terrain collision, and again 2026-08-06 for the Slipstream breath cost, and
 again 2026-08-07 for the feel batch, and again 2026-08-07 for wind on foot, and again
-2026-08-10 for jump forgiveness. This is a recap
+2026-08-10 for jump forgiveness, and again 2026-08-10 for vertical reach. This is a recap
 for whoever picks the project up next, including a future session with no memory of the work
 below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 1451 tests across 88 files,
+**Repo state:** 1473 tests across 89 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -104,12 +104,20 @@ Spec at
 
 **Combat visuals.** `src/fx/` holds the effects layer: a shared `Effect` contract and an
 `EffectPool` that owns add, advance, cull and dispose for every one-shot effect, plus a
-gust cone drawn at the move's *true* 12-unit, 120-degree hit volume, a dash streak whose
+gust cone drawn at the move's true 12-unit, 120-degree **horizontal footprint**, a dash
+streak whose
 length and brightness read the chain index, impact bursts that distinguish a connect from
 a down, and an Avatar State aura on the character. Every trigger reads a signal the game
-already produced, so no movement or combat code changed. The cone's honesty is tested by
-sampling points and comparing the drawn sector against `inGust` — a different mechanism
-from the one the code uses. Spec at
+already produced, so no movement or combat code changed. The cone's **horizontal** honesty
+is tested by sampling points and comparing the drawn sector against `inGust` — a different
+mechanism from the one the code uses.
+
+That sentence used to read "the move's *true* hit volume", and the vertical-reach cycle
+made it false: the gust now hits a slab 5 units above and below the player, and the drawn
+sector has no thickness at all. The cross-check against `inGust` samples only points level
+with the caster, so it cannot see the difference. Both the description and the test's name
+are now scoped to the horizontal footprint. See "A known cosmetic mismatch" under "Vertical
+reach" below for all five affected effects. Spec at
 [`docs/superpowers/specs/2026-08-03-combat-visuals-design.md`](superpowers/specs/2026-08-03-combat-visuals-design.md).
 
 **The gust cone is confirmed visible.** This entry previously warned that nobody had seen
@@ -126,8 +134,8 @@ last landed on — regardless of where the player was facing. The cause was that
 value forward and never recomputed it, while `desiredVelocity` steered from
 `horizontalForward(input.lookDirection)` instead. Since `inGust` aims the *hit test* with
 `player.forward` too, the blast itself was wrong, not just its drawing — the cone was
-honestly picturing a broken gust, which is the payoff of having drawn the true hit volume
-rather than a tidy puff. On foot `forward` now follows the flattened look direction, and
+honestly picturing a broken gust, which is the payoff of having drawn the move's true
+horizontal footprint rather than a tidy puff. On foot `forward` now follows the flattened look direction, and
 the character model faces `forward` in both modes rather than facing its direction of
 travel on foot: travel is zero at exactly the moment a player stops to aim, so a standing
 turn used to move the blast and not the character.
@@ -256,9 +264,14 @@ Three things here are easy to break and were each found the hard way:
   flight, keeping `staffBusy` true and delaying a later deploy after landing. Gated on the
   post-branch mode now.
 - **There is no attack animation.** The model ships idle, walk, run, fall and glide, so the
-  tell is built: an arc effect drawn at the swing's true reach (`src/fx/staff-arc-fx.ts`) plus
+  tell is built: an arc effect drawn at the swing's true horizontal reach and half-angle
+  (`src/fx/staff-arc-fx.ts`) plus
   a procedural sweep composed inside `glider.ts`'s own `apply()`, which rewrites the staff
-  transform every frame and would overwrite anything set from outside.
+  transform every frame and would overwrite anything set from outside. "The swing's true
+  reach" was accurate when written and is not any more: the vertical-reach cycle gave both
+  arcs a 2-unit band above and below the player, and the drawn arc is a flat sector, so it
+  under-draws the swing's height by 4 units. See "A known cosmetic mismatch" under "Vertical
+  reach".
 
 Confirmed in the running game, not only in tests: a click swings and the staff visibly rotates,
 alternating direction per swing; the drawn arc measures 3.6 at 163.6° for the openers and 4.2
@@ -508,12 +521,19 @@ have been wrong a second way.
 
 **The aim tell.** `src/fx/aim-tell.ts` gives the gust a preview instead of leaving its reach to
 be learned by throwing it at people. A ground chevron sits `markerDistance` (3 units) along
-`player.forward`, and a true 12-unit, 120-degree sector lights up — dimmed to 40% while the
+`player.forward`, and a 12-unit, 120-degree sector matching the gust's true **horizontal**
+footprint lights up — dimmed to 40% while the
 gust is on cooldown, invisible otherwise — the instant a live soldier is inside it. Both are
 parented to the scene, not to the avatar: the avatar's rotation is driven off the
 *interpolated* heading so it renders smoothly between simulation steps, and a tell for a hit
 volume has to read the value the hit itself reads, `player.forward`, or it can point somewhere
-the gust does not go. Spec at
+the gust does not go.
+
+This entry said "a true 12-unit, 120-degree sector" before the vertical-reach cycle, and that
+now understates the volume: the tell is flat and the gust is a slab, so the preview shows
+none of the 10 units of height the move has. `aim-tell.test.ts`'s cross-check flattens every
+probe to the caster's own level, so it never binds `verticalReach` either, and it has been
+renamed to say so. See "A known cosmetic mismatch" under "Vertical reach". Spec at
 [`docs/superpowers/specs/2026-08-05-aiming-and-stall-readability-design.md`](superpowers/specs/2026-08-05-aiming-and-stall-readability-design.md).
 
 **`src/fx/sector.ts`** now owns the one true theta convention for a horizontal cone —
@@ -1722,6 +1742,230 @@ it builds the real islands and asserts the table above, alongside synthetic-norm
 measurement of this game, this environment cannot hold a pointer lock, and the two windows and
 their interaction with `chargeThresholdSeconds` 0.2 are the values most worth a human's hands.
 
+**Vertical reach: the player's four attacks stop ignoring height.** Every one of the player's
+offensive moves measured its reach horizontally and nothing else, so the reach was not a cone or
+a disc at all but an infinite vertical column with a cone-shaped or circular cross-section.
+`inCone` in `src/combat/cone.ts` dropped `y` before it did anything else and its own doc said
+"Horizontal: height is ignored entirely"; both radial moves measured with `horizontalDistance`.
+Measured before the change: an enemy 8 m ahead and **2000 m below** the player was inside a
+gust, and one 3 m ahead and 50 m below was inside a staff opener. Height above worked the same
+way — 60 m up was in.
+
+**What made that a correctness defect rather than a tuning question is that it inverted the
+archer cycle's whole point.** Every enemy's ranges were already measured in 3D by `stepEnemy`;
+`config.ts` says of the archer's `aggroRange` that measuring in 3D "is the whole point of the
+type: before archers existed, getting above the spear's 26 ended any fight." The archer exists
+to make altitude cost something. But a player hovering above a soldier could gust and swing at
+it while the soldier's own 3D range could not reach back, so altitude cost the player nothing
+offensively — the exact asymmetry the archer was added to remove, reintroduced from the other
+side.
+
+The fix is one field and one test. `ConeShape` gained `verticalReach`, a half-extent measured
+from the caster's own height, and `inCone` tests it first — cheapest rejection, and before any
+direction is computed. The two radial moves are not cones and do not share `ConeShape`, so
+`PressureWaveConfig` and `VortexConfig` each gained their own field and each ANDs the band onto
+its existing radius test. **The cone stays flat, deliberately:** `groundStep` sets `forward` to
+`horizontalForward(input.lookDirection)` precisely so a standing turn moves the blast with the
+character, so a flat sector is what the player's aim already means, and tilting it would need a
+second aim vector that neither `src/fx/gust-cone.ts` nor `src/fx/aim-tell.ts` is built for.
+
+**The five extents, and the shape of the set rather than the values.** Staff opener and finisher
+2.0, gust 5.0, Pressure Wave 4.0, Vortex 8.0. What is argued is the *ordering*: the
+ground-hugging shockwave is the flattest relative to its own reach because the fiction is
+something travelling out across a surface, the lifting column is the tallest because a target it
+cannot reach is a target it cannot lift, and the staff is the shortest in absolute terms because
+it is an arm holding a physical implement, bounded by the character's own 1.8 height with margin
+for a soldier on a low rise. The two staff arcs share their value on purpose — the finisher
+sweeps wider and shoves harder, not taller — and `staff-arc.test.ts` asserts them equal to each
+other rather than to a literal. If play says one is wrong, that story is what should be
+re-argued, not the number in isolation. **None of the five has been played**; the harness cannot
+hold a pointer lock.
+
+**The tests that matter are the real-geometry ones, not the exploit regression.** Asserting that
+a target 2000 m below is now out of reach passes for any implementation that clamped height at
+all, including one clamped far too tightly, so it is present as a guard and is not the
+discriminating test. Over-tightening is the risk the change actually carries. So
+`src/combat/reach-geometry.test.ts` fires all four moves — seven cases, since both radial moves
+appear at their weakest and fullest — from every stance on real archipelago ground against the
+real `HOME_PATROL` placements, and compares each move against **its own horizontal footprint**,
+obtained by re-running the same target function with `verticalReach` set to `Infinity`. That
+reference is exactly the pre-cycle behaviour, so every result reads as "what did the band take
+away", and it cannot drift from the shipped horizontal reach the way a hand-written expectation
+would.
+
+The result, stated as narrowly as the measurement supports: **for all seven cases against all
+five soldiers, there is still a bearing from which the furthest connecting stance on real
+ground is the same distance it was before the band existed.** That is a claim about the maximum
+over bearings and nothing more. An earlier version of this entry said "no move lost a metre of
+standoff against any soldier", which the same measurement refutes — see the per-target losses
+two paragraphs down. The three spears, which stand at radius 34.06 to 36.06 where
+the home island is still a plateau, do lose nothing at all — the worst height difference any
+move's footprint can reach around one of them is 2.593 m, and the narrowest band is the staff's
+2.0, whose worst is 1.337 m inside the opener's arc and 1.548 m inside the finisher's. Every
+stance the bands drop belongs to one of the two archers on the rim at radius 55, where the
+walkable ground ends at 62.86 on `archer-1`'s own bearing and 65.12 on `archer-2`'s.
+
+**What the bands actually cost, per target.** Keeping the furthest bearing is compatible with
+losing most of the ground a move can be thrown from, and against the two rim archers that is
+what happened. Against `archer-2`, a gust keeps 4332 of the 6172 stances its footprint holds —
+**29.8% of them gone** — and a full slam keeps 3506 of 5297, **33.8% gone**; the staff finisher
+keeps 79.9% and the opener 84.1%. Against `archer-1`, the gentler rim, the staff finisher and
+the full slam both keep 92.4%. On the walk-in bearing specifically the losses are large in
+metres as well: a gust connects against `archer-2` only from 5.35 m of its nominal 12, so
+**6.6 m of standoff is gone**, and a staff finisher from 2.35 m of 4.2. All of those figures
+are pinned two-sided in `reach-geometry.test.ts`.
+
+**And a structural limit in the headline test worth knowing before trusting it.** Its reference
+is the move's own footprint measured with `verticalReach` set to `Infinity` — the loosest band
+that exists. Loosening a shipped band can therefore only move the banded result *towards* the
+reference, so the equality it asserts holds a fortiori and the test is **structurally incapable
+of catching an over-loosened extent**, however far it is loosened. Everything in that file that
+does catch loosening is an incidental two-sided pin on a measured figure. This is recorded in
+the file at the definition of its `FLAT` constant.
+
+`archer-2` is the extreme, and it is worth knowing about before touching any of these numbers.
+It stands on a low shelf beneath an overhanging lip — measured, the lip's top at y 5.8679 and
+the surface 1.8076 m below it at y 4.0604 are both real `home` geometry — with a 47.8-degree
+face beyond it that gains 2.891 m over its first 3 m of run before flattening to 10 degrees,
+3.487 m over a full 4 m. An earlier version of this entry said "a 48-degree slope climbing about
+6 m over the next 4 m of run"; the 48 degrees was right and the 6 m was not, and nothing
+asserted either at the time. Walking straight out from the spawn at it descends that face, which
+is why the walk-in standoffs above collapse; full reach against it survives from other bearings,
+so the cost is a bearing rather than the move. Crowd behaviour
+holds too — every stance on the island from which a gust's or a full vortex's footprint holds
+two or more soldiers still catches all of them (124 and 365 stances), and the full slam has
+exactly one stance where it does not: `(18, −41)`, which is 11.00 m from both `spear-3` and
+`archer-2` — exactly a full slam's radius on each side, which is why it is unique — standing
+5.981 m above `archer-2`.
+
+**The Vortex's 8.0 is the loosest of the five, not the best-measured, and this entry used to say
+the opposite.** It is unaffected on every bearing at both charges: nothing within its full 12 m
+radius differs from a soldier's own footing by more than 6.661 m against a band of 8.0. That is
+a good result for the fight and a bad one for pinning the number — having no stance to lose is
+precisely why no real-geometry test objects to the band growing. Mutation-measured, `vortex.
+verticalReach` at **6.7** leaves the whole suite green and at **11.9** leaves the whole suite
+green; the value is free anywhere in a window over 5.3 m wide. What actually holds it is a
+bracket, not a measurement: above the 6.661 m the terrain requires (`reach-geometry.test.ts`)
+and below `maxRadius` 12 (`vortex.test.ts`'s "taller than any other move but still wider than it
+is tall"). An earlier version of this entry called 8.0 "the one extent with measured headroom
+rather than an argued guess", which inverts the truth — it is the extent with the *least* upper
+constraint of the five. Recorded rather than retuned, because generous is the safe direction for
+a lift move: a band too short to hold a target the move has just launched would fight its own
+effect.
+
+**The Pressure Wave's 4.0 is the one number the measurement argues with, and it was left alone.**
+An aimed landing is real ground within `minRadius` of a soldier — the radius even the weakest
+qualifying slam covers, so a player who dives at a soldier and lands inside it has aimed well.
+The measured worst gap over all five soldiers is **4.2275 m**, on `archer-2`, 4.00 m out on the
+slope above its shelf: **0.2275 m outside the shipped 4.0**, which is 5.69% of the band. So the
+design's hoped-for "the worst case is comfortably inside 4.0" is false, and false by more than
+the 3.5% first recorded. The medians are 0.045 to 0.578 m and the
+other four soldiers are covered completely; 4.0 covers 99.28% of the disc around the
+worst-placed one at the 0.05 m grid the test walks, so the shortfall is 0.72% of the disc, and
+the worst miss is 0.2275 m rather than the "under 0.15 m" first recorded.
+
+**Those figures are corrections, and the correction is worth reading before trusting any grid
+measurement in this repo.** The first version of the measurement sampled the disc at 0.25 m and
+reported a worst gap of 4.1404 m. That is not the terrain's worst gap; it is the worst of 797
+samples. Re-measured, the figure does not settle until roughly 0.05 m:
+
+| grid | worst gap | excess over 4.0 | coverage of the disc |
+| --- | --- | --- | --- |
+| 0.25 m | 4.1404 | 0.1404 | 99.3726% |
+| 0.1 m | 4.2100 | 0.2100 | 99.2637% |
+| 0.05 m | 4.2267 | 0.2267 | 99.2829% |
+| 0.02 m | 4.2249 | 0.2249 | 99.2995% |
+| 0.01 m | 4.2275 | 0.2275 | 99.2977% |
+
+Two things went wrong, and both are ordinary enough to happen again. The first is that a
+coarse grid biases a maximum *downward* every time, so a one-sided "the worst is under X"
+reading is always the optimistic one. The second is worse: the coverage figure was pinned
+two-sided at `> 0.993` and `< 0.994`, and the converged coverage is 0.99298 — **below its own
+lower bound**. That assertion was green only because the grid stayed at 0.25 m, and it would
+have gone red the first time anyone refined the sampling for an unrelated reason. The
+"every miss is under 0.15 m" claim was carried by an assertion with 0.0096 m of headroom at
+0.25 m sampling, and the real worst miss exceeds 0.15 m by 52%. The test now walks the disc at
+0.05 m, pins the terrain claims at bounds that hold at every grid from 0.1 m down to 0.01 m,
+asserts the converged 4.2275 m by probing the single point that carries it rather than by
+sweeping onto it, and labels the one remaining sampling-specific pin as a fact about the
+sampling rather than about the island.
+
+**Both constraints on that number are now pinned, and they have crossed.** `minRadius` is also
+4, so `verticalReach` already exactly equals it and the weakest slam is exactly as tall as it is
+wide — the sphere the value's own comment says the move must not become, produced by that
+comment's own number. `pressure-wave.test.ts` asserts `verticalReach <= minRadius` at equality
+with zero slack, so the constraint reddens the instant the number grows; and
+`reach-geometry.test.ts` pins the 4.2275 m measurement and the coverage, so it reddens if
+the number moves in either direction. There is no value satisfying both: covering the whole disc
+needs at least 4.2275, which makes the weakest slam more than 5% taller than it is wide.
+
+**The owner's decision, re-taken against the corrected figures: leave all five extents where
+they are, and specifically leave `pressureWave.verticalReach` at 4.0.** The larger shortfall
+does not change the decision, and one thing the re-measurement established makes the case
+stronger rather than weaker. All **144 of the 144** failing samples on the 0.05 m grid sit in
+the **outermost 0.204 m** of the disc — every one at 3.796 m or further from the soldier, none
+anywhere in the interior — inside a single bearing wedge from **−64.7° to −30.1°**, and every
+one of them stands on ground with air beneath it: a second `home` surface lies below each,
+never less than 34.2 m down. So the failing region is not a thin ring around the whole disc but
+one face of one overhang, and a player who lands there has landed on a lip above the soldier
+rather than beside it — which is, arguably, a miss. Against that: 4.0 is already the ceiling its
+own flatness argument allows, and growing it to 4.2275 buys 0.72% of one soldier's aimed-landing
+disc at the cost of the "flatter than the weakest slam is wide" property outright. The
+alternative still on the table if play disagrees is to widen `minRadius` to about 5 and raise
+`verticalReach` to 4.23, which repairs the argument rather than abandoning it but touches a
+value outside this cycle's five. Nothing has been played, so this is a decision recorded for
+whoever plays it, not a settled one.
+
+**Airborne targets are untested for all four moves, and the vortex makes that a real gap.**
+`reach-geometry.test.ts` snaps every soldier to `groundHeightAt`, so the entire real-geometry
+battery measures grounded targets — and three of the four moves launch their targets. Under
+gravity 20, `vortex.maxLiftSpeed` 11 gives a full-charge lift apex of 11² / 40 = **3.025 m**,
+which is above the staff's `verticalReach` of 2.0. The vortex is the only move where that
+matters, because it pulls inward while it lifts: the horizontal distance to the caster shrinks,
+so the vertical band is the only thing that can put the target out of a follow-up's reach. A
+gust's knockback of 26 and a full slam's 30, against `knockbackDamping` 2.6, carry a target 10 m
+and 11.5 m outward respectively — well past the staff's 4.2 — so those two leave horizontal
+range first. Measured: above roughly **66% charge** the target leaves staff reach, and at full
+charge it is unreachable by the staff for **0.640 s of its 1.10 s flight, 58% of its airtime**.
+Avatar State's boosted gust does the same by a different route: at ×1.5 knockback its lift apex
+is 2.377 m, also past the staff's 2.0, and it needs one keypress rather than a charge.
+
+This may well be correct by design — this document already says the vortex's payoff is that an
+airborne enemy is inert, and that lift is the vortex's job and not the staff's — so it is
+recorded as a thing to watch in the play pass rather than as a defect. The arithmetic is now
+pinned in `vortex.test.ts` so the numbers cannot drift silently, but nothing exercises the
+actual mid-air hit test for any move.
+
+**A known cosmetic mismatch, named here rather than hidden — and it is all five attack visuals,
+not just the gust.** Every attack effect in `src/fx/` is a flat shape, while every hit volume is
+now a slab, so each one **under-draws its move's height by `2 × verticalReach`**:
+
+| effect | move | height not drawn |
+| --- | --- | --- |
+| `src/fx/gust-cone.ts` | gust | 10 m |
+| `src/fx/aim-tell.ts` (the gust's preview sector) | gust | 10 m |
+| `src/fx/staff-arc-fx.ts` | both staff arcs | 4 m |
+| `src/fx/shockwave.ts` | Pressure Wave | 8 m |
+| `src/fx/vortex-ring.ts` | Vortex | 16 m |
+
+The spec and an earlier version of this entry named only `gust-cone.ts` and `aim-tell.ts`, which
+under-disclosed it: the ring effects are flat `RingGeometry` rotated onto the horizontal plane
+(`shockwave.ts` and `vortex-ring.ts`) and the staff arc is a flat sector, exactly like the cone.
+The Vortex is the worst of the five in absolute terms, at 16 m of invisible extent.
+
+Three of the cross-check tests pass anyway, and it is worth being precise about why: they
+compare the drawn shape against the hit test using probes that are all level with the caster, so
+`verticalReach` never participates. All three now say so in their names —
+`gust-cone.test.ts`'s "draws exactly the footprint the gust hits, and deliberately says nothing
+about its height", `aim-tell.test.ts`'s "covers the horizontal footprint the hit test covers,
+and deliberately says nothing about its height", and `staff-arc-fx.test.ts`'s "agrees with
+inCone about the horizontal footprint of the sweep, and says nothing about its height". **A green
+run in any of them is not evidence that a hit volume is flat.** This is deliberately unfixed:
+giving the effects real thickness is a visuals change and the visuals phase has not started.
+There is still no crosshair and no hit-direction indicator;
+both were in the same analysis item as this defect and both are HUD readability work with their
+own design questions.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
@@ -1843,6 +2087,17 @@ only the applying chunks (`<tonemapping_fragment>`, `<colorspace_fragment>`).
 world units reads as a white block as soon as the camera gets near it. Wind motes are
 0.45–0.75 for that reason.
 
+**`groundHeightAt` returns the topmost surface, and single islands have real overhangs.**
+`config.ts` already warns that the spire is stacked over the `+X+Z` quadrant past radius 56, so
+a probe there answers with a surface hundreds of units up. The subtler case is that one island's
+own noise-perturbed dome overhangs itself: on `home`, 2.4 m inward from `archer-2` at
+`(17.182, −49.638)` there are two `home` surfaces 1.81 m apart, and the height query answers with
+the lip rather than the shelf under it. That is faithful to the game — `groundStep` snaps the
+player to the same topmost surface — but it means a real-geometry measurement can jump by nearly
+two metres between adjacent sample points, and reading such a discontinuity as a bug wastes time.
+`reach-geometry.test.ts` asserts that pair of surfaces so it is a recorded fact rather than a
+surprise. Cast a second ray from just under a hit to find out whether you are on a lip.
+
 **Typecheck is two passes.** `npm run typecheck` runs `tsconfig.json` and
 `tsconfig.test.json`. App code deliberately cannot see Node globals; only tests can.
 `noUncheckedIndexedAccess` is on, so indexed access is `T | undefined`.
@@ -1880,7 +2135,7 @@ The suite is large and the comments carry the reasoning, so match the local styl
 explain *why* in the comment, mark regression guards as such, and derive expectations
 from data rather than restating literals.
 
-Four specific test failure modes bit repeatedly here. Every one produced a green suite
+Five specific test failure modes bit repeatedly here. Every one produced a green suite
 that proved nothing:
 
 1. **Asserting against the same config the code reads.** `expect(bursts).toBe(G.maxDashChain)`
@@ -1988,8 +2243,8 @@ assertions and judging them adequate.
 | `pauseReason` had no exact-reason assertion at `pointerLocked: true, documentHidden: true, guideOpen: false` | returning `'unlocked'` instead of `'hidden'` on the branch where the lock is still held | `'reports the reason this table names for every combination'`, which pins all eight combinations as one object comparison |
 | `OverlayModel.hint` was unasserted at all four points where the card is invisible | `HIDDEN.hint = 'H — guide'`, i.e. a non-empty hint on the invisible path | the same 8-point table, extended from three fields to all four and compared as whole objects |
 
-Two things generalise from them. First, the register above is now unanimous: **fourteen for
-fourteen, the gap was found by making the forbidden change, and none of the fourteen by reading
+Two things generalise from them. First, the register below is now unanimous: **fifteen for
+fifteen, the gap was found by making the forbidden change, and none of the fifteen by reading
 the assertion and reasoning about what it covered.** That is no longer a lesson from one
 cycle; it is the only method that has ever worked here.
 
@@ -2055,6 +2310,56 @@ and its edge cases are tested by the same fixture shape, check that the headline
 them.** Every coyote test in the file looked like a different timing of the same input, and none
 of them was the input the window exists for.
 
+**The vertical-reach cycle produced the fifteenth, and it is the register's first arithmetic
+error rather than a weak assertion or a blind fixture.** `pressure-wave.test.ts`'s
+`'measures reach as a disc rather than a sphere, so the radius does not shrink with height'` did
+not measure that at all: it admitted a sphere. A reviewer substituted a pure 3D-distance filter
+for `waveTargets` and the test stayed green.
+
+| The gap | The mutation that survived | What caught it in the end |
+| --- | --- | --- |
+| The disc-not-sphere probe sat *inside* a sphere of the same radius, so it could not tell a disc from a sphere | replacing `waveTargets`' horizontal-distance-plus-band test with a single 3D distance test | the same test, with the discriminating property `hypot(out, verticalReach) > radius` asserted rather than worked out in a comment, and the offset derived from the fixture's own radius |
+
+The arithmetic is worth spelling out, because the mistake is easy and invisible. The probe was
+placed at a horizontal offset of 11 with a vertical offset of `verticalReach` 4, against the
+*fixture's* `maxRadius` of 12. `hypot(11, 4)` is 11.7047, which is inside 12 — so a 3D-distance
+implementation accepts the point and the assertion holds either way. Discriminating at a height
+of 4 needs a horizontal offset above `sqrt(12² − 4²)` = 11.3137. The 11 came from the *shipped*
+`maxRadius` of 11 while the fixture the test actually ran used 12: a literal borrowed from one
+config and evaluated against another, inside a comment that nothing checked. Two lessons, one old
+and one new. The old one is that a number reasoned out in a comment is a number nobody has
+verified — the same failure the feel batch recorded. The new one is that **a geometric claim
+resting on a relationship between three numbers should assert that relationship, not the
+conclusion drawn from it**; the fix asserts `hypot(out, verticalReach) > radius` as a
+precondition of the test's own body, so an offset that stops discriminating fails loudly instead
+of quietly passing.
+
+The fifteenth is also a second example of the naming lesson above: its name said "disc rather
+than a sphere", and it was the one test in the file that could not tell those two apart.
+
+**The same cycle surfaced a rule collision that reached the spec but never this register, and it
+belongs here rather than in the table because it is a defect in advice rather than in a test.** A
+plan for the vertical-extent boundary tests said to place each boundary probe "at a height
+derived from the shape rather than a literal, so the boundary moves with the value". That
+instruction is self-defeating: a probe derived from the value under test *rises with it*, so
+raising the extent moves the probe too and the assertion survives the very change it exists to
+catch. Three of the five neutralisations would have passed.
+
+What makes it worth recording is that it is a head-on collision between two rules this project
+already holds and states plainly in this same section: **"derive expectations from data rather
+than restating literals"** and **"neutralise the config and watch it redden."** For almost every
+test the two agree. For a *boundary* test they point in opposite directions, and the derived form
+is the non-discriminating one — the boundary *is* the value, so deriving the probe from the value
+turns the test into a tautology about the shape rather than a claim about the number. The
+resolution used here: keep the derived probe as the shape assertion, and add a separate
+**relative** claim about the shipped number that a neutralisation must break — the staff's band
+against its own horizontal reach, the vortex's band against the gust's and against its own
+`maxRadius`, the wave's against its own `minRadius`. Those are what actually redden.
+
+The general form, for the next boundary test anyone writes: **a probe derived from the value
+under test proves the shape and can never pin the value. Pinning the value needs a second
+assertion relating it to something that does not move with it.**
+
 Worth recording alongside the ninth: the wind-on-foot cycle had four of my own quantitative
 or causal claims corrected by measurement rather than caught by the person who made them — the "ramps in over
 the response time" claim about where the horizontal wind term was placed, the scooter-authority
@@ -2068,7 +2373,17 @@ In the order I would take them:
 
 1. **Play it.** Nothing here has been played. An hour with the live build will find
    more than the next feature will add, and will tell you which of the tuning values
-   above are wrong.
+   above are wrong. **The five vertical extents are the most recent and the most in need
+   of hands** — try to gust a soldier from a ledge, and try to staff `archer-2` on its
+   shelf. All five are staying as shipped; the owner's decision is recorded under "Vertical
+   reach" above, taken against re-measured figures, and the thing it is waiting on is a
+   person who has played it rather than another measurement. Note that both sides of the
+   `pressureWave.verticalReach` crossing are pinned by tests, so whichever way it goes
+   something reddens and has to be argued rather than nudged. Two specific things to feel
+   for: whether a slam that lands on the lip above `archer-2` failing to reach it reads as a
+   miss or as a bug, and whether a target lifted by a full-charge vortex being out of the
+   staff's band for 58% of its airtime reads as the vortex doing its job or as the staff
+   feeling broken.
 2. **Playtest the pause and front-door cycle specifically.** This is the one piece of
    "play it" that cannot be satisfied by any amount of testing in this environment,
    because the harness cannot hold a pointer lock. On a real click, confirm: Escape

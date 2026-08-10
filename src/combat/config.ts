@@ -115,6 +115,13 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     range: 12,
     // A 60 degree half-angle: a sweep that catches a group, not a shot at one.
     halfAngle: Math.PI / 3,
+    /**
+     * A sweep of moving air, so it is allowed real height where the staff is not — but it
+     * is still a sweep and not a column. Sized to reach a soldier standing on a low ledge
+     * or partway up a shallow slope, which is the situation this is for; a player who wants
+     * to hit something a storey away has to close the gap.
+     */
+    verticalReach: 5.0,
     damage: 0.5,
     knockback: 26,
     cooldownSeconds: 0.45,
@@ -139,6 +146,19 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     minRadius: 4,
     // Close to the gust's 12 range, so a full slam is a crowd move.
     maxRadius: 11,
+    /**
+     * The smallest of the four relative to its reach, and deliberately so: the fiction is a
+     * shockwave travelling out across the surface rather than a blast around the player.
+     *
+     * Bounded by `minRadius` above it, not by `maxRadius`. A full slam reaches 11 and is
+     * decisively wider than it is tall, so full strength never constrains this number. The
+     * *weakest* slam does: its radius is `minRadius`, which this value already exactly
+     * equals, so a minimum-strength wave is a ball rather than a disc, and anything taller
+     * makes the smallest slam a column. That equality is where the argument for this number
+     * is thinnest and is the case the archipelago measurement has to settle —
+     * `pressure-wave.test.ts` pins the comparison against `minRadius` for that reason.
+     */
+    verticalReach: 4.0,
     minDamage: 0.6,
     maxDamage: 2.2,
     minKnockback: 12,
@@ -158,6 +178,13 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     // A full charge reaches as far as a gust, so the two moves cover the same ground
     // by different rules rather than one outranging the other.
     maxRadius: 12,
+    /**
+     * The tallest of the four, because getting enemies off their feet is the whole payoff
+     * and a target out of reach is a target not lifted. It is also the one move whose own
+     * effect moves targets vertically, so a band that could not hold them would fight
+     * itself.
+     */
+    verticalReach: 8.0,
     minPullSpeed: 10,
     maxPullSpeed: 18,
     // Under gravity 20: about 0.5s airborne at the minimum, 1.1s and roughly 3m of
@@ -171,10 +198,17 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
    * out-space infantry rather than trading with it. Two openers leave a 1.5-health soldier
    * one hit from down and the finisher takes anyone still standing; a gust does 0.5 with 26
    * knockback, so the staff buys damage with the reach and displacement it gives up.
+   *
+   * Both arcs reach the same height, and the shortest of the four moves: this is a swing with
+   * a physical implement, bounded by the character's own 1.8 height — the reference
+   * `CollisionConfig.radius` and `projectile.hitRadius` both take — with margin so a soldier
+   * standing on a low rise is still reachable. The two values are equal deliberately, and
+   * `staff-arc.test.ts` asserts them equal to each other rather than to a literal: the
+   * finisher sweeps wider and shoves harder, not taller, so if one ever moves both should.
    */
   staffArc: {
-    opener: { range: 3.6, halfAngle: Math.PI / 2.2 },      // about 164 degrees swept
-    finisher: { range: 4.2, halfAngle: Math.PI / 1.9 },    // about 190 degrees swept: front hemisphere plus a few degrees past each flank, not reaching behind
+    opener: { range: 3.6, halfAngle: Math.PI / 2.2, verticalReach: 2.0 },      // about 164 degrees swept
+    finisher: { range: 4.2, halfAngle: Math.PI / 1.9, verticalReach: 2.0 },    // about 190 degrees swept: front hemisphere plus a few degrees past each flank, not reaching behind
     openerDamage: 0.7,
     finisherDamage: 1.2,
     // Low on the openers so the combo keeps its targets in reach; the finisher clears space.

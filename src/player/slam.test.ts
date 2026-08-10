@@ -13,6 +13,9 @@ const C: PressureWaveConfig = {
   fullImpactSpeed: 50,
   minRadius: 4,
   maxRadius: 12,
+  // Unused by this module: `detectSlam` and `applyBounce` decide whether a slam happened and
+  // how hard it rebounds, never who it caught. Present because the type requires it.
+  verticalReach: 4,
   minDamage: 0.5,
   maxDamage: 2.5,
   minKnockback: 10,

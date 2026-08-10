@@ -13,6 +13,7 @@ const C: PressureWaveConfig = {
   fullImpactSpeed: 50,
   minRadius: 4,
   maxRadius: 12,
+  verticalReach: 4,
   minDamage: 0.5,
   maxDamage: 2.5,
   minKnockback: 10,
@@ -89,12 +90,46 @@ describe('waveTargets', () => {
     expect(ids.length).toBe(4)
   })
 
-  it('measures reach by horizontal distance alone, so height does not shelter anyone', () => {
-    const overhead = spawnEnemy('up', new Vector3(0, 40, 0), 'spear', DEFAULT_COMBAT_CONFIG.enemies.spear)
-    // Caught, because the horizontal distance is zero. Pinned deliberately: it matches
-    // how the gust measures reach, and every enemy in the game stands on the ground, so
-    // a vertical test would be untested complexity. Revisit when a flying enemy exists.
-    expect(waveTargets(ORIGIN, [overhead], 1, C).length).toBe(1)
+  it('measures reach as a disc rather than a sphere, so the radius does not shrink with height', () => {
+    const radius = waveRadius(1, C)
+    // Just inside the full radius horizontally, and at the top of the band. For this to tell
+    // a disc from a sphere the raised one has to sit *outside* a sphere of the same radius,
+    // which is a property of three numbers and easy to get wrong by hand -- so it is
+    // asserted here rather than worked out in a comment. An earlier version of this test
+    // used a horizontal offset of 11 against a fixture radius of 12, which is inside the
+    // sphere too, and a 3D-distance implementation passed it.
+    const out = radius - 0.1
+    expect(Math.hypot(out, C.verticalReach)).toBeGreaterThan(radius)
+
+    const spawn = (id: string, y: number) =>
+      spawnEnemy(id, new Vector3(out, y, 0), 'spear', DEFAULT_COMBAT_CONFIG.enemies.spear)
+    expect(waveTargets(ORIGIN, [spawn('level', 0), spawn('raised', C.verticalReach)], 1, C)
+      .map((e) => e.id)).toEqual(['level', 'raised'])
+  })
+
+  it('stops at the vertical reach, so a slam is a shockwave across the ground and not a sphere', () => {
+    // Zero horizontal distance in both cases, so only the height band decides. The heights
+    // come off the config, so the pair keeps straddling the boundary if the value moves.
+    const spawn = (id: string, y: number) =>
+      spawnEnemy(id, new Vector3(0, y, 0), 'spear', DEFAULT_COMBAT_CONFIG.enemies.spear)
+    expect(waveTargets(ORIGIN, [spawn('edge', C.verticalReach)], 1, C).map((e) => e.id))
+      .toEqual(['edge'])
+    expect(waveTargets(ORIGIN, [spawn('past', C.verticalReach + 0.01)], 1, C)).toEqual([])
+  })
+
+  it('keeps the shipped wave no taller than the weakest slam is wide', () => {
+    // Two claims about the shipped number instead of a restatement of it. Under the gust's
+    // band, because this is a shockwave across a surface and that is a sweep of open air.
+    //
+    // And bounded by `minRadius`, not `maxRadius`. The full slam's radius of 11 is never the
+    // binding case -- 4 against 11 is decisively wider than tall. The *weakest* slam is:
+    // its radius is `minRadius`, so this is the comparison that decides whether the smallest
+    // wave is a disc or a ball. `toBeLessThanOrEqual` because the two are currently equal,
+    // which is exactly as thin as that argument gets and is the case the archipelago
+    // measurement has to settle.
+    const wave = DEFAULT_COMBAT_CONFIG.pressureWave
+    expect(wave.verticalReach).toBeLessThan(DEFAULT_COMBAT_CONFIG.gust.verticalReach)
+    expect(wave.verticalReach).toBeLessThanOrEqual(wave.minRadius)
   })
 })
 

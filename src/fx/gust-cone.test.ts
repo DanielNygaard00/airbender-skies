@@ -50,7 +50,12 @@ function drawnContains(cone: Effect, point: Vector3): boolean {
 function disagreements(forward: Vector3): string[] {
   const cone = createGustCone(ORIGIN, forward, C)
   // The cone is drawn at a fixed height above the origin; sample in that plane so the
-  // 2D containment check is meaningful. `inGust` ignores height entirely.
+  // 2D containment check is meaningful. That plane has to sit inside the gust's
+  // `verticalReach`, which the drawn height comfortably does — and if it ever stopped
+  // doing so, every sampled point would disagree and this test would say so rather than
+  // going quiet. What it compares is the drawn sector against the gust's horizontal
+  // footprint; the slab's thickness is deliberately not drawn, which the design records
+  // as a known cosmetic mismatch for the visuals phase.
   const y = fill(cone).getWorldPosition(new Vector3()).y
 
   const found: string[] = []
@@ -66,11 +71,17 @@ function disagreements(forward: Vector3): string[] {
 }
 
 describe('createGustCone', () => {
-  it('draws exactly the volume the gust hits', () => {
-    // The promise of this effect is that what you see is what you hit. Verified by a
-    // different mechanism than the code uses — sampling the real hit test against the
-    // drawn geometry's own transform — rather than by asserting the geometry equals the
-    // config, which would pass for any orientation.
+  it('draws exactly the footprint the gust hits, and deliberately says nothing about its height', () => {
+    // What this covers: the drawn sector matches the cone's horizontal footprint. Verified by
+    // a different mechanism than the code uses — sampling the real hit test against the drawn
+    // geometry's own transform — rather than by asserting the geometry equals the config,
+    // which would pass for any orientation.
+    //
+    // What it does not cover, stated because the name used to promise it: the hit volume is a
+    // slab of half-height `verticalReach` and this shape is a flat sector, so the effect
+    // under-draws what the move hits by twice that in height. Giving the effect a real
+    // thickness is visuals work with its own cycle. **A green run here is not evidence that
+    // the hit volume is flat**, which is the exact misreading the design set out to prevent.
     // Named offenders, so a failure is a bug report rather than a puzzle.
     expect(disagreements(new Vector3(0, 0, 1)).slice(0, 8)).toEqual([])
   })

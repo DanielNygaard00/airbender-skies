@@ -4,10 +4,27 @@ import {
   inGust, gustImpulse, gustTargets, liveGustTargets, anyLiveGustTarget, type GustConfig,
 } from './gust'
 import { spawnEnemy, type Enemy, type EnemyConfig } from './enemy'
+import { DEFAULT_COMBAT_CONFIG } from './config'
 
 const G: GustConfig = {
-  range: 12, halfAngle: Math.PI / 3, damage: 0.5, knockback: 26, cooldownSeconds: 0.5,
+  range: 12, halfAngle: Math.PI / 3, verticalReach: 5,
+  damage: 0.5, knockback: 26, cooldownSeconds: 0.5,
 }
+/**
+ * The character's standing height, which `avatar.ts` holds as `TARGET_HEIGHT` and
+ * `avatar.test.ts` measures off the real rig. Restated rather than imported: the export does
+ * not exist, and importing `avatar.ts` here would pull the GLTF loader in behind it.
+ *
+ * **Tracked debt, and the trigger for paying it is not the one first recorded.** The ledger
+ * said "fix before a fourth copy appears", which counts copies and misses the actual hazard:
+ * `avatar.ts` documents `TARGET_HEIGHT` as matching a *placeholder* capsule
+ * (`CapsuleGeometry(0.4, 1.0)`), so this 1.8 is a restatement of a stand-in. The staff's
+ * `verticalReach` of 2.0 has only 0.2 m of slack over a lower bound pinned to it. The trigger
+ * is **before the avatar model is replaced**, whether or not a fourth copy ever exists: the
+ * moment the real rig's height differs from 1.8, these bounds are measuring something that no
+ * longer exists and nothing here will say so.
+ */
+const BODY_HEIGHT = 1.8
 const E: EnemyConfig = {
   maxHealth: 3, outOfCombatSeconds: 4, regenPerSecond: 0.4, moveSpeed: 4,
   strikeRange: 3, aggroRange: 30, windUpSeconds: 0.5, recoverSeconds: 0.6,
@@ -46,8 +63,36 @@ describe('the gust cone', () => {
     expect(inGust(ORIGIN, NORTH, new Vector3(0, 0, -G.range - 1), G)).toBe(false)
   })
 
-  it('ignores height, so it cannot be dodged by standing on a step', () => {
-    expect(inGust(ORIGIN, NORTH, new Vector3(0, 9, -6), G)).toBe(true)
+  it('reaches the boundary and not past it', () => {
+    // Both heights come off the fixture, so the pair keeps straddling the boundary if the
+    // value moves. That also means this test tracks nothing shipped and cannot fail for
+    // tightening -- the test below is the one that can.
+    expect(inGust(ORIGIN, NORTH, new Vector3(0, G.verticalReach, -6), G)).toBe(true)
+    expect(inGust(ORIGIN, NORTH, new Vector3(0, G.verticalReach + 0.01, -6), G)).toBe(false)
+  })
+
+  it('cannot be dodged by standing on a ledge a body height up', () => {
+    // Against the shipped config and an absolute step height, because the pair above moves
+    // with the value and so says nothing about whether the reach is big enough to be worth
+    // having. This is the low-ledge case the value exists for: a soldier standing a full
+    // character height above the player is still inside the sweep.
+    const gust = DEFAULT_COMBAT_CONFIG.gust
+    expect(inGust(ORIGIN, NORTH, new Vector3(0, BODY_HEIGHT, -6), gust)).toBe(true)
+  })
+
+  it('no longer reaches down an entire cliff face', () => {
+    // The defect this reach exists to close: before it, height was dropped before anything
+    // else, so a target 2000 m below a hovering player was inside the blast while the
+    // soldier's own 3D ranges could not answer.
+    expect(inGust(ORIGIN, NORTH, new Vector3(0, -2000, -6), G)).toBe(false)
+  })
+
+  it('ships as a sweep of air rather than a column of it', () => {
+    // Stated against the shipped range instead of restating 5. A sweep has to stay at least
+    // twice as wide as it is tall to read as one; past that the gust is a pillar the player
+    // can park beside a cliff and fire through.
+    const gust = DEFAULT_COMBAT_CONFIG.gust
+    expect(gust.verticalReach * 2).toBeLessThanOrEqual(gust.range)
   })
 
   it('catches several targets at once', () => {
