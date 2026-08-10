@@ -188,22 +188,26 @@ export function controllerStep(
         position: state.position.clone(),
         velocity: launched,
         grounded: false,
-        // Dropped rather than carried, because nothing in glider mode advances it: the
-        // countdown lives in `groundStep`, which does not run below. A buffer carried across
-        // this line stops being 0.1 s of memory and becomes 0.1 s of *ground-mode* time
-        // spread over an unbounded stretch of wall clock — so a press made before a
-        // minute-long glide could still fire a jump on the landing after it, as long as the
-        // player stows the glider (the branch below) and touches down within a few frames.
+        // Both forgiveness counters are dropped rather than carried, for one reason: nothing
+        // in glider mode advances either of them. The countdowns live in `groundStep`, which
+        // does not run below. So anything carried across this line stops being 0.1 s of memory
+        // and becomes 0.1 s of *ground-mode* time spread over an unbounded stretch of wall
+        // clock — stow the glider (the branch below), touch down a few frames later, and a
+        // press or an edge from before a minute-long glide is still live.
         //
-        // Reachable but narrow: the gate above intercepts exactly the input that arms the
-        // buffer, so arming it needs `staffBusy` true on the arming frame and false on the
-        // next, which puts the arming press on the staff's last busy frame. Zeroed here
-        // rather than at the stow, because this is the only entrance to glider mode, and
-        // closing the entrance closes every path through it.
+        // Zeroed here rather than at the stow because this is the only entrance to glider
+        // mode, so closing the entrance closes every path through it.
         //
-        // `coyoteTime` needs no line of its own here, and that is a property of the gate
-        // rather than luck: deploying requires the air jump to be spent, and spending it
-        // zeroes the window, so this branch can never see an open one.
+        // `coyoteTime` is dropped as a statement about this line rather than as insurance. It
+        // used to be left out on the argument that the gate above cannot see an open window —
+        // deploying requires the air jump to be spent, and spending it zeroes the window. That
+        // argument is true at `maxAirJumps` 1 and false at 0, where `canAirJump` is never
+        // satisfied and the gate opens to a player who has just walked off a ledge with the
+        // window full. Measured at that config, with nothing else changed: the window survived
+        // the deploy, 120 glide frames and the stow, and a release then fired a 9.000 m/s
+        // ground jump with the air jump untouched. Zeroing a documented config value is
+        // supposed to degrade safely in this codebase, so the line is cheaper than the proof.
+        coyoteTime: 0,
         jumpBuffer: 0,
       }
     } else {

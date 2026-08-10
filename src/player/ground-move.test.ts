@@ -401,7 +401,7 @@ describe('coyote time at a ledge', () => {
     // the same speed by a different route cannot pass quietly.
     const r = heldOffLedge(3)
     expect(r.leaving).toBe(30)
-    expect(r.chargeAtRelease).toBeCloseTo(0.55, 10)
+    expect(r.chargeAtRelease).toBe(0.55)
     // The exact double, not a tolerance: this is a measurement, and a tolerance wide enough
     // to be comfortable is also wide enough to hide the difference between two tunings.
     expect(r.state.velocity.y).toBe(13.033333333333333)
@@ -628,8 +628,8 @@ describe('a slam bounce out of the coyote window', () => {
     // with no timing coincidence required.
     const b = bounce()
     expect(b.landed.coyoteTime).toBe(G.coyoteSeconds)
-    expect(b.slam.impactSpeed).toBeCloseTo(34.3333, 4)
-    expect(b.bounced.velocity.y).toBeCloseTo(15.45, 10)
+    expect(b.slam.impactSpeed).toBe(34.3333333333333)
+    expect(b.bounced.velocity.y).toBe(15.449999999999985)
     expect(b.bounced.grounded).toBe(false)
     expect(b.bounced.coyoteTime).toBe(0)
   })
@@ -641,13 +641,19 @@ describe('a slam bounce out of the coyote window', () => {
     // to 2.100 m -- worse than pressing nothing at all, and worse than the 18.270 m/s air jump
     // the same tap bought before this cycle existed. On the combo the design doc calls §4.3's,
     // with no coincidence needed.
+    //
+    // Exact doubles rather than rounded tolerances, for the reason given at the carry above: a
+    // tolerance comfortable enough to write is also wide enough to hide a tuning change. The
+    // peaks are heights above the surface, which is y=0 in this fake -- worth saying because
+    // the same measurement taken on the real archipelago reads about 8.7 m larger, that being
+    // the island's own ground height in absolute world y.
     const untapped = flyOut(null)
-    expect(untapped.peak).toBeCloseTo(5.8394, 4)
+    expect(untapped.peak).toBe(5.839444444444426)
 
     const immediate = flyOut(0)
-    expect(immediate.speedAfterTap).toBeCloseTo(18.27, 10)
+    expect(immediate.speedAfterTap).toBe(18.26999999999999)
     expect(immediate.airJumpsUsed).toBe(1)
-    expect(immediate.peak).toBeCloseTo(8.4975, 4)
+    expect(immediate.peak).toBe(8.497499999999983)
 
     // The whole span across the old window's edge, because the shape of the bug was a cliff:
     // frames 0-6 lost height and frame 7, where the window closed, did not. A monotone series

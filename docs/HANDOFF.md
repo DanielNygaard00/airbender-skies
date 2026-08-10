@@ -1591,23 +1591,37 @@ later, and the buffer's table runs 1 to 8 frames. Without the first of those the
 jumps off any surface.
 
 **The trap this cycle found the hard way: every spread of a `PlayerState` that flips `grounded`
-or `mode` is a place a forgiveness counter can escape.** There are three, and two of them
-needed a line adding. `applyBounce` in `src/player/slam.ts` reads a *grounded* frame — where the
-coyote window is pinned full — and returns `grounded: false`, so it carried a complete window
-into the air on every Pressure Wave slam. A tap on any of the next six frames then fired a free
-ground jump that *replaced* the bounce: measured, a 34.333 m/s slam bounces at 15.450 m/s and
-peaks 5.839 m up, and the tap turned that into 9.000 m/s and a 2.100 m peak — worse than
-pressing nothing, and worse than the 18.270 m/s air jump the same tap bought before this cycle
-existed. It now clears `coyoteTime`, and `ground-move.test.ts` asserts the peak rather than the
-velocity, because height is what the player sees. The glider deploy in
-`src/player/controller.ts` is the second: nothing in glider mode advances either counter, so a
-buffer carried across the deploy stopped being 0.1 s of memory and became 0.1 s of *ground-mode*
-time spread over an unbounded glide. It now clears `jumpBuffer` at the deploy — the only
-entrance to glider mode, so closing it closes every path through. `coyoteTime` needs neither
-line at the deploy nor anything at the stow, and for a stated reason rather than luck: deploying
-requires the air jump to be spent, and spending it zeroes the window. The third spread,
-the glider's own landing, already zeroed both. `groundStep` is not a spread site in this sense —
-it is where the counters are computed.
+or `mode` is a place a forgiveness counter can escape.** There are eight such spreads — the two
+respawns, the glider deploy, the stow, the glider's per-frame step, the glider's landing, the
+slam bounce, and `groundStep`'s own return. Three could leak a counter, and two of those needed a
+line adding.
+
+`applyBounce` in `src/player/slam.ts` reads a *grounded* frame — where the coyote window is
+pinned full — and returns `grounded: false`, so it carried a complete window into the air on
+every Pressure Wave slam. A tap on any of the next six frames then fired a free ground jump that
+*replaced* the bounce: measured, a 34.333 m/s slam bounces at 15.450 m/s and peaks 5.839 m above
+the surface, and the tap turned that into 9.000 m/s and a 2.100 m peak — worse than pressing
+nothing, and worse than the 18.270 m/s air jump the same tap bought before this cycle existed. It
+now clears `coyoteTime`, and `ground-move.test.ts` asserts the peak rather than the velocity,
+because height is what the player sees. It deliberately does *not* clear `jumpBuffer`: unlike the
+window, the buffer is not pinned by being grounded, so `grounded: false` hands it back to the
+normal countdown rather than freezing it.
+
+The glider deploy in `src/player/controller.ts` is the second, and it needed both counters
+dropped. Nothing in glider mode advances either, so anything carried across the deploy stops
+being 0.1 s of memory and becomes 0.1 s of *ground-mode* time spread over an unbounded glide —
+stow the glider, touch down a few frames later, and a press or an edge from before a minute-long
+glide is still live. Zeroed at the deploy rather than at the stow because the deploy is the only
+entrance to glider mode. The window's line was initially left out on the argument that the gate
+cannot see an open window, since deploying requires the air jump to be spent and spending it
+zeroes the window; that argument is true at `maxAirJumps` 1 and false at 0, where `canAirJump` is
+never satisfied and the gate opens to someone who has just walked off a ledge. Measured at that
+config: the window survived the deploy, 120 glide frames and the stow, and a release then fired a
+9.000 m/s ground jump with the air jump untouched. A test pins it there, because an assertion at
+the shipped tuning would be vacuous — which is precisely how the hole stayed open.
+
+The third leakable spread, the glider's own landing, already zeroed both. `groundStep`'s return is
+not a leak in this sense: it is where the counters are computed.
 
 **None of it was played.** The 0.1 s windows are the platformer standard rather than a
 measurement of this game, this environment cannot hold a pointer lock, and the two windows and

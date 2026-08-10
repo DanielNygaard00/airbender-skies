@@ -126,6 +126,40 @@ describe('mode switching', () => {
     expect(s.jumpBuffer).toBe(0)
   })
 
+  it('deploying the glider drops the coyote window too, even with no air jump to spend', () => {
+    // At the shipped tuning this cannot be reached, and that was the old argument for leaving
+    // the window alone here: deploying requires the air jump to be spent, and spending it
+    // zeroes the window. The argument holds at maxAirJumps 1 and fails at 0, where canAirJump
+    // is never satisfied and the gate opens to a player who has simply walked off a ledge. So
+    // this test runs at 0 -- the natural "off" value for the field, which is supposed to
+    // degrade safely rather than open a hole. Asserting it at the default would be vacuous,
+    // which is exactly why the invariant went unguarded.
+    const noAirJumps = { ...DEFAULT_GROUND_CONFIG, maxAirJumps: 0 }
+    const D = { ...deps(voidWorld), ground: noAirJumps }
+    // Walked off a ledge with Space pressed: airborne, window full, one frame of charge live.
+    const offTheLedge = player({
+      position: new Vector3(0, 500, 0), grounded: false,
+      coyoteTime: noAirJumps.coyoteSeconds, chargeTime: 1 / 60,
+    })
+
+    const deployed = controllerStep(offTheLedge, input({ actionPressed: true }), 1 / 60, D)
+    expect(deployed.mode).toBe('glider')
+    expect(deployed.coyoteTime).toBe(0)
+
+    // And the symptom end to end, since the freeze makes the window outlive any glide: two
+    // seconds of gliding, stow, release. Measured before the fix, at this config: 9.000 m/s
+    // with the air jump untouched -- a ground jump two seconds after the edge.
+    let s = deployed
+    for (let f = 0; f < 120; f++) s = controllerStep(s, input(), 1 / 60, D)
+    const stowed = controllerStep(s, input({ actionPressed: true }), 1 / 60, D)
+    expect(stowed.mode).toBe('ground')
+    expect(stowed.grounded).toBe(false)
+    const released = controllerStep(stowed, input({ actionReleased: true }), 1 / 60, D)
+    expect(released.velocity.y).not.toBe(DEFAULT_GROUND_CONFIG.jumpSpeed)
+    expect(released.velocity.y).toBeLessThan(0)
+    expect(released.airJumpsUsed).toBe(0)
+  })
+
   it('does not advance a buffered press while gliding, which is why the deploy drops it', () => {
     // The mechanism behind the test above, asserted rather than argued: nothing in the glider
     // branch touches either forgiveness counter, so whatever enters glider mode stays exactly
