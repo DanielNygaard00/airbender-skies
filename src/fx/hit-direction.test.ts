@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Vector3 } from 'three'
+import { PerspectiveCamera, Vector3 } from 'three'
 import { HIT_MARK_SECONDS, bearingFromCamera, markFor, stepHitMarks, type HitMark } from './hit-direction'
 import type { PlayerHit } from '../combat/encounter'
 
@@ -53,10 +53,47 @@ describe('bearingFromCamera', () => {
     const bearing = bearingFromCamera(straightDown, PLAYER, new Vector3(5, 0, 0))
     expect(Number.isFinite(bearing)).toBe(true)
   })
+
+  it('drops the vertical component entirely, agreeing with the purely-horizontal answer', () => {
+    // Every other case in this file is either y = 0 or purely vertical. A source
+    // with BOTH a horizontal and a vertical offset is the one case that actually
+    // exercises "flattened" as a claim rather than a coincidence: an implementation
+    // that measures the real 3D angle and only patches in a horizontal sign (a
+    // plausible-looking "signed 3D angle" approach) agrees with the flattened
+    // answer everywhere else in this file, but is measurably wrong here — the
+    // vertical offset drags the magnitude toward 90 degrees. This is live rather
+    // than theoretical: archers fire from height and the glider takes hits from
+    // below.
+    const level = bearingFromCamera(FORWARD_NORTH, PLAYER, new Vector3(5, 0, -5))
+    const elevated = bearingFromCamera(FORWARD_NORTH, PLAYER, new Vector3(5, 20, -5))
+    expect(elevated).toBeCloseTo(level)
+    expect(elevated).toBeCloseTo(Math.PI / 4)
+  })
+
+  it('agrees with the camera\'s own right-hand basis vector, not just an assumed axis', () => {
+    // The sign convention documented above (`forward × up` is positive) is checked
+    // here against a real three.js camera's own matrixWorld, not merely asserted
+    // against a hand-picked (0,0,-1) forward. If three.js's actual basis convention
+    // ever disagreed with the hand-picked constant used elsewhere in this file, only
+    // this test would notice.
+    const camera = new PerspectiveCamera(70, 1, 0.1, 100)
+    camera.position.set(0, 0, 0)
+    camera.lookAt(0, 0, -1)
+    camera.updateMatrixWorld()
+    const right = new Vector3(1, 0, 0).applyQuaternion(camera.quaternion)
+    const forward = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
+    const source = camera.position.clone().add(right.clone().multiplyScalar(5))
+    expect(bearingFromCamera(forward, camera.position, source)).toBeGreaterThan(0)
+  })
 })
 
 describe('markFor', () => {
   it('starts a mark at HIT_MARK_SECONDS with the bearing bearingFromCamera would give', () => {
+    // Pinned against the literal the brief specifies, not just the constant the
+    // code itself reads — asserting only against HIT_MARK_SECONDS would pass even
+    // if that constant silently drifted from the interface's documented value.
+    expect(HIT_MARK_SECONDS).toBe(1.2)
+
     const hit: PlayerHit = { from: new Vector3(5, 0, 0), damage: 10 }
     const mark = markFor(FORWARD_NORTH, PLAYER, hit)
     expect(mark.life).toBe(HIT_MARK_SECONDS)

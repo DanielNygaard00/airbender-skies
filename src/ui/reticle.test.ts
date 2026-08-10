@@ -18,11 +18,13 @@ describe('reticleModel', () => {
   })
 
   it('flips the y axis: NDC +1 is the top of the screen, CSS 0 is', () => {
-    // A point off both axes, so a swapped or unflipped axis is visible: a point on
-    // an axis (x=0 or y=0) would pass either bug silently.
-    const model = reticleModel({ x: 0.5, y: 0.5, z: 0 }, false)
+    // x and z deliberately distinct (0.5 vs -0.25), not just off-axis: a point on an
+    // axis, or one where x and y happen to match, would pass a swap that preserves
+    // the flip — x: (ndc.y + 1) / 2, y: (1 - ndc.x) / 2 — as silently as it would
+    // pass an unflipped axis. Distinct inputs make both bugs visible.
+    const model = reticleModel({ x: 0.5, y: -0.25, z: 0 }, false)
     expect(model.x).toBeCloseTo(0.75)
-    expect(model.y).toBeCloseTo(0.25)
+    expect(model.y).toBeCloseTo(0.625)
   })
 
   it('is visible for a point within the depth range', () => {

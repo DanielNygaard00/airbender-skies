@@ -1,4 +1,4 @@
-import { Vector3 } from 'three'
+import type { Vector3 } from 'three'
 import type { PlayerHit } from '../combat/encounter'
 
 /**
@@ -39,6 +39,13 @@ export function bearingFromCamera(
   // any, and the only one that is not a NaN.
   if (forwardDistance < 1e-6) return 0
 
+  // Dividing by the two distances here is for readability, not correctness: atan2
+  // is invariant under scaling both of its arguments by the same positive factor,
+  // and `sourceDistance` / `forwardDistance` are only ever used as divisors of both
+  // the x and z component of their own vector, so the unnormalised dx/dz and fx/fz
+  // would produce the identical angle below. Do not "optimise" this away — the
+  // guards above are what actually do the work, this is just so the two vectors
+  // being compared read as the unit directions they conceptually are.
   const ux = dx / sourceDistance
   const uz = dz / sourceDistance
   const vx = fx / forwardDistance
@@ -48,7 +55,7 @@ export function bearingFromCamera(
   // to the xz plane. The cross term's sign is chosen so that a source to the world
   // side matching `forward × up` (i.e. the camera's screen-right) comes out positive
   // — verified against three.js's own default camera orientation (forward -Z, up
-  // +Y, right +X) rather than assumed.
+  // +Y, right +X) in the committed test below, rather than assumed.
   return Math.atan2(vx * uz - vz * ux, vx * ux + vz * uz)
 }
 
