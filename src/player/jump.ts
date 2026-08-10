@@ -48,6 +48,35 @@ export function airJumpSpeed(verticalSpeed: number, c: GroundConfig): number {
 }
 
 /**
+ * How far the player will fall in one buffer window, from this descent speed.
+ *
+ * Answers the one question the glider deploy has to ask before it consumes a press: would
+ * this player reach the ground before a buffered press would expire? Asked with
+ * `jumpBufferSeconds` itself, so the deploy's threshold needs no tuning value of its own --
+ * the window that decides how long a press is remembered is the same window that decides
+ * how close is too close to open the wings.
+ *
+ * Zero while rising, and that is the rule rather than an optimisation: a rising player is
+ * not about to land, and a deploy gated on the way up would break the slam-bounce
+ * re-deploy, where the wings open at the top of the bounce's arc. A zero reach also means a
+ * `jumpBufferSeconds` of 0 leaves the deploy exactly as it was before this rule existed,
+ * which is the safe degradation the missing `GroundConfig` validator relies on.
+ *
+ * The closed form rather than a frame-by-frame replay, because `dt` is not this function's
+ * business and the difference errs in the safe direction: `groundStep` integrates
+ * semi-implicitly, applying each frame's whole gravity increment before it moves, so the
+ * simulated fall covers slightly *more* ground than this predicts -- measured at -10 m/s,
+ * 1.1 m predicted against 1.11667 m simulated over the same 0.1 s. So ground this reports as
+ * reachable is reached at least as soon as promised, and a press the deploy yields to always
+ * finds a landing inside the buffer's reach rather than falling between the two.
+ */
+export function fallWithinBufferWindow(velocityY: number, c: GroundConfig): number {
+  if (velocityY >= 0) return 0
+  const t = c.jumpBufferSeconds
+  return -velocityY * t + 0.5 * c.gravity * t * t
+}
+
+/**
  * One frame of charge bookkeeping.
  *
  * A hold is tracked only from a fresh press, so a key carried over from before a landing

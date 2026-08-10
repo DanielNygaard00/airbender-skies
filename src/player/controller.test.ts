@@ -210,6 +210,131 @@ describe('mode switching', () => {
   })
 })
 
+describe('the glider deploy yields to a landing', () => {
+  const G = DEFAULT_GROUND_CONFIG
+
+  /**
+   * Airborne with the air jump spent, descending at 10 m/s, half a metre above flat ground.
+   *
+   * Half a metre against a reach of 1.1 m at this speed (`ground-move.test.ts` pins the
+   * figure), so the ground is comfortably inside the window rather than at its edge -- the
+   * edge gets its own test below.
+   */
+  const nearGround = (over: Partial<PlayerState> = {}) => player({
+    position: new Vector3(0, 0.5, 0), grounded: false, velocity: new Vector3(0, -10, 0),
+    airJumpsUsed: G.maxAirJumps, ...over,
+  })
+
+  /** Mid-swing: the staff is out, so nothing here can open the wings anyway. */
+  const midSwing = { staffChain: 1, staffElapsed: 0.05, staffRecovery: 0, staffSinceSwing: 0 }
+  /** Between swings with the combo alive -- `staffBusy`'s `chain > 0` case. */
+  const chained = { staffChain: 1, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0.02 }
+
+  it('arms the buffer where it used to open the wings, whatever the staff is doing', () => {
+    // The addendum's measured table, re-measured through controllerStep with the ground close.
+    // Before the fix the first row read `mode: 'glider'`, `jumpBuffer` 0 at any altitude: the
+    // deploy gate's preconditions were the buffer's arming branch minus `staffBusy`, and the
+    // gate runs first, so the ordinary press the buffer exists to catch went to the wings and
+    // the buffer could only ever arm behind a live swing, chain or recovery -- rows two and
+    // three, which is why they were already what they are.
+    const rows: Array<readonly [string, Partial<PlayerState>]> = [
+      ['staff idle', {}],
+      ['mid-swing', midSwing],
+      ['chain > 0', chained],
+    ]
+    for (const [label, staff] of rows) {
+      const s = controllerStep(
+        nearGround(staff), input({ actionPressed: true }), 1 / 60, deps(flatGround),
+      )
+      expect(s.mode, label).toBe('ground')
+      expect(s.jumpBuffer, label).toBe(0.08333333333333334)
+      // Not merely "did not deploy": the press has to have been spent on the buffer rather
+      // than dropped, and no air jump may be conjured out of it.
+      expect(s.airJumpsUsed, label).toBe(G.maxAirJumps)
+      expect(s.velocity.y, label).toBeLessThan(0)
+    }
+  })
+
+  it('still deploys at altitude, where nothing is about to be landed on', () => {
+    // Without this the fix could have simply broken the glider and the rest of this describe
+    // would read as a success. Flat ground exists here, 200 m below -- so this asserts the
+    // gate consulted the terrain and found nothing in reach, not that terrain was absent.
+    const s = controllerStep(
+      player({
+        position: new Vector3(0, 200, 0), grounded: false, velocity: new Vector3(0, -10, 0),
+        airJumpsUsed: G.maxAirJumps,
+      }),
+      input({ actionPressed: true }), 1 / 60, deps(flatGround),
+    )
+    expect(s.mode).toBe('glider')
+    expect(s.jumpBuffer).toBe(0)
+  })
+
+  it('still deploys while rising near the ground, so the slam-bounce re-deploy survives', () => {
+    // The bounce's own measured launch speed, 15.450 m/s out of a 34.333 m/s slam
+    // (`ground-move.test.ts`'s slam table), a hand's width off the deck: the state §4.3's
+    // dive -> wave -> re-deploy is in at the instant the wings are meant to open. A reach
+    // computed from an unsigned speed would suppress this and the combo would be gone.
+    const s = controllerStep(
+      player({
+        position: new Vector3(0, 0.1, 0), grounded: false,
+        velocity: new Vector3(0, 15.449999999999985, 0), airJumpsUsed: G.maxAirJumps,
+      }),
+      input({ actionPressed: true }), 1 / 60, deps(flatGround),
+    )
+    expect(s.mode).toBe('glider')
+  })
+
+  it('turns the yielded press into a jump on landing, through the whole controller', () => {
+    // The gap that hid the defect for the whole cycle: every other buffer test calls
+    // groundStep directly and so never meets the deploy gate above it. This one presses once,
+    // mid-fall, and then holds nothing at all until the jump comes out.
+    let s = nearGround()
+    let sawGlider = false
+    let jumped = -1
+    let launchSpeed = Number.NaN
+    for (let f = 0; f < 20; f++) {
+      s = controllerStep(s, input({ actionPressed: f === 0 }), 1 / 60, deps(flatGround))
+      if (s.mode !== 'ground') sawGlider = true
+      if (jumped < 0 && s.velocity.y > 0) {
+        jumped = f
+        launchSpeed = s.velocity.y
+      }
+    }
+    expect(sawGlider).toBe(false)
+    // Touchdown is on frame 2 from half a metre at this speed, and the buffer is honoured on
+    // the frame after it: `stepJump` runs before the ground probe, so touchdown's own frame
+    // still reads an airborne state.
+    expect(jumped).toBe(3)
+    // The jump speed exactly, not merely upward: an air jump would also be upward, and the
+    // buffered press must fire the uncharged ground jump.
+    expect(launchSpeed).toBe(G.jumpSpeed)
+  })
+
+  it('yields at the far edge of its own reach, and the buffer still gets there', () => {
+    // The reason `fallWithinBufferWindow` being *short* of the real fall matters. At 1.09 m
+    // the ground is only just inside the 1.1 m reach, so this is the longest fall the gate
+    // ever yields to -- and the buffer, whose usable span is five frames rather than six, has
+    // to survive it. It does because the simulated fall covers more ground than the
+    // prediction: 1.1 m of predicted reach is crossed in six frames, so the press is at most
+    // five frames early. A prediction that erred the other way would open a band of heights
+    // where the press bought neither a glide nor a jump.
+    let s = nearGround({ position: new Vector3(0, 1.09, 0) })
+    let jumped = -1
+    let launchSpeed = Number.NaN
+    for (let f = 0; f < 20; f++) {
+      s = controllerStep(s, input({ actionPressed: f === 0 }), 1 / 60, deps(flatGround))
+      expect(s.mode, `frame ${f}`).toBe('ground')
+      if (jumped < 0 && s.velocity.y > 0) {
+        jumped = f
+        launchSpeed = s.velocity.y
+      }
+    }
+    expect(jumped).toBe(6)
+    expect(launchSpeed).toBe(G.jumpSpeed)
+  })
+})
+
 describe('flying', () => {
   const flying = (over: Partial<PlayerState> = {}) => player({
     mode: 'glider', position: new Vector3(0, 300, 0), grounded: false,

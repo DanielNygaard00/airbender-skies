@@ -6,7 +6,7 @@ import { flightStep } from './flight'
 import { steerToward } from './steering'
 import { stepBreath, canBend } from './breath'
 import { groundStep } from './ground-move'
-import { canAirJump } from './jump'
+import { canAirJump, fallWithinBufferWindow } from './jump'
 import { stillAir, type WindSample } from '../world/wind'
 import { stepSlipstream, dodgeHeading, type SlipstreamConfig } from './slipstream'
 import {
@@ -61,6 +61,30 @@ function idleStaffFields(): Pick<
     staffChain: s.chain, staffElapsed: s.elapsed, staffRecovery: s.recovery,
     staffSinceSwing: s.sinceSwing,
   }
+}
+
+/**
+ * Whether the ground is close enough that a press belongs to the landing rather than to the
+ * wings.
+ *
+ * The terrain question behind the deploy gate below, kept out of the condition itself so the
+ * gate stays readable and so the raycast only runs on frames that have already satisfied
+ * every cheap test above it.
+ *
+ * `reach > 0` short-circuits two cases at once rather than restating them: a rising player,
+ * whose reach `fallWithinBufferWindow` reports as zero, and a `jumpBufferSeconds` of zero,
+ * which switches the whole rule off along with the buffer it serves. Neither wants a cast,
+ * and neither wants the deploy blocked.
+ *
+ * Cast from `state.position` rather than from the eye-height probe `groundStep` uses,
+ * because the two ask different questions: that probe asks whether ground is underfoot
+ * *now*, and this asks how much further there is to fall. An airborne descending body lands
+ * when its position reaches the surface height, so the distance to cast is the distance from
+ * the position, not from above it.
+ */
+function aboutToLand(state: PlayerState, deps: ControllerDeps): boolean {
+  const reach = fallWithinBufferWindow(state.velocity.y, deps.ground)
+  return reach > 0 && raycastDown(deps.terrain, state.position, reach) !== null
 }
 
 export function isFinitePlayer(s: PlayerState): boolean {
@@ -170,15 +194,27 @@ export function controllerStep(
 
   if (state.mode === 'ground') {
     if (input.actionPressed && !state.grounded && !canAirJump(state, deps.ground)
-        && !staffBusy(staffOf(state))) {
-      // Deploy the glider mid-fall — but only once the air jump is spent, and only
-      // once the staff is free. The glider IS the staff, folded across the back and
+        && !staffBusy(staffOf(state)) && !aboutToLand(state, deps)) {
+      // Deploy the glider mid-fall — but only once the air jump is spent, only once
+      // the staff is free, and only while there is still air left to use the wing in.
+      // The glider IS the staff, folded across the back and
       // unfolding fan leaves on deploy: it cannot open while it is out swinging, and
       // that is the design document's central risk decision, not a restriction
       // bolted on afterward. Grounded presses charge or jump; airborne presses with
       // reserve double-jump. Both are handled by groundStep.
       // The wings snapping open adds a kick rather than only preserving momentum,
       // so a well-timed deploy out of a jump is rewarded.
+      //
+      // `aboutToLand` is the newest of the four conditions, and it is what stops this gate
+      // eating the jump buffer whole. The rest of the gate was otherwise identical to the
+      // buffer's arming branch in `stepJump` minus `staffBusy`, and this runs first, so
+      // `Space` with no air jump left opened the wings and the buffer could only ever arm
+      // while a swing, a chain or a recovery was live. Measured through this function before
+      // the condition existed: airborne with the air jump spent and the staff idle gave
+      // `mode: 'glider'` and `jumpBuffer` 0 whether the ground was 200 m away or half a
+      // metre. Yielding near the ground costs the deploy nothing worth keeping -- wings that
+      // open three frames before touchdown unfold, kick and stow again -- and the press falls
+      // through to `groundStep`, arms the buffer, and becomes a jump on the landing instead.
       const launched = state.velocity.clone()
       launched.y += deps.flight.deployKick
       next = {

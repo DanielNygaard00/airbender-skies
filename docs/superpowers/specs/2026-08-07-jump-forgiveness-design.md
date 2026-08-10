@@ -320,3 +320,22 @@ judging in play.
   gate.
 - The predicted fall distance matches the simulated fall over the same window, asserted against
   a real integration rather than against the formula restated.
+
+### Measured after implementation
+
+The table above holds, with the staff-idle row now reading `mode: 'ground'`, `jumpBuffer`
+0.0833 when the ground is inside the window and still `mode: 'glider'`, `jumpBuffer` 0 at
+altitude. Both are asserted through `controllerStep` in `controller.test.ts`.
+
+**One thing the addendum did not say, and the fix depends on it.** The buffer's usable span is
+five frames rather than the six `jumpBufferSeconds` nominally buys — the spec's earlier
+correction established that — while the predicted distance is a full window's worth of fall.
+Those two do not obviously meet, and if the prediction reached further than the buffer there
+would be a band of heights where a press bought neither a glide nor a jump. It cannot happen,
+because `groundStep` integrates semi-implicitly and so covers more ground per window than the
+closed form predicts: measured at 10 m/s of descent, 1.1 m predicted against 1.11667 m
+simulated, the difference being exactly half a frame of gravity times the window. So any ground
+the gate reports as reachable is reached within six frames, which puts the press at most five
+frames from touchdown — inside the buffer. `ground-move.test.ts` asserts the shortfall and its
+sign across four descent speeds, and `controller.test.ts` walks the worst case (1.09 m, the far
+edge of the reach) end to end: the press is yielded, and the jump comes out six frames later.

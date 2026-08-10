@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { groundStep, desiredVelocity, easeHorizontal, horizontalForward } from './ground-move'
+import { fallWithinBufferWindow } from './jump'
 import { scooterTurnAuthority } from './scooter'
 import { detectSlam, applyBounce } from './slam'
 import { DEFAULT_GROUND_CONFIG as G, DEFAULT_COLLISION_CONFIG as COLLISION } from '../core/config'
@@ -577,6 +578,72 @@ describe('the jump buffer across a landing', () => {
   it('still works with the coyote window switched off', () => {
     // The other half of the independence claim.
     expect(buffered(2, { ...G, coyoteSeconds: 0 })).toBe(G.jumpSpeed)
+  })
+})
+
+describe('fallWithinBufferWindow', () => {
+  /**
+   * Fall for one buffer window in the void and report how far the body actually moved.
+   *
+   * A real integration rather than the formula written out a second time: the whole point of
+   * the predicate is that it agrees with what `groundStep` does, and a test that recomputed
+   * the closed form and compared it to itself would agree no matter how either changed.
+   */
+  const simulatedFall = (velocityY: number, c = G) => {
+    const frames = Math.round(c.jumpBufferSeconds / DT)
+    expect(frames).toBe(6)
+    let s = player({
+      position: new Vector3(0, 100, 0), grounded: false,
+      velocity: new Vector3(0, velocityY, 0), airJumpsUsed: c.maxAirJumps,
+    })
+    const from = s.position.y
+    for (let f = 0; f < frames; f++) s = groundStep(s, input(), DT, voidWorld, c, COLLISION)
+    return from - s.position.y
+  }
+
+  it('predicts a real fall, slightly short of it, over every descent speed', () => {
+    // Slightly short and never over, which is the property the deploy gate depends on: ground
+    // the gate reports as reachable inside the window really is reached inside it, so a press
+    // the deploy yields to always finds a landing while the buffer is still live rather than
+    // falling into a gap between the two rules.
+    //
+    // The shortfall is exactly half a frame of gravity times the window -- `groundStep`
+    // integrates semi-implicitly, adding each frame's whole gravity increment before it
+    // moves, and the closed form assumes gravity acts smoothly across the frame instead.
+    // Asserted as that expression rather than as a number, because the identity is the reason
+    // the sign of the error is stable across speeds rather than a coincidence at one of them.
+    const halfStep = 0.5 * G.gravity * DT * G.jumpBufferSeconds
+    expect(halfStep).toBeCloseTo(0.016666666666666666, 15)
+    for (const velocityY of [-5, -10, -20, -40]) {
+      const predicted = fallWithinBufferWindow(velocityY, G)
+      const simulated = simulatedFall(velocityY)
+      expect(simulated - predicted, `${velocityY} m/s`).toBeCloseTo(halfStep, 12)
+      expect(predicted, `${velocityY} m/s`).toBeLessThan(simulated)
+      // And close enough to be the same answer about where the ground is.
+      expect(predicted / simulated, `${velocityY} m/s`).toBeGreaterThan(0.97)
+    }
+    // The worst of the four, since the shortfall is fixed and so weighs most against the
+    // shortest fall: 2.7% at 5 m/s of descent, which is 3 cm.
+    expect(fallWithinBufferWindow(-5, G) / simulatedFall(-5)).toBeCloseTo(0.973, 3)
+    expect(simulatedFall(-5) - fallWithinBufferWindow(-5, G)).toBeCloseTo(0.0167, 4)
+  })
+
+  it('measures the shipped window at ten metres a second', () => {
+    // The one absolute figure, so a config change to gravity or the window has to be
+    // acknowledged here rather than passing silently through the ratios above.
+    expect(fallWithinBufferWindow(-10, G)).toBe(1.1)
+    expect(simulatedFall(-10)).toBeCloseTo(1.1166666666666667, 12)
+  })
+
+  it('reports no reach while rising, so a bounce can still open its wings', () => {
+    expect(fallWithinBufferWindow(15.45, G)).toBe(0)
+    expect(fallWithinBufferWindow(0, G)).toBe(0)
+  })
+
+  it('reports no reach with the buffer switched off, so the deploy is left as it was', () => {
+    // The safe-degradation claim, extended to this rule: zeroing jumpBufferSeconds disables
+    // the buffer, and the deploy stops yielding to it in the same stroke.
+    expect(fallWithinBufferWindow(-10, { ...G, jumpBufferSeconds: 0 })).toBe(0)
   })
 })
 
