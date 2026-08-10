@@ -35,7 +35,9 @@ is already flying. Collect air shrines to raise your maximum breath.
 On the ground, momentum is the resource. The run accelerates softly and slides on stops rather
 than snapping, the scooter doubles your speed while halving your steering, and holding a clean
 line on it builds a hidden accumulator that makes the ball tighter and faster — carve hard and you
-give it back. Landing never stops you dead; you skim out of it.
+give it back. Landing never stops you dead; you skim out of it. A jump is forgiven slightly at
+both ends: press it just after walking off an edge and it still counts, and press it just before
+you land and it waits for the ground rather than vanishing.
 
 A patrol of spear infantry holds the east side of the home island. They pressure your spacing:
 they close, they telegraph, and standing still costs health. Gust knocks them back and

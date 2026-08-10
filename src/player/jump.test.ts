@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { stepJump, canAirJump, isCharging, airJumpSpeed } from './jump'
+import { stepJump, canAirJump, isCharging, airJumpSpeed, type JumpStep } from './jump'
 import { DEFAULT_GROUND_CONFIG as G } from '../core/config'
 import type { InputState, PlayerState } from '../core/types'
 
@@ -123,6 +123,147 @@ describe('air jump', () => {
     expect(canAirJump(player({ grounded: false }), G)).toBe(true)
     expect(canAirJump(player({ grounded: false, airJumpsUsed: G.maxAirJumps }), G)).toBe(false)
     expect(canAirJump(player(), G)).toBe(false)
+  })
+})
+
+describe('coyote time', () => {
+  /**
+   * The ledge sequence, at exactly the timing the pre-forgiveness measurement used: press
+   * on the last grounded frame, then release one frame later, already airborne. Before
+   * this feature that produced no jump at all -- one frame of gravity and nothing else.
+   */
+  const ledgeRelease = (over: Partial<PlayerState> = {}) => {
+    const pressed = stepJump(player(), input({ actionPressed: true, actionHeld: true }), DT, G)
+    return stepJump(
+      player({
+        grounded: false, chargeTime: pressed.chargeTime, coyoteTime: G.coyoteSeconds, ...over,
+      }),
+      input({ actionReleased: true }), DT, G,
+    )
+  }
+
+  it('a press on the last grounded frame fires a ground jump one frame later', () => {
+    // Broken by removing the coyote branch, which is what shipped before this cycle.
+    // Asserted against jumpSpeed exactly and against airJumpsUsed together: at this
+    // tuning airJumpSpeed is also 9, so the speed alone cannot tell a coyote jump from
+    // an air jump, and the air jump must not be what paid for this.
+    const j = ledgeRelease()
+    expect(j.jumpVelocityY).toBe(G.jumpSpeed)
+    expect(j.airJumpsUsed).toBe(0)
+    expect(j.jumped).toBe(true)
+  })
+
+  it('carries a charge earned on the ground into the window', () => {
+    // chargeThresholdSeconds 0.2 is twice the window, so a charge cannot *complete* in
+    // the air -- but one already earned on solid ground is the one that fires.
+    const j = ledgeRelease({ chargeTime: G.chargeMaxSeconds })
+    expect(j.jumpVelocityY).toBeCloseTo(G.chargedJumpSpeed, 5)
+    expect(j.airJumpsUsed).toBe(0)
+  })
+
+  it('a press outside the window spends the air jump instead', () => {
+    // Outside the window the airborne branch is exactly what it always was.
+    const j = stepJump(
+      player({ grounded: false, coyoteTime: 0 }),
+      input({ actionPressed: true, actionHeld: true }), DT, G,
+    )
+    expect(j.airJumpsUsed).toBe(1)
+    expect(j.jumped).toBe(true)
+  })
+
+  it('a press outside the window with no air jump left waits for a landing', () => {
+    const j = stepJump(
+      player({ grounded: false, coyoteTime: 0, airJumpsUsed: G.maxAirJumps }),
+      input({ actionPressed: true, actionHeld: true }), DT, G,
+    )
+    expect(j.jumpVelocityY).toBeNull()
+    expect(j.jumped).toBe(false)
+    expect(j.jumpBuffer).toBe(G.jumpBufferSeconds)
+  })
+
+  it('a press inside the window released after it closed is dropped', () => {
+    // The edge this cycle deliberately accepts. Closing it would need a third state field
+    // recording "a coyote charge is live", and holding past the window off a ledge is not
+    // what this cycle exists to fix. Note the cost is only the lost jump: the release is
+    // not a fresh press, so the air jump is not spent and nothing is buffered either.
+    const j = stepJump(
+      player({ grounded: false, coyoteTime: 0, chargeTime: 0.3 }),
+      input({ actionReleased: true }), DT, G,
+    )
+    expect(j.jumpVelocityY).toBeNull()
+    expect(j.jumped).toBe(false)
+    expect(j.airJumpsUsed).toBe(0)
+    expect(j.jumpBuffer).toBe(0)
+  })
+
+  it('carries the buffer forward untouched when nothing fires', () => {
+    // groundStep owns the decay, so every non-firing return has to hand the buffer back
+    // unchanged or the countdown would restart every frame.
+    const j = stepJump(player({ grounded: false, jumpBuffer: 0.07 }), input(), DT, G)
+    expect(j.jumpBuffer).toBe(0.07)
+  })
+})
+
+describe('the jump buffer', () => {
+  it('fires on a grounded frame with no press in the input at all', () => {
+    // The buffer is the whole trigger here: the press happened frames ago, in the air.
+    const j = stepJump(player({ jumpBuffer: G.jumpBufferSeconds }), input(), DT, G)
+    expect(j.jumpVelocityY).toBe(G.jumpSpeed)
+    expect(j.jumpBuffer).toBe(0)
+    expect(j.chargeTime).toBe(0)
+    expect(j.jumped).toBe(true)
+  })
+
+  it('fires uncharged even when the key is still held', () => {
+    // Consistent with the rule two branches down: a key carried across a landing cannot
+    // start a charge either, so there is no charge for the buffered jump to spend.
+    const j = stepJump(
+      player({ jumpBuffer: G.jumpBufferSeconds }), input({ actionHeld: true }), DT, G,
+    )
+    expect(j.jumpVelocityY).toBe(G.jumpSpeed)
+    expect(j.jumpBuffer).toBe(0)
+  })
+
+  it('costs no air jump', () => {
+    const j = stepJump(player({ jumpBuffer: G.jumpBufferSeconds }), input(), DT, G)
+    expect(j.airJumpsUsed).toBe(0)
+  })
+})
+
+describe('jumped', () => {
+  it('is true exactly when a velocity is returned', () => {
+    // The two are the same fact, and groundStep reads only `jumped`. If they can
+    // disagree, the coyote window closes on frames it should not and stays open on
+    // frames it should close.
+    const cases: Array<[string, JumpStep]> = [
+      ['a grounded tap', stepJump(
+        player(), input({ actionPressed: true, actionReleased: true }), DT, G,
+      )],
+      ['a grounded frame doing nothing', stepJump(player(), input(), DT, G)],
+      ['a coyote release', stepJump(
+        player({ grounded: false, coyoteTime: G.coyoteSeconds, chargeTime: DT }),
+        input({ actionReleased: true }), DT, G,
+      )],
+      ['an air jump', stepJump(
+        player({ grounded: false, coyoteTime: 0 }),
+        input({ actionPressed: true, actionHeld: true }), DT, G,
+      )],
+      ['a press with nothing left', stepJump(
+        player({ grounded: false, coyoteTime: 0, airJumpsUsed: G.maxAirJumps }),
+        input({ actionPressed: true, actionHeld: true }), DT, G,
+      )],
+      ['a buffered landing', stepJump(
+        player({ jumpBuffer: G.jumpBufferSeconds }), input(), DT, G,
+      )],
+      ['a plain airborne frame', stepJump(
+        player({ grounded: false, coyoteTime: 0 }), input(), DT, G,
+      )],
+    ]
+    for (const [name, j] of cases) {
+      expect(j.jumped, name).toBe(j.jumpVelocityY !== null)
+    }
+    // At least one of each, so the loop cannot pass by every case being false.
+    expect(cases.filter(([, j]) => j.jumped).length).toBe(4)
   })
 })
 

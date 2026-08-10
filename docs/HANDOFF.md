@@ -49,7 +49,8 @@ scooter (`src/player/scooter.ts`) is a toggle that doubles speed, halves steerin
 carries a hidden accumulator that rewards a clean line. The blast dash
 (`src/player/dash.ts`) chains three times before a recovery and only fires from the
 ground. Jumps are in `src/player/jump.ts`, including a second jump that gains more
-height the faster the player is already rising.
+height the faster the player is already rising, and the two forgiveness windows written
+up at the end of this section.
 
 **Wind as terrain.** `src/world/wind.ts` models five kinds — thermal, ridge lift,
 wind river, downdraft, dead air — each a shape in the world with a rule. Placed per
@@ -1521,6 +1522,73 @@ the first pass lacked: proof the instrument can see motion when the game is genu
 playing, which is what makes "altitude never left 14 m" mean something when read back under
 a real, unforced `documentHidden === true`. Both directions were checked with the same
 hook-and-drive technique so the comparison is apples to apples.
+
+**Jump forgiveness: coyote time off a ledge, and a jump buffer across a landing.** Two
+standard platformer affordances were absent, and their absence was measured rather than
+assumed. Walking off a ledge with Space pressed on the last grounded frame and released one
+frame later produced a vertical speed of **-0.667 m/s** — one frame of gravity and nothing
+else. Not a weaker jump: no jump, and the air jump was not spent either, so the press simply
+vanished. The cause was that the jump fires on *release* while the airborne branch discarded
+`chargeTime` outright and fired only on a fresh press, so a press straddling an edge was
+charged on one side and thrown away on the other. Separately, with the air jump already spent
+and the press released mid-air, a press at 1, 2, 3, 5 or 8 frames before touchdown produced
+nothing on landing in all five cases. For scale, the height at stake is **2.09 m**: a single
+jump peaks at 2.100 m and a jump followed by an air jump at apex reaches 4.194 m.
+
+`coyoteTime` is **one rule and no edge detection**: pinned at `coyoteSeconds` while grounded,
+decaying by `dt` while airborne, zeroed by any jump. It needs no "did I leave the ground this
+frame" comparison, because the last grounded frame already left the window full. The zeroing
+is the subtle part — without it every ground jump would be a double jump for the next six
+frames, and a test starting from a standing frame is what pins it (starting from the bare
+`player()` fixture, whose `coyoteTime` is 0, the whole suite stayed green with the zeroing
+removed; that was found by making the change, not by reading the assertion).
+
+Both counters are written in `groundStep`, not `stepJump`, because `stepJump` runs before the
+ground probe and cannot know the authoritative `grounded` — the same split the function
+already used for `airJumpsUsed`. `JumpStep` gained `jumped` for that: `groundStep` needs to
+know a jump fired, and re-deriving it from `jumpVelocityY !== null` at the call site would be
+a second place to keep in step.
+
+**`chargeThresholdSeconds` is 0.2, twice the 0.1 s coyote window**, so the window cannot let a
+charge *complete* in the air. What it carries is a charge already earned on the ground: hold
+Space while walking, step off, release within the window, and the charged jump earned on solid
+rock is the one that fires. Measured, and it is the discriminating case in
+`ground-move.test.ts`: a walk that reaches the edge on frame 30 with 0.5 s of charge, released
+3 frames past the edge, fires at **13.0333 m/s** against a plain jump's 9. A charge *started*
+at the ledge can never mature inside the window; that is a real limit of these two numbers
+rather than a flaw in the mechanism, and it is pinned by a test rather than left to be found
+in play.
+
+**The buffer reaches 5 frames, not the 8 the spec expected.** `jumpBufferSeconds` 0.1 is six
+frames at 60 Hz and the countdown starts on the frame the press is made, so 1, 2, 3, 4 and 5
+frames before touchdown now jump on the frame after landing, and 6, 7 and 8 still do not. The
+design doc asked for all five of its measured timings including 8 frames, which is 133 ms
+against a 100 ms window — arithmetically impossible without raising the window, so the doc is
+wrong rather than the code. The whole table 1-8 is asserted so the boundary is pinned next to
+the inside of it. Two cautions on that boundary: the fifth frame survives only by
+floating-point residue (six subtractions of 1/60 from 0.1 leave 2.1e-17 rather than 0), and
+because `stepJump` runs before the ground probe, a buffered press is honoured on the frame
+*after* touchdown rather than on touchdown itself. If the window is ever retuned for feel,
+`jumpBufferSeconds` around 0.15 would make the doc's 8-frame case work and would move the
+boundary off the knife edge.
+
+**One edge is deliberately accepted, and it is milder than the spec claimed.** Press fresh
+inside the coyote window, then release after the window has closed: the jump is lost. The
+spec expected that release to fall through to the air-jump branch and spend the air jump, but
+measured, it does not — the air-jump branch fires only on a fresh press, and a release is not
+one, so nothing at all happens and the air jump stays in hand. Closing the edge properly would
+need a third state field recording "a coyote charge is live", and holding past 0.1 s off a
+ledge is not what this cycle existed to fix.
+
+No validator was added for the two config values, deliberately: a window of zero or below
+disables that one piece of forgiveness and leaves the old behaviour exactly as it was, which
+is a safe degradation rather than a broken state. Since that is an argument about an absence,
+it is asserted instead — a zero `coyoteSeconds` leaves the buffer working and a zero
+`jumpBufferSeconds` leaves coyote working, both as tests.
+
+**None of it was played.** The 0.1 s windows are the platformer standard rather than a
+measurement of this game, this environment cannot hold a pointer lock, and the two windows and
+their interaction with `chargeThresholdSeconds` 0.2 are the values most worth a human's hands.
 
 ## What has NOT been built
 

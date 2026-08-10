@@ -184,6 +184,21 @@ export function groundStep(
     forward: horizontalForward(input.lookDirection), grounded, lastGroundIslandId,
     chargeTime: jump.chargeTime,
     airJumpsUsed: grounded ? 0 : jump.airJumpsUsed,
+    // Pinned while grounded, decaying while airborne, and zeroed by any jump. That one
+    // rule is the whole of coyote time: it needs no "did I leave the ground this frame"
+    // comparison, because the last grounded frame already left the window full -- and
+    // zeroing it on a jump is what stops a ground jump being followed by a second one,
+    // without which every jump would be a double jump for its first six frames.
+    //
+    // Both counters are written here rather than in `stepJump` because `stepJump` runs
+    // before the ground probe and cannot know the authoritative `grounded`. Same split this
+    // function already uses for `airJumpsUsed` one line up.
+    coyoteTime: jump.jumped ? 0 : grounded ? c.coyoteSeconds : Math.max(0, state.coyoteTime - dt),
+    // The decay reads `jump.jumpBuffer`, not `state.jumpBuffer`: `stepJump` may have just
+    // armed it this frame, and reading the pre-frame value instead would decay a buffer that
+    // was still zero when the frame began -- clamping it back to zero and losing the press
+    // outright rather than merely one frame of it.
+    jumpBuffer: jump.jumped ? 0 : Math.max(0, jump.jumpBuffer - dt),
     scooterActive: scooter.active,
     scooterCharge: scooter.charge,
     dashesUsed: dash.state.used,
