@@ -74,6 +74,31 @@ Four sites construct or reset a player and must zero both: `src/player/state.ts:
 in-`controllerStep` reset). Both also join `isFinitePlayer`'s number list at
 `src/player/controller.ts:69`, which is the check that catches a NaN before it spreads.
 
+**Correction: there are six such sites, not four, and every line number in the paragraph above
+is stale.** The slam bounce and the glider deploy both spread a `PlayerState` while flipping
+`grounded` or `mode`, and both carried a counter into a state that could not decay it — the
+bounce carried a full coyote window out of a grounded frame, and the deploy carried both into a
+glide where nothing advances either. Neither was in the count above, and each cost a real
+regression before it was found; see the implementation notes in `docs/HANDOFF.md`. The list, as
+of the commit that closes this cycle:
+
+| Site | What it must do |
+| --- | --- |
+| `src/player/state.ts:41` | zero both |
+| `src/player/controller.ts:145` (`respawn`) | zero both |
+| `src/player/controller.ts:174` (`safeRespawn`) | zero both |
+| `src/player/controller.ts:263` (the glider deploy) | zero both |
+| `src/player/controller.ts:350` (the glider's landing) | zero both |
+| `src/player/slam.ts:89` (`applyBounce`) | zero the window only |
+
+`applyBounce` deliberately leaves `jumpBuffer` alone: unlike the window, the buffer is not
+pinned by being grounded, so `grounded: false` hands it to the ordinary countdown rather than
+freezing it. `isFinitePlayer`'s number list is now at `src/player/controller.ts:110`.
+
+The generalisation, which is worth more than the count: **every spread of a `PlayerState` that
+flips `grounded` or `mode` is a place a forgiveness counter can escape.** There are eight such
+spreads in the codebase; the table above is the subset that needed a line.
+
 ### `coyoteTime` needs no edge detection
 
 While grounded it is pinned at `c.coyoteSeconds`. While airborne it decays by `dt`. Any jump
@@ -133,6 +158,12 @@ refuses to start a charge from a key carried across a landing — "A hold is tra
 fresh grounded press, so a key carried over from before a landing cannot start a charge." So
 the held key was never going to charge anyway, and firing the tap immediately is what the
 player asked for by pressing.
+
+**Correction: that rule is `trackCharge`, at `src/player/jump.ts:82` as of the commit that
+closes this cycle, and the quotation drops a word — the comment says "from a fresh press", not
+"from a fresh grounded press".** The rule itself is as described; only the pointer and the
+quotation were wrong. The same stale `:60` reference appears in the plan's Task 2, Step 1,
+case 5.
 
 ## What the chosen numbers can and cannot do
 
@@ -339,3 +370,34 @@ the gate reports as reachable is reached within six frames, which puts the press
 frames from touchdown — inside the buffer. `ground-move.test.ts` asserts the shortfall and its
 sign across four descent speeds, and `controller.test.ts` walks the worst case (1.09 m, the far
 edge of the reach) end to end: the press is yielded, and the jump comes out six frames later.
+
+### Correction: the gate has to ask whether the hit is ground, not merely whether there is one
+
+The implementation of the rule above treated **any** downward hit as a landing, and that was
+deferred as a minor point on the argument that the only faces a downward ray could wrongly
+answer with are downward-facing overhangs, which front-side culling makes unhittable. The
+argument is true and beside the point. The faces that actually occur are upward-facing and
+merely too steep to stand on — the rims and flanks of every island — and a downward ray hits
+those perfectly well.
+
+They are not somewhere a fall ends. `resolveMovement` holds the body `radius` clear of a face
+steeper than `wallNormalY` instead of seating it on it, so the player skims down the face and
+never lands. A press yielded to such a face therefore bought **nothing at all**: no glide,
+because the gate suppressed it, and no jump, because the buffer expired with no landing to
+honour it. That is strictly worse than the defect the yield rule was written to fix.
+
+Measured over the real archipelago, one sample per position of a 51 × 51 grid on each of the
+thirteen islands, half a metre above the surface and descending at 10 m/s with the air jump
+spent: **3.37%** of the downward hits a falling player gets are faces `isWall` rejects, the
+shallowest of them at `normal.y` 0.0040 — effectively vertical. Per island the old gate yielded
+with no jump following on 1.86% of `home` positions, 7.26% of `spire` and **17.03% of
+`needle`**, and every one of those failures sat on a wall-normal face. None sat anywhere else,
+so the missing filter was the whole of the fault rather than one contributor to it.
+
+The fix is one clause: the hit must satisfy `!isWall(hit.normal, deps.collision)`, the same
+threshold collision already uses to decide what the body is held off rather than seated on. No
+new tuning value, again. Nothing in the 1439-test suite pinned either behaviour, so the rule now
+has tests of its own: `wall-face-reach.test.ts` measures the archipelago and asserts the figures
+above, and `controller.test.ts` pins the boundary on synthetic normals — 0.05, 0.30 and 0.49
+behave exactly as open air does, and 0.50 (the threshold's own value, since `isWall` is a strict
+`<`), 0.51 and 0.90 yield the press and produce the 9 m/s landing jump.

@@ -22,7 +22,7 @@ back down to a walking stick.
 | `R` | Vortex — hold to charge, release to pull nearby enemies inward and lift them off their feet | Vortex |
 | `C` | Slipstream — a short dash, briefly unhittable | Slipstream |
 | `Ctrl` | Hold through a landing to slam | Tuck — fold the wings for a fast dive, and hold it through the landing to slam |
-| `Space` | Jump — twice, the second gains more height the faster you are rising | Deploy or stow the glider |
+| `Space` | Jump — twice, the second gains more height the faster you are rising | Deploy or stow the glider. Close to the ground the deploy gives way to the landing, so a press on the way down becomes a jump on touchdown rather than a glide you immediately stow |
 | `H` | Guide — every action, and whether you can use it right now. Closing it puts you back wherever you opened it from: play, or the pause card | Guide |
 | `Escape` | Pause — releases the mouse; click to resume. With the guide open it closes the guide and still releases the mouse, so you land on the pause card; `H` leaves the mouse alone, so it returns you to whatever you opened the guide from | Pause |
 

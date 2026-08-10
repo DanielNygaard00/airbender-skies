@@ -16,7 +16,7 @@
 - **No `validateGroundConfig` is to be created.** A window of zero or below must simply disable that one piece of forgiveness and leave today's behaviour standing. Two tests assert that.
 - **Comments explain *why*, not what.** Match the register of `src/player/jump.ts` and `src/player/ground-move.ts`, both of which carry the reasoning behind each rule.
 - **Every measured number in a comment must also be asserted somewhere.** A number in a comment and nowhere else is a plan failure. This repo has shipped wrong numbers as prose above code nobody re-derived — the scooter's turn times were wrong by an order of magnitude in exactly that way.
-- **After writing a test, neutralise the feature and confirm the test goes red.** Make the change, run the suite, watch it redden, revert. This project has recorded twelve assertions across five cycles that could not fail; every one was found by making the change and none by reading the assertion and judging it adequate.
+- **After writing a test, neutralise the feature and confirm the test goes red.** Make the change, run the suite, watch it redden, revert. This project has recorded fourteen assertions across six cycles that could not fail — two of them produced by this cycle, and the count was twelve when this plan was written; every one was found by making the change and none by reading the assertion and judging it adequate.
 - **Never commit to `main`.** Work on `jump-forgiveness`, which exists and is checked out.
 
 ## File Structure
@@ -26,7 +26,7 @@
 | `src/core/types.ts` | **Modify.** `GroundConfig` gains two windows; `PlayerState` gains two counters. |
 | `src/core/config.ts` | **Modify.** `DEFAULT_GROUND_CONFIG` gains the two values. |
 | `src/player/state.ts` | **Modify.** Zero both in `createPlayerState`. |
-| `src/player/controller.ts` | **Modify.** Zero both at three reset sites; add both to `isFinitePlayer`. |
+| `src/player/controller.ts` | **Modify.** Zero both at every reset site; add both to `isFinitePlayer`. (Written as "three reset sites"; the compiler named three in this file, and two more sites — the glider deploy here and `applyBounce` in `src/player/slam.ts` — turned out to need a line as well, because they flip `grounded` or `mode` without rebuilding the state.) |
 | `src/player/jump.ts` | **Modify.** `JumpStep` gains `jumpBuffer` and `jumped`; `stepJump` consumes both counters. |
 | `src/player/jump.test.ts` | **Modify.** The unit battery. |
 | `src/player/ground-move.ts` | **Modify.** Bookkeeping for both counters against the computed `grounded`. |
@@ -109,11 +109,13 @@ In `src/player/controller.ts`, extend the `nums` array at roughly line 69:
 
 This is the check that stops a NaN spreading. Both counters are fed by `dt` arithmetic, so both can carry one.
 
-- [ ] **Step 6: Confirm the suite is green with no test changes**
+- [ ] **Step 6: Confirm the suite is green with no test ASSERTION changed**
 
 Run: `npx vitest run && npm run typecheck`
 
-Expected: both clean, and **no test file edited in this task.** If a test needed changing, say so in the report and explain what was not behaviour-neutral — that is a finding, not a chore.
+Expected: both clean, and **no `expect` line added, removed or altered in this task.** Test files *will* need editing, and that is not a finding: `coyoteTime` and `jumpBuffer` are required fields on `PlayerState`, so every fixture literal that builds one from scratch must supply them — fifteen of them, which the `tsconfig.test.json` pass names. Add the two zeroed fields to each and change nothing else.
+
+**Correction, from the first run of this plan:** this step originally read "no test file edited", which rests on a false premise and made the implementer return BLOCKED — correctly. Task 1 is behaviour-neutral in production, but a required field is not behaviour-neutral to a compiler. An altered `expect` is what would mean production behaviour had moved, so that is the check that belongs here.
 
 - [ ] **Step 7: Commit**
 
@@ -145,7 +147,7 @@ The cases, each with the change that must break it named in a comment:
 2. **The same press outside the window** (`coyoteTime: 0`) with an air jump available spends the air jump — `airJumpsUsed` becomes 1.
 3. **The same press outside the window with no air jump left** returns `jumpVelocityY: null` and `jumpBuffer` equal to `c.jumpBufferSeconds`.
 4. **A grounded step with `jumpBuffer > 0` fires `c.jumpSpeed` immediately and returns `jumpBuffer: 0`**, with no press in the input at all — the buffer is the whole trigger.
-5. **The buffered jump is uncharged even when the key is still held.** Grounded, `jumpBuffer > 0`, `actionHeld: true`: still exactly `c.jumpSpeed`. Consistent with `jump.ts:60`, which already refuses to charge from a key carried across a landing.
+5. **The buffered jump is uncharged even when the key is still held.** Grounded, `jumpBuffer > 0`, `actionHeld: true`: still exactly `c.jumpSpeed`. Consistent with `trackCharge` (`jump.ts:82` after this cycle, `:60` before it), which already refuses to charge from a key carried across a landing. Start these buffer fixtures from `airJumpsUsed: G.maxAirJumps`, the only state a buffer can be armed in: with the fixture's default of 0, an assertion that the buffered jump costs no air jump holds whether the branch carries the reserve forward or overwrites it.
 6. **`jumped` is true exactly when `jumpVelocityY !== null`**, across the cases above. The two are the same fact and `groundStep` reads only one of them.
 
 - [ ] **Step 2: Run the unit tests to verify they fail**
@@ -254,7 +256,9 @@ The controls table needs no new row — `Space` is already documented and forgiv
 
 - [ ] **Step 12: Update the handoff**
 
-In `docs/HANDOFF.md`'s "What has been built" section, record: the two measurements that motivated the cycle (`-0.667` off the ledge, five buffer timings all discarded, 2.09 m of double-jump height at stake), the one-rule coyote design and why it needs no edge detection, the `chargeThresholdSeconds` 0.2 versus 0.1 window interaction and what it means the window can and cannot do, the accepted edge (press inside the window, release outside, spends the air jump), and that nothing was played.
+In `docs/HANDOFF.md`'s "What has been built" section, record: the two measurements that motivated the cycle (`-0.667` off the ledge, five buffer timings all discarded, 2.09 m of double-jump height at stake), the one-rule coyote design and why it needs no edge detection, the `chargeThresholdSeconds` 0.2 versus 0.1 window interaction and what it means the window can and cannot do, the accepted edge, and that nothing was played.
+
+**Correction, from the implementation:** the accepted edge does **not** spend the air jump, and this line said it did — the spec's own §"One edge deliberately accepted" carries the same correction. The air-jump branch fires on a fresh press, and the release that closes this edge is not one, so it falls through every branch: no jump, no air jump spent, nothing buffered. The accepted cost is the lost jump alone.
 
 - [ ] **Step 13: Commit**
 
