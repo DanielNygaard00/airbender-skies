@@ -1,3 +1,6 @@
+import type { Vector3 } from 'three'
+import { isTargetable, type Enemy, type EnemyConfig } from '../combat/enemy'
+
 /**
  * How far past the frame edge, in normalised device coordinates, a soldier travels
  * before its chevron reaches full strength. A quarter of the half-width, so an eighth
@@ -7,9 +10,6 @@
  * close enough that it arrives before the player wonders where they went. An argued
  * guess, not measured: nobody has played this.
  */
-import type { Vector3 } from 'three'
-import { isTargetable, type Enemy, type EnemyConfig } from '../combat/enemy'
-
 export const OFF_SCREEN_RAMP = 0.25
 
 /**
