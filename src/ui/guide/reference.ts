@@ -100,8 +100,8 @@ export const SCREEN_MARKS: readonly MeterNote[] = [
   },
   {
     name: 'Threats off screen',
-    detail: 'A hollow red chevron, further out, for each soldier that has noticed you and '
-      + 'is outside the view. It fades in as they leave the frame and follows them while '
+    detail: 'A hollow red chevron, further out, for each soldier close enough to be a threat '
+      + 'and outside the view. It fades in as they leave the frame and follows them while '
       + 'you turn, so it always points where they actually are. It flares to a hotter red '
       + 'while that soldier is winding up to attack — that is the moment to move.',
   },

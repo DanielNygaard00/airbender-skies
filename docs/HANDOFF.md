@@ -11,7 +11,7 @@ for whoever picks the project up next, including a future session with no memory
 below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 1525 tests across 92 files,
+**Repo state:** 1602 tests across 96 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -2331,6 +2331,19 @@ right thing, the same clutter `HIT_MARK_SECONDS` was tuned to avoid on the other
 `enemyMarker` measures in 3D, which is stricter than the fight for a spear and identical to the
 fight for an archer, and reads `c.aggroRange` from the config rather than a literal of its own, so
 retuning notice range moves the markers with it.
+
+**That same divergence caught the guide legend's first draft saying something the code does not
+check.** `SCREEN_MARKS`'s "Threats off screen" entry originally read "for each soldier that has
+noticed you", and "has noticed you" is the fight's own horizontal notice test for a spear, not the
+3D one `enemyMarker` actually gates on — a spear that has genuinely noticed the player by the
+fight's own definition (advancing, horizontally in range) but sits far below a hovering player
+earns no chevron, so a player reading that sentence literally could conclude "no chevron" means
+"nothing has noticed me", which is false in exactly that case. The direction of the mismatch is
+safe — the omitted case is one where the soldier cannot reach the player anyway — but the words
+still claimed a gate the code does not run. The copy now says "close enough to be a threat"
+instead, which is what `enemyMarker` actually gates on. This is the only place a future reader
+learns that the player-facing sentence and the code's rule are deliberately not phrased the same
+way.
 
 **The register entry this cycle nearly added.** The spec's first draft asked for asymmetric
 fixtures "so an axis swap is visible" in `offScreenPresence` — a test that cannot fail, because the
