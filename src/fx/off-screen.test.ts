@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { OFF_SCREEN_RAMP, offScreenPresence } from './off-screen'
+import { Vector3 } from 'three'
+import { spawnEnemy, type Enemy, type Stance } from '../combat/enemy'
+import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
+import { OFF_SCREEN_RAMP, enemyMarker, offScreenPresence } from './off-screen'
 
 /** Inside the visible depth range, so only the x/y position is under test. */
 const IN_FRONT = 0.5
@@ -91,5 +94,117 @@ describe('offScreenPresence', () => {
     // entirely and this assertion still passes -- the `y: NaN` case just above is
     // what actually exercises the guard for this component.
     expect(offScreenPresence({ x: 0.3, y: Infinity, z: IN_FRONT })).toBe(1)
+  })
+})
+
+const SPEAR = DEFAULT_COMBAT_CONFIG.enemies.spear
+const ARCHER = DEFAULT_COMBAT_CONFIG.enemies.archer
+
+const PLAYER = new Vector3(0, 0, 0)
+/** Well past the frame edge on x, so `offScreenPresence` is 1 and only the other rules vary. */
+const OFF_FRAME = { x: 1.6, y: 0.12, z: 0.5 }
+/** Comfortably inside the frame. */
+const ON_FRAME = { x: 0.2, y: -0.34, z: 0.5 }
+
+/**
+ * A spear 20 units away on x — inside its aggroRange of 26 measured either way, so
+ * fixtures built on it isolate whatever rule the test is actually about.
+ */
+function nearSpear(): Enemy {
+  return spawnEnemy('spear-1', new Vector3(20, 0, 0), 'spear', SPEAR)
+}
+
+/** The same soldier with a stance and a health pool that agree with each other. */
+function withStance(enemy: Enemy, stance: Stance): Enemy {
+  const down = stance === 'downed' || stance === 'rising'
+  return {
+    ...enemy,
+    stance,
+    health: { ...enemy.health, current: down ? 0 : enemy.health.max },
+  }
+}
+
+describe('enemyMarker', () => {
+  it('marks an engaged soldier that is off the frame, passing the bearing through signed', () => {
+    // Signed, and asserted at two signs. A marker that returned a magnitude would draw
+    // every threat on the same side of the screen, which is worse than drawing none.
+    expect(enemyMarker(nearSpear(), PLAYER, OFF_FRAME, 1.234, SPEAR))
+      .toEqual({ bearing: 1.234, strength: 1, winding: false })
+    expect(enemyMarker(nearSpear(), PLAYER, OFF_FRAME, -0.77, SPEAR))
+      .toEqual({ bearing: -0.77, strength: 1, winding: false })
+  })
+
+  it('carries the ramp through as the strength rather than a flag', () => {
+    const half = { x: 1 + OFF_SCREEN_RAMP / 2, y: -0.19, z: 0.5 }
+    expect(enemyMarker(nearSpear(), PLAYER, half, 0, SPEAR)?.strength).toBeCloseTo(0.5)
+  })
+
+  it('does not mark a soldier that is on the frame', () => {
+    expect(enemyMarker(nearSpear(), PLAYER, ON_FRAME, 0.5, SPEAR)).toBeNull()
+  })
+
+  it('does not mark a downed soldier, and does mark a rising one', () => {
+    // Both halves matter. A body lying flat is not a threat; a soldier pushing back up
+    // is targetable and is about to be one, and `isTargetable`'s second clause is the
+    // half a single "downed gives null" test would leave unasserted.
+    expect(enemyMarker(withStance(nearSpear(), 'downed'), PLAYER, OFF_FRAME, 0, SPEAR)).toBeNull()
+    expect(enemyMarker(withStance(nearSpear(), 'rising'), PLAYER, OFF_FRAME, 0, SPEAR)).not.toBeNull()
+  })
+
+  it('measures a spear in 3D, not horizontally like the fight does', () => {
+    // The claim the whole range rule rests on. A spear at the origin with the player
+    // hovering 30 units overhead is at horizontal distance 0 -- inside any range -- and
+    // at 3D distance 30, outside its aggroRange of 26. An implementation that copied
+    // `stepEnemy`'s horizontal measurement returns a marker here, and a hovering player
+    // gets a permanent ring of chevrons for infantry that cannot touch them.
+    const spear = spawnEnemy('spear-1', new Vector3(0, 0, 0), 'spear', SPEAR)
+    const hovering = new Vector3(0, 30, 0)
+    expect(spear.position.distanceTo(hovering)).toBeGreaterThan(SPEAR.aggroRange)
+    expect(enemyMarker(spear, hovering, OFF_FRAME, 0, SPEAR)).toBeNull()
+
+    // The same soldier, the same distance, on the level: now inside its notice range
+    // and marked. Both halves in one test, so the null above cannot be passing for the
+    // wrong reason.
+    const alongside = new Vector3(20, 0, 0)
+    expect(spear.position.distanceTo(alongside)).toBeLessThan(SPEAR.aggroRange)
+    expect(enemyMarker(spear, alongside, OFF_FRAME, 0, SPEAR)).not.toBeNull()
+  })
+
+  it('marks up to the notice range the config gives, and not past it', () => {
+    // Positions built from `aggroRange` rather than written as 37 and 39, so retuning
+    // the archer moves the test with it instead of reddening it. The direction is a
+    // genuine 3D diagonal of length exactly 7 -- (2, 3, -6) -- so an implementation
+    // that measured only one axis, or only the horizontal plane, lands somewhere else.
+    const unit = new Vector3(2, 3, -6).divideScalar(7)
+    const at = (distance: number) => spawnEnemy(
+      'archer-1', unit.clone().multiplyScalar(distance), 'archer', ARCHER,
+    )
+    expect(enemyMarker(at(ARCHER.aggroRange - 1), PLAYER, OFF_FRAME, 0, ARCHER)).not.toBeNull()
+    // Inclusive at the boundary, matching `stepEnemy`'s own `distance > c.aggroRange`
+    // test for holding station.
+    expect(enemyMarker(at(ARCHER.aggroRange), PLAYER, OFF_FRAME, 0, ARCHER)).not.toBeNull()
+    expect(enemyMarker(at(ARCHER.aggroRange + 1), PLAYER, OFF_FRAME, 0, ARCHER)).toBeNull()
+  })
+
+  it('warns only in the wind-up, across every stance there is', () => {
+    // A Record rather than an array of the five stances that exist today, and that is
+    // the point of writing it this way: adding a sixth stance fails to compile until
+    // someone decides whether it warns. `WIND_LEGEND` in src/ui/guide/reference.ts uses
+    // the same device over `WindKind`, for the same reason.
+    //
+    // `null` means "no marker at all is expected", which is the honest entry for
+    // `downed` -- there is no marker to read a `winding` off.
+    const expected: Record<Stance, boolean | null> = {
+      advance: false,
+      'wind-up': true,
+      recover: false,
+      rising: false,
+      downed: null,
+    }
+    for (const [stance, warns] of Object.entries(expected) as [Stance, boolean | null][]) {
+      const marker = enemyMarker(withStance(nearSpear(), stance), PLAYER, OFF_FRAME, 0, SPEAR)
+      if (warns === null) expect(marker, stance).toBeNull()
+      else expect(marker?.winding, stance).toBe(warns)
+    }
   })
 })

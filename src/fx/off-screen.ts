@@ -7,6 +7,9 @@
  * close enough that it arrives before the player wonders where they went. An argued
  * guess, not measured: nobody has played this.
  */
+import type { Vector3 } from 'three'
+import { isTargetable, type Enemy, type EnemyConfig } from '../combat/enemy'
+
 export const OFF_SCREEN_RAMP = 0.25
 
 /**
@@ -46,4 +49,52 @@ export function offScreenPresence(ndc: { x: number; y: number; z: number }): num
   const overshoot = Math.max(Math.abs(ndc.x) - 1, Math.abs(ndc.y) - 1)
   if (overshoot <= 0) return 0
   return Math.min(overshoot / OFF_SCREEN_RAMP, 1)
+}
+
+/** One soldier's chevron: which way, how strongly, and whether it is about to strike. */
+export interface EnemyMarker {
+  /**
+   * Screen bearing in radians: 0 dead ahead, positive clockwise on screen. Handed in
+   * rather than computed, because it comes from `bearingFromCamera` — the same function
+   * the hit wedges use, so the two overlays cannot disagree about which way is right.
+   */
+  bearing: number
+  /** 0 at the frame edge, rising to 1 once the soldier is definitively off screen. */
+  strength: number
+  /** This soldier is in its wind-up: the release is coming. */
+  winding: boolean
+}
+
+/**
+ * A marker for this soldier, or null when it has not earned one.
+ *
+ * Three rules, all here rather than split between this and the caller, because
+ * `src/main.ts` has no tests: whatever the caller decides is untested by construction.
+ *
+ * The distance is measured **in 3D, which is deliberately not how the fight measures a
+ * spear's notice range.** `stepEnemy` measures melee horizontally — that is what makes an
+ * archer the type that pressures altitude — so a spear standing 30 units below a hovering
+ * player is at horizontal distance 0, has noticed them, and cannot reach them for as long
+ * as they stay up there. Marking it would hang a permanent ring of chevrons around a
+ * player who is doing the correct thing, which is the clutter `HIT_MARK_SECONDS` was
+ * picked to avoid. Measured in 3D this is stricter than the fight for a spear and
+ * identical to it for an archer, which already measures in 3D. `aggroRange` is read from
+ * the config rather than written here, so retuning notice range moves the markers with it.
+ *
+ * `isTargetable` rather than a fresh health test, so there is one definition in the
+ * codebase of a soldier worth aiming at — it is the same predicate the gust cone uses,
+ * and it counts a rising soldier as live.
+ */
+export function enemyMarker(
+  enemy: Enemy,
+  playerPosition: Vector3,
+  ndc: { x: number; y: number; z: number },
+  bearing: number,
+  c: EnemyConfig,
+): EnemyMarker | null {
+  if (!isTargetable(enemy)) return null
+  if (enemy.position.distanceTo(playerPosition) > c.aggroRange) return null
+  const strength = offScreenPresence(ndc)
+  if (strength <= 0) return null
+  return { bearing, strength, winding: enemy.stance === 'wind-up' }
 }
