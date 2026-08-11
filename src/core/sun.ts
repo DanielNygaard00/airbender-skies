@@ -18,6 +18,14 @@ export const SUN_DISTANCE = 320
  * covers only the neighbourhood of the player and travels with them. 90 clears the
  * largest island, whose radius is 70, so the island the player is standing on is
  * always fully shadowed.
+ *
+ * **Shrinking this was tried as a way to sharpen shadows and found to be exhausted.**
+ * The island-coverage test below pins the floor at just above 70, so the whole usable
+ * range is 71 to 90 and the most texel density it can buy is 1.27 times. At the largest
+ * safe step — 90 down to 75, a 1.2 times gain — the result was indistinguishable from
+ * what ships in a side-by-side at the spawn view, while the clearance over that
+ * 70-unit island fell from 20 units to 5. A lever whose entire range is below the
+ * threshold of visibility is not worth spending the margin on.
  */
 export const SHADOW_EXTENT = 90
 
@@ -41,10 +49,16 @@ export const SHADOW_EXTENT = 90
  * the game's one shadow-casting light, and the shadow pass rasterises four times the
  * fragments. Frame cost was *not* measured — the browser harness only runs its render
  * loop while its pane is frontmost, so no frame-timing probe could be taken, and both
- * configurations would have been vsync-capped on the development machine regardless. If
- * this ever has to come back down, prefer shrinking `SHADOW_EXTENT` instead: that buys
- * the same texel density for no extra memory, at the price of shadows only near the
- * player.
+ * configurations would have been vsync-capped on the development machine regardless.
+ *
+ * **This comment used to say that shrinking `SHADOW_EXTENT` was the way to recover the
+ * memory while keeping the texel density. That is false, and the test above
+ * `SHADOW_EXTENT` is why.** Matching this density at a 2048 map needs an extent of 45,
+ * and `sun.test.ts`'s "covers the island the player stands on" requires the extent to
+ * exceed the largest island's radius of 70 — it fails immediately at 45, with "expected
+ * 45 to be greater than 70". At the smallest permitted extent a 2048 map gives 0.069
+ * units per texel, which is 1.6 times coarser than what ships. So the memory and the
+ * density cannot both be had: there is no cheap way back, only a choice.
  */
 const SHADOW_MAP_SIZE = 4096
 

@@ -84,9 +84,12 @@ export function createRenderer(canvas: HTMLCanvasElement) {
    * crisper — and it is now what `SHADOW_MAP_SIZE` is set to. It does **not** rescue VSM:
    * retested at 4096, the acne threshold barely moved (still banded at `normalBias` 0.2,
    * where the character's shadow is already washing out), which says texel footprint was
-   * never what drove it. The remaining untried lever is a smaller `SHADOW_EXTENT` — the
-   * same map over less ground — and it is also the cheapest way to undo the memory cost
-   * if that ever matters. Not another pass at VSM.
+   * never what drove it. A smaller `SHADOW_EXTENT` has since been tried too, and it is
+   * exhausted: `sun.test.ts` pins its floor just above the largest island's 70-unit
+   * radius, so the whole usable range buys at most 1.27 times the texel density, and the
+   * largest safe step was indistinguishable side by side. There is no lever left here —
+   * and in particular no way to recover the 4096 map's memory without giving up its
+   * density, which this file previously claimed there was. Not another pass at VSM.
    */
   renderer.shadowMap.type = PCFShadowMap
 

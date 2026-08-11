@@ -3111,11 +3111,24 @@ measured, and could not be** — the browser harness only runs its render loop w
 frontmost, so no `requestAnimationFrame` timing probe can complete, and both configurations
 would have been vsync-capped on this machine anyway. That is the open risk on weaker GPUs.
 
-Retesting VSM at 4096 settled the last question: it does **not** rescue it. The acne threshold
+Retesting VSM at 4096 settled that question: it does **not** rescue it. The acne threshold
 barely moved — still banded at `normalBias` 0.2, where the character's shadow is already washing
-out — which means texel footprint was never what drove the acne. The remaining untried lever is
-a smaller `SHADOW_EXTENT`, which is also the cheapest way to undo the memory cost if it ever
-matters.
+out — which means texel footprint was never what drove the acne.
+
+**And the last lever is exhausted, including a claim made here that turned out to be false.**
+This section said a smaller `SHADOW_EXTENT` was the cheap way to undo the 4096 map's memory cost
+while keeping its density. It is not, and the thing that settled it in seconds was an existing
+test: `sun.test.ts`'s "covers the island the player stands on" requires the extent to exceed the
+largest island's radius of 70, and it fails at 45 with "expected 45 to be greater than 70".
+Matching today's 0.044 units per texel on a 2048 map needs exactly that 45. At the smallest
+permitted extent a 2048 map gives 0.069 units per texel — 1.6 times coarser than what ships. The
+memory and the density cannot both be had.
+
+Shrinking the extent as a way to *sharpen* shadows is equally spent: the usable range of 71 to 90
+buys at most 1.27 times the density, and at the largest safe step — 90 to 75 — the two were
+indistinguishable in a side-by-side at the spawn view, while clearance over that 70-unit island
+fell from 20 units to 5. Both experiments are recorded in `src/core/sun.ts` beside the constants
+they concern.
 
 **Two of the wrong turns are worth keeping**, because both were confident comments written
 before anything was looked at. The first VSM commit stated that VSM needs no bias, on the
