@@ -106,20 +106,35 @@ which comes from world space and is unaffected.
 
 1. `isTargetable(enemy)` — on its feet or pushing back up. A body lying flat is not a threat, and
    the same predicate already decides what the gust cone will hit.
-2. **3D distance to the player ≤ that kind's `aggroRange`.**
+2. **3D distance to the player ≤ that kind's `aggroRange`**, *or* — for a melee soldier only —
+   **horizontal distance to the player ≤ that kind's `strikeRange`.**
 3. `offScreenPresence(ndc) > 0`.
 
 **The 3D distance in (2) is the one place this deliberately differs from the fight, and the
 difference is the whole reason it is written down.** `stepEnemy` measures a *spear's* notice
-horizontally — that is what makes an archer the type that pressures altitude — so a spear
-standing 30 units below a hovering player is at horizontal distance 0, has noticed them, and
-cannot reach them for as long as they stay up there. Marking it would hang a permanent ring of
-chevrons for unreachable infantry around a player who is doing the correct thing, which is
-exactly the clutter `HIT_MARK_SECONDS` was chosen to avoid.
+horizontally — that is what makes an archer the type that pressures altitude — so a spear 20
+units out and 300 units below a hovering player is still inside its horizontal `aggroRange` of
+26 and has noticed them. Marking every such soldier would hang a permanent ring of chevrons
+around a player who has climbed out of the fight, which is exactly the clutter
+`HIT_MARK_SECONDS` was chosen to avoid. Measured in 3D the notice clause is **stricter than the
+fight for a spear** and **identical to the fight for an archer**, which already measures in 3D.
 
-Measured in 3D this is **stricter than the fight for a spear** and **identical to the fight for
-an archer**, which already measures in 3D. It reads `c.aggroRange` rather than a number of its
-own, so retuning notice range moves the markers with it.
+**The second clause exists because horizontal reach means height is *ignored*, not protective.**
+A melee soldier measures `strikeRange` horizontally as well, so a spear at horizontal distance 0
+is inside its 3.2 reach at *any* altitude: it winds up and it deals damage. `enemy.test.ts`'s
+'still thrusts at a player almost directly overhead' pins that as shipped behaviour, and
+measured with the real config a spear at the origin deals 3 damage over 200 frames to a
+5-health player hovering at (0, 30, 0). With only the 3D clause that player took repeated damage
+from a soldier this overlay stayed silent about — the exact case it exists for — while the hit
+wedge that did appear pointed dead ahead, because `bearingFromCamera` reports 0 for a
+near-vertical offset. So a melee soldier earns a marker on its horizontal strike reach too,
+gated on `attack.kind === 'melee'` because a projectile attacker measures both notice and commit
+in 3D and cannot shoot a target clause one has already rejected.
+
+The anti-clutter property survives both clauses: a spear 10 units out and 30 units below is
+outside 3D `aggroRange` and outside horizontal `strikeRange`, and earns nothing. Both numbers
+are read from `c` rather than written as literals, so retuning either range moves the markers
+with it.
 
 ### One state change
 
@@ -243,9 +258,17 @@ recorded rather than fixed.
   modules from being "made consistent" later.
 - `enemyMarker` returns null for a downed soldier and non-null for a **rising** one, so
   `isTargetable`'s second clause is covered rather than assumed.
-- The spear's hovering case with real numbers: a spear at horizontal 0 and 30 below the player →
-  null; the same spear at horizontal 20 and level → a marker. This is the claim the whole 3D
-  decision rests on, and nothing else would catch a horizontal measurement.
+- The spear's hovering case with real numbers, in three fixtures, because the rule has two
+  clauses: a spear at horizontal 10 and 30 below the player → null, which is the anti-clutter
+  half; the same spear at horizontal 0 and 30 below → a marker, because its horizontal strike
+  reach genuinely reaches a hovering player; the same spear at horizontal 20 and level → a
+  marker on the 3D notice clause alone. Nothing else would catch a horizontal notice
+  measurement, or the loss of the melee reach clause.
+- An archer at horizontal 0 and 45 below the player → null, since the reach clause is gated on
+  `attack.kind === 'melee'`. Without this fixture, deleting that gate passes silently.
+- The melee clause's own boundary built from `SPEAR.strikeRange`, with the drop held well outside
+  `aggroRange` so only the horizontal clause can be deciding: inclusive at the boundary, null
+  just past it.
 - The archer's boundary asserted against `aggroRange` 38 read from the config: 3D 37 → a marker,
   3D 39 → null, so the marker's rule is pinned to the fight's number rather than to a literal.
 - `winding` asserted true in `wind-up` and false in **every** other stance, driven by a

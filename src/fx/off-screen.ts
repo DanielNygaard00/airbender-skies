@@ -1,5 +1,5 @@
 import type { Vector3 } from 'three'
-import { isTargetable, type Enemy, type EnemyConfig } from '../combat/enemy'
+import { horizontalDistance, isTargetable, type Enemy, type EnemyConfig } from '../combat/enemy'
 
 /**
  * How far past the frame edge, in normalised device coordinates, a soldier travels
@@ -71,15 +71,29 @@ export interface EnemyMarker {
  * Three rules, all here rather than split between this and the caller, because
  * `src/main.ts` has no tests: whatever the caller decides is untested by construction.
  *
- * The distance is measured **in 3D, which is deliberately not how the fight measures a
- * spear's notice range.** `stepEnemy` measures melee horizontally — that is what makes an
- * archer the type that pressures altitude — so a spear standing 30 units below a hovering
- * player is at horizontal distance 0, has noticed them, and cannot reach them for as long
- * as they stay up there. Marking it would hang a permanent ring of chevrons around a
- * player who is doing the correct thing, which is the clutter `HIT_MARK_SECONDS` was
- * picked to avoid. Measured in 3D this is stricter than the fight for a spear and
- * identical to it for an archer, which already measures in 3D. `aggroRange` is read from
- * the config rather than written here, so retuning notice range moves the markers with it.
+ * **The range rule has two clauses, and the second one exists because a spear underfoot
+ * genuinely can hit a hovering player.** The primary test is 3D distance against
+ * `aggroRange`, which is deliberately not how the fight measures a spear's notice range:
+ * `stepEnemy` measures melee horizontally — that is what makes an archer the type that
+ * pressures altitude — so a spear 20 units out and 300 units below a hovering player is
+ * still inside its horizontal `aggroRange` of 26 and has noticed them. Marking every such
+ * soldier would hang a permanent ring of chevrons around a player who has climbed out of
+ * the fight, which is the clutter `HIT_MARK_SECONDS` was picked to avoid, so the 3D test
+ * is intentionally stricter than the fight for a spear and identical to it for an archer.
+ *
+ * What that alone got wrong is that horizontal reach means height is *ignored*, not
+ * protective. A melee soldier measures `strikeRange` horizontally too, so a spear at
+ * horizontal distance 0 is inside its 3.2 reach at any altitude, winds up, and deals
+ * damage — `enemy.test.ts`'s 'still thrusts at a player almost directly overhead' pins
+ * that as shipped behaviour. With only the 3D clause, a player hovering 30 units above a
+ * spear took repeated damage from a soldier this overlay stayed silent about, which is the
+ * exact case it exists for. So a melee soldier also earns a marker on its horizontal
+ * strike reach, gated on `attack.kind === 'melee'` because an archer measures both notice
+ * and commit in 3D and cannot shoot a target the first clause has already rejected.
+ *
+ * The anti-clutter property survives: a spear 10 units out and 30 units below is outside
+ * both clauses and earns nothing. Both ranges are read from the config rather than written
+ * here, so retuning either moves the markers with it.
  *
  * `isTargetable` rather than a fresh health test, so there is one definition in the
  * codebase of a soldier worth aiming at — it is the same predicate the gust cone uses,
@@ -93,7 +107,10 @@ export function enemyMarker(
   c: EnemyConfig,
 ): EnemyMarker | null {
   if (!isTargetable(enemy)) return null
-  if (enemy.position.distanceTo(playerPosition) > c.aggroRange) return null
+  const noticed = enemy.position.distanceTo(playerPosition) <= c.aggroRange
+  const inMeleeReach = c.attack.kind === 'melee'
+    && horizontalDistance(enemy.position, playerPosition) <= c.strikeRange
+  if (!noticed && !inMeleeReach) return null
   const strength = offScreenPresence(ndc)
   if (strength <= 0) return null
   return { bearing, strength, winding: enemy.stance === 'wind-up' }

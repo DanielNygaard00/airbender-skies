@@ -2291,7 +2291,8 @@ played with.
 before, when something engaged with the player is simply not in view.** `src/fx/off-screen.ts` is
 the pure half: `offScreenPresence` reads a soldier's NDC projection and ramps from 0 at the frame
 edge to 1 at `OFF_SCREEN_RAMP` past it, and `enemyMarker` decides who earns a chevron at all —
-targetable, within the fight's own `aggroRange` measured in 3D, and off screen. `src/ui/off-screen-
+targetable, off screen, and either within the fight's own `aggroRange` measured in 3D or, for a
+melee soldier, within its `strikeRange` measured horizontally. `src/ui/off-screen-
 view.ts` draws one hollow red chevron per marker on a ring outside the existing hit wedges, rotated
 by the same signed bearing convention those wedges already use, brightening for a soldier that is
 winding up to strike. `src/ui/guide/reference.ts` gains `SCREEN_MARKS`, a two-entry legend read
@@ -2322,25 +2323,41 @@ purpose, and unifying them by moving hit marks onto the camera basis would be th
 is called from `update()`, and reading the camera there would move render state into the simulation
 half of the frame.
 
-**The 3D-versus-horizontal decision exists for the hovering spear.** `stepEnemy` measures a spear's
-notice range horizontally — that is what makes an archer, which measures in 3D, the type that
-pressures altitude at all — so a spear standing 30 units below a player who is hovering is at
-horizontal distance 0, has noticed them, and can never close the distance while they stay up there.
-Marking that spear would hang a permanent ring of chevrons around a player who is doing exactly the
-right thing, the same clutter `HIT_MARK_SECONDS` was tuned to avoid on the other overlay. So
-`enemyMarker` measures in 3D, which is stricter than the fight for a spear and identical to the
-fight for an archer, and reads `c.aggroRange` from the config rather than a literal of its own, so
-retuning notice range moves the markers with it.
+**The 3D-versus-horizontal decision exists for the hovering spear, and the first version of it got
+the hovering spear backwards.** `stepEnemy` measures a spear's notice range horizontally — that is
+what makes an archer, which measures in 3D, the type that pressures altitude at all — so a spear 20
+units out and 300 units below a hovering player is still inside its horizontal `aggroRange` of 26
+and has noticed them. Marking every such soldier would hang a permanent ring of chevrons around a
+player who has climbed out of the fight, the same clutter `HIT_MARK_SECONDS` was tuned to avoid on
+the other overlay. So `enemyMarker`'s primary test is 3D distance against `aggroRange`, which is
+stricter than the fight for a spear and identical to the fight for an archer.
+
+**What that alone got wrong is the same trap this document already records against `stepEnemy`: a
+horizontal reach means height is *ignored*, not protective.** A melee soldier measures
+`strikeRange` horizontally too, so a spear at horizontal distance 0 is inside its 3.2 reach at
+*any* altitude — it winds up, and it hits. `enemy.test.ts`'s "still thrusts at a player almost
+directly overhead" pins exactly that, and measured against the real config a spear at the origin
+deals 3 damage over 200 frames (3.3 s) to a 5-health player hovering at (0, 30, 0). Shipped with
+only the 3D clause, this feature stayed silent about the one soldier that was actually damaging
+that player, while the hit wedge that did appear pointed dead ahead — `bearingFromCamera`'s
+`sourceDistance < 1e-6` guard returns 0 for a near-vertical offset. So the range rule now has a
+second clause: a melee soldier also earns a marker within `strikeRange` measured horizontally,
+gated on `c.attack.kind === 'melee'` so an archer, which measures both notice and commit in 3D and
+cannot shoot a target the first clause rejected, is unaffected. The anti-clutter property survives
+— a spear 10 units out and 30 units below is outside both clauses and earns nothing — and both
+ranges are read from the config rather than written as literals, so retuning either moves the
+markers with it.
 
 **That same divergence caught the guide legend's first draft saying something the code does not
 check.** `SCREEN_MARKS`'s "Threats off screen" entry originally read "for each soldier that has
 noticed you", and "has noticed you" is the fight's own horizontal notice test for a spear, not the
 3D one `enemyMarker` actually gates on — a spear that has genuinely noticed the player by the
-fight's own definition (advancing, horizontally in range) but sits far below a hovering player
-earns no chevron, so a player reading that sentence literally could conclude "no chevron" means
-"nothing has noticed me", which is false in exactly that case. The direction of the mismatch is
-safe — the omitted case is one where the soldier cannot reach the player anyway — but the words
-still claimed a gate the code does not run. The copy now says "close enough to be a threat"
+fight's own definition (advancing, horizontally in range) but sits far below and off to one side of
+a hovering player earns no chevron, so a player reading that sentence literally could conclude "no
+chevron" means "nothing has noticed me", which is false in exactly that case. The direction of the
+mismatch is safe *now that the melee reach clause exists* — the remaining omitted case is a soldier
+outside both its 3D notice range and its horizontal strike reach, which genuinely cannot land a hit
+from where it stands — but the words still claimed a gate the code does not run. The copy now says "close enough to be a threat"
 instead, which is what `enemyMarker` actually gates on. This is the only place a future reader
 learns that the player-facing sentence and the code's rule are deliberately not phrased the same
 way.

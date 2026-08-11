@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { spawnEnemy, type Enemy, type Stance } from '../combat/enemy'
+import { horizontalDistance, spawnEnemy, type Enemy, type Stance } from '../combat/enemy'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 import { OFF_SCREEN_RAMP, enemyMarker, offScreenPresence } from './off-screen'
 
@@ -151,23 +151,64 @@ describe('enemyMarker', () => {
     expect(enemyMarker(withStance(nearSpear(), 'rising'), PLAYER, OFF_FRAME, 0, SPEAR)).not.toBeNull()
   })
 
-  it('measures a spear in 3D, not horizontally like the fight does', () => {
-    // The claim the whole range rule rests on. A spear at the origin with the player
-    // hovering 30 units overhead is at horizontal distance 0 -- inside any range -- and
-    // at 3D distance 30, outside its aggroRange of 26. An implementation that copied
-    // `stepEnemy`'s horizontal measurement returns a marker here, and a hovering player
-    // gets a permanent ring of chevrons for infantry that cannot touch them.
+  it('measures notice in 3D, but admits a melee soldier on its horizontal reach', () => {
+    // The claim the whole range rule rests on, and it has two halves. Notice is measured
+    // in 3D, which is deliberately stricter than `stepEnemy`'s horizontal measurement for
+    // a spear: a soldier far below a climbing player must not hang a permanent ring of
+    // chevrons around someone who has left the fight. But horizontal reach means height
+    // is *ignored*, not protective, so a melee soldier directly underfoot is inside its
+    // `strikeRange` at any altitude and does hit -- see `enemy.test.ts`'s 'still thrusts
+    // at a player almost directly overhead' -- and that case is admitted separately.
     const spear = spawnEnemy('spear-1', new Vector3(0, 0, 0), 'spear', SPEAR)
-    const hovering = new Vector3(0, 30, 0)
-    expect(spear.position.distanceTo(hovering)).toBeGreaterThan(SPEAR.aggroRange)
-    expect(enemyMarker(spear, hovering, OFF_FRAME, 0, SPEAR)).toBeNull()
 
-    // The same soldier, the same distance, on the level: now inside its notice range
-    // and marked. Both halves in one test, so the null above cannot be passing for the
-    // wrong reason.
+    // Out of 3D notice range, and out of horizontal strike reach too: nothing. This is
+    // the anti-clutter half, and it is what stops the melee clause from admitting the
+    // whole patrol.
+    const highAbove = new Vector3(10, 30, 0)
+    expect(spear.position.distanceTo(highAbove)).toBeGreaterThan(SPEAR.aggroRange)
+    expect(enemyMarker(spear, highAbove, OFF_FRAME, 0, SPEAR)).toBeNull()
+
+    // The same soldier, the same drop, but horizontally underfoot: inside `strikeRange`
+    // measured horizontally, so this spear can and does damage the hovering player, and
+    // the chevron pointing at it is the whole purpose of the feature.
+    const directlyAbove = new Vector3(0, 30, 0)
+    expect(spear.position.distanceTo(directlyAbove)).toBeGreaterThan(SPEAR.aggroRange)
+    expect(horizontalDistance(spear.position, directlyAbove)).toBeLessThan(SPEAR.strikeRange)
+    expect(enemyMarker(spear, directlyAbove, OFF_FRAME, 0, SPEAR)).not.toBeNull()
+
+    // The same soldier, level with the player and well beyond its strike reach: marked on
+    // the 3D notice clause alone, so the two nulls above cannot be passing for the wrong
+    // reason.
     const alongside = new Vector3(20, 0, 0)
     expect(spear.position.distanceTo(alongside)).toBeLessThan(SPEAR.aggroRange)
+    expect(horizontalDistance(spear.position, alongside)).toBeGreaterThan(SPEAR.strikeRange)
     expect(enemyMarker(spear, alongside, OFF_FRAME, 0, SPEAR)).not.toBeNull()
+  })
+
+  it('does not admit an archer on horizontal reach, only in 3D', () => {
+    // The melee clause is gated on `attack.kind`, and this is the fixture that proves it:
+    // an archer directly below the player is at horizontal distance 0, inside its
+    // `strikeRange` of 30 if anyone measured it that way, and outside its 3D `aggroRange`
+    // of 38 at a 45-unit drop. `stepEnemy` measures a projectile attacker's notice *and*
+    // commit in 3D, so it cannot shoot this player at all. Drop the `attack.kind` check
+    // from `enemyMarker` and this reddens; without it, dropping it passes silently.
+    const archer = spawnEnemy('archer-1', new Vector3(0, 0, 0), 'archer', ARCHER)
+    const hovering = new Vector3(0, ARCHER.aggroRange + 7, 0)
+    expect(archer.position.distanceTo(hovering)).toBeGreaterThan(ARCHER.aggroRange)
+    expect(horizontalDistance(archer.position, hovering)).toBeLessThan(ARCHER.strikeRange)
+    expect(enemyMarker(archer, hovering, OFF_FRAME, 0, ARCHER)).toBeNull()
+  })
+
+  it('admits a melee soldier exactly at its horizontal strike reach, and not past it', () => {
+    // The melee clause's own boundary, built from `SPEAR.strikeRange` so retuning the
+    // spear moves the test with it. The drop is far outside `aggroRange` in every case, so
+    // only the horizontal clause can be deciding. Inclusive at the boundary, matching
+    // `stepEnemy`'s own `distance <= c.strikeRange` test for committing to a thrust.
+    const spear = spawnEnemy('spear-1', new Vector3(0, 0, 0), 'spear', SPEAR)
+    const above = (horizontal: number) => new Vector3(horizontal, SPEAR.aggroRange + 4, 0)
+    expect(enemyMarker(spear, above(SPEAR.strikeRange - 0.1), OFF_FRAME, 0, SPEAR)).not.toBeNull()
+    expect(enemyMarker(spear, above(SPEAR.strikeRange), OFF_FRAME, 0, SPEAR)).not.toBeNull()
+    expect(enemyMarker(spear, above(SPEAR.strikeRange + 0.1), OFF_FRAME, 0, SPEAR)).toBeNull()
   })
 
   it('marks up to the notice range the config gives, and not past it', () => {
