@@ -117,8 +117,15 @@ directly overhead as at distance zero — permanently in range, and unable to be
 climbing, which is backwards.
 
 So a **projectile attacker measures both its notice and its commit in 3D**. That difference *is*
-the type. A spear cannot reach up; an arrow can. Without it, archers do not pressure altitude at
-all and the cycle delivers nothing.
+the type: an arrow reaches up, so climbing buys real distance from an archer. Without it, archers
+do not pressure altitude at all and the cycle delivers nothing.
+
+(This sentence originally read "A spear cannot reach up; an arrow can." The second half is right
+and the first is not: horizontal reach means height is *ignored*, not protective, so a spear
+directly below a hovering player is at horizontal distance 0 and does thrust. Corrected in place
+rather than left standing, because the shorthand was later copied into `enemy.ts` and into a
+whole design's justification before anyone checked it against `enemy.test.ts`'s
+'still thrusts at a player almost directly overhead'.)
 
 The shot's `direction` is likewise the full 3D vector to the player, not flattened.
 

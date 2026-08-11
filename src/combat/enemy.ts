@@ -428,10 +428,23 @@ export function stepEnemy(
   // held. `facing` drives the rig's yaw, and a soldier looking up has no yaw it ought to
   // prefer -- snapping to some fixed compass direction is a visible spin that says nothing.
   const facing = toPlayer ?? enemy.facing
-  // A spear cannot reach up and an arrow can, so the two measure differently. This is
-  // the only place the two types genuinely diverge, and it is the whole reason an archer
-  // pressures altitude: measured horizontally, a player hovering directly overhead sits
-  // at distance 0 and would be inside any range, so climbing would stop being an escape.
+  // A spear's reach is horizontal and an arrow's is spherical, so the two measure
+  // differently. The shorthand for that — "a spear cannot reach up" — is wrong, and it is
+  // worth spelling out here because it is the instinct a reader arrives with, and acting on
+  // it turns working behaviour into a bug.
+  //
+  // Horizontal reach means height is *ignored*, not protective. A spear directly below a
+  // hovering player is at horizontal distance 0, which is inside its aggroRange and inside
+  // its strikeRange, so it winds up and it thrusts, however far up the player is.
+  // `enemy.test.ts`'s 'still thrusts at a player almost directly overhead' pins that as
+  // intended behaviour rather than an oversight.
+  //
+  // What climbing escapes is the *archer*, and that is the whole reason this is the one
+  // place the two types genuinely diverge: an arrow does reach up, so both of its ranges are
+  // measured in 3D and altitude buys real distance from it. Measured horizontally an archer
+  // would read a hovering player as being at distance 0 too — permanently in range, and
+  // unable to be escaped by climbing, which is backwards for the type whose entire job is to
+  // pressure altitude.
   const ranged = c.attack.kind === 'projectile'
   const horizontalGap = horizontalDistance(moved.position, playerPosition)
   const distance = ranged ? moved.position.distanceTo(playerPosition) : horizontalGap

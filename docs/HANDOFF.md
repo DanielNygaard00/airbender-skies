@@ -735,6 +735,26 @@ directions — height ignored at 2 units, out of reach at 10 — instead of the 
 the correction here, since it is exactly the sort of thing a future reader, working from instinct
 rather than the test, would "fix" into a bug.
 
+**Closed, and it took two more cycles.** This entry warned that the shorthand was wrong while
+leaving it in place at the top of `stepEnemy`'s own comment — where the sentences *after* it
+already described the mechanism correctly, so the comment contradicted itself and a reader had no
+way to tell which half to trust. It was then copied into the off-screen-indicator cycle's design,
+where it became the stated justification for a rule that left the player taking undirected damage
+from a spear standing underneath them (see "Off-screen enemy indicators"). Both the source comment
+and the archers spec now say that horizontal reach *ignores* height rather than being stopped by
+it, and both name the test that pins it.
+
+And the sharpest part of it: the correct explanation was written down **at the time**, in the
+archers plan's own verification step — "'A spear cannot reach up' was sloppy shorthand for 'a
+spear's reach is not measured in 3D'. Measuring horizontally means height is **ignored**, not that
+height protects you." That sentence has been sitting in
+`docs/superpowers/plans/2026-08-05-archers-and-projectiles.md` since the cycle that introduced the
+problem. It was correct, it was specific, and it never reached the one place a future reader would
+actually look. So the lesson is not about spears: a correction that lives only in a plan or a
+handoff, while the wrong sentence stays in the source, is a correction that will be re-broken —
+the code is what the next cycle reads, and the next cycle copied the wrong version into a design
+document and built a rule on it.
+
 **Arrows.** `src/combat/projectile.ts`'s `Projectile` is straight-line with no gravity — a
 falling arrow needs an archer that leads a moving target, which is a later config addition if
 the flat flight ever feels wrong, not a redesign. `Encounter` (`src/combat/encounter.ts`) owns
