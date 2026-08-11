@@ -12,12 +12,18 @@ describe('percent', () => {
     expect(percent(1 / 3)).toBe('33.333%')
   })
 
-  it('flattens a tiny float instead of writing it in exponent notation', () => {
-    // The whole reason these three exist -- asserted on both sides, because the
-    // formatted half alone cannot fail. `toFixed` never emits an exponent below 1e21,
-    // so any implementation satisfying the assertions above satisfies the second line
-    // for free; it pins the value rather than covering anything. The first line is the
-    // one that can fail, and it is the one that establishes the hazard is real.
+  it('documents the raw-float hazard percent exists to keep out of the DOM', () => {
+    // **Neither line here can be reddened by a change to `overlay-format.ts`, and this
+    // block is kept for what it records rather than for what it covers.** The first line
+    // is about the JavaScript engine: it shows what a projected coordinate actually looks
+    // like unformatted, which is the hazard these three formatters exist for. It can only
+    // fail if the runtime's float-to-string rules change, which is a different claim from
+    // "this module is correct". The second is forced for free by `percent(0.5)` and
+    // `percent(1)` above, because `toFixed` never emits an exponent below 1e21 — that is
+    // JavaScript's promise, not this module's — so every distinguishing mutant that was
+    // looked for (`toFixed(1)`, `toPrecision(4)`, `toExponential(3)`) is already caught up
+    // there. Nothing is asserted here that is not already pinned; the value of the block is
+    // the hazard written down beside the code that answers it.
     expect(`${1.2e-16 * 100}%`).toBe('1.2000000000000001e-14%')
     expect(percent(1.2e-16)).toBe('0.000%')
   })
@@ -32,11 +38,13 @@ describe('radians', () => {
     expect(radians(-Math.PI / 2)).toBe('-1.57080rad')
   })
 
-  it('flattens a tiny angle rather than writing an exponent', () => {
-    // Asserted on both sides, for the same reason as percent's tiny-float test above:
-    // `toFixed` never emits an exponent below 1e21, so the formatted line alone cannot
-    // fail. The first line is the one that can fail, and it is the one that establishes
-    // the hazard is real.
+  it('documents the raw-angle hazard radians exists to keep out of the DOM', () => {
+    // Kept for the same reason as `percent`'s raw-float block above, and with the same
+    // limitation: neither line can be reddened by a change to this module. The first shows
+    // what a raw `atan2` result looks like written straight into a transform — the hazard —
+    // and can only fail if the runtime changes how it stringifies a float. The second is
+    // already forced by the assertions above, since `toFixed` never emits an exponent below
+    // 1e21. Documentation beside the code, not coverage of it.
     expect(`${2.4e-17}rad`).toBe('2.4e-17rad')
     expect(radians(2.4e-17)).toBe('0.00000rad')
   })

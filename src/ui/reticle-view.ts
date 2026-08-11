@@ -9,6 +9,15 @@ import type { ReticleModel } from './reticle'
  * lives in `src/ui/reticle.ts` — the NDC-to-viewport conversion, and the decision to hide the
  * reticle when the aim point is behind the camera or has no finite position, are pure and tested
  * there. What is left in this file is stylesheet and two `style` writes.
+ *
+ * **If you are here because the reticle is stuck horizontally while it still moves vertically,
+ * the formatter is not the cause — look for a NaN in `ndc.x`.** A camera with a non-finite
+ * `aspect`, which a 0×0 canvas produces, gives exactly that: a NaN `x` beside a perfectly
+ * finite `y` and `z`. `reticleModel` reports such a model as invisible, so reaching the
+ * `percent` call below with a NaN would mean that check has been broken. This note lived on
+ * this file's own private `percent` before the formatters moved to `src/ui/overlay-format.ts`;
+ * it stays here rather than travelling with them, because the symptom it describes is this
+ * view's and the check it points at is `reticleModel`'s.
  */
 
 /** The HUD's own text colour, so the reticle adds no new colour to the screen. */

@@ -44,10 +44,13 @@ describe('SCREEN_MARKS', () => {
     expect(SCREEN_MARKS.map((mark) => mark.name)).toEqual(['Hit direction', 'Threats off screen'])
   })
 
-  it('names each ring\'s colour, which is the only thing distinguishing them on screen', () => {
-    // The shapes differ too, but colour is what a glance resolves first, and a legend
-    // that described the behaviour without naming the colour would leave the player
-    // matching prose to shapes.
+  it('names each ring\'s colour, so the legend can be matched to the screen at all', () => {
+    // Not because colour is the thing that distinguishes the two rings — measured, the two
+    // hues are 5.6 degrees apart, and the hollow-V-versus-filled-wedge shape plus the 10 px
+    // radial gap are what a glance actually resolves. It is because a legend that described
+    // the behaviour without naming any appearance at all would leave the player matching
+    // prose to shapes with nothing to key on. Both entries name a shape as well, and this
+    // pins the colour half of that.
     expect(SCREEN_MARKS[0]?.detail).toMatch(/orange/)
     expect(SCREEN_MARKS[1]?.detail).toMatch(/red/)
   })

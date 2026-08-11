@@ -21,11 +21,21 @@ import type { EnemyMarker } from '../fx/off-screen'
  * The enemy health bar's fill, and the same literal `src/combat/health-bar.ts` uses.
  *
  * Reused rather than picked: the player already reads this cooler red as "an enemy is the
- * subject", against the warm `#ff8f6b` the hit wedges and the player's own health bar
- * share. The two rings orbit the same point, so having them speak different halves of an
- * existing vocabulary is most of what makes them distinguishable. Copied rather than
- * imported, like the hit wedge's colour: a look, not a contract, and nothing breaks if the
- * two drift.
+ * subject", against the warm `#ff8f6b` the hit wedges and the player's own health bar share,
+ * so the two rings speak different halves of a vocabulary the game has already taught.
+ *
+ * **What that does not do is make the two rings distinguishable — the shape and the radial
+ * gap do that, and it is worth knowing by how little the colours differ before anyone tunes
+ * them.** Measured: `#ff8f6b` is hue 14.6° and `#e4614a` is hue 9.0°, **5.6° apart**, so the
+ * two differ mainly in saturation and value rather than in hue. At a glance, side by side and
+ * small, they are close. The hollow V against the filled wedge and the 10 px gap between the
+ * two radii are what a glance actually resolves; the colour is a reinforcement of a
+ * distinction already made, not the distinction itself. If a future reader decides the palette
+ * needs retuning, that 5.6° is the number to start from — and nobody has yet seen either ring
+ * on a screen, so this whole choice is unjudged rather than settled.
+ *
+ * Copied rather than imported, like the hit wedge's colour: a look, not a contract, and
+ * nothing breaks if the two drift.
  */
 const MARKER_COLOUR = '#e4614a'
 
@@ -64,7 +74,9 @@ const WINDING_COLOUR = '#ff3b21'
  * A `clip-path` polygon rather than the CSS border triangle `hit-direction-view.ts` prefers,
  * and the departure is the point: these two rings orbit the same origin and must not be
  * mistaken for one another. A border triangle cannot be hollow without a second element,
- * and a hollow V beside a filled wedge is the cheapest difference a glance can resolve.
+ * and a hollow V beside a filled wedge is the cheapest difference a glance can resolve —
+ * cheaper than the colour, whose two hues are only 5.6 degrees apart (see `MARKER_COLOUR`).
+ * The shape and the 10 px radial gap carry this distinction; the colour reinforces it.
  * Apex up — the chevron points away from the player, at the soldier.
  */
 const STYLE = `

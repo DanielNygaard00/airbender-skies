@@ -12,9 +12,18 @@ describe('offScreenPresence', () => {
     expect(offScreenPresence({ x: 0, y: 0, z: IN_FRONT })).toBe(0)
   })
 
-  // Exactly on the edge, not approaching it. The boundary is where an off-by-one
-  // comparison lives, and a soldier standing precisely at the frame edge must not
-  // have a chevron drawn for it -- it is still visible.
+  // Exactly on the edge, not approaching it. What these four pin is *where* the edge
+  // threshold sits: at |NDC| = 1 and nowhere else, so an implementation that insets it
+  // (`Math.abs(ndc.x) - 0.9`, a plausible "add a margin" change) reddens all four, and so
+  // does one that widens it. A soldier standing precisely at the frame edge must not have
+  // a chevron drawn for it -- it is still visible.
+  //
+  // What they do **not** catch, despite sitting exactly where one would look for it, is an
+  // off-by-one in the guard's own comparison. `if (overshoot <= 0) return 0` mutated to
+  // `< 0` produces identical output on all four, because at overshoot exactly 0 the
+  // fall-through computes `Math.min(0 / OFF_SCREEN_RAMP, 1)`, which is also 0. That mutant
+  // is equivalent by construction and no fixture at any boundary can express it. Deleting
+  // the guard entirely is caught -- by the centre test above, not by these.
   //
   // Every fixture in this file is asymmetric: x is never equal to y, and never equal
   // to -y either. That is not to catch an axis swap -- see the note on the swap
