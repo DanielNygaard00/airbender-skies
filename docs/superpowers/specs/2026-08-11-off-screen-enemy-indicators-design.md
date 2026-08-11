@@ -157,6 +157,15 @@ no DOM to build against — with every decision it makes living in the pure modu
 - Never `pointer-events: auto`. A click sink over the canvas would swallow the click that
   requests pointer lock, which is how play resumes.
 
+**And one piece of existing duplication gets closed rather than tripled.** `percent(fraction)` is
+already written out identically in `reticle-view.ts` and `hit-direction-view.ts`, and this view
+needs it as well — along with `radians` and `alpha`, which `hit-direction-view.ts` holds privately.
+A third verbatim copy is the kind of thing this project's own review rubric treats as a defect, so
+the three move to `src/ui/overlay-format.ts` and all three views import them. They are pure string
+formatting, so unlike the views themselves they are **testable in the node environment**, which is
+the second reason to do it: three helpers that decide what precision reaches the DOM currently have
+no tests at all.
+
 ### Wiring, in `syncVisuals`
 
 After `camera.updateProjectionMatrix()` and beside the reticle's own projection, because it needs
@@ -216,10 +225,16 @@ recorded rather than fixed.
 - `offScreenPresence` at 0 for a point at the centre and at 0 for a point **exactly on** each of
   the four edges, so the boundary is pinned rather than approached.
 - The ramp asserted **off the left, right, top and bottom separately**, at a half ramp and at a
-  full ramp, with **asymmetric coordinates in every case** — `x ≠ y` and `|x| ≠ |y|` — so an axis
-  swap, an unflipped sign or a `Math.abs` in the wrong place is visible. A fixture like
-  `(0.5, 0.5)` satisfies "off both axes" and maps to itself under a swap, which is how a test
-  written for exactly this purpose passes an implementation that fails it.
+  full ramp, with **asymmetric coordinates in every case** — `x ≠ y` and `|x| ≠ |y|`.
+
+  What that actually catches, stated exactly, because the obvious claim is false here: the
+  overshoot is the **larger** of the two axes' excesses, and `Math.max` is commutative, so
+  **swapping x and y in this function is provably a no-op and no test can catch it.** Writing
+  fixtures "so an axis swap is visible" would be a test that cannot fail. The mutants these
+  fixtures do catch are real ones: an implementation that measures only `x` (the top and bottom
+  cases redden), only `y` (left and right redden), or that drops the absolute value and uses
+  `ndc.x - 1` (both a point off the left and one off the bottom then read as fully on screen).
+  Asymmetric coordinates are what keep each of those from being masked by the other axis.
 - Both axes past the edge with **different overshoots**, asserting the larger one decides.
 - A point behind the camera (`z` above 1) with `x` and `y` **inside** the frame → 1, so the depth
   branch is doing the work rather than the position branch.
