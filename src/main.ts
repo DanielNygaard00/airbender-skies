@@ -64,7 +64,9 @@ import { createHud, hudModelFor, VIGNETTE_SCALE_PROPERTY } from './ui/hud'
 import { reticleModel } from './ui/reticle'
 import { createReticle } from './ui/reticle-view'
 import { createHitDirection } from './ui/hit-direction-view'
-import { markFor, stepHitMarks, type HitMark } from './fx/hit-direction'
+import { createOffScreen } from './ui/off-screen-view'
+import { enemyMarker, type EnemyMarker } from './fx/off-screen'
+import { bearingFromCamera, markFor, stepHitMarks, type HitMark } from './fx/hit-direction'
 import { createGuide, guideModelFor } from './ui/guide/panel'
 import { pauseReason, pauseOverlayModel } from './core/pause'
 import { createPauseOverlay } from './ui/pause-overlay'
@@ -354,6 +356,7 @@ function start(): void {
   // they are ever shown on a paused frame by mistake.
   const reticle = createReticle(document.body)
   const hitDirection = createHitDirection(document.body)
+  const offScreen = createOffScreen(document.body)
   const hud = createHud(document.body)
   const overlay = createPauseOverlay(document.body)
   // Rebuilt on open rather than per frame: the simulation is paused while the guide is
@@ -473,6 +476,17 @@ function start(): void {
   const sampledEnemy = new Vector3()
   // Scratch for the reticle's aim point, projected in place by Vector3.project.
   const aimPoint = new Vector3()
+  /**
+   * Scratch for a soldier's projected position, and for the camera's own heading.
+   *
+   * Reused for the same reason every other scratch in this block is: `syncVisuals` runs
+   * once per rendered frame for the whole session, so allocating a Vector3 per soldier per
+   * frame would be the only garbage the presentation layer produces.
+   */
+  const markerPoint = new Vector3()
+  const cameraForward = new Vector3()
+  /** Rebuilt in place each frame rather than reallocated, for the same reason. */
+  const enemyMarkers: EnemyMarker[] = []
 
   /**
    * Stand the player back up, at the moment the screen is fully black.
@@ -1201,6 +1215,43 @@ function start(): void {
     const aimOnScreen = aim.visible
       && aim.x >= 0 && aim.x <= 1 && aim.y >= 0 && aim.y <= 1
 
+    // After `camera.updateProjectionMatrix()` above, for the same reason the reticle's
+    // projection is: `Vector3.project` reads the projection matrix and the inverse world
+    // matrix, and both changed in the block above.
+    //
+    // The camera's own world heading, not `lookDirection`. The hit wedges are handed
+    // `lookDirection` because `markFor` is called from `update()`, where reading the
+    // camera would pull render state into the simulation half of the frame — and the
+    // drawn camera trails the look direction by a measured 17.78 degrees in a sustained
+    // 180 degrees-per-second turn on foot. A frozen bearing can afford that error. A
+    // bearing recomputed every frame cannot: it would slide the whole ring during every
+    // flick and settle afterwards. Here, after `camera.lookAt`, the accurate value is
+    // free. `getWorldDirection` calls `updateWorldMatrix` itself, so it does not depend on
+    // the renderer having run.
+    camera.getWorldDirection(cameraForward)
+    enemyMarkers.length = 0
+    for (const enemy of encounter.enemies) {
+      const view = enemyViews.get(enemy.id)
+      if (!view) continue
+      // The *drawn* position, which the enemy loop at the top of this function has already
+      // set from each soldier's interpolator. The chevron points at the body the player
+      // would see if they turned, so its direction has to come from where that body is
+      // drawn rather than from a simulation position up to one step away from it.
+      //
+      // The distance and stance rules inside `enemyMarker` read the simulation's own
+      // `enemy` instead, because those are what the fight decided. The same mix, for the
+      // same reason, as the reticle's drawn origin and simulation heading above.
+      markerPoint.copy(view.object.position).project(camera)
+      const marker = enemyMarker(
+        enemy,
+        player.position,
+        markerPoint,
+        bearingFromCamera(cameraForward, sampledPosition, view.object.position),
+        DEFAULT_COMBAT_CONFIG.enemies[enemy.kind],
+      )
+      if (marker) enemyMarkers.push(marker)
+    }
+
     // Both hidden through the whole down beat, and this is a correctness guard rather than
     // tidiness. `update()` returns early while `down` is set, so nothing in there is being
     // recomputed: `aimHot` holds whatever it was on the frame the player went down, and the
@@ -1216,10 +1267,12 @@ function start(): void {
     if (down) {
       reticle.hide()
       hitDirection.hide()
+      offScreen.hide()
       return
     }
     reticle.update(aim)
     hitDirection.update(hitMarks, aimOnScreen ? aim : SCREEN_CENTRE)
+    offScreen.update(enemyMarkers, aimOnScreen ? aim : SCREEN_CENTRE)
   }
 
   const stepper = createStepper({
@@ -1316,6 +1369,7 @@ function start(): void {
       // hidden at.
       reticle.hide()
       hitDirection.hide()
+      offScreen.hide()
       renderer.render(scene, camera)
     } else {
       stepper.advance((now - last) / 1000)
