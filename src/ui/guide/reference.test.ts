@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { COMBOS, METERS, WIND_LEGEND } from './reference'
+import { COMBOS, METERS, WIND_LEGEND, SCREEN_MARKS } from './reference'
 import { actionKeys } from './actions'
 import { ARCHIPELAGO } from '../../world/levels/archipelago'
 
@@ -33,6 +33,26 @@ describe('METERS', () => {
 
   it('gives every meter a detail', () => {
     for (const meter of METERS) expect(meter.detail.length).toBeGreaterThan(0)
+  })
+})
+
+describe('SCREEN_MARKS', () => {
+  it('explains both rings drawn around the crosshair', () => {
+    // Two entries, because there are two rings and the whole purpose of this list is
+    // telling them apart. A test on `length` alone would pass a list with two copies of
+    // one entry, so the names are asserted too.
+    expect(SCREEN_MARKS.map((mark) => mark.name)).toEqual(['Hit direction', 'Threats off screen'])
+  })
+
+  it('names each ring\'s colour, so the legend can be matched to the screen at all', () => {
+    // Not because colour is the thing that distinguishes the two rings — measured, the two
+    // hues are 5.6 degrees apart, and the hollow-V-versus-filled-wedge shape plus the 10 px
+    // radial gap are what a glance actually resolves. It is because a legend that described
+    // the behaviour without naming any appearance at all would leave the player matching
+    // prose to shapes with nothing to key on. Both entries name a shape as well, and this
+    // pins the colour half of that.
+    expect(SCREEN_MARKS[0]?.detail).toMatch(/orange/)
+    expect(SCREEN_MARKS[1]?.detail).toMatch(/red/)
   })
 })
 

@@ -11,7 +11,7 @@ for whoever picks the project up next, including a future session with no memory
 below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 1525 tests across 92 files,
+**Repo state:** 1604 tests across 96 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -2285,6 +2285,210 @@ the ordering claim above rests on reading `syncVisuals`. `HIT_MARK_SECONDS` 1.2,
 radius, the wedge's size and the reticle's 20 px ring are all argued guesses that nobody has
 played with.
 
+## Off-screen enemy indicators
+
+**The hit-direction cycle covered the moment after an attack lands; this one covers the moment
+before, when something engaged with the player is simply not in view.** `src/fx/off-screen.ts` is
+the pure half: `offScreenPresence` reads a soldier's NDC projection and ramps from 0 at the frame
+edge to 1 at `OFF_SCREEN_RAMP` past it, and `enemyMarker` decides who earns a chevron at all —
+targetable, off screen, and either within the fight's own `aggroRange` measured in 3D or, for a
+melee soldier, within its `strikeRange` measured horizontally. `src/ui/off-screen-
+view.ts` draws one hollow red chevron per marker on a ring outside the existing hit wedges, rotated
+by the same signed bearing convention those wedges already use, brightening for a soldier that is
+winding up to strike. `src/ui/guide/reference.ts` gains `SCREEN_MARKS`, a two-entry legend read
+through the panel's existing generic `notesHtml`, so the guide now says in plain words which ring
+is which. And `percent`, `radians` and `alpha` moved to a shared `src/ui/overlay-format.ts`. Only `percent`
+was actually duplicated — written out identically in `reticle-view.ts` and `hit-direction-view.ts`
+before this cycle, and about to be copied a third time — which is the duplication this project's own
+review rubric treats as a defect. `radians` and `alpha` existed once each, privately in
+`hit-direction-view.ts`, and moved alongside it because a third view needed them and because the
+node test environment can reach a shared module while it cannot reach either view.
+
+**Three findings from the spec shaped the design before any code was written.** Edge-clamping —
+projecting the target and clamping the result to an inset rectangle, the genre-standard approach —
+is the wrong shape here, because a projection behind the camera is mirrored garbage, and the space
+directly behind the player is the majority of what this feature exists to cover; an edge-clamped
+implementation would be projection-driven for the minority just past the frame edge and
+bearing-driven for the majority behind the camera, with a discontinuity where a target crosses
+between the two. One rule instead: bearing, through the same `bearingFromCamera` the hit wedges
+already use. Second, the combat model needed no new reporting at all — everything this feature
+needs was already available inside `syncVisuals`: `encounter.enemies` for stance and health, each
+view's interpolated position for where the body is drawn, and a camera already positioned and
+oriented for the frame. `src/combat/encounter.ts` and `src/combat/enemy.ts` are untouched by this
+cycle. Third, this overlay reads the camera's own heading via `camera.getWorldDirection()`, while
+the hit wedges deliberately keep reading `input.lookDirection`, and the two are not the same thing:
+the drawn camera trails `lookDirection` by a measured 17.78 degrees during a sustained 180-degree-
+per-second turn on foot. A frozen hit mark can absorb that lag — it is a record of a past moment
+either way — but a marker recomputed every frame cannot, because the lag would show up as the whole
+ring sliding during a turn and settling afterward. The two overlays are on different bases on
+purpose, and unifying them by moving hit marks onto the camera basis would be the wrong fix: `markFor`
+is called from `update()`, and reading the camera there would move render state into the simulation
+half of the frame.
+
+**What that divergence looks like to a player, which the paragraph above states only as a
+justification.** A player hit *while flicking* sees two marks for the same soldier, up to about 17.8
+degrees apart: roughly 20 px of arc at the wedges' 54–74 px radius and 30 px at the chevrons' 84–104
+px. And the two do not behave the same way afterwards — the chevron converges on the truth as the
+camera catches up, because it is recomputed every frame, while the wedge froze its bearing at the
+instant the hit landed and stays wrong for its whole 1.2 seconds. So a player who turns to face the
+chevron finds the wedge still pointing slightly off it. This is the shape of the artefact to look for
+when someone finally plays this with a mouse in hand, and it is the concrete version of the thing
+the "17.78 degrees" figure has so far only been used to argue about.
+
+**The 3D-versus-horizontal decision exists for the hovering spear, and the first version of it got
+the hovering spear backwards.** `stepEnemy` measures a spear's notice range horizontally — that is
+what makes an archer, which measures in 3D, the type that pressures altitude at all — so a spear 20
+units out and 300 units below a hovering player is still inside its horizontal `aggroRange` of 26
+and has noticed them. Marking every such soldier would hang a permanent ring of chevrons around a
+player who has climbed out of the fight, the same clutter `HIT_MARK_SECONDS` was tuned to avoid on
+the other overlay. So `enemyMarker`'s primary test is 3D distance against `aggroRange`, which is
+stricter than the fight for a spear and identical to the fight for an archer.
+
+**What that alone got wrong is the same trap this document already records against `stepEnemy`: a
+horizontal reach means height is *ignored*, not protective.** A melee soldier measures
+`strikeRange` horizontally too, so a spear at horizontal distance 0 is inside its 3.2 reach at
+*any* altitude — it winds up, and it hits. `enemy.test.ts`'s "still thrusts at a player almost
+directly overhead" pins exactly that, and measured against the real config a spear at the origin
+deals 3 damage over 200 frames (3.3 s) to a 5-health player hovering at (0, 30, 0). Shipped with
+only the 3D clause, this feature stayed silent about the one soldier that was actually damaging
+that player, while the hit wedge that did appear pointed dead ahead — `bearingFromCamera`'s
+`sourceDistance < 1e-6` guard returns 0 for a near-vertical offset. So the range rule now has a
+second clause: a melee soldier also earns a marker within `strikeRange` measured horizontally,
+gated on `c.attack.kind === 'melee'` so an archer, which measures both notice and commit in 3D and
+cannot shoot a target the first clause rejected, is unaffected. The anti-clutter property survives
+— a spear 10 units out and 30 units below is outside both clauses and earns nothing — and both
+ranges are read from the config rather than written as literals, so retuning either moves the
+markers with it.
+
+**That same divergence caught the guide legend's first draft saying something the code does not
+check.** `SCREEN_MARKS`'s "Threats off screen" entry originally read "for each soldier that has
+noticed you", and "has noticed you" is the fight's own horizontal notice test for a spear, not the
+3D one `enemyMarker` actually gates on — a spear that has genuinely noticed the player by the
+fight's own definition (advancing, horizontally in range) but sits far below and off to one side of
+a hovering player earns no chevron, so a player reading that sentence literally could conclude "no
+chevron" means "nothing has noticed me", which is false in exactly that case. The direction of the
+mismatch is safe *now that the melee reach clause exists* — the remaining omitted case is a soldier
+outside both its 3D notice range and its horizontal strike reach, which cannot land a hit from where
+it stands, and which earns a chevron the moment it closes into reach, since `stepEnemy` walks a
+noticing spear in horizontally and the melee clause admits it as soon as it arrives — but the words
+still claimed a gate the code does not run. The copy now says "close enough to be a threat"
+instead, which is what `enemyMarker` actually gates on. This is the only place a future reader
+learns that the player-facing sentence and the code's rule are deliberately not phrased the same
+way.
+
+**The register entry this cycle nearly added.** The spec's first draft asked for asymmetric
+fixtures "so an axis swap is visible" in `offScreenPresence` — a test that cannot fail, because the
+overshoot the function reports is a `Math.max` of the two axes' excesses, and `Math.max` is
+commutative: swapping which axis is `x` and which is `y` is a provable no-op, and no fixture, however
+asymmetric, can make that swap observable. The fixtures stayed, because they do catch real mutants —
+reading only one axis, or dropping the absolute value — and the claim attached to them was corrected
+to say exactly what they catch and what they cannot, rather than deleting a test that pulls its
+weight for the wrong stated reason. This did not become a register entry below because it was caught
+before anything shipped; it is recorded here as the same shape the register exists to guard against.
+
+**The delivery path in `main.ts` is, once again, invisible to every check this repository can run,
+and that was measured rather than assumed.** Deleting the feature's single `offScreen.update(...)`
+call leaves the whole suite — 1600 tests when this was measured, during the wiring task — and both
+typecheck passes completely green. `noUnusedLocals` is
+off in this project, and the `offScreen` instance stays "used" through its two `hide()` calls
+regardless of whether `update()` is ever reached. This is not a defect introduced by this cycle; it
+is the same standing property of `main.ts` that earlier cycles in this document have already
+recorded, confirmed again here because a change to the wiring is exactly the kind of thing that
+property would hide.
+
+**A plan defect, caught by the compiler rather than a reviewer.** The plan named the new per-frame
+array `markers`, which collides with a pre-existing and unrelated `const markers = new
+Map<string, Mesh>()` for shrine markers, still in scope at both insertion points in `main.ts`. Using
+the plan's literal name produced a `TS2451` redeclaration error. The new local is `enemyMarkers`;
+the shrine map is untouched.
+
+**One comment was checked against the installed library rather than taken on faith, and the half of
+it that was inferred rather than measured turned out to be wrong.** A comment asserts that
+`camera.getWorldDirection()` needs no renderer pass first because it calls `updateWorldMatrix`
+itself. Checked against the installed three.js 0.185.1 rather than recalled from memory: that holds,
+and it holds further than the comment states, because `Camera` overrides `updateWorldMatrix` to
+refresh `matrixWorldInverse` as well — so there is no staleness in the *marker* projection, which
+runs after that call.
+
+**What did not follow, and was written down as if it did, is that "the same reasoning covers the
+pre-existing reticle projection".** It did not. `camera.updateProjectionMatrix()` rebuilds only
+`projectionMatrix`; `Vector3.project` also reads `matrixWorldInverse`, which is otherwise refreshed
+by `renderer.render` — and that runs *after* `syncVisuals`. So the reticle, projected before the
+`getWorldDirection` call, was reading the previous frame's inverse world matrix while the chevrons,
+projected after it, read this frame's. The two projections disagreed by a frame, which put the
+ring's origin one frame behind the ring's contents. Proved by running the exact sequence against the
+installed library: the same target point gives two different NDC results, with `getWorldDirection`
+as the only intervening statement. Fixed by hoisting that call above the reticle's projection, which
+also retires a pre-existing one-frame reticle lag that predates this cycle. **The call is now doing
+double duty and must not be moved back down**; the comment beside it says so.
+
+**Three things a reviewer raised that this document records rather than fixes.**
+
+*The duplicated finiteness test.* The expression
+`Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)` is now written out verbatim in both
+`src/fx/off-screen.ts` and `src/ui/reticle.ts`. A second copy of one boolean, not yet a third.
+Left as a judgment call for whoever next touches either file, rather than extracted on the strength
+of two occurrences.
+
+*`enemyMarker`'s range gate fails **closed** on a non-finite world position, which is stricter than
+it looks.* There is no finiteness check on a world position anywhere in `off-screen.ts` — only on
+the NDC — so the behaviour falls out of the comparisons. A NaN in `x` or `z` poisons both
+`distanceTo` and `horizontalDistance`, and since `NaN <= x` is false, both clauses of the two-clause
+range rule are false and the soldier is rejected. The single `if (distance > c.aggroRange) return
+null` this replaced failed *open* on the same input; restructuring the gate into two
+admit-comparisons flipped that direction, which is worth writing down because it is the opposite of
+what a reader checking NaN behaviour would expect. The consequence: a soldier whose horizontal
+position goes corrupt silently disappears from the ring rather than drawing wrongly. And it is that
+gate, not any finiteness test, which closes the only route to a NaN bearing — `bearingFromCamera`
+reads `x` and `z`, `radians` would render its NaN as `"NaNrad"`, and CSS drops the invalid transform
+and leaves a full-opacity chevron at rotation zero. Anything that loosens the gate reopens that
+route.
+
+A NaN confined to `y` alone still admits a melee soldier inside its horizontal reach, and that is
+the clause working rather than a hole: the clause and the bearing both read only `x` and `z`, so the
+chevron points correctly on the data that is still good, while `offScreenPresence` returns 1 from
+the all-NaN projection — its deliberate answer for a projection it cannot place. An archer is
+rejected, its notice clause being the 3D one. All of this was derived by running the cases rather
+than reasoned about: NaN `x` → null, NaN `z` → null, NaN `y` with a spear underfoot → a marker at
+bearing 0 and strength 1, NaN `y` with the same spear 10 units out → null, NaN `y` with an archer →
+null. No reachable path to a NaN enemy position was found, so **no guard was added**;
+`enemyMarker`'s doc comment carries the same derivation.
+
+*The melee clause admits the population where the bearing can be degenerate.* Not a defect, but it
+follows from the clause and nothing else says so: a soldier within `strikeRange` horizontally is
+exactly a soldier that may have almost no horizontal offset, which is where `bearingFromCamera`'s
+`sourceDistance < 1e-6` guard returns 0. A spear directly underfoot therefore gets a chevron
+pointing dead ahead. That is unavoidable rather than wrong — a soldier with no horizontal offset has
+no horizontal direction to report — and in that case the chevron reports presence rather than
+direction, which is still more than the player had before. At the 2 units of `enemy.test.ts`'s
+overhead-thrust case the bearing is real.
+
+*The ring can be clipped by the viewport.* The ring's origin is the reticle position whenever the
+aim point is inside `[0, 1]` on both axes — inclusive — and the chevrons orbit 84–104 px out from
+it. So in the glider a steep pitch can put the aim point near the top edge of the window with the
+upper chevrons cut off, and the marker for a soldier behind and above the player is exactly the one
+that goes missing. This is pre-existing for the hit wedges at 54–74 px and 30 px worse for the
+chevrons. Not fixed: the obvious remedies (insetting the origin, or shrinking the radius when the
+origin is near an edge) both move the ring away from the reticle it is meant to read as part of,
+which is a trade nobody can judge without having played it.
+
+**The wind-up flare was gated by the fade-in, which made the alarm quietest where it mattered
+most.** The view wrote `strength` straight into the mark's `opacity` and the winding tint onto its
+child, so a soldier that had only just crossed the frame edge flared at roughly 10% opacity — while
+the guide promises the player that the flare "is the moment to move", and the moment a wind-up
+starts just off the edge is the most actionable one there is, since the player is one small turn
+from seeing it. Two independent channels were being multiplied: `strength` answers "how far off
+screen", `winding` answers "how urgent", and only the first is a distance readout that ought to
+fade. A winding mark now gets an opacity floor, `WINDING_OPACITY_FLOOR` 0.6, so presence fades and
+urgency does not.
+
+**What is a guess, and what cannot be exercised here at all.** `OFF_SCREEN_RAMP` 0.25, the 84–104 px
+radius the chevrons orbit at, `WINDING_OPACITY_FLOOR` 0.6 and `WINDING_COLOUR`'s hotter red are all
+argued guesses; nobody has played any of this. And this cycle's entire subject is a screen-space overlay that only exists while
+the player is turning with something off screen — the harness cannot hold a pointer lock, so none of
+it can be watched here at all, the same limitation this document has recorded against the reticle and
+the hit wedges above.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
@@ -2578,12 +2782,12 @@ assertions and judging them adequate.
 | `pauseReason` had no exact-reason assertion at `pointerLocked: true, documentHidden: true, guideOpen: false` | returning `'unlocked'` instead of `'hidden'` on the branch where the lock is still held | `'reports the reason this table names for every combination'`, which pins all eight combinations as one object comparison |
 | `OverlayModel.hint` was unasserted at all four points where the card is invisible | `HIDDEN.hint = 'H — guide'`, i.e. a non-empty hint on the invisible path | the same 8-point table, extended from three fields to all four and compared as whole objects |
 
-Two things generalise from them. First, the register below is now unanimous: **nineteen for
-nineteen, the gap was found by making the forbidden change, and none of the nineteen by reading
-the assertion and reasoning about what it covered.** That is no longer a lesson from one
+Two things generalise from them. First, the register below is now unanimous: **twenty-one for
+twenty-one, the gap was found by making the forbidden change, and none of the twenty-one by
+reading the assertion and reasoning about what it covered.** That is no longer a lesson from one
 cycle; it is the only method that has ever worked here. (The count read "fifteen for fifteen"
-until the aim-and-hit-direction cycle added four; the four are recorded at the end of this
-section.)
+until the aim-and-hit-direction cycle added four; the count read "nineteen for nineteen" until
+the off-screen enemy indicators cycle added two, both recorded at the end of this section.)
 
 Second, and new: **a test's name can be what hides the gap.** The eleventh sat behind
 `'names a reason for every combination with any pausing cause'`, which sounds exactly like
@@ -2743,6 +2947,34 @@ The nineteenth is a test defect rather than a live one — `input.ts` clamps pit
 whose horizontal magnitude is 0.0872 against the guard's 1e-6 threshold, so nothing in the game
 reaches that branch. It is in the register because of how it hid: its sibling guard, four lines
 above it in the same function, *was* pinned to a value, and the pair read as covered.
+
+**The off-screen enemy indicators cycle added the twentieth and twenty-first, and both are new
+shapes: an assertion made unfalsifiable by something other than a weak claim or a symmetric
+fixture.** This register exists because this exact failure mode has shipped repeatedly, and both
+entries below are a different mechanism from all nineteen before them.
+
+**The twentieth: unfalsifiable by saturating arithmetic.** A test used
+`{ x: 0.3, y: Infinity, z: 0.5 }` to prove `offScreenPresence` checks `ndc.y` for finiteness. It
+cannot. `Math.abs(Infinity) - 1` is `Infinity`, which wins the `Math.max`, and
+`Math.min(Infinity / 0.25, 1)` is `1` — exactly what the guard would have returned. Deleting the
+`Number.isFinite(ndc.y)` clause left every test in the file green. The equivalent `NaN` fixture
+*does* catch it, because `NaN` poisons the same expressions to `NaN`. Same expression, same
+intent, opposite observability, decided entirely by which non-finite value the fixture picked.
+Fixed by adding a `y: NaN` assertion and keeping the `Infinity` one with a comment saying plainly
+that it pins a value rather than covering the guard. Verified by mutation: dropping the clause
+reddens the `NaN` line with "expected NaN to be 1", and does not redden the `Infinity` line.
+
+**The twenty-first: unfalsifiable by a language guarantee.** Two tests asserted that `percent` and
+`radians` "flatten a tiny float instead of writing it in exponent notation". But
+`Number.prototype.toFixed` never emits exponential notation below 1e21 — that is JavaScript's
+promise, not the code's. Any implementation satisfying the sibling assertions in the same block
+satisfies these for free. The one mutant that might have rescued them, `toPrecision(5)`, renders
+100 as `"100.00"` and is already caught by `percent(1)`. So the test verified the runtime rather
+than the helper. Fixed by asserting both the hazard and the behaviour, with the comment naming
+which half can fail.
+
+**A false string, inside the comment documenting that very hazard.** It claimed
+`${1.2e-16 * 100}%` is `"1.2e-14%"`. It is `"1.2000000000000001e-14%"`.
 
 ## Suggested next steps
 

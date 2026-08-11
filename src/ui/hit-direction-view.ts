@@ -1,4 +1,5 @@
 import { HIT_MARK_SECONDS, type HitMark } from '../fx/hit-direction'
+import { alpha, percent, radians } from './overlay-format'
 
 /**
  * The hit-direction indicator: one wedge per remembered hit, pointing at where it came from.
@@ -68,29 +69,6 @@ const STYLE = `
   border-bottom: 20px solid ${MARK_COLOUR};
   filter: drop-shadow(0 1px 3px rgba(0,0,0,.6)); }
 `
-
-/*
- * Every number this file writes into a `style` goes through one of these three, which round to
- * below anything visible: a thousandth of a percent is a hundredth of a pixel, 1e-5 radians is six
- * ten-thousandths of a degree, and a thousandth of an opacity step is under one 255th.
- *
- * The point is only to keep full-precision floats out of the DOM — every one of these is written
- * once per rendered frame, and a raw `atan2` result or a raw `life / HIT_MARK_SECONDS` is
- * regularly seventeen significant digits. It is **not** a correctness fix, in case the rounding
- * suggests one: CSS numbers accept exponent notation, checked in a browser rather than assumed
- * (`rotate(2.4e-17rad)` parses and reads back intact), so the unrounded values were never invalid.
- */
-function percent(fraction: number): string {
-  return `${(fraction * 100).toFixed(3)}%`
-}
-
-function radians(angle: number): string {
-  return `${angle.toFixed(5)}rad`
-}
-
-function alpha(value: number): string {
-  return value.toFixed(3)
-}
 
 /** Where the wedges are drawn around, as viewport fractions from the top-left. */
 export interface HitDirectionOrigin {

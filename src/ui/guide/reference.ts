@@ -81,6 +81,33 @@ export const METERS: readonly MeterNote[] = [
 ]
 
 /**
+ * The two rings of shapes drawn around the crosshair.
+ *
+ * A list of its own rather than three more `METERS` entries: those are bars with values,
+ * these are markers with directions, and the guide renders them under their own heading so
+ * a player looking for "what is that shape" is not reading past the health bar to find it.
+ *
+ * They exist as written copy at all because there are two of them around one point. One
+ * ring needed no legend; two similar rings do.
+ */
+export const SCREEN_MARKS: readonly MeterNote[] = [
+  {
+    name: 'Hit direction',
+    detail: 'A solid orange wedge, close in around the crosshair, pointing at where an '
+      + 'attack came from. It marks the direction at the moment it landed and then holds '
+      + 'still while you turn, so once you have come round to face it you can ignore it. '
+      + 'Fades out in about a second.',
+  },
+  {
+    name: 'Threats off screen',
+    detail: 'A hollow red chevron, further out, for each soldier close enough to be a threat '
+      + 'and outside the view. It fades in as they leave the frame and follows them while '
+      + 'you turn, so it always points where they actually are. It flares to a hotter red '
+      + 'while that soldier is winding up to attack — that is the moment to move.',
+  },
+]
+
+/**
  * What the mote clouds mean.
  *
  * Typed as a Record over WindKind, so adding a sixth kind of wind fails to compile

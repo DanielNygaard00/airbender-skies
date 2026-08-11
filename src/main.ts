@@ -64,7 +64,9 @@ import { createHud, hudModelFor, VIGNETTE_SCALE_PROPERTY } from './ui/hud'
 import { reticleModel } from './ui/reticle'
 import { createReticle } from './ui/reticle-view'
 import { createHitDirection } from './ui/hit-direction-view'
-import { markFor, stepHitMarks, type HitMark } from './fx/hit-direction'
+import { createOffScreen } from './ui/off-screen-view'
+import { enemyMarker, type EnemyMarker } from './fx/off-screen'
+import { bearingFromCamera, markFor, stepHitMarks, type HitMark } from './fx/hit-direction'
 import { createGuide, guideModelFor } from './ui/guide/panel'
 import { pauseReason, pauseOverlayModel } from './core/pause'
 import { createPauseOverlay } from './ui/pause-overlay'
@@ -345,15 +347,16 @@ function start(): void {
   document.addEventListener('visibilitychange', () => {
     documentHidden = document.hidden
   })
-  // Both appended *before* the HUD, and the order is load-bearing rather than tidy. None of
+  // All three appended *before* the HUD, and the order is load-bearing rather than tidy. None of
   // these overlays sets a `z-index`, so they stack in document order and the HUD's own
   // full-screen `.hud-fade` and `.hud-hurt` layers paint over whatever precedes them. That is
-  // what keeps a reticle and a ring of wedges from floating on top of the blackout during the
+  // what keeps a reticle and two rings of marks from floating on top of the blackout during the
   // down beat — which is not a pause, so `frame()`'s hiding below does not cover it — and it is
   // what keeps them under the pause card and the guide panel as a second line of defence if
   // they are ever shown on a paused frame by mistake.
   const reticle = createReticle(document.body)
   const hitDirection = createHitDirection(document.body)
+  const offScreen = createOffScreen(document.body)
   const hud = createHud(document.body)
   const overlay = createPauseOverlay(document.body)
   // Rebuilt on open rather than per frame: the simulation is paused while the guide is
@@ -473,6 +476,17 @@ function start(): void {
   const sampledEnemy = new Vector3()
   // Scratch for the reticle's aim point, projected in place by Vector3.project.
   const aimPoint = new Vector3()
+  /**
+   * Scratch for a soldier's projected position, and for the camera's own heading.
+   *
+   * Reused for the same reason every other scratch in this block is: `syncVisuals` runs
+   * once per rendered frame for the whole session, so allocating a Vector3 per soldier per
+   * frame would be the only garbage the presentation layer produces.
+   */
+  const markerPoint = new Vector3()
+  const cameraForward = new Vector3()
+  /** Rebuilt in place each frame rather than reallocated, for the same reason. */
+  const enemyMarkers: EnemyMarker[] = []
 
   /**
    * Stand the player back up, at the moment the screen is fully black.
@@ -1153,13 +1167,36 @@ function start(): void {
       + fovKickForDash(dashKick) * motion.dashKick
     camera.updateProjectionMatrix()
 
-    // Everything below has to be *after* that call, and it is the one ordering in this function
-    // that nothing tests. `Vector3.project` multiplies by the camera's projection matrix and
-    // its inverse world matrix, both of which the block above has just changed: `camera.fov`
-    // was reassigned, `camera.position` was written and `camera.lookAt` re-oriented it. Run
-    // before `updateProjectionMatrix`, the projection would use the previous frame's matrices
-    // and put the reticle one frame behind the view — which still looks entirely plausible in
-    // motion and is exactly why this is written down rather than left to be noticed.
+    // **This line has to stay above both projections below, and the reason is not the one a
+    // reader would guess.** `updateProjectionMatrix` rebuilds only `projectionMatrix`;
+    // `Vector3.project` also reads `camera.matrixWorldInverse`, and nothing above has
+    // refreshed that — `renderer.render` is what normally does, and it runs *after*
+    // `syncVisuals`. `getWorldDirection` calls `updateWorldMatrix`, which `Camera` overrides
+    // to refresh `matrixWorldInverse` as well, so this call is doing double duty: it produces
+    // the camera heading the marker loop needs *and* it is the only thing that brings the
+    // inverse world matrix up to this frame before anything projects against it. Moved back
+    // down below the reticle's projection — where it used to sit — the reticle and the
+    // chevrons project against matrices a frame apart, so the ring's origin lags the ring's
+    // contents. Measured against the installed three.js: same target point, two different NDC
+    // results, with this statement as the only thing in between.
+    //
+    // The camera's own world heading, not `lookDirection`. The hit wedges are handed
+    // `lookDirection` because `markFor` is called from `update()`, where reading the camera
+    // would pull render state into the simulation half of the frame — and the drawn camera
+    // trails the look direction by a measured 17.78 degrees in a sustained 180
+    // degrees-per-second turn on foot. A frozen bearing can afford that error. A bearing
+    // recomputed every frame cannot: it would slide the whole ring during every flick and
+    // settle afterwards. Here, after `camera.lookAt`, the accurate value is free.
+    camera.getWorldDirection(cameraForward)
+
+    // Everything below has to be *after* `updateProjectionMatrix`, and it is the one ordering in
+    // this function that nothing tests. `Vector3.project` multiplies by the camera's projection
+    // matrix and its inverse world matrix, both of which the two blocks above have just
+    // refreshed: `camera.fov` was reassigned, `camera.position` was written, `camera.lookAt`
+    // re-oriented it, and `getWorldDirection` brought the inverse world matrix along. Run
+    // before either, the projection would use the previous frame's matrices and put the reticle
+    // one frame behind the view — which still looks entirely plausible in motion and is exactly
+    // why this is written down rather than left to be noticed.
     //
     // A point along the real heading, not screen centre. The camera looks AT the player from
     // behind and above, so screen centre is the character's body; and on foot `forward` is the
@@ -1201,13 +1238,13 @@ function start(): void {
     const aimOnScreen = aim.visible
       && aim.x >= 0 && aim.x <= 1 && aim.y >= 0 && aim.y <= 1
 
-    // Both hidden through the whole down beat, and this is a correctness guard rather than
+    // All three hidden through the whole down beat, and this is a correctness guard rather than
     // tidiness. `update()` returns early while `down` is set, so nothing in there is being
     // recomputed: `aimHot` holds whatever it was on the frame the player went down, and the
     // aim point is projected from a heading the player has no control over until the beat
-    // ends. Drawing either of them is drawing a stale claim.
+    // ends. Drawing any of them is drawing a stale claim.
     //
-    // It also takes a load off the overlays' document order. The two roots are appended before
+    // It also takes a load off the overlays' document order. The three roots are appended before
     // `createHud` so that the HUD's full-screen `.hud-fade` paints over them during the
     // blackout (see the comment at the `createReticle` call), and until this branch existed
     // that layering was the *only* thing standing between the player and a warm gold reticle
@@ -1216,10 +1253,42 @@ function start(): void {
     if (down) {
       reticle.hide()
       hitDirection.hide()
+      offScreen.hide()
       return
     }
+
+    // Below the down-beat return, not above it: every marker this loop builds would be
+    // discarded there, and it is five projections and five bearings per frame for the length
+    // of the blackout. Nothing between the two points reads `enemyMarkers`, and `cameraForward`
+    // is filled in far above — up beside `updateProjectionMatrix`, where it also refreshes the
+    // inverse world matrix both projections in this function depend on, which is why that call
+    // did not come down here with the loop.
+    enemyMarkers.length = 0
+    for (const enemy of encounter.enemies) {
+      const view = enemyViews.get(enemy.id)
+      if (!view) continue
+      // The *drawn* position, which the enemy loop at the top of this function has already
+      // set from each soldier's interpolator. The chevron points at the body the player
+      // would see if they turned, so its direction has to come from where that body is
+      // drawn rather than from a simulation position up to one step away from it.
+      //
+      // The distance and stance rules inside `enemyMarker` read the simulation's own
+      // `enemy` instead, because those are what the fight decided. The same mix, for the
+      // same reason, as the reticle's drawn origin and simulation heading above.
+      markerPoint.copy(view.object.position).project(camera)
+      const marker = enemyMarker(
+        enemy,
+        player.position,
+        markerPoint,
+        bearingFromCamera(cameraForward, sampledPosition, view.object.position),
+        DEFAULT_COMBAT_CONFIG.enemies[enemy.kind],
+      )
+      if (marker) enemyMarkers.push(marker)
+    }
+
     reticle.update(aim)
     hitDirection.update(hitMarks, aimOnScreen ? aim : SCREEN_CENTRE)
+    offScreen.update(enemyMarkers, aimOnScreen ? aim : SCREEN_CENTRE)
   }
 
   const stepper = createStepper({
@@ -1306,16 +1375,18 @@ function start(): void {
       // "renders wherever the renderer's default camera happened to start."
       input.sample()
       last = now
-      // Both hidden while paused: the guide panel and the pause card own the screen then, and a
-      // reticle floating over a settings panel is noise. Hidden rather than left as they were,
-      // because this branch does not call `syncVisuals`, so there is no fresh aim point to draw
-      // and no `frameDt` reaching `stepHitMarks` — leaving them up would freeze a reticle at a
-      // heading the camera may no longer have and hold a ring of wedges at a fixed opacity for
-      // as long as the player leaves the panel open. The marks themselves are kept, not
-      // discarded: no simulation time passes while paused, so they resume at the age they were
-      // hidden at.
+      // All three hidden while paused: the guide panel and the pause card own the screen then,
+      // and a reticle floating over a settings panel is noise. Hidden rather than left as they
+      // were, because this branch does not call `syncVisuals`, so there is no fresh aim point to
+      // draw, no `frameDt` reaching `stepHitMarks` and no fresh marker list — leaving them up
+      // would freeze a reticle at a heading the camera may no longer have, hold a ring of wedges
+      // at a fixed opacity, and hold a ring of chevrons pointing at where soldiers were when the
+      // player opened the panel, for as long as it stays open. The hit marks themselves are kept,
+      // not discarded: no simulation time passes while paused, so they resume at the age they
+      // were hidden at.
       reticle.hide()
       hitDirection.hide()
+      offScreen.hide()
       renderer.render(scene, camera)
     } else {
       stepper.advance((now - last) / 1000)

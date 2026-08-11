@@ -1,3 +1,4 @@
+import { percent } from './overlay-format'
 import type { ReticleModel } from './reticle'
 
 /**
@@ -8,27 +9,16 @@ import type { ReticleModel } from './reticle'
  * lives in `src/ui/reticle.ts` — the NDC-to-viewport conversion, and the decision to hide the
  * reticle when the aim point is behind the camera or has no finite position, are pure and tested
  * there. What is left in this file is stylesheet and two `style` writes.
- */
-
-/**
- * A viewport fraction as a CSS percentage, rounded to three decimals.
  *
- * A projected coordinate is a full-precision float, so the unrounded string is regularly
- * seventeen significant digits — `4.163336342344337e-17%` for an aim point dead centre — written
- * into the DOM once per rendered frame. Three decimals of a percent is a hundredth of a pixel on
- * any window anyone owns, so nothing visible is lost.
- *
- * It is *not* a correctness fix, and it is worth saying so because it looks like one: CSS numbers
- * accept exponent notation (`left: 1.2e-14%` was checked in a browser and both parsed and read
- * back intact), so the unrounded value was never invalid. If you are here because the reticle is
- * stuck horizontally while it still moves vertically, this function is not the cause — look for a
- * NaN in `ndc.x`, which a camera with a non-finite `aspect` produces while leaving `y` and `z`
- * alone. A 0×0 canvas is one way to get one. `reticleModel` now reports that model as invisible,
- * so reaching this function with a NaN would mean that check has been broken.
+ * **If you are here because the reticle is stuck horizontally while it still moves vertically,
+ * the formatter is not the cause — look for a NaN in `ndc.x`.** A camera with a non-finite
+ * `aspect`, which a 0×0 canvas produces, gives exactly that: a NaN `x` beside a perfectly
+ * finite `y` and `z`. `reticleModel` reports such a model as invisible, so reaching the
+ * `percent` call below with a NaN would mean that check has been broken. This note lived on
+ * this file's own private `percent` before the formatters moved to `src/ui/overlay-format.ts`;
+ * it stays here rather than travelling with them, because the symptom it describes is this
+ * view's and the check it points at is `reticleModel`'s.
  */
-function percent(fraction: number): string {
-  return `${(fraction * 100).toFixed(3)}%`
-}
 
 /** The HUD's own text colour, so the reticle adds no new colour to the screen. */
 const RETICLE_COLOUR = '#f3f6fb'
