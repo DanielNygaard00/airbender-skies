@@ -13,11 +13,12 @@ describe('percent', () => {
   })
 
   it('flattens a tiny float instead of writing it in exponent notation', () => {
-    // The whole reason these three exist. A raw NDC-derived fraction is regularly
-    // seventeen significant digits, and `${1.2e-16 * 100}%` is the string "1.2e-14%".
-    // CSS does accept that -- checked in a browser rather than assumed -- so this is
-    // about keeping full-precision floats out of the DOM on every rendered frame, not
-    // about validity.
+    // The whole reason these three exist -- asserted on both sides, because the
+    // formatted half alone cannot fail. `toFixed` never emits an exponent below 1e21,
+    // so any implementation satisfying the assertions above satisfies the second line
+    // for free; it pins the value rather than covering anything. The first line is the
+    // one that can fail, and it is the one that establishes the hazard is real.
+    expect(`${1.2e-16 * 100}%`).toBe('1.2000000000000001e-14%')
     expect(percent(1.2e-16)).toBe('0.000%')
   })
 })
@@ -32,6 +33,11 @@ describe('radians', () => {
   })
 
   it('flattens a tiny angle rather than writing an exponent', () => {
+    // Asserted on both sides, for the same reason as percent's tiny-float test above:
+    // `toFixed` never emits an exponent below 1e21, so the formatted line alone cannot
+    // fail. The first line is the one that can fail, and it is the one that establishes
+    // the hazard is real.
+    expect(`${2.4e-17}rad`).toBe('2.4e-17rad')
     expect(radians(2.4e-17)).toBe('0.00000rad')
   })
 })
