@@ -2413,9 +2413,19 @@ double duty and must not be moved back down**; the comment beside it says so.
 Left as a judgment call for whoever next touches either file, rather than extracted on the strength
 of two occurrences.
 
+**The wind-up flare was gated by the fade-in, which made the alarm quietest where it mattered
+most.** The view wrote `strength` straight into the mark's `opacity` and the winding tint onto its
+child, so a soldier that had only just crossed the frame edge flared at roughly 10% opacity — while
+the guide promises the player that the flare "is the moment to move", and the moment a wind-up
+starts just off the edge is the most actionable one there is, since the player is one small turn
+from seeing it. Two independent channels were being multiplied: `strength` answers "how far off
+screen", `winding` answers "how urgent", and only the first is a distance readout that ought to
+fade. A winding mark now gets an opacity floor, `WINDING_OPACITY_FLOOR` 0.6, so presence fades and
+urgency does not.
+
 **What is a guess, and what cannot be exercised here at all.** `OFF_SCREEN_RAMP` 0.25, the 84–104 px
-radius the chevrons orbit at, and `WINDING_COLOUR`'s hotter red are all argued guesses; nobody has
-played any of this. And this cycle's entire subject is a screen-space overlay that only exists while
+radius the chevrons orbit at, `WINDING_OPACITY_FLOOR` 0.6 and `WINDING_COLOUR`'s hotter red are all
+argued guesses; nobody has played any of this. And this cycle's entire subject is a screen-space overlay that only exists while
 the player is turning with something off screen — the harness cannot hold a pointer lock, so none of
 it can be watched here at all, the same limitation this document has recorded against the reticle and
 the hit wedges above.

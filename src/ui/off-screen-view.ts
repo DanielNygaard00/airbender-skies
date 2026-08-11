@@ -48,6 +48,27 @@ const MARKER_COLOUR = '#e4614a'
  */
 const WINDING_COLOUR = '#ff3b21'
 
+/**
+ * The least opacity a winding chevron is drawn at, however little presence it has.
+ *
+ * **The two channels this ring carries are independent, and multiplying one by the other is
+ * what this floor undoes.** `strength` answers "how far off screen is this soldier", ramping
+ * from 0 at the frame edge to 1 an eighth of a screen past it; `winding` answers "how urgent
+ * is this soldier", and the guide promises the player that the flare "is the moment to move".
+ * Written straight into `opacity`, `strength` gated the flare too: a soldier that had only just
+ * crossed the frame edge — which is when a wind-up is most actionable, because the player is
+ * one small turn from seeing it — flared at roughly a tenth of an opacity. The alarm was
+ * quietest exactly where it mattered most.
+ *
+ * So presence still fades, and urgency does not. Only the first is a distance readout.
+ *
+ * 0.6 is an argued guess and nobody has seen it on a screen: high enough that a flare at the
+ * frame edge reads as a warning rather than a smudge, low enough that a chevron half-way into
+ * its fade-in is still visibly dimmer than one fully off screen. If the ring reads as flickering
+ * between two brightnesses as soldiers cross the edge, this number is the first thing to lower.
+ */
+const WINDING_OPACITY_FLOOR = 0.6
+
 /*
  * Geometry, and why it is a rotation rather than a sine and a cosine.
  *
@@ -162,7 +183,11 @@ export function createOffScreen(parent: HTMLElement) {
         // Radians directly: CSS takes them, and converting to degrees here would be a
         // second place the sign convention could be inverted by accident.
         mark.style.transform = `rotate(${radians(model.bearing)})`
-        mark.style.opacity = alpha(model.strength)
+        // Floored while winding, so the alarm channel is not gated by the presence channel —
+        // see `WINDING_OPACITY_FLOOR`.
+        mark.style.opacity = alpha(model.winding
+          ? Math.max(model.strength, WINDING_OPACITY_FLOOR)
+          : model.strength)
         // A class rather than writing the colour, so the two tints stay in the stylesheet
         // together where a reader comparing them does not have to look in two places.
         mark.classList.toggle('winding', model.winding)
