@@ -229,7 +229,12 @@ recorded rather than fixed.
   is being shot from behind a hill still gets a hit wedge.
 - **Vertical information.** The bearing is horizontal, like the hit marks'. A soldier almost
   exactly below a hovering player reads as ahead; the fully degenerate case is guarded and the
-  near-degenerate one needs a horizontal offset under a few centimetres at 30 units of drop.
+  near-degenerate one needs a horizontal offset under a few centimetres at 30 units of drop. The
+  melee reach clause makes this population the one that *does* get marked — a soldier inside
+  `strikeRange` horizontally is by definition a soldier with little horizontal offset — so a spear
+  directly underfoot draws a chevron pointing dead ahead. Unavoidable rather than wrong: with no
+  horizontal offset there is no horizontal direction to report, and the chevron is then reporting
+  presence. At the 2 units of `enemy.test.ts`'s overhead-thrust case the bearing is real.
 - **Lock-on or a soft target.** It changes aiming rather than reporting, and was already named as
   separate work.
 - **Arrows in flight.** A marker per projectile is a different feature with a different lifetime,
@@ -266,9 +271,9 @@ recorded rather than fixed.
   measurement, or the loss of the melee reach clause.
 - An archer at horizontal 0 and 45 below the player → null, since the reach clause is gated on
   `attack.kind === 'melee'`. Without this fixture, deleting that gate passes silently.
-- The melee clause's own boundary built from `SPEAR.strikeRange`, with the drop held well outside
-  `aggroRange` so only the horizontal clause can be deciding: inclusive at the boundary, null
-  just past it.
+- The melee clause's own boundary built from `SPEAR.strikeRange`, with the drop putting the 3D
+  distance outside `aggroRange` in every case so only the horizontal clause can be deciding:
+  inclusive at the boundary, null just past it.
 - The archer's boundary asserted against `aggroRange` 38 read from the config: 3D 37 → a marker,
   3D 39 → null, so the marker's rule is pinned to the fight's number rather than to a literal.
 - `winding` asserted true in `wind-up` and false in **every** other stance, driven by a

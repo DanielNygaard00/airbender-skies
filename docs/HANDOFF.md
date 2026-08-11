@@ -2368,8 +2368,10 @@ fight's own definition (advancing, horizontally in range) but sits far below and
 a hovering player earns no chevron, so a player reading that sentence literally could conclude "no
 chevron" means "nothing has noticed me", which is false in exactly that case. The direction of the
 mismatch is safe *now that the melee reach clause exists* — the remaining omitted case is a soldier
-outside both its 3D notice range and its horizontal strike reach, which genuinely cannot land a hit
-from where it stands — but the words still claimed a gate the code does not run. The copy now says "close enough to be a threat"
+outside both its 3D notice range and its horizontal strike reach, which cannot land a hit from where
+it stands, and which earns a chevron the moment it closes into reach, since `stepEnemy` walks a
+noticing spear in horizontally and the melee clause admits it as soon as it arrives — but the words
+still claimed a gate the code does not run. The copy now says "close enough to be a threat"
 instead, which is what `enemyMarker` actually gates on. This is the only place a future reader
 learns that the player-facing sentence and the code's rule are deliberately not phrased the same
 way.
@@ -2428,15 +2430,38 @@ double duty and must not be moved back down**; the comment beside it says so.
 Left as a judgment call for whoever next touches either file, rather than extracted on the strength
 of two occurrences.
 
-*`enemyMarker`'s range gate fails open on a non-finite world position.* `NaN <= c.aggroRange` is
-false and so is `NaN > c.aggroRange`, so a soldier with a NaN position is admitted rather than
-rejected; `offScreenPresence` then returns 1, `bearingFromCamera` yields NaN, and `radians` renders
-that as `"NaNrad"` — an invalid transform that CSS drops, leaving a full-opacity chevron pointing
-dead ahead. The module guards the finiteness of the *NDC* carefully and never the world position,
-and the one comparison that would catch it is written in the admitting direction. No reachable path
-to a NaN enemy position was found, so this is a latent asymmetry rather than a live bug and **no
-guard was added**; `enemyMarker`'s doc comment records it, so a future change that can produce such
-a position finds the note instead of the symptom.
+*`enemyMarker`'s range gate fails **closed** on a non-finite world position, which is stricter than
+it looks.* There is no finiteness check on a world position anywhere in `off-screen.ts` — only on
+the NDC — so the behaviour falls out of the comparisons. A NaN in `x` or `z` poisons both
+`distanceTo` and `horizontalDistance`, and since `NaN <= x` is false, both clauses of the two-clause
+range rule are false and the soldier is rejected. The single `if (distance > c.aggroRange) return
+null` this replaced failed *open* on the same input; restructuring the gate into two
+admit-comparisons flipped that direction, which is worth writing down because it is the opposite of
+what a reader checking NaN behaviour would expect. The consequence: a soldier whose horizontal
+position goes corrupt silently disappears from the ring rather than drawing wrongly. And it is that
+gate, not any finiteness test, which closes the only route to a NaN bearing — `bearingFromCamera`
+reads `x` and `z`, `radians` would render its NaN as `"NaNrad"`, and CSS drops the invalid transform
+and leaves a full-opacity chevron at rotation zero. Anything that loosens the gate reopens that
+route.
+
+A NaN confined to `y` alone still admits a melee soldier inside its horizontal reach, and that is
+the clause working rather than a hole: the clause and the bearing both read only `x` and `z`, so the
+chevron points correctly on the data that is still good, while `offScreenPresence` returns 1 from
+the all-NaN projection — its deliberate answer for a projection it cannot place. An archer is
+rejected, its notice clause being the 3D one. All of this was derived by running the cases rather
+than reasoned about: NaN `x` → null, NaN `z` → null, NaN `y` with a spear underfoot → a marker at
+bearing 0 and strength 1, NaN `y` with the same spear 10 units out → null, NaN `y` with an archer →
+null. No reachable path to a NaN enemy position was found, so **no guard was added**;
+`enemyMarker`'s doc comment carries the same derivation.
+
+*The melee clause admits the population where the bearing can be degenerate.* Not a defect, but it
+follows from the clause and nothing else says so: a soldier within `strikeRange` horizontally is
+exactly a soldier that may have almost no horizontal offset, which is where `bearingFromCamera`'s
+`sourceDistance < 1e-6` guard returns 0. A spear directly underfoot therefore gets a chevron
+pointing dead ahead. That is unavoidable rather than wrong — a soldier with no horizontal offset has
+no horizontal direction to report — and in that case the chevron reports presence rather than
+direction, which is still more than the player had before. At the 2 units of `enemy.test.ts`'s
+overhead-thrust case the bearing is real.
 
 *The ring can be clipped by the viewport.* The ring's origin is the reticle position whenever the
 aim point is inside `[0, 1]` on both axes — inclusive — and the chevrons orbit 84–104 px out from

@@ -95,14 +95,35 @@ export interface EnemyMarker {
  * both clauses and earns nothing. Both ranges are read from the config rather than written
  * here, so retuning either moves the markers with it.
  *
- * One asymmetry recorded rather than guarded, because no path in the game reaches it today:
- * both range comparisons above fail *open* on a non-finite world position — `NaN <= x` is
- * false, and so is the `NaN > x` this rule used to be written as — and a soldier admitted
- * that way gets `offScreenPresence` 1 and a NaN bearing, which `radians` renders as
- * `"NaNrad"`, an invalid transform CSS drops, leaving a full-opacity chevron pointing dead
- * ahead. This module guards the finiteness of the *NDC* carefully and never the world
- * position; the note is here so a future change that can produce a NaN position finds it
- * rather than the symptom.
+ * **What the range rule does with a non-finite world position, recorded rather than guarded
+ * because no path in the game reaches it today.** There is no finiteness check on a world
+ * position anywhere in this module — only on the NDC — so the behaviour falls out of the
+ * comparisons, and it is not what it looks like. A NaN in `x` or `z` poisons both
+ * `distanceTo` and `horizontalDistance`; `NaN <= x` is false, so *both* clauses are false and
+ * the soldier is **rejected**. Written as two admit-comparisons the gate fails **closed**,
+ * where the single `if (distance > c.aggroRange) return null` it replaced failed open. So a
+ * soldier whose horizontal position has gone corrupt silently vanishes from the ring rather
+ * than drawing wrongly — and it is this gate, not any finiteness test, that closes the only
+ * route to a NaN bearing: `bearingFromCamera` reads `x` and `z`, and `radians` would render
+ * its NaN as `"NaNrad"`, an invalid transform CSS drops, leaving a full-opacity chevron at
+ * rotation zero. Anything that loosens this gate — an escape hatch that always marks the
+ * nearest soldier, say — reopens that route.
+ *
+ * A NaN confined to `y` alone still admits a melee soldier inside its horizontal reach, and
+ * that is the clause working rather than a hole in it: the clause and the bearing both read
+ * only `x` and `z`, so the chevron points the right way on the data that is still good, and
+ * `offScreenPresence` answers 1 from the all-NaN projection, which is this module's
+ * deliberate answer for a projection it cannot place. An archer is rejected, its notice
+ * clause being the 3D one.
+ *
+ * One consequence of the melee clause that is not a defect but is worth knowing: it admits
+ * exactly the soldiers standing within `strikeRange` horizontally, which is the population
+ * where `bearingFromCamera`'s `sourceDistance < 1e-6` guard can fire. A spear at a horizontal
+ * offset of essentially zero — directly underfoot — therefore gets a chevron at rotation
+ * zero, pointing dead ahead. That is unavoidable rather than wrong: a soldier with no
+ * horizontal offset has no horizontal direction to report, and the chevron is then reporting
+ * presence rather than direction. At the 2 units of `enemy.test.ts`'s overhead-thrust case
+ * the bearing is real and useful.
  *
  * `isTargetable` rather than a fresh health test, so there is one definition in the
  * codebase of a soldier worth aiming at — it is the same predicate the gust cone uses,

@@ -210,8 +210,9 @@ describe('enemyMarker', () => {
 
   it('admits a melee soldier exactly at its horizontal strike reach, and not past it', () => {
     // The melee clause's own boundary, built from `SPEAR.strikeRange` so retuning the
-    // spear moves the test with it. The drop is far outside `aggroRange` in every case, so
-    // only the horizontal clause can be deciding. Inclusive at the boundary, matching
+    // spear moves the test with it. The drop puts the 3D distance outside `aggroRange` in
+    // every case, so only the horizontal clause can be deciding. Inclusive at the boundary,
+    // matching
     // `stepEnemy`'s own `distance <= c.strikeRange` test for committing to a thrust.
     const spear = spawnEnemy('spear-1', new Vector3(0, 0, 0), 'spear', SPEAR)
     const above = (horizontal: number) => new Vector3(horizontal, SPEAR.aggroRange + 4, 0)
