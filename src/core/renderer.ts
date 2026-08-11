@@ -70,7 +70,7 @@ export function createRenderer(canvas: HTMLCanvasElement) {
    * character's shadow — the one shadow a player actually looks at — stops reading as a
    * body carrying a staff. Tightening the shadow camera from 1..640 to 100..510 to buy
    * depth precision was tried alongside and changed nothing measurable. VSM would also
-   * add two separable blur passes over a 2048-square map every frame.
+   * add two separable blur passes over the whole shadow map every frame.
    *
    * And the premise turned out to be weak anyway: at this map resolution over a
    * 90-unit `SHADOW_EXTENT`, from the distance the follow cam watches, PCF's tree and
@@ -78,9 +78,15 @@ export function createRenderer(canvas: HTMLCanvasElement) {
    * deprecation was a real defect in what this file claimed and close to a non-issue in
    * what the player saw — the opposite of how it looked from the warning alone.
    *
-   * If softer shadows are wanted, the untried levers are a 4096 map (a smaller texel,
-   * at four times the memory) or a smaller `SHADOW_EXTENT` (the same map over less
-   * ground, at the cost of shadows nearer the player only). Not another pass at VSM.
+   * The 4096 map has since been tried, and it is worth knowing what it did and did not
+   * do. It sharpens PCF's shadows visibly at 1:1 — it is a *detail* lever, not a softness
+   * one, since PCF's kernel is fixed in texel space and smaller texels make edges
+   * crisper — and it is now what `SHADOW_MAP_SIZE` is set to. It does **not** rescue VSM:
+   * retested at 4096, the acne threshold barely moved (still banded at `normalBias` 0.2,
+   * where the character's shadow is already washing out), which says texel footprint was
+   * never what drove it. The remaining untried lever is a smaller `SHADOW_EXTENT` — the
+   * same map over less ground — and it is also the cheapest way to undo the memory cost
+   * if that ever matters. Not another pass at VSM.
    */
   renderer.shadowMap.type = PCFShadowMap
 

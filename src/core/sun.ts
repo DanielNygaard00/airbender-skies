@@ -21,7 +21,32 @@ export const SUN_DISTANCE = 320
  */
 export const SHADOW_EXTENT = 90
 
-const SHADOW_MAP_SIZE = 2048
+/**
+ * Shadow map resolution, per side.
+ *
+ * With `SHADOW_EXTENT` 90 the map covers 180 world units, so a texel is 0.044 units
+ * across — about a fortieth of the 1.8-unit character.
+ *
+ * **Raised from 2048 after comparing the two at 1:1**, which is the only way the
+ * difference shows: at 2048 the character's shadow renders the staff as a vague smear,
+ * and at 4096 it resolves into a clean thin line. The effect is modest in a small window
+ * and grows with the player's display, because more screen pixels per shadow texel is
+ * exactly what makes a coarse map read as blocky — and `createRenderer` sets
+ * `setPixelRatio(min(devicePixelRatio, 2))`, so on any retina screen the canvas is
+ * already twice the size this was compared at. The comparison is a lower bound on what a
+ * real player sees, not an upper one.
+ *
+ * **The cost is real, and one number here is not measured.** Memory is deterministic: a
+ * 4096-square depth texture is roughly 67 MB against 2048's 17 MB, a 50 MB increase for
+ * the game's one shadow-casting light, and the shadow pass rasterises four times the
+ * fragments. Frame cost was *not* measured — the browser harness only runs its render
+ * loop while its pane is frontmost, so no frame-timing probe could be taken, and both
+ * configurations would have been vsync-capped on the development machine regardless. If
+ * this ever has to come back down, prefer shrinking `SHADOW_EXTENT` instead: that buys
+ * the same texel density for no extra memory, at the price of shadows only near the
+ * player.
+ */
+const SHADOW_MAP_SIZE = 4096
 
 /** Pulls the shadow slightly towards the caster to keep surfaces from self-striping. */
 const SHADOW_BIAS = -0.0006
