@@ -2387,13 +2387,25 @@ Map<string, Mesh>()` for shrine markers, still in scope at both insertion points
 the plan's literal name produced a `TS2451` redeclaration error. The new local is `enemyMarkers`;
 the shrine map is untouched.
 
-**One comment was checked against the installed library rather than taken on faith, and it held more
-than it claimed.** A comment asserts that `camera.getWorldDirection()` needs no renderer pass first
-because it calls `updateWorldMatrix` itself. Checked against the installed three.js 0.185.1 rather
-than recalled from memory: it holds, and further than the comment states, because `Camera` overrides
-`updateWorldMatrix` to also refresh `matrixWorldInverse` — so a suspected one-frame staleness in the
-projection does not exist at all. The same reasoning covers the pre-existing reticle projection this
-overlay sits beside.
+**One comment was checked against the installed library rather than taken on faith, and the half of
+it that was inferred rather than measured turned out to be wrong.** A comment asserts that
+`camera.getWorldDirection()` needs no renderer pass first because it calls `updateWorldMatrix`
+itself. Checked against the installed three.js 0.185.1 rather than recalled from memory: that holds,
+and it holds further than the comment states, because `Camera` overrides `updateWorldMatrix` to
+refresh `matrixWorldInverse` as well — so there is no staleness in the *marker* projection, which
+runs after that call.
+
+**What did not follow, and was written down as if it did, is that "the same reasoning covers the
+pre-existing reticle projection".** It did not. `camera.updateProjectionMatrix()` rebuilds only
+`projectionMatrix`; `Vector3.project` also reads `matrixWorldInverse`, which is otherwise refreshed
+by `renderer.render` — and that runs *after* `syncVisuals`. So the reticle, projected before the
+`getWorldDirection` call, was reading the previous frame's inverse world matrix while the chevrons,
+projected after it, read this frame's. The two projections disagreed by a frame, which put the
+ring's origin one frame behind the ring's contents. Proved by running the exact sequence against the
+installed library: the same target point gives two different NDC results, with `getWorldDirection`
+as the only intervening statement. Fixed by hoisting that call above the reticle's projection, which
+also retires a pre-existing one-frame reticle lag that predates this cycle. **The call is now doing
+double duty and must not be moved back down**; the comment beside it says so.
 
 **One thing a reviewer raised and this document records rather than fixes.** The expression
 `Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)` is now written out verbatim in both
