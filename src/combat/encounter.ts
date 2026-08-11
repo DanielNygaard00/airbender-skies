@@ -118,6 +118,12 @@ export interface EncounterInput {
   staffSwing: StaffSwing | null
 }
 
+/** One hit aimed at the player this frame, and where it came from. */
+export interface PlayerHit {
+  from: Vector3
+  damage: number
+}
+
 export interface EncounterStep {
   encounter: Encounter
   /** Enemies knocked down this frame, for feedback and for scoring later. */
@@ -182,6 +188,20 @@ export interface EncounterStep {
   vortexFired: number | null
   /** Projectile ids loosed this frame, so a bow release can be made audible. */
   firedThisFrame: string[]
+  /**
+   * Where each hit on the player came from this frame, in world space, with its damage.
+   *
+   * A list rather than one aggregated direction: two spears and an arrow can land on the
+   * same frame, and averaging their bearings would point at empty space between them.
+   *
+   * Reports what was *aimed*, not what landed. `damageAvoided` zeroes the damage applied
+   * to the player without erasing the attack that provoked it, so an entry lands here even
+   * when a Slipstream discards it — a dodge should still tell the player where the attack
+   * came from, which is the information that makes the next dodge possible. Filtering this
+   * list down to only what `applied` kept would read as the more obvious rule and is the
+   * wrong one.
+   */
+  playerHitsThisFrame: PlayerHit[]
 }
 
 /** Whether a gust can fire: off cooldown only. */
@@ -341,9 +361,19 @@ export function stepEncounter(
   // load-bearing, not incidental.
   let projectiles: Projectile[] = []
   let projectileDamage = 0
+  // Reported here, before `avoided` below can zero any of it. An arrow's `from` is
+  // `arrow.position` -- the position it entered this step at, not the archer's -- because
+  // by the time an arrow connects the archer that loosed it may have moved on, and the
+  // player needs to know where the shot came from, not where the bow was. Already in hand
+  // from the loop variable, so this is reporting what stepProjectile already knows rather
+  // than computing anything new.
+  const playerHitsThisFrame: PlayerHit[] = []
   for (const arrow of encounter.projectiles) {
     const step = stepProjectile(arrow, input.playerPosition, deps.ground, dt, c.projectile)
     projectileDamage += step.damageToPlayer
+    if (step.damageToPlayer > 0) {
+      playerHitsThisFrame.push({ from: arrow.position.clone(), damage: step.damageToPlayer })
+    }
     if (step.projectile) projectiles.push(step.projectile)
   }
 
@@ -357,6 +387,12 @@ export function stepEncounter(
       enemy, input.playerPosition, deps.ground, deps.worldFloorY, dt, config,
     )
     damageToPlayer += step.damageToPlayer
+    // Same reporting rule as the arrow above, and for the same reason: recorded before
+    // `avoided` can zero it, from the soldier's own position -- already returned in
+    // step.enemy, so nothing new is computed here either.
+    if (step.damageToPlayer > 0) {
+      playerHitsThisFrame.push({ from: step.enemy.position.clone(), damage: step.damageToPlayer })
+    }
     if (step.fellOutOfWorld) lostThisFrame.push(step.enemy.id)
     if (step.firedProjectile && config.attack.kind === 'projectile') {
       const id = `arrow-${nextProjectileId++}`
@@ -446,5 +482,6 @@ export function stepEncounter(
     damageAvoided: avoided,
     vortexFired,
     firedThisFrame,
+    playerHitsThisFrame,
   }
 }

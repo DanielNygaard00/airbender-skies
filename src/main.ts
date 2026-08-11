@@ -61,6 +61,10 @@ import { stallSeverity } from './player/stall'
 import { animationFor, chargeSquashScale } from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
 import { createHud, hudModelFor, VIGNETTE_SCALE_PROPERTY } from './ui/hud'
+import { reticleModel } from './ui/reticle'
+import { createReticle } from './ui/reticle-view'
+import { createHitDirection } from './ui/hit-direction-view'
+import { markFor, stepHitMarks, type HitMark } from './fx/hit-direction'
 import { createGuide, guideModelFor } from './ui/guide/panel'
 import { pauseReason, pauseOverlayModel } from './core/pause'
 import { createPauseOverlay } from './ui/pause-overlay'
@@ -84,6 +88,36 @@ import { createCombatAudio } from './fx/combat-audio'
 const WIND_TELL_SURGE = 2.5
 /** Wind audio lift while the Avatar State runs. */
 const AUDIO_SWELL = 0.45
+
+/**
+ * How far along `player.forward` the reticle's aim point sits, in world units.
+ *
+ * The gust's range, and picked deliberately rather than tuned by eye. The distance is the
+ * whole tuning surface of the projection: a point a metre or two out projects almost onto the
+ * character, where the reticle would sit in the avatar's silhouette and barely move on a turn;
+ * a point 200 units out is effectively on the horizon, where a turn slides it across the screen
+ * but the reticle no longer says anything about *reach*. The gust is the longest-reaching aimed
+ * move in the game, so its range is the honest outer edge of "where an attack will go" — a
+ * reticle beyond it would promise reach the player does not have.
+ *
+ * Read from the config rather than written as 12, so retuning the gust moves the reticle with
+ * it. `DEFAULT_COMBAT_CONFIG` rather than the Avatar-State-boosted `fightConfig`: that config
+ * is not in scope in `syncVisuals`, and `boostedCombatConfig` does not touch the gust's range
+ * anyway — it scales damage, knockback and cooldown only. If a future boost ever does reach the
+ * range, this is a place that would need to hear about it.
+ */
+const AIM_DISTANCE = DEFAULT_COMBAT_CONFIG.gust.range
+
+/**
+ * Where the hit wedges are drawn around when the aim point is not on screen.
+ *
+ * Screen centre. `reticleModel` reports `visible: false` when the aim point is behind the
+ * camera or outside the depth range, and on those frames there is no reticle for the wedges to
+ * orbit — but a hit still has a direction worth showing, so they fall back to the middle of the
+ * screen rather than vanishing with it. The reticle is the *preferred* origin (it makes the two
+ * overlays read as one instrument), not a precondition for the indicator.
+ */
+const SCREEN_CENTRE = { x: 0.5, y: 0.5 }
 
 function start(): void {
   if (!hasWebGL()) return showFallback(WEBGL_MESSAGE)
@@ -145,6 +179,23 @@ function start(): void {
   let dashKick = 0
   const shakeVec = new Vector3()
   const combatAudio = createCombatAudio()
+  /**
+   * Every hit still fading on the direction indicator.
+   *
+   * Appended to in `update` from `stepEncounter`'s `playerHitsThisFrame`, and aged in
+   * `syncVisuals` with real frame time — `stepHitMarks` fixes each bearing at the moment of the
+   * hit and never revisits it, so this is a list of records rather than of live directions.
+   */
+  let hitMarks: HitMark[] = []
+  /**
+   * Whether anything is currently inside the gust cone, carried from `update` to `syncVisuals`.
+   *
+   * The same value `aimTell` is fed, computed once. `anyLiveGustTarget` needs the whole enemy
+   * list and the fight config, neither of which `syncVisuals` has any other reason to touch, and
+   * a second call there would be a second answer that a future edit could let disagree with the
+   * tell the player is looking at.
+   */
+  let aimHot = false
 
   // Shrine markers: a spinning octahedron each, hidden once collected.
   const shrineGroup = new Group()
@@ -294,6 +345,15 @@ function start(): void {
   document.addEventListener('visibilitychange', () => {
     documentHidden = document.hidden
   })
+  // Both appended *before* the HUD, and the order is load-bearing rather than tidy. None of
+  // these overlays sets a `z-index`, so they stack in document order and the HUD's own
+  // full-screen `.hud-fade` and `.hud-hurt` layers paint over whatever precedes them. That is
+  // what keeps a reticle and a ring of wedges from floating on top of the blackout during the
+  // down beat — which is not a pause, so `frame()`'s hiding below does not cover it — and it is
+  // what keeps them under the pause card and the guide panel as a second line of defence if
+  // they are ever shown on a paused frame by mistake.
+  const reticle = createReticle(document.body)
+  const hitDirection = createHitDirection(document.body)
   const hud = createHud(document.body)
   const overlay = createPauseOverlay(document.body)
   // Rebuilt on open rather than per frame: the simulation is paused while the guide is
@@ -411,6 +471,8 @@ function start(): void {
   const sampledPosition = new Vector3()
   const sampledForward = new Vector3()
   const sampledEnemy = new Vector3()
+  // Scratch for the reticle's aim point, projected in place by Vector3.project.
+  const aimPoint = new Vector3()
 
   /**
    * Stand the player back up, at the moment the screen is fully black.
@@ -430,6 +492,19 @@ function start(): void {
     focus = emptyFocus(DEFAULT_FOCUS_CONFIG)
     avatarState = restingAvatarState()
     avatarActive = false
+    // Every mark is a record of a hit on the life that just ended, and the player is being put
+    // back somewhere else entirely, so none of them points at anything any more — a wedge that
+    // survived would name a direction relative to a camera heading and a position that no
+    // longer exist.
+    //
+    // Cleared here rather than left to `stepHitMarks` to age out, even though the beat is
+    // currently the longer of the two: `DEFAULT_DOWN_CONFIG`'s two ramps outlast
+    // `HIT_MARK_SECONDS` as both are tuned today, so nothing survives the blackout in practice
+    // and this is a guard rather than a fix. It is here because "the beat is longer than the
+    // marks" is a coupling between two constants in two files that nobody would think to check
+    // when retuning either one, and the failure it produces on the day it stops holding is a
+    // ring of wedges pointing at the death spot from the respawn point.
+    hitMarks = []
     // Snapped, not smoothed. smoothTowards would converge across the fade in at
     // GROUND_PROFILE's smoothing of 9, but "converges in time" depends on two tuning
     // constants in different files agreeing, and a snap behind full black is free.
@@ -730,6 +805,14 @@ function start(): void {
     // on its own if a boost ever does reach the vortex.
     chargeTell.update(dt, encounter.vortexHeldSeconds, fightConfig.vortex)
 
+    // Hoisted out of the aimTell.update call below into the one variable syncVisuals reads for
+    // the reticle's hot state, so the reticle warms on exactly the frames the world-space tell
+    // does. Two calls would be two answers, and a tell that says "this will connect" beside a
+    // reticle that says it will not is worse than either alone.
+    aimHot = anyLiveGustTarget(
+      player.position, player.forward, encounter.enemies, fightConfig.gust,
+    )
+
     // fightConfig, not the unboosted default, so the preview and the fired cone
     // (`createGustCone` below, also fed `fightConfig.gust`) read one source and cannot
     // diverge if a future boost ever does touch the gust's range or half angle — the same
@@ -738,7 +821,7 @@ function start(): void {
     aimTell.update(
       player.position,
       player.forward,
-      anyLiveGustTarget(player.position, player.forward, encounter.enemies, fightConfig.gust),
+      aimHot,
       canGust(encounter),
       fightConfig.gust,
     )
@@ -872,6 +955,48 @@ function start(): void {
         DEFAULT_SHAKE_CONFIG.slamSeconds,
       )
     }
+    // Deliberately outside the `fight.playerHit` block below, not inside it.
+    // `playerHitsThisFrame` reports what was *aimed* at the player, so it is populated on a
+    // frame a Slipstream discarded the damage — where `playerHit` is false and the hurt flash,
+    // the shake and the hurt voice all correctly stay silent. A dodge should still say where
+    // the attack came from; that is the information the next dodge is made of.
+    //
+    // `lookDirection` is this step's sample (copied from `state` further up, well before
+    // `stepEncounter` ran) and it is the camera's heading rather than the character's: the
+    // follow cam is placed behind the player along this direction and looks back at them, so
+    // flattened it is the camera's own forward, which is what a screen-space bearing has to be
+    // measured against. `player.position` is the same post-step position `stepEncounter` was
+    // handed as `playerPosition`, so each bearing is measured from where the hit was resolved
+    // against rather than from a frame either side of it.
+    //
+    // That substitution used to be an argument and is now pinned:
+    // `follow-cam.test.ts`'s 'offsets the camera purely backward and up' asserts that the
+    // direction from the camera back to the player, flattened, is the look direction exactly,
+    // for both profiles and for steeply pitched headings. It is the only test that reddens if
+    // the follow cam ever gains a shoulder offset or an orbit, which is precisely the change
+    // that would rotate every wedge by a constant with nothing else in the game looking wrong.
+    //
+    // The one departure left is the camera's exponential smoothing, which is a lag rather than
+    // a different direction: mid-turn the drawn camera is still catching up to
+    // `lookDirection`, so a mark struck during a fast flick is fixed against the heading the
+    // view is turning toward rather than the one it is showing. Reading the camera's own world
+    // direction here instead would trade that lag for a one-frame-stale orientation, which is
+    // the smaller error of the two — but it puts render state inside the simulation half of the
+    // frame, and the size of the error has never been seen with hands on a mouse. Left as is
+    // deliberately; `docs/HANDOFF.md` carries the magnitude.
+    //
+    // One tuning caveat worth knowing before anyone measures this. An arrow's reported `from`
+    // is the projectile's position *entering* the frame it connects on, because `stepProjectile`
+    // discards the connecting position — a gap of `speed × dt`, which at the shipped archer's
+    // speed of 34 is about 0.57 units at 60 Hz. It stretches distance rather than rotating the
+    // bearing: the pre-step position lies almost directly behind the impact point along the
+    // arrow's own approach vector, so the direction back to it is nearly the same direction.
+    // For an indicator that reports a direction and not a distance it barely matters, but it is
+    // a real inaccuracy and not a rounding artefact.
+    for (const hit of fight.playerHitsThisFrame) {
+      hitMarks.push(markFor(lookDirection, player.position, hit))
+    }
+
     if (fight.playerHit) {
       hurtFlash = 1
       shake = triggerShake(
@@ -1027,6 +1152,74 @@ function start(): void {
     camera.fov = fovForSpeed(airspeed, motion.speedFov)
       + fovKickForDash(dashKick) * motion.dashKick
     camera.updateProjectionMatrix()
+
+    // Everything below has to be *after* that call, and it is the one ordering in this function
+    // that nothing tests. `Vector3.project` multiplies by the camera's projection matrix and
+    // its inverse world matrix, both of which the block above has just changed: `camera.fov`
+    // was reassigned, `camera.position` was written and `camera.lookAt` re-oriented it. Run
+    // before `updateProjectionMatrix`, the projection would use the previous frame's matrices
+    // and put the reticle one frame behind the view — which still looks entirely plausible in
+    // motion and is exactly why this is written down rather than left to be noticed.
+    //
+    // A point along the real heading, not screen centre. The camera looks AT the player from
+    // behind and above, so screen centre is the character's body; and on foot `forward` is the
+    // flattened look direction, so aim stays horizontal however far the player looks up. The
+    // projection is the only thing that reports both truthfully.
+    //
+    // `sampledPosition` for the origin and `player.forward` for the heading, which is a mix on
+    // purpose. The origin is the drawn position, so the reticle emanates from the character the
+    // player can see rather than from a body one simulation step away from it. The heading is
+    // the simulation's own `forward` — the very value `inGust` and the staff arcs resolve
+    // against, and the same reason `aimTell` reads it instead of `sampledForward`: an aim
+    // indicator has to agree with the hit, not with the smoothed visual. `forward` is documented
+    // as always normalised in `src/core/types.ts`, so no length guard is needed here.
+    aimPoint.copy(sampledPosition).addScaledVector(player.forward, AIM_DISTANCE).project(camera)
+    const aim = reticleModel(aimPoint, aimHot)
+
+    // Aged with real frame time, not the fixed step, for the reason `shake` is stepped here
+    // rather than in `update`: a mark is a render-time fade, so it keeps fading through a
+    // hitstop. Stepped in `update` it would freeze mid-fade, and the wedge from the hit that
+    // caused the freeze would hang at full opacity for the length of it.
+    hitMarks = stepHitMarks(hitMarks, frameDt)
+    // **Nothing from `motionScales` reaches this, and that is the design rather than an
+    // omission.** Every other effect in this function is scaled at the point it reaches the
+    // screen — `motion.shake` on the offset above, `motion.dashKick` and `motion.speedFov` on
+    // the field of view — so a reader arriving here will want to make this consistent with them.
+    // Do not. `motionScales` zeroes `hurtFlash`, so with reduce motion on this indicator is the
+    // player's only feedback that they were hit beyond the health bar moving; scaling it would
+    // take away the thing that makes that mode playable in a fight. And there is nothing to
+    // soften even in principle: a wedge does not shake, pulse, travel or grow, it sits still and
+    // fades, so it is information rather than motion.
+    // Inside the viewport, not merely inside the depth range. `reticleModel`'s `visible` only
+    // answers the depth question — a point in front of the camera but off the side or the bottom
+    // of the screen is `visible: true` with a fraction outside 0..1, and that is a live case
+    // rather than a corner one: on foot `forward` is flattened, so a player looking steeply up
+    // has an aim point genuinely below the bottom edge. The reticle is allowed to leave with it
+    // (it is reporting where the aim point is, and off screen is the truth), but the wedges must
+    // not follow it out of view, because the whole point of a hit mark is that the player can
+    // see it.
+    const aimOnScreen = aim.visible
+      && aim.x >= 0 && aim.x <= 1 && aim.y >= 0 && aim.y <= 1
+
+    // Both hidden through the whole down beat, and this is a correctness guard rather than
+    // tidiness. `update()` returns early while `down` is set, so nothing in there is being
+    // recomputed: `aimHot` holds whatever it was on the frame the player went down, and the
+    // aim point is projected from a heading the player has no control over until the beat
+    // ends. Drawing either of them is drawing a stale claim.
+    //
+    // It also takes a load off the overlays' document order. The two roots are appended before
+    // `createHud` so that the HUD's full-screen `.hud-fade` paints over them during the
+    // blackout (see the comment at the `createReticle` call), and until this branch existed
+    // that layering was the *only* thing standing between the player and a warm gold reticle
+    // over a black screen. Now it is a second line of defence: the order still matters for the
+    // pause card and the guide panel, but nothing about the down beat depends on it any more.
+    if (down) {
+      reticle.hide()
+      hitDirection.hide()
+      return
+    }
+    reticle.update(aim)
+    hitDirection.update(hitMarks, aimOnScreen ? aim : SCREEN_CENTRE)
   }
 
   const stepper = createStepper({
@@ -1113,6 +1306,16 @@ function start(): void {
       // "renders wherever the renderer's default camera happened to start."
       input.sample()
       last = now
+      // Both hidden while paused: the guide panel and the pause card own the screen then, and a
+      // reticle floating over a settings panel is noise. Hidden rather than left as they were,
+      // because this branch does not call `syncVisuals`, so there is no fresh aim point to draw
+      // and no `frameDt` reaching `stepHitMarks` — leaving them up would freeze a reticle at a
+      // heading the camera may no longer have and hold a ring of wedges at a fixed opacity for
+      // as long as the player leaves the panel open. The marks themselves are kept, not
+      // discarded: no simulation time passes while paused, so they resume at the age they were
+      // hidden at.
+      reticle.hide()
+      hitDirection.hide()
       renderer.render(scene, camera)
     } else {
       stepper.advance((now - last) / 1000)

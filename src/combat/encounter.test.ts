@@ -2,11 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
   startEncounter, stepEncounter, canGust, canVortex, type CombatConfig, type Encounter,
-  type EncounterInput, type EnemySpawn,
+  type EncounterInput, type EnemySpawn, type PlayerHit,
 } from './encounter'
 import { isDowned } from './health'
 import { horizontalDistance } from './enemy'
 import { gustTargets } from './gust'
+import { spawnProjectile } from './projectile'
 import { DEFAULT_COMBAT_CONFIG, DEFAULT_PATROL_CONFIG, HOME_PATROL } from './config'
 
 const C: CombatConfig = {
@@ -1336,6 +1337,98 @@ describe('arrows in the fight', () => {
     const step = stepEncounter(downed, away, 1 / 60, C, withPatrol)
     expect(step.restoredThisFrame.length).toBe(1)
     expect(step.encounter.projectiles).toEqual([])
+  })
+})
+
+describe('playerHitsThisFrame', () => {
+  it("reports the soldier's position for a spear strike, component by component", () => {
+    let encounter = near()
+    let hit: PlayerHit | undefined
+    for (let i = 0; i < 120 && !hit; i++) {
+      const step = stepEncounter(encounter, defaults, 1 / 60, C, DEPS)
+      encounter = step.encounter
+      hit = step.playerHitsThisFrame[0]
+    }
+    if (!hit) throw new Error('the spear never struck')
+    const spearSpawn = near().enemies[0]!.position
+    expect(hit.from.x).toBeCloseTo(spearSpawn.x)
+    expect(hit.from.y).toBeCloseTo(spearSpawn.y)
+    expect(hit.from.z).toBeCloseTo(spearSpawn.z)
+  })
+
+  it("reports the projectile's position for an arrow, not the archer's", () => {
+    // The archer never has to move to fire -- 10 units is well inside its strikeRange
+    // of 22 -- so its own position stays fixed at archerSpawn for the whole run, and
+    // any real gap between that and the reported `from` can only come from the arrow
+    // having flown most of the distance to the player.
+    const archerSpawn = new Vector3(0, 0, -10)
+    const spawns: EnemySpawn[] = [{ id: 'archer-1', position: archerSpawn, kind: 'archer' }]
+    const deps = { ...DEPS, spawns: [], patrol: { respawnRange: 40 } }
+    let encounter = startEncounter(spawns, C)
+    let hit: PlayerHit | undefined
+    for (let i = 0; i < 300 && !hit; i++) {
+      const step = stepEncounter(encounter, defaults, 1 / 60, C, deps)
+      encounter = step.encounter
+      hit = step.playerHitsThisFrame[0]
+    }
+    if (!hit) throw new Error('the arrow never struck')
+    expect(hit.from.distanceTo(ORIGIN)).toBeLessThan(2)
+    expect(hit.from.distanceTo(archerSpawn)).toBeGreaterThan(5)
+  })
+
+  it('reports a spear and an arrow on the same frame as two distinct entries', () => {
+    // Built directly rather than played out, so both land on the very same frame: a
+    // spear one dt short of completing its wind-up, and an arrow already resting inside
+    // hitRadius with zero velocity, so it connects on this step without having to
+    // travel anywhere. This is the case that justifies a list instead of one
+    // aggregated direction -- averaging the two would point at empty space between them.
+    const spear = {
+      ...near().enemies[0]!,
+      stance: 'wind-up' as const,
+      stanceTime: C.enemies.spear.windUpSeconds - 1 / 60,
+    }
+    const arrowFrom = new Vector3(0.5, 0, 0)
+    const arrow = spawnProjectile('arrow-test', arrowFrom, new Vector3(0, 0, 1), 0.3, 0)
+    const encounter: Encounter = { ...near(), enemies: [spear], projectiles: [arrow] }
+    const step = stepEncounter(encounter, defaults, 1 / 60, C, DEPS)
+
+    expect(step.playerHitsThisFrame).toHaveLength(2)
+    // Arrows already in flight are stepped before the enemy loop (see the ordering
+    // comment at the top of stepEncounter), so the arrow's entry comes first.
+    const [arrowHit, spearHit] = step.playerHitsThisFrame
+    expect(arrowHit!.from.equals(arrowFrom)).toBe(true)
+    expect(arrowHit!.damage).toBeCloseTo(0.3)
+    const spearAttack = C.enemies.spear.attack
+    if (spearAttack.kind !== 'melee') throw new Error('fixture spear must be melee')
+    expect(spearHit!.from.equals(step.encounter.enemies[0]!.position)).toBe(true)
+    expect(spearHit!.damage).toBeCloseTo(spearAttack.damage)
+    // Distinct sources, not one aggregated bearing.
+    expect(arrowHit!.from.equals(spearHit!.from)).toBe(false)
+  })
+
+  it('still reports a hit avoided by invulnerability, while health is unchanged', () => {
+    let encounter = startEncounter(
+      [{ id: 'a', position: new Vector3(1, 0, 0), kind: 'spear' }], DEFAULT_COMBAT_CONFIG,
+    )
+    // Same window "reports the dodge, and does not report a hit" uses above: long enough
+    // for the wind-up to complete and the release to land inside recovery.
+    const enemyC = DEFAULT_COMBAT_CONFIG.enemies.spear
+    const duration = enemyC.windUpSeconds + enemyC.recoverSeconds / 2
+    let reported: PlayerHit[] = []
+    for (let t = 0; t < duration; t += 1 / 60) {
+      const step = stepEncounter(
+        encounter, { ...defaults, playerInvulnerable: true }, 1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
+      )
+      encounter = step.encounter
+      reported = reported.concat(step.playerHitsThisFrame)
+    }
+    expect(reported.length).toBeGreaterThan(0)
+    expect(encounter.playerHealth.current).toBeCloseTo(DEFAULT_COMBAT_CONFIG.player.maxHealth, 5)
+  })
+
+  it('reports nothing on a quiet frame', () => {
+    const step = stepEncounter(near(), defaults, 1 / 60, C, DEPS)
+    expect(step.playerHitsThisFrame).toEqual([])
   })
 })
 
