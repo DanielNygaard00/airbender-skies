@@ -1,6 +1,6 @@
 import {
   WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, Vector3,
-  HemisphereLight, ACESFilmicToneMapping, PCFSoftShadowMap,
+  HemisphereLight, ACESFilmicToneMapping, PCFShadowMap,
 } from 'three'
 import { BASE_FOV } from '../fx/mapping'
 import { createSkyDome, SKY_HORIZON } from './sky'
@@ -48,9 +48,41 @@ export function createRenderer(canvas: HTMLCanvasElement) {
   renderer.toneMapping = ACESFilmicToneMapping
   renderer.toneMappingExposure = EXPOSURE
   renderer.shadowMap.enabled = true
-  // Soft edges suit the stylised look; hard shadow edges make the low-poly terrain
-  // read as jagged rather than faceted.
-  renderer.shadowMap.type = PCFSoftShadowMap
+  /*
+   * `PCFShadowMap`, named explicitly, and the history matters because the obvious
+   * "improvement" here has already been tried and measured.
+   *
+   * This line asked for `PCFSoftShadowMap` until three.js 0.185 deprecated it. From
+   * then on the library logged a warning to the console and silently substituted this
+   * harder `PCFShadowMap` — so the game rendered these shadows either way, while the
+   * comment above claimed soft ones. Naming the real value is the fix: the line now
+   * says which shadows the game draws, and the console is quiet.
+   *
+   * **VSM is the surviving soft option and it does not work in this scene.** Measured
+   * on the home island at the spawn view, varying `shadow.normalBias`:
+   *
+   *   0, 0.05, 0.1 — every slope banded with its own shadow, wide concentric stripes
+   *   0.2          — acne gone, shadows visibly washed out
+   *   0.6          — acne gone, the character's shadow a faint featureless smudge
+   *
+   * There is no window between the two failures. Below roughly 0.2 the terrain shadows
+   * itself; at and above it, VSM's variance test bleeds enough light that the
+   * character's shadow — the one shadow a player actually looks at — stops reading as a
+   * body carrying a staff. Tightening the shadow camera from 1..640 to 100..510 to buy
+   * depth precision was tried alongside and changed nothing measurable. VSM would also
+   * add two separable blur passes over a 2048-square map every frame.
+   *
+   * And the premise turned out to be weak anyway: at this map resolution over a
+   * 90-unit `SHADOW_EXTENT`, from the distance the follow cam watches, PCF's tree and
+   * character shadows already read as soft-edged *and* keep their silhouettes. The
+   * deprecation was a real defect in what this file claimed and close to a non-issue in
+   * what the player saw — the opposite of how it looked from the warning alone.
+   *
+   * If softer shadows are wanted, the untried levers are a 4096 map (a smaller texel,
+   * at four times the memory) or a smaller `SHADOW_EXTENT` (the same map over less
+   * ground, at the cost of shadows nearer the player only). Not another pass at VSM.
+   */
+  renderer.shadowMap.type = PCFShadowMap
 
   const scene = new Scene()
   // A fallback for anything the dome does not cover, and the colour the fog fades
