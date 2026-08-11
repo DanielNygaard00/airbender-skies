@@ -11,7 +11,7 @@ for whoever picks the project up next, including a future session with no memory
 below.
 
 **Live:** https://danielnygaard00.github.io/airbender-skies/
-**Repo state:** 1602 tests across 96 files,
+**Repo state:** 1604 tests across 96 files,
 `npm run typecheck` clean (it runs two passes now — see "Typecheck is two passes"),
 `npm run build` clean. Pushing `main` triggers the GitHub Pages deploy in
 `.github/workflows/deploy.yml`.
@@ -2297,10 +2297,12 @@ view.ts` draws one hollow red chevron per marker on a ring outside the existing 
 by the same signed bearing convention those wedges already use, brightening for a soldier that is
 winding up to strike. `src/ui/guide/reference.ts` gains `SCREEN_MARKS`, a two-entry legend read
 through the panel's existing generic `notesHtml`, so the guide now says in plain words which ring
-is which. And `percent`, `radians` and `alpha` — written out identically in `reticle-view.ts` and
-`hit-direction-view.ts` before this cycle — moved to a shared `src/ui/overlay-format.ts`, closing a
-duplication this project's own review rubric treats as a defect rather than letting a third view
-copy it a third time.
+is which. And `percent`, `radians` and `alpha` moved to a shared `src/ui/overlay-format.ts`. Only `percent`
+was actually duplicated — written out identically in `reticle-view.ts` and `hit-direction-view.ts`
+before this cycle, and about to be copied a third time — which is the duplication this project's own
+review rubric treats as a defect. `radians` and `alpha` existed once each, privately in
+`hit-direction-view.ts`, and moved alongside it because a third view needed them and because the
+node test environment can reach a shared module while it cannot reach either view.
 
 **Three findings from the spec shaped the design before any code was written.** Edge-clamping —
 projecting the target and clamping the result to an inset rectangle, the genre-standard approach —
@@ -2322,6 +2324,16 @@ ring sliding during a turn and settling afterward. The two overlays are on diffe
 purpose, and unifying them by moving hit marks onto the camera basis would be the wrong fix: `markFor`
 is called from `update()`, and reading the camera there would move render state into the simulation
 half of the frame.
+
+**What that divergence looks like to a player, which the paragraph above states only as a
+justification.** A player hit *while flicking* sees two marks for the same soldier, up to about 17.8
+degrees apart: roughly 20 px of arc at the wedges' 54–74 px radius and 30 px at the chevrons' 84–104
+px. And the two do not behave the same way afterwards — the chevron converges on the truth as the
+camera catches up, because it is recomputed every frame, while the wedge froze its bearing at the
+instant the hit landed and stays wrong for its whole 1.2 seconds. So a player who turns to face the
+chevron finds the wedge still pointing slightly off it. This is the shape of the artefact to look for
+when someone finally plays this with a mouse in hand, and it is the concrete version of the thing
+the "17.78 degrees" figure has so far only been used to argue about.
 
 **The 3D-versus-horizontal decision exists for the hovering spear, and the first version of it got
 the hovering spear backwards.** `stepEnemy` measures a spear's notice range horizontally — that is
@@ -2374,7 +2386,8 @@ before anything shipped; it is recorded here as the same shape the register exis
 
 **The delivery path in `main.ts` is, once again, invisible to every check this repository can run,
 and that was measured rather than assumed.** Deleting the feature's single `offScreen.update(...)`
-call leaves the full 1600-test suite and both typecheck passes completely green. `noUnusedLocals` is
+call leaves the whole suite — 1600 tests when this was measured, during the wiring task — and both
+typecheck passes completely green. `noUnusedLocals` is
 off in this project, and the `offScreen` instance stays "used" through its two `hide()` calls
 regardless of whether `update()` is ever reached. This is not a defect introduced by this cycle; it
 is the same standing property of `main.ts` that earlier cycles in this document have already
@@ -2407,11 +2420,32 @@ as the only intervening statement. Fixed by hoisting that call above the reticle
 also retires a pre-existing one-frame reticle lag that predates this cycle. **The call is now doing
 double duty and must not be moved back down**; the comment beside it says so.
 
-**One thing a reviewer raised and this document records rather than fixes.** The expression
+**Three things a reviewer raised that this document records rather than fixes.**
+
+*The duplicated finiteness test.* The expression
 `Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)` is now written out verbatim in both
 `src/fx/off-screen.ts` and `src/ui/reticle.ts`. A second copy of one boolean, not yet a third.
 Left as a judgment call for whoever next touches either file, rather than extracted on the strength
 of two occurrences.
+
+*`enemyMarker`'s range gate fails open on a non-finite world position.* `NaN <= c.aggroRange` is
+false and so is `NaN > c.aggroRange`, so a soldier with a NaN position is admitted rather than
+rejected; `offScreenPresence` then returns 1, `bearingFromCamera` yields NaN, and `radians` renders
+that as `"NaNrad"` — an invalid transform that CSS drops, leaving a full-opacity chevron pointing
+dead ahead. The module guards the finiteness of the *NDC* carefully and never the world position,
+and the one comparison that would catch it is written in the admitting direction. No reachable path
+to a NaN enemy position was found, so this is a latent asymmetry rather than a live bug and **no
+guard was added**; `enemyMarker`'s doc comment records it, so a future change that can produce such
+a position finds the note instead of the symptom.
+
+*The ring can be clipped by the viewport.* The ring's origin is the reticle position whenever the
+aim point is inside `[0, 1]` on both axes — inclusive — and the chevrons orbit 84–104 px out from
+it. So in the glider a steep pitch can put the aim point near the top edge of the window with the
+upper chevrons cut off, and the marker for a soldier behind and above the player is exactly the one
+that goes missing. This is pre-existing for the hit wedges at 54–74 px and 30 px worse for the
+chevrons. Not fixed: the obvious remedies (insetting the origin, or shrinking the radius when the
+origin is near an edge) both move the ring away from the reticle it is meant to read as part of,
+which is a trade nobody can judge without having played it.
 
 **The wind-up flare was gated by the fade-in, which made the alarm quietest where it mattered
 most.** The view wrote `strength` straight into the mark's `opacity` and the winding tint onto its

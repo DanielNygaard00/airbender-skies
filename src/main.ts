@@ -347,10 +347,10 @@ function start(): void {
   document.addEventListener('visibilitychange', () => {
     documentHidden = document.hidden
   })
-  // Both appended *before* the HUD, and the order is load-bearing rather than tidy. None of
+  // All three appended *before* the HUD, and the order is load-bearing rather than tidy. None of
   // these overlays sets a `z-index`, so they stack in document order and the HUD's own
   // full-screen `.hud-fade` and `.hud-hurt` layers paint over whatever precedes them. That is
-  // what keeps a reticle and a ring of wedges from floating on top of the blackout during the
+  // what keeps a reticle and two rings of marks from floating on top of the blackout during the
   // down beat — which is not a pause, so `frame()`'s hiding below does not cover it — and it is
   // what keeps them under the pause card and the guide panel as a second line of defence if
   // they are ever shown on a paused frame by mistake.
@@ -1238,13 +1238,13 @@ function start(): void {
     const aimOnScreen = aim.visible
       && aim.x >= 0 && aim.x <= 1 && aim.y >= 0 && aim.y <= 1
 
-    // Both hidden through the whole down beat, and this is a correctness guard rather than
+    // All three hidden through the whole down beat, and this is a correctness guard rather than
     // tidiness. `update()` returns early while `down` is set, so nothing in there is being
     // recomputed: `aimHot` holds whatever it was on the frame the player went down, and the
     // aim point is projected from a heading the player has no control over until the beat
-    // ends. Drawing either of them is drawing a stale claim.
+    // ends. Drawing any of them is drawing a stale claim.
     //
-    // It also takes a load off the overlays' document order. The two roots are appended before
+    // It also takes a load off the overlays' document order. The three roots are appended before
     // `createHud` so that the HUD's full-screen `.hud-fade` paints over them during the
     // blackout (see the comment at the `createReticle` call), and until this branch existed
     // that layering was the *only* thing standing between the player and a warm gold reticle
@@ -1375,14 +1375,15 @@ function start(): void {
       // "renders wherever the renderer's default camera happened to start."
       input.sample()
       last = now
-      // Both hidden while paused: the guide panel and the pause card own the screen then, and a
-      // reticle floating over a settings panel is noise. Hidden rather than left as they were,
-      // because this branch does not call `syncVisuals`, so there is no fresh aim point to draw
-      // and no `frameDt` reaching `stepHitMarks` — leaving them up would freeze a reticle at a
-      // heading the camera may no longer have and hold a ring of wedges at a fixed opacity for
-      // as long as the player leaves the panel open. The marks themselves are kept, not
-      // discarded: no simulation time passes while paused, so they resume at the age they were
-      // hidden at.
+      // All three hidden while paused: the guide panel and the pause card own the screen then,
+      // and a reticle floating over a settings panel is noise. Hidden rather than left as they
+      // were, because this branch does not call `syncVisuals`, so there is no fresh aim point to
+      // draw, no `frameDt` reaching `stepHitMarks` and no fresh marker list — leaving them up
+      // would freeze a reticle at a heading the camera may no longer have, hold a ring of wedges
+      // at a fixed opacity, and hold a ring of chevrons pointing at where soldiers were when the
+      // player opened the panel, for as long as it stays open. The hit marks themselves are kept,
+      // not discarded: no simulation time passes while paused, so they resume at the age they
+      // were hidden at.
       reticle.hide()
       hitDirection.hide()
       offScreen.hide()

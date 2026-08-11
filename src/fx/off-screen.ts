@@ -95,6 +95,15 @@ export interface EnemyMarker {
  * both clauses and earns nothing. Both ranges are read from the config rather than written
  * here, so retuning either moves the markers with it.
  *
+ * One asymmetry recorded rather than guarded, because no path in the game reaches it today:
+ * both range comparisons above fail *open* on a non-finite world position — `NaN <= x` is
+ * false, and so is the `NaN > x` this rule used to be written as — and a soldier admitted
+ * that way gets `offScreenPresence` 1 and a NaN bearing, which `radians` renders as
+ * `"NaNrad"`, an invalid transform CSS drops, leaving a full-opacity chevron pointing dead
+ * ahead. This module guards the finiteness of the *NDC* carefully and never the world
+ * position; the note is here so a future change that can produce a NaN position finds it
+ * rather than the symptom.
+ *
  * `isTargetable` rather than a fresh health test, so there is one definition in the
  * codebase of a soldier worth aiming at — it is the same predicate the gust cone uses,
  * and it counts a rising soldier as live.
