@@ -81,7 +81,15 @@ describe('offScreenPresence', () => {
     // from world space and is unaffected. Asserted so that "making the two
     // consistent" has to argue with a test.
     expect(offScreenPresence({ x: NaN, y: 0.3, z: IN_FRONT })).toBe(1)
-    expect(offScreenPresence({ x: 0.3, y: Infinity, z: IN_FRONT })).toBe(1)
+    expect(offScreenPresence({ x: 0.3, y: NaN, z: IN_FRONT })).toBe(1)
     expect(offScreenPresence({ x: 0.3, y: 0.4, z: NaN })).toBe(1)
+
+    // Infinity pins a real input's value rather than covering the finiteness guard:
+    // `Math.abs(Infinity) - 1` is `Infinity`, which wins the `Math.max`, and then
+    // `Math.min(Infinity / OFF_SCREEN_RAMP, 1)` is 1 regardless of whether
+    // `Number.isFinite(ndc.y)` is even checked. Drop that clause from `placeable`
+    // entirely and this assertion still passes -- the `y: NaN` case just above is
+    // what actually exercises the guard for this component.
+    expect(offScreenPresence({ x: 0.3, y: Infinity, z: IN_FRONT })).toBe(1)
   })
 })
