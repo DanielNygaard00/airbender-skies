@@ -112,7 +112,18 @@ const FRAGMENT_SHADER = /* glsl */ `
       // difference means the stored surface sits in front of the ray: an occluder.
       float difference = sampleViewZ - samplePoint.z;
 
-      if (difference > uBias && difference < uThickness) {
+      // A flat, camera-facing surface reports itself as an "occluder" here with no real
+      // geometry in the way: marching toward the sun steps the ray's Z by
+      // 'stepLength * uSunView.z' each iteration, but re-reading the depth buffer at the
+      // new screen position finds the *same* flat surface, at the view Z it always had.
+      // For a plane perpendicular to the view axis this gap is exact —
+      // 'i * stepLength * -uSunView.z' — so it is computed and added to both bounds
+      // rather than folded into a bigger constant bias, which could only be correct at
+      // one step index. 'max(0.0, ...)' keeps it at zero when the sun faces the camera
+      // rather than the screen, where this artefact does not arise.
+      float selfOcclusion = float(i) * stepLength * max(0.0, -uSunView.z);
+
+      if (difference > uBias + selfOcclusion && difference < uThickness + selfOcclusion) {
         // Nearer hits are darker. A hit at the first step is a true contact; one at the
         // last step is an occluder at the far end of the range and barely registers.
         occlusion = 1.0 - float(i - 1) / float(CONTACT_STEPS);
@@ -218,25 +229,47 @@ export function createContactShadowPass(width: number, height: number): ContactS
       const previousTarget = renderer.getRenderTarget()
       const previousOverride = scene.overrideMaterial
       const previousAutoClear = renderer.autoClear
+      const previousBackground = scene.background
+      const previousShadowAutoUpdate = renderer.shadowMap.autoUpdate
       renderer.getClearColor(previousClearColour)
       const previousClearAlpha = renderer.getClearAlpha()
 
       scene.overrideMaterial = depthMaterial
+      // `WebGLBackground.render` clears to `scene.background` whenever it is a Color,
+      // and it ORs that into its own `forceClear` rather than gating it on `autoClear`
+      // — so with the sky colour left in place here, it silently overwrites the white
+      // clear below on every frame. The sky would then read back as a surface roughly
+      // one view-space unit from the camera instead of the untouched far plane. Nulling
+      // the background is the only way to reach the branch that respects
+      // `setClearColor` below; `renderer.ts` sets the real one and this restores it.
+      scene.background = null
+      // `WebGLShadowMap` reads each object's own `material`, not `scene.overrideMaterial`,
+      // so it does not know this render is depth-only — left enabled it would rasterise
+      // the same 4096-square shadow map a second time, for a map this pass never reads.
+      renderer.shadowMap.autoUpdate = false
       renderer.setRenderTarget(depthTarget)
-      // White is depth 1.0 once unpacked — the far plane. The default black would be
-      // depth 0.0, geometry against the near plane, and every pixel would find an
-      // occluder.
+      // With `scene.background` null, `WebGLBackground` takes the branch that clears to
+      // whatever `setClearColor` last set instead of forcing the scene's sky colour, so
+      // this is now the clear that actually lands. White is depth 1.0 once unpacked —
+      // the far plane — while black would be depth 0.0, geometry against the near
+      // plane, and every pixel would find an occluder.
       renderer.setClearColor(0xffffff, 1)
       renderer.clear()
       renderer.render(scene, camera)
 
       scene.overrideMaterial = previousOverride
+      scene.background = previousBackground
+      renderer.shadowMap.autoUpdate = previousShadowAutoUpdate
       renderer.setRenderTarget(previousTarget)
       renderer.setClearColor(previousClearColour, previousClearAlpha)
       for (const node of hidden) node.visible = true
 
-      // The ordinary frame, untouched: MSAA, tone mapping and fog all behave exactly as
-      // they did before this pass existed, because this is the same call that was here.
+      // The ordinary frame's *appearance* is untouched — MSAA, tone mapping and fog
+      // all behave exactly as they did before this pass existed. Its cost is not: this
+      // is now the second `renderer.render` call of the frame, so (with
+      // `shadowMap.autoUpdate` restored above) it also pays for the one shadow-map
+      // rasterisation that the depth pass just skipped, rather than the zero it used to
+      // share the call with.
       renderer.render(scene, camera)
 
       uniforms.uProjection.value.copy(camera.projectionMatrix)

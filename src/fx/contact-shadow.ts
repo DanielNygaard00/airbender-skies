@@ -22,11 +22,19 @@ export const CONTACT_STEPS = 8
 export const CONTACT_STRENGTH = 0.55
 
 /**
- * The view-space depth difference below which a "hit" is the surface finding itself.
+ * The residual view-space depth difference below which a "hit" is the surface finding
+ * itself, on top of a per-step self-occlusion term the shader computes and this
+ * constant does not know about.
  *
- * Without it every pixel occludes itself at the first step and the whole screen
- * darkens uniformly, which reads as the exposure being wrong rather than as a bug in
- * this file.
+ * That computed term already cancels the *predictable* part of a flat, camera-facing
+ * surface reporting itself as an occluder — the gap the march's own step along the sun
+ * direction opens up between where it samples and where the surface it started on
+ * still is. This constant used to be the only thing standing between that gap and a
+ * false hit, and at 0.02 against a single 0.075-unit step (`CONTACT_RANGE` /
+ * `CONTACT_STEPS`) it was too small to do that job except at near-grazing sun angles.
+ * With the computed term in place, what is left for this constant to absorb is smaller
+ * and more honest: reconstruction noise, and surfaces that are not exactly the flat
+ * plane the computed term assumes.
  */
 export const CONTACT_BIAS = 0.02
 
