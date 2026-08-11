@@ -2,7 +2,7 @@ import type { PlayerMode } from '../../core/types'
 import type { Settings } from '../../core/settings'
 import type { WindKind } from '../../world/wind'
 import { ACTIONS, type ActionContext } from './actions'
-import { COMBOS, METERS, WIND_LEGEND, type Combo, type MeterNote } from './reference'
+import { COMBOS, METERS, WIND_LEGEND, SCREEN_MARKS, type Combo, type MeterNote } from './reference'
 import { patchForRow, settingsRows, type SettingsRow } from './settings-rows'
 
 /**
@@ -26,6 +26,8 @@ export interface GuideModel {
   current: PlayerMode
   combos: readonly Combo[]
   meters: readonly MeterNote[]
+  /** The two rings around the crosshair. Separate from `meters`: markers, not bars. */
+  screenMarks: readonly MeterNote[]
   wind: Record<WindKind, string>
 }
 
@@ -46,6 +48,7 @@ export function guideModelFor(ctx: ActionContext): GuideModel {
     current: ctx.player.mode,
     combos: COMBOS,
     meters: METERS,
+    screenMarks: SCREEN_MARKS,
     wind: WIND_LEGEND,
   }
 }
@@ -256,6 +259,7 @@ export function createGuide(
           name: c.name, detail: `${c.keys.join(' → ')} — ${c.detail}`,
         })))}
         ${notesHtml('The meters', model.meters)}
+        ${notesHtml('Around the crosshair', model.screenMarks)}
         ${notesHtml('Wind', Object.entries(model.wind).map(([kind, detail]) => ({
           name: kind, detail,
         })))}

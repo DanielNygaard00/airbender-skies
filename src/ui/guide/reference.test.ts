@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { COMBOS, METERS, WIND_LEGEND } from './reference'
+import { COMBOS, METERS, WIND_LEGEND, SCREEN_MARKS } from './reference'
 import { actionKeys } from './actions'
 import { ARCHIPELAGO } from '../../world/levels/archipelago'
 
@@ -33,6 +33,23 @@ describe('METERS', () => {
 
   it('gives every meter a detail', () => {
     for (const meter of METERS) expect(meter.detail.length).toBeGreaterThan(0)
+  })
+})
+
+describe('SCREEN_MARKS', () => {
+  it('explains both rings drawn around the crosshair', () => {
+    // Two entries, because there are two rings and the whole purpose of this list is
+    // telling them apart. A test on `length` alone would pass a list with two copies of
+    // one entry, so the names are asserted too.
+    expect(SCREEN_MARKS.map((mark) => mark.name)).toEqual(['Hit direction', 'Threats off screen'])
+  })
+
+  it('names each ring\'s colour, which is the only thing distinguishing them on screen', () => {
+    // The shapes differ too, but colour is what a glance resolves first, and a legend
+    // that described the behaviour without naming the colour would leave the player
+    // matching prose to shapes.
+    expect(SCREEN_MARKS[0]?.detail).toMatch(/orange/)
+    expect(SCREEN_MARKS[1]?.detail).toMatch(/red/)
   })
 })
 

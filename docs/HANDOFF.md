@@ -2285,6 +2285,99 @@ the ordering claim above rests on reading `syncVisuals`. `HIT_MARK_SECONDS` 1.2,
 radius, the wedge's size and the reticle's 20 px ring are all argued guesses that nobody has
 played with.
 
+## Off-screen enemy indicators
+
+**The hit-direction cycle covered the moment after an attack lands; this one covers the moment
+before, when something engaged with the player is simply not in view.** `src/fx/off-screen.ts` is
+the pure half: `offScreenPresence` reads a soldier's NDC projection and ramps from 0 at the frame
+edge to 1 at `OFF_SCREEN_RAMP` past it, and `enemyMarker` decides who earns a chevron at all —
+targetable, within the fight's own `aggroRange` measured in 3D, and off screen. `src/ui/off-screen-
+view.ts` draws one hollow red chevron per marker on a ring outside the existing hit wedges, rotated
+by the same signed bearing convention those wedges already use, brightening for a soldier that is
+winding up to strike. `src/ui/guide/reference.ts` gains `SCREEN_MARKS`, a two-entry legend read
+through the panel's existing generic `notesHtml`, so the guide now says in plain words which ring
+is which. And `percent`, `radians` and `alpha` — written out identically in `reticle-view.ts` and
+`hit-direction-view.ts` before this cycle — moved to a shared `src/ui/overlay-format.ts`, closing a
+duplication this project's own review rubric treats as a defect rather than letting a third view
+copy it a third time.
+
+**Three findings from the spec shaped the design before any code was written.** Edge-clamping —
+projecting the target and clamping the result to an inset rectangle, the genre-standard approach —
+is the wrong shape here, because a projection behind the camera is mirrored garbage, and the space
+directly behind the player is the majority of what this feature exists to cover; an edge-clamped
+implementation would be projection-driven for the minority just past the frame edge and
+bearing-driven for the majority behind the camera, with a discontinuity where a target crosses
+between the two. One rule instead: bearing, through the same `bearingFromCamera` the hit wedges
+already use. Second, the combat model needed no new reporting at all — everything this feature
+needs was already available inside `syncVisuals`: `encounter.enemies` for stance and health, each
+view's interpolated position for where the body is drawn, and a camera already positioned and
+oriented for the frame. `src/combat/encounter.ts` and `src/combat/enemy.ts` are untouched by this
+cycle. Third, this overlay reads the camera's own heading via `camera.getWorldDirection()`, while
+the hit wedges deliberately keep reading `input.lookDirection`, and the two are not the same thing:
+the drawn camera trails `lookDirection` by a measured 17.78 degrees during a sustained 180-degree-
+per-second turn on foot. A frozen hit mark can absorb that lag — it is a record of a past moment
+either way — but a marker recomputed every frame cannot, because the lag would show up as the whole
+ring sliding during a turn and settling afterward. The two overlays are on different bases on
+purpose, and unifying them by moving hit marks onto the camera basis would be the wrong fix: `markFor`
+is called from `update()`, and reading the camera there would move render state into the simulation
+half of the frame.
+
+**The 3D-versus-horizontal decision exists for the hovering spear.** `stepEnemy` measures a spear's
+notice range horizontally — that is what makes an archer, which measures in 3D, the type that
+pressures altitude at all — so a spear standing 30 units below a player who is hovering is at
+horizontal distance 0, has noticed them, and can never close the distance while they stay up there.
+Marking that spear would hang a permanent ring of chevrons around a player who is doing exactly the
+right thing, the same clutter `HIT_MARK_SECONDS` was tuned to avoid on the other overlay. So
+`enemyMarker` measures in 3D, which is stricter than the fight for a spear and identical to the
+fight for an archer, and reads `c.aggroRange` from the config rather than a literal of its own, so
+retuning notice range moves the markers with it.
+
+**The register entry this cycle nearly added.** The spec's first draft asked for asymmetric
+fixtures "so an axis swap is visible" in `offScreenPresence` — a test that cannot fail, because the
+overshoot the function reports is a `Math.max` of the two axes' excesses, and `Math.max` is
+commutative: swapping which axis is `x` and which is `y` is a provable no-op, and no fixture, however
+asymmetric, can make that swap observable. The fixtures stayed, because they do catch real mutants —
+reading only one axis, or dropping the absolute value — and the claim attached to them was corrected
+to say exactly what they catch and what they cannot, rather than deleting a test that pulls its
+weight for the wrong stated reason. This did not become a register entry below because it was caught
+before anything shipped; it is recorded here as the same shape the register exists to guard against.
+
+**The delivery path in `main.ts` is, once again, invisible to every check this repository can run,
+and that was measured rather than assumed.** Deleting the feature's single `offScreen.update(...)`
+call leaves the full 1600-test suite and both typecheck passes completely green. `noUnusedLocals` is
+off in this project, and the `offScreen` instance stays "used" through its two `hide()` calls
+regardless of whether `update()` is ever reached. This is not a defect introduced by this cycle; it
+is the same standing property of `main.ts` that earlier cycles in this document have already
+recorded, confirmed again here because a change to the wiring is exactly the kind of thing that
+property would hide.
+
+**A plan defect, caught by the compiler rather than a reviewer.** The plan named the new per-frame
+array `markers`, which collides with a pre-existing and unrelated `const markers = new
+Map<string, Mesh>()` for shrine markers, still in scope at both insertion points in `main.ts`. Using
+the plan's literal name produced a `TS2451` redeclaration error. The new local is `enemyMarkers`;
+the shrine map is untouched.
+
+**One comment was checked against the installed library rather than taken on faith, and it held more
+than it claimed.** A comment asserts that `camera.getWorldDirection()` needs no renderer pass first
+because it calls `updateWorldMatrix` itself. Checked against the installed three.js 0.185.1 rather
+than recalled from memory: it holds, and further than the comment states, because `Camera` overrides
+`updateWorldMatrix` to also refresh `matrixWorldInverse` — so a suspected one-frame staleness in the
+projection does not exist at all. The same reasoning covers the pre-existing reticle projection this
+overlay sits beside.
+
+**One thing a reviewer raised and this document records rather than fixes.** The expression
+`Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)` is now written out verbatim in both
+`src/fx/off-screen.ts` and `src/ui/reticle.ts`. A second copy of one boolean, not yet a third.
+Left as a judgment call for whoever next touches either file, rather than extracted on the strength
+of two occurrences.
+
+**What is a guess, and what cannot be exercised here at all.** `OFF_SCREEN_RAMP` 0.25, the 84–104 px
+radius the chevrons orbit at, and `WINDING_COLOUR`'s hotter red are all argued guesses; nobody has
+played any of this. And this cycle's entire subject is a screen-space overlay that only exists while
+the player is turning with something off screen — the harness cannot hold a pointer lock, so none of
+it can be watched here at all, the same limitation this document has recorded against the reticle and
+the hit wedges above.
+
 ## What has NOT been built
 
 From the design document, in rough order of how much is missing:
@@ -2578,12 +2671,12 @@ assertions and judging them adequate.
 | `pauseReason` had no exact-reason assertion at `pointerLocked: true, documentHidden: true, guideOpen: false` | returning `'unlocked'` instead of `'hidden'` on the branch where the lock is still held | `'reports the reason this table names for every combination'`, which pins all eight combinations as one object comparison |
 | `OverlayModel.hint` was unasserted at all four points where the card is invisible | `HIDDEN.hint = 'H — guide'`, i.e. a non-empty hint on the invisible path | the same 8-point table, extended from three fields to all four and compared as whole objects |
 
-Two things generalise from them. First, the register below is now unanimous: **nineteen for
-nineteen, the gap was found by making the forbidden change, and none of the nineteen by reading
-the assertion and reasoning about what it covered.** That is no longer a lesson from one
+Two things generalise from them. First, the register below is now unanimous: **twenty-one for
+twenty-one, the gap was found by making the forbidden change, and none of the twenty-one by
+reading the assertion and reasoning about what it covered.** That is no longer a lesson from one
 cycle; it is the only method that has ever worked here. (The count read "fifteen for fifteen"
-until the aim-and-hit-direction cycle added four; the four are recorded at the end of this
-section.)
+until the aim-and-hit-direction cycle added four; the count read "nineteen for nineteen" until
+the off-screen enemy indicators cycle added two, both recorded at the end of this section.)
 
 Second, and new: **a test's name can be what hides the gap.** The eleventh sat behind
 `'names a reason for every combination with any pausing cause'`, which sounds exactly like
@@ -2743,6 +2836,34 @@ The nineteenth is a test defect rather than a live one — `input.ts` clamps pit
 whose horizontal magnitude is 0.0872 against the guard's 1e-6 threshold, so nothing in the game
 reaches that branch. It is in the register because of how it hid: its sibling guard, four lines
 above it in the same function, *was* pinned to a value, and the pair read as covered.
+
+**The off-screen enemy indicators cycle added the twentieth and twenty-first, and both are new
+shapes: an assertion made unfalsifiable by something other than a weak claim or a symmetric
+fixture.** This register exists because this exact failure mode has shipped repeatedly, and both
+entries below are a different mechanism from all nineteen before them.
+
+**The twentieth: unfalsifiable by saturating arithmetic.** A test used
+`{ x: 0.3, y: Infinity, z: 0.5 }` to prove `offScreenPresence` checks `ndc.y` for finiteness. It
+cannot. `Math.abs(Infinity) - 1` is `Infinity`, which wins the `Math.max`, and
+`Math.min(Infinity / 0.25, 1)` is `1` — exactly what the guard would have returned. Deleting the
+`Number.isFinite(ndc.y)` clause left every test in the file green. The equivalent `NaN` fixture
+*does* catch it, because `NaN` poisons the same expressions to `NaN`. Same expression, same
+intent, opposite observability, decided entirely by which non-finite value the fixture picked.
+Fixed by adding a `y: NaN` assertion and keeping the `Infinity` one with a comment saying plainly
+that it pins a value rather than covering the guard. Verified by mutation: dropping the clause
+reddens the `NaN` line with "expected NaN to be 1", and does not redden the `Infinity` line.
+
+**The twenty-first: unfalsifiable by a language guarantee.** Two tests asserted that `percent` and
+`radians` "flatten a tiny float instead of writing it in exponent notation". But
+`Number.prototype.toFixed` never emits exponential notation below 1e21 — that is JavaScript's
+promise, not the code's. Any implementation satisfying the sibling assertions in the same block
+satisfies these for free. The one mutant that might have rescued them, `toPrecision(5)`, renders
+100 as `"100.00"` and is already caught by `percent(1)`. So the test verified the runtime rather
+than the helper. Fixed by asserting both the hazard and the behaviour, with the comment naming
+which half can fail.
+
+**A false string, inside the comment documenting that very hazard.** It claimed
+`${1.2e-16 * 100}%` is `"1.2e-14%"`. It is `"1.2000000000000001e-14%"`.
 
 ## Suggested next steps
 
