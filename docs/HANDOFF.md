@@ -3060,3 +3060,47 @@ In the order I would take them:
 
 Sections of the design doc are the natural unit of work. Each one is roughly a
 spec-plan-implement cycle, and combat in full is several.
+
+## Shadows: the deprecation warning, and the soft-shadow attempt behind it
+
+`src/core/renderer.ts` asked for `PCFSoftShadowMap` until three.js 0.185 deprecated it. From
+that release on, the library logged a warning to the console and silently substituted the
+harder `PCFShadowMap` — so the game rendered those shadows while the comment above the line
+claimed soft ones. Nobody had opened the console. The line now names `PCFShadowMap`
+explicitly, which is both the honest description and the end of the warning.
+
+**The obvious next step was tried and it does not work here.** VSM is the surviving soft
+option, and every value below was measured on the home island at the spawn view rather than
+argued:
+
+| `shadow.normalBias` | result |
+| --- | --- |
+| 0, 0.05, 0.1 | every slope banded with its own shadow, in wide concentric stripes |
+| 0.2 | acne gone; shadows visibly washed out |
+| 0.6 | acne gone; the character's shadow a faint featureless smudge |
+
+There is no window between the two failures. Below roughly 0.2 the terrain shadows itself;
+at and above it VSM's variance test bleeds enough light that the character's shadow — the one
+shadow a player actually looks at — stops reading as a body carrying a staff. Tightening the
+shadow camera from `1..640` to `100..510` to buy depth precision was tried in the same pass,
+changed nothing measurable, and was reverted rather than left in as a risk to high casters.
+VSM would also cost two separable blur passes over a 2048-square map every frame.
+
+The premise was weaker than the warning made it sound, too: at 2048 texels over a 90-unit
+`SHADOW_EXTENT`, from the distance the follow cam watches, PCF's tree and character shadows
+already read as soft-edged **and** keep their silhouettes. The deprecation was a real defect in
+what the file *claimed* and close to a non-issue in what the player saw.
+
+If softer shadows are wanted later, the untried levers are a 4096 map (smaller texels, four
+times the memory) or a smaller `SHADOW_EXTENT` (the same map over less ground, so shadows only
+near the player). Not another pass at VSM. The attempt is preserved in commit `4c29901` on the
+way to this one, so the configuration is recoverable without redoing the tuning.
+
+**Two of the wrong turns are worth keeping**, because both were confident comments written
+before anything was looked at. The first VSM commit stated that VSM needs no bias, on the
+reasoning that it does not perform PCF's depth comparison and therefore cannot produce PCF's
+acne; the first screenshot showed the whole island striped. Then, when contact shadows looked
+detached from the character's feet, that was diagnosed as peter-panning from too much bias —
+until the A/B against PCF showed the *same* offset, because the sun sits high and to the side
+and the offset is simply geometric. Neither error was reachable by reading the code, and both
+would have shipped as authoritative prose.
