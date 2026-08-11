@@ -492,6 +492,19 @@ function start(): void {
     focus = emptyFocus(DEFAULT_FOCUS_CONFIG)
     avatarState = restingAvatarState()
     avatarActive = false
+    // Every mark is a record of a hit on the life that just ended, and the player is being put
+    // back somewhere else entirely, so none of them points at anything any more — a wedge that
+    // survived would name a direction relative to a camera heading and a position that no
+    // longer exist.
+    //
+    // Cleared here rather than left to `stepHitMarks` to age out, even though the beat is
+    // currently the longer of the two: `DEFAULT_DOWN_CONFIG`'s two ramps outlast
+    // `HIT_MARK_SECONDS` as both are tuned today, so nothing survives the blackout in practice
+    // and this is a guard rather than a fix. It is here because "the beat is longer than the
+    // marks" is a coupling between two constants in two files that nobody would think to check
+    // when retuning either one, and the failure it produces on the day it stops holding is a
+    // ring of wedges pointing at the death spot from the respawn point.
+    hitMarks = []
     // Snapped, not smoothed. smoothTowards would converge across the fade in at
     // GROUND_PROFILE's smoothing of 9, but "converges in time" depends on two tuning
     // constants in different files agreeing, and a snap behind full black is free.
@@ -956,6 +969,22 @@ function start(): void {
     // handed as `playerPosition`, so each bearing is measured from where the hit was resolved
     // against rather than from a frame either side of it.
     //
+    // That substitution used to be an argument and is now pinned:
+    // `follow-cam.test.ts`'s 'offsets the camera purely backward and up' asserts that the
+    // direction from the camera back to the player, flattened, is the look direction exactly,
+    // for both profiles and for steeply pitched headings. It is the only test that reddens if
+    // the follow cam ever gains a shoulder offset or an orbit, which is precisely the change
+    // that would rotate every wedge by a constant with nothing else in the game looking wrong.
+    //
+    // The one departure left is the camera's exponential smoothing, which is a lag rather than
+    // a different direction: mid-turn the drawn camera is still catching up to
+    // `lookDirection`, so a mark struck during a fast flick is fixed against the heading the
+    // view is turning toward rather than the one it is showing. Reading the camera's own world
+    // direction here instead would trade that lag for a one-frame-stale orientation, which is
+    // the smaller error of the two — but it puts render state inside the simulation half of the
+    // frame, and the size of the error has never been seen with hands on a mouse. Left as is
+    // deliberately; `docs/HANDOFF.md` carries the magnitude.
+    //
     // One tuning caveat worth knowing before anyone measures this. An arrow's reported `from`
     // is the projectile's position *entering* the frame it connects on, because `stepProjectile`
     // discards the connecting position — a gap of `speed × dt`, which at the shipped archer's
@@ -1146,7 +1175,6 @@ function start(): void {
     // as always normalised in `src/core/types.ts`, so no length guard is needed here.
     aimPoint.copy(sampledPosition).addScaledVector(player.forward, AIM_DISTANCE).project(camera)
     const aim = reticleModel(aimPoint, aimHot)
-    reticle.update(aim)
 
     // Aged with real frame time, not the fixed step, for the reason `shake` is stepped here
     // rather than in `update`: a mark is a render-time fade, so it keeps fading through a
@@ -1172,6 +1200,25 @@ function start(): void {
     // see it.
     const aimOnScreen = aim.visible
       && aim.x >= 0 && aim.x <= 1 && aim.y >= 0 && aim.y <= 1
+
+    // Both hidden through the whole down beat, and this is a correctness guard rather than
+    // tidiness. `update()` returns early while `down` is set, so nothing in there is being
+    // recomputed: `aimHot` holds whatever it was on the frame the player went down, and the
+    // aim point is projected from a heading the player has no control over until the beat
+    // ends. Drawing either of them is drawing a stale claim.
+    //
+    // It also takes a load off the overlays' document order. The two roots are appended before
+    // `createHud` so that the HUD's full-screen `.hud-fade` paints over them during the
+    // blackout (see the comment at the `createReticle` call), and until this branch existed
+    // that layering was the *only* thing standing between the player and a warm gold reticle
+    // over a black screen. Now it is a second line of defence: the order still matters for the
+    // pause card and the guide panel, but nothing about the down beat depends on it any more.
+    if (down) {
+      reticle.hide()
+      hitDirection.hide()
+      return
+    }
+    reticle.update(aim)
     hitDirection.update(hitMarks, aimOnScreen ? aim : SCREEN_CENTRE)
   }
 

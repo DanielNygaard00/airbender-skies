@@ -5,9 +5,9 @@ import type { ReticleModel } from './reticle'
  *
  * Untested, like `createHud`, `createPauseOverlay` and `createGuide`: the test environment is
  * node, so there is no DOM to build against. Everything here that a test could catch already
- * lives in `src/ui/reticle.ts` — the NDC-to-viewport conversion and the decision to hide the
- * reticle when the aim point is behind the camera are pure and tested there. What is left in
- * this file is stylesheet and two `style` writes.
+ * lives in `src/ui/reticle.ts` — the NDC-to-viewport conversion, and the decision to hide the
+ * reticle when the aim point is behind the camera or has no finite position, are pure and tested
+ * there. What is left in this file is stylesheet and two `style` writes.
  */
 
 /**
@@ -23,7 +23,8 @@ import type { ReticleModel } from './reticle'
  * back intact), so the unrounded value was never invalid. If you are here because the reticle is
  * stuck horizontally while it still moves vertically, this function is not the cause — look for a
  * NaN in `ndc.x`, which a camera with a non-finite `aspect` produces while leaving `y` and `z`
- * alone. A 0×0 canvas is one way to get one.
+ * alone. A 0×0 canvas is one way to get one. `reticleModel` now reports that model as invisible,
+ * so reaching this function with a NaN would mean that check has been broken.
  */
 function percent(fraction: number): string {
   return `${(fraction * 100).toFixed(3)}%`
@@ -90,18 +91,16 @@ export function createReticle(parent: HTMLElement) {
 
   return {
     update(model: ReticleModel): void {
-      // The finiteness half of this is not defensive padding — it was watched happening.
-      // `reticleModel` decides `visible` from `ndc.z` alone, which is the right call for the
-      // question it is answering (is the aim point in front of the camera), but it leaves one
-      // gap: a camera whose `aspect` is not finite yields an `ndc.x` of NaN while `y` and `z`
-      // stay perfectly finite, so the model comes back `visible: true` with only half a
-      // position. An invalid `left` declaration is dropped rather than clamped, so the reticle
-      // would slide up and down at whatever horizontal position it last had — confidently
-      // wrong, which is the exact failure `reticle.ts` hides a behind-camera point to avoid.
-      // Observed in this repo's preview pane, where the canvas is 0×0 at load and
-      // `width / height` is 0/0; a real window does not do this, and the game is paused
-      // whenever the pane is hidden anyway, so this is a guard rather than a fix for a live
-      // bug.
+      // `model.visible` is the whole test, and it covers more than the name suggests:
+      // `reticleModel` answers false for a point outside the depth range *and* for a model
+      // whose fractions are not finite, which a camera with a non-finite `aspect` produces
+      // (an `ndc.x` of NaN while `y` and `z` stay finite — watched happening in this repo's
+      // preview pane, whose canvas is 0×0 at load). That check deliberately does not have a
+      // copy here. It used to, and moving it out is the point: it is a correctness rule about
+      // what a placeable position is, this file cannot be tested in node, and `reticle.ts`
+      // can and now pins it per component. A second copy in the untested layer would make
+      // this file's own header — stylesheet plus two `style` writes — quietly untrue, and
+      // would give the rule two homes that a future edit could move apart.
       //
       // `display`, not `opacity`: no position at all is not something to fade toward.
       //
@@ -109,9 +108,8 @@ export function createReticle(parent: HTMLElement) {
       // is not the same thing as painting them stale: nothing paints between two statements of
       // one synchronous function, so the frame the reticle comes back is the frame all three are
       // rewritten, in this same call, before the browser looks at the tree again.
-      const placeable = model.visible && Number.isFinite(model.x) && Number.isFinite(model.y)
-      root.style.display = placeable ? 'block' : 'none'
-      if (!placeable) return
+      root.style.display = model.visible ? 'block' : 'none'
+      if (!model.visible) return
       root.style.left = percent(model.x)
       root.style.top = percent(model.y)
       root.classList.toggle('is-hot', model.hot)

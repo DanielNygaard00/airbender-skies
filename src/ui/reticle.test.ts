@@ -49,6 +49,44 @@ describe('reticleModel', () => {
     expect(reticleModel(behind, false).visible).toBe(false)
   })
 
+  it('is not visible when any single component is not finite', () => {
+    // One case per component, and separately per component, because a guard that
+    // checks only x passes a table that only ever corrupts x. Each row leaves the
+    // other two components inside the visible depth range, so the only thing that
+    // can make the model invisible is the component named.
+    const bad = [NaN, Infinity, -Infinity]
+    for (const value of bad) {
+      expect(reticleModel({ x: value, y: 0, z: 0 }, false).visible).toBe(false)
+      expect(reticleModel({ x: 0, y: value, z: 0 }, false).visible).toBe(false)
+      expect(reticleModel({ x: 0, y: 0, z: value }, false).visible).toBe(false)
+    }
+  })
+
+  it('hides the half-position a camera with a non-finite aspect produces', () => {
+    // Not a hypothetical: a canvas measured at 0x0 makes width / height 0/0, and a
+    // PerspectiveCamera built on that aspect projects to an x of NaN while y and z
+    // stay ordinary finite numbers well inside the depth range. Deciding from z
+    // alone reports visible: true with only half a position, and a DOM view then
+    // places the reticle at a stale horizontal position while it still tracks
+    // vertically -- confidently wrong, which is exactly what the depth check above
+    // exists to avoid. Built through three.js rather than hand-written so it is the
+    // real projection's output being asserted, not a guess at it.
+    const zeroSized = new PerspectiveCamera(70, 0 / 0, 0.1, 100)
+    zeroSized.position.set(0, 0, 0)
+    zeroSized.lookAt(0, 0, -1)
+    zeroSized.updateMatrixWorld()
+    zeroSized.updateProjectionMatrix()
+
+    const ndc = new Vector3(0, 0, -12).project(zeroSized)
+    expect(Number.isNaN(ndc.x)).toBe(true)
+    expect(Number.isFinite(ndc.y)).toBe(true)
+    expect(Number.isFinite(ndc.z)).toBe(true)
+    expect(ndc.z).toBeGreaterThanOrEqual(-1)
+    expect(ndc.z).toBeLessThanOrEqual(1)
+
+    expect(reticleModel(ndc, false).visible).toBe(false)
+  })
+
   it('passes hot through unchanged in both directions', () => {
     expect(reticleModel({ x: 0, y: 0, z: 0 }, true).hot).toBe(true)
     expect(reticleModel({ x: 0, y: 0, z: 0 }, false).hot).toBe(false)

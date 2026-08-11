@@ -36,7 +36,11 @@ export function bearingFromCamera(
   const forwardDistance = Math.hypot(fx, fz)
   // A camera pitched straight up or down flattens to nothing horizontal to compare
   // against. "Ahead" is itself undefined then, so dead ahead is as good an answer as
-  // any, and the only one that is not a NaN.
+  // any — and it is the same answer the source-distance guard above gives for the
+  // mirror-image degeneracy, which is the reason to prefer it over any other finite
+  // value. `input.ts` clamps pitch to 85 degrees, so nothing in the game reaches this;
+  // it is pinned by a test anyway, because an unasserted fallback is how the code and
+  // the sentence above it drift apart.
   if (forwardDistance < 1e-6) return 0
 
   // Dividing by the two distances here is for readability, not correctness: atan2

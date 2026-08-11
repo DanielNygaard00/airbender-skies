@@ -3,6 +3,7 @@ import { Vector3 } from 'three'
 import {
   profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain,
   GROUND_PROFILE, GLIDER_PROFILE,
+  type CamProfile,
 } from './follow-cam'
 import type { TerrainQuery } from '../core/types'
 
@@ -72,6 +73,107 @@ describe('desiredCameraPosition', () => {
     const t = new Vector3(1, 2, 3)
     desiredCameraPosition(t, new Vector3(0, 0, -1), GROUND_PROFILE)
     expect(t.toArray()).toEqual([1, 2, 3])
+  })
+
+  it('offsets the camera purely backward and up, so flattened it faces exactly along the look direction', () => {
+    // This is the pin behind a substitution `src/main.ts` makes and cannot test itself.
+    // `markFor` needs the camera's own forward to measure a screen-space bearing against,
+    // and it is handed the player's `lookDirection` instead. That is valid only because
+    // the offset this function applies is `-lookDirection * distance` plus a purely
+    // vertical lift: the vertical term drops out of a flattened comparison and the
+    // backward term is `lookDirection` itself, so the direction from the camera back to
+    // the player is, flattened, the look direction exactly.
+    //
+    // Asserted rather than argued because the day this stops being true is the day
+    // someone adds a lateral offset or an orbit to the follow cam, and the symptom would
+    // be a hit-direction indicator quietly rotated by a constant with nothing else wrong.
+    // A shoulder offset added below fails here, and this comment says where to look.
+    //
+    // Both profiles, and headings that are steeply pitched as well as level, because it is
+    // the vertical lift interacting with a pitched heading that would break the claim if
+    // anything did. The cross product of the two flattened vectors is the test: zero means
+    // parallel or antiparallel, and the dot being positive rules out antiparallel — so the
+    // camera faces along the heading rather than against it.
+    const player = new Vector3(12, 34, -56)
+    const headings = [
+      new Vector3(0, 0, -1),
+      new Vector3(1, 0, 0),
+      new Vector3(0.6, 0.7, -0.4).normalize(),
+      new Vector3(-0.3, -0.9, 0.2).normalize(),
+      // As close to vertical as clampPitch allows, where the lift is nearly the whole offset.
+      new Vector3(0.0872, 0.9962, 0).normalize(),
+    ]
+    for (const profile of [GROUND_PROFILE, GLIDER_PROFILE]) {
+      for (const heading of headings) {
+        const camera = desiredCameraPosition(player, heading, profile)
+        const forward = player.clone().sub(camera)
+        expect(forward.x * heading.z - forward.z * heading.x).toBeCloseTo(0, 10)
+        expect(forward.x * heading.x + forward.z * heading.z).toBeGreaterThan(0)
+      }
+    }
+  })
+})
+
+describe('the smoothed camera against the look direction', () => {
+  /**
+   * How far the drawn camera's flattened forward trails `lookDirection` during a sustained
+   * turn, in degrees, after the lag has settled.
+   *
+   * `main.ts` hands `markFor` the player's `lookDirection` as the camera forward. The test
+   * above proves that is exact for the *desired* camera position; `smoothTowards` is what
+   * makes it inexact in motion, because the drawn camera is still travelling toward that
+   * position while the player keeps turning. A hit mark freezes its bearing at the instant it
+   * lands, so a mark struck mid-flick keeps this error for its whole life.
+   */
+  function lagDegrees(profile: CamProfile, yawRatePerSecond: number): number {
+    const dt = 1 / 60
+    const player = new Vector3(0, 0, 0)
+    const axis = new Vector3(0, 1, 0)
+    let yaw = 0
+    let look = new Vector3(0, 0, -1)
+    let camera = desiredCameraPosition(player, look, profile)
+    let lag = 0
+    // Ten seconds at 60 Hz, which is far past the settling time of either profile, so what
+    // this returns is the steady-state lag and not a transient from the first frame.
+    for (let i = 0; i < 600; i += 1) {
+      yaw += yawRatePerSecond * dt
+      look = new Vector3(0, 0, -1).applyAxisAngle(axis, yaw)
+      camera = smoothTowards(
+        camera, desiredCameraPosition(player, look, profile), profile.smoothing, dt,
+      )
+      const forward = player.clone().sub(camera)
+      let delta = Math.atan2(forward.x, forward.z) - Math.atan2(look.x, look.z)
+      while (delta > Math.PI) delta -= 2 * Math.PI
+      while (delta < -Math.PI) delta += 2 * Math.PI
+      lag = Math.abs(delta) * 180 / Math.PI
+    }
+    return lag
+  }
+
+  it('trails the look direction by a measured angle during a sustained turn', () => {
+    // Measured, not derived. The first-order estimate for an exponential lag is the turn
+    // rate over the smoothing constant, which at 180 degrees a second would give 20.0
+    // degrees on foot; the real figure is 17.78, because the smoothing acts on the camera's
+    // position around a circle rather than on the angle itself. That gap is the reason this
+    // is a test and not a sentence in a comment.
+    //
+    // Pinned because `docs/HANDOFF.md` quotes these numbers as the residual inaccuracy in
+    // the hit-direction indicator. Retuning either `smoothing` is *expected* to redden this:
+    // re-measure, update the handoff, and check the new figure is still small enough that a
+    // wedge points somewhere useful.
+    expect(lagDegrees(GROUND_PROFILE, Math.PI)).toBeCloseTo(17.78, 1)
+    expect(lagDegrees(GLIDER_PROFILE, Math.PI)).toBeCloseTo(9.68, 1)
+  })
+
+  it('trails less the slower the turn, and settles to nothing when the turn stops', () => {
+    // The shape of the claim, so the two numbers above are not the only thing holding it:
+    // this is a lag and not a fixed offset, so it scales with the turn rate and vanishes at
+    // zero. An implementation that had genuinely rotated the camera would keep its error.
+    expect(lagDegrees(GROUND_PROFILE, Math.PI / 2))
+      .toBeLessThan(lagDegrees(GROUND_PROFILE, Math.PI))
+    expect(lagDegrees(GROUND_PROFILE, 0)).toBeCloseTo(0, 6)
+    // And the glider's tighter smoothing trails less than the ground's at the same rate.
+    expect(lagDegrees(GLIDER_PROFILE, Math.PI)).toBeLessThan(lagDegrees(GROUND_PROFILE, Math.PI))
   })
 })
 

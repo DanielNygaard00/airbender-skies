@@ -2194,23 +2194,45 @@ nothing.** `bearingFromCamera` returns 0 dead ahead and positive when the source
 camera's screen-right, ±π directly behind, and `hit-direction.test.ts` asserts the *signed*
 values rather than magnitudes — a test on `Math.abs` would pass an implementation that mirrored
 left and right, and a mirrored indicator sends the player turning away from whatever hit them.
+The bearing is also pinned as *relative* to the camera rather than to the world, against a camera
+looking along world `+X` and by the invariance of the answer under yawing the camera and the
+source together. Both were added after the fact: every original fixture looked along world `-Z`,
+which is also three.js's default heading, so an implementation that ignored the camera forward
+altogether passed the file — see the register's eighteenth entry.
 CSS positive rotation is also clockwise, so `hit-direction-view.ts` rotates each wedge from the
 top by `+bearing`. That is invisible in code review, so it was measured in a browser instead:
 driving the view module with three marks and reading each wedge's `getBoundingClientRect` centre
 against an origin at (0, 0) gave (0, −64) for bearing 0, (+64, 0) for `+π/2` and (−64, 0) for
 `−π/2`. If the geometry in that file changes, measure it again the same way.
 
-**Two smaller things worth knowing.** Both view roots are appended to `document.body` *before*
-`createHud`, and the order is load-bearing rather than tidy: none of the overlays sets a
-`z-index`, so they stack in document order, and the HUD's own full-screen `.hud-fade` and
-`.hud-hurt` layers paint over whatever precedes them — which is what keeps a reticle and a ring of
-wedges from floating on top of the blackout during the down beat, a beat that is not a pause and
-so is not covered by the hiding in `frame()`. And the reticle view hides itself when a viewport
-fraction is not finite, on top of `reticleModel`'s own depth check: a camera whose `aspect` is not
-finite yields an `ndc.x` of NaN while `y` and `z` stay finite, so the model comes back
-`visible: true` with only half a position, and an invalid `left` declaration is dropped rather
-than clamped — the reticle would slide vertically at whatever horizontal position it last had.
-Watched happening in the preview pane, whose canvas is 0×0 at load.
+**Three smaller things worth knowing.** Both view roots are appended to `document.body` *before*
+`createHud`, and the order still matters: none of the overlays sets a `z-index`, so they stack in
+document order, and the HUD's own full-screen `.hud-fade` and `.hud-hurt` layers paint over
+whatever precedes them, which keeps both overlays under the pause card and the guide panel. It is
+no longer the only thing standing between the player and a gold reticle over a black screen,
+though — `syncVisuals` hides both views outright while `down` is set. It has to, for a reason
+independent of layering: `update()` returns early through the whole down beat, so `aimHot` holds
+whatever it was on the frame the player went down and the aim point comes from a heading the
+player cannot change until the beat ends. Drawing either of them there is drawing a stale claim,
+and the layering is now a second line of defence rather than the mechanism.
+
+`reticleModel` reports `visible: false` for a model whose fractions are not finite, as well as
+for one outside the depth range. A camera whose `aspect` is not finite yields an `ndc.x` of NaN
+while `y` and `z` stay finite, so a depth-only check comes back `visible: true` with only half a
+position, and an invalid CSS `left` is dropped rather than clamped — the reticle would slide
+vertically at whatever horizontal position it last had. Watched happening in the preview pane,
+whose canvas is 0×0 at load. The check lives in `reticle.ts` rather than in the view, and
+deliberately: it is a correctness rule, the view cannot be tested in node, and `reticle.test.ts`
+now pins it per component, including against a real `PerspectiveCamera` built on a `0 / 0` aspect
+so the NaN is three.js's own output rather than a hand-written stand-in.
+
+`recover()` clears `hitMarks`. Every mark records a hit on the life that just ended, measured
+against a camera heading and a player position that the respawn discards, so none of them points
+at anything afterwards. As the two constants are tuned today the beat outlasts the marks and
+nothing survives the blackout in practice, which makes this a guard rather than a fix — but
+"`DEFAULT_DOWN_CONFIG`'s ramps are longer than `HIT_MARK_SECONDS`" is a coupling across two files
+that nobody retuning either one would think to check, and the failure on the day it stops holding
+is a ring of wedges at the respawn point pointing back at where the player died.
 
 **An inaccuracy in the arrow case, stated rather than left to be discovered.** An arrow's reported
 `from` is the projectile's position *entering* the frame it connects on, not the impact point,
@@ -2219,6 +2241,28 @@ units at the shipped archer's speed of 34 and 60 Hz. It stretches distance rathe
 the bearing, since the pre-step position lies almost directly behind the impact point along the
 arrow's own approach vector, so for an indicator that reports a direction and not a distance it
 barely matters. It is still a real inaccuracy and not a rounding artefact.
+
+**A second inaccuracy, in the bearing itself, and it is bigger.** `markFor` is handed the
+player's `lookDirection` as the camera forward rather than the camera's own orientation. That
+substitution is exact for the camera's *desired* position — the follow cam's offset is
+`-lookDirection * distance` plus a purely vertical lift, so flattened the direction from camera
+back to player is the look direction exactly, and `follow-cam.test.ts` now pins that against both
+profiles and steeply pitched headings. It is the only test that reddens if the follow cam ever
+gains a shoulder offset or an orbit, which would otherwise rotate every wedge by a constant with
+nothing else in the game looking wrong.
+
+What the substitution does not account for is `smoothTowards`. The drawn camera trails its desired
+position, so mid-turn it is still catching up to `lookDirection`. Measured over a sustained turn
+at 180 degrees a second: **17.78 degrees on foot and 9.68 in the glider**, rising to 32.00 and
+18.57 at 360 degrees a second. A mark freezes its bearing at the instant it lands, so a hit taken
+mid-flick keeps that error for its whole 1.2 seconds. Both figures are asserted in
+`follow-cam.test.ts`, and the first-order estimate a reader would reach for — turn rate over the
+smoothing constant, 20.0 degrees on foot — is wrong, because the smoothing acts on the camera's
+position around a circle rather than on the angle. Reading the camera's own world direction at the
+push site instead would trade this lag for a one-frame-stale orientation, which is the smaller
+error; it was not done, because it puts render state inside the simulation half of the frame and
+nobody has seen how large the error feels with a hand on a mouse. **This is the first thing to
+re-examine if wedges read as pointing slightly wrong during fast turns.**
 
 **What was verified, and by what means.** Both view modules are untested, for the reason
 `createHud`, `createPauseOverlay` and `createGuide` are: the test environment is node. Everything
@@ -2534,10 +2578,12 @@ assertions and judging them adequate.
 | `pauseReason` had no exact-reason assertion at `pointerLocked: true, documentHidden: true, guideOpen: false` | returning `'unlocked'` instead of `'hidden'` on the branch where the lock is still held | `'reports the reason this table names for every combination'`, which pins all eight combinations as one object comparison |
 | `OverlayModel.hint` was unasserted at all four points where the card is invisible | `HIDDEN.hint = 'H — guide'`, i.e. a non-empty hint on the invisible path | the same 8-point table, extended from three fields to all four and compared as whole objects |
 
-Two things generalise from them. First, the register below is now unanimous: **fifteen for
-fifteen, the gap was found by making the forbidden change, and none of the fifteen by reading
+Two things generalise from them. First, the register below is now unanimous: **nineteen for
+nineteen, the gap was found by making the forbidden change, and none of the nineteen by reading
 the assertion and reasoning about what it covered.** That is no longer a lesson from one
-cycle; it is the only method that has ever worked here.
+cycle; it is the only method that has ever worked here. (The count read "fifteen for fifteen"
+until the aim-and-hit-direction cycle added four; the four are recorded at the end of this
+section.)
 
 Second, and new: **a test's name can be what hides the gap.** The eleventh sat behind
 `'names a reason for every combination with any pausing cause'`, which sounds exactly like
@@ -2658,6 +2704,46 @@ justification for that same placement, the `liftScale` neutralisation's literal-
 reading, and the glider fixture above. Each was caught by someone re-deriving the number rather
 than trusting the reasoning that produced it.
 
+**The aim-and-hit-direction cycle added four: the sixteenth and seventeenth during its own
+review, and the eighteenth and nineteenth in the fix wave that closed it.** All four were found
+by making the mutation and watching the suite, which is what keeps the count unanimous.
+
+| The gap | The mutation that survived | What caught it in the end |
+| --- | --- | --- |
+| `reticle.test.ts`'s NDC fixture was `(0.5, 0.5)` — off both axes as the plan required, but with `x === y` | swapping the two axes while keeping the y flip: `x: (ndc.y + 1) / 2, y: (1 - ndc.x) / 2`, which maps that fixture to itself | the same test with the fixture at `(0.5, -0.25)`, so the swap and the missing flip each produce a different pair of fractions |
+| No test in `hit-direction.test.ts` used a source with **both** a vertical and a horizontal offset, so "computed horizontally" was never exercised as a claim | a signed-3D bearing — the real 3D angle with a horizontal sign patched in — which is 76.37° where the flattened answer is 45.00° at a source of `(5, 20, -5)` | `'drops the vertical component entirely, agreeing with the purely-horizontal answer'`, which asserts the elevated and level sources give the same bearing |
+| Every fixture in `hit-direction.test.ts` used a camera forward of world `-Z`, which is also three.js's default camera heading | ignoring the `cameraForward` parameter outright and hardcoding `(0, 0, -1)` — in both `bearingFromCamera` and, separately, in `markFor` | two tests: one absolute, against a camera looking along world `+X`; one invariance, that yawing the camera and the source together leaves the bearing alone. Plus a `markFor` case with a non-default forward, since its own test compared it against `bearingFromCamera` called with the same fixture |
+| `bearingFromCamera`'s camera-forward degeneracy guard asserted only that the result was finite, while the source-distance guard beside it asserted the value | returning `Math.PI` — dead *behind* — from the guard the module documents as returning dead ahead | the same test, renamed to say what it pins and asserting `toBeCloseTo(0)` |
+
+**The sixteenth is a shape this register had not recorded, and it is the most uncomfortable one
+in the list: a fixture that satisfies the letter of a test-design instruction while defeating its
+purpose.** The plan asked, in as many words, that "a swapped **or** unflipped axis is visible",
+and specified a point off both axes to make it so. `(0.5, 0.5)` is genuinely off both axes. It is
+also invisible to the swap, because the swap composed with the flip maps that particular point to
+itself — so the instruction was satisfied and its purpose was not, and a reviewer checking the
+plan against the fixture would tick it off. The countermeasure is not a better instruction: it is
+that **an instruction about what a fixture must distinguish is satisfied by running the mutation,
+never by inspecting the fixture against the wording.** The wording cannot enumerate the
+coincidences.
+
+The eighteenth generalises further than the other three, and it is worth stating on its own:
+**when a parameter's every fixture equals the value a caller would default to, no test in the
+file can tell whether the parameter is read at all.** World `-Z` is both the natural constant to
+write in a test and three.js's own camera heading, so all eight tests in `bearingFromCamera`'s
+own describe block — one of which builds a real `PerspectiveCamera` specifically to check the
+basis convention against something other than a hand-picked axis, and so looks along `-Z` too —
+agreed with an implementation that discarded the argument, as did `markFor`'s single test. In
+production `main.ts` passes `lookDirection`, which is world `-Z` only at yaw 0, so
+that mutant would have rotated every wedge by the player's own yaw and produced a world-relative
+indicator where the entire feature is screen-relative: the same class of harm as the mirrored
+left and right the signed assertions were written to prevent, arriving through the one axis
+nobody had varied.
+
+The nineteenth is a test defect rather than a live one — `input.ts` clamps pitch to 85 degrees,
+whose horizontal magnitude is 0.0872 against the guard's 1e-6 threshold, so nothing in the game
+reaches that branch. It is in the register because of how it hid: its sibling guard, four lines
+above it in the same function, *was* pinned to a value, and the pair read as covered.
+
 ## Suggested next steps
 
 In the order I would take them:
@@ -2687,6 +2773,11 @@ In the order I would take them:
    contrast. Whether `HIT_MARK_SECONDS` 1.2 is long enough to turn toward and short enough
    that three archers do not leave a permanent ring. And whether the wedges at a 54–74 px
    radius crowd the reticle they are drawn around. All four are argued guesses.
+
+   A fifth thing is cheaper to check and is a claim rather than a guess: go down in a fight
+   and confirm nothing from either overlay survives the beat. Both views are hidden for the
+   whole of it and `recover()` clears the marks, but that is read from the code — the down
+   beat has never been watched with these two overlays on screen.
 2. **Playtest the pause and front-door cycle specifically.** This is the one piece of
    "play it" that cannot be satisfied by any amount of testing in this environment,
    because the harness cannot hold a pointer lock. On a real click, confirm: Escape
