@@ -3084,17 +3084,38 @@ at and above it VSM's variance test bleeds enough light that the character's sha
 shadow a player actually looks at — stops reading as a body carrying a staff. Tightening the
 shadow camera from `1..640` to `100..510` to buy depth precision was tried in the same pass,
 changed nothing measurable, and was reverted rather than left in as a risk to high casters.
-VSM would also cost two separable blur passes over a 2048-square map every frame.
+VSM would also cost two separable blur passes over the whole shadow map every frame.
 
-The premise was weaker than the warning made it sound, too: at 2048 texels over a 90-unit
-`SHADOW_EXTENT`, from the distance the follow cam watches, PCF's tree and character shadows
-already read as soft-edged **and** keep their silhouettes. The deprecation was a real defect in
-what the file *claimed* and close to a non-issue in what the player saw.
+The premise was weaker than the warning made it sound, too: over a 90-unit `SHADOW_EXTENT`,
+from the distance the follow cam watches, PCF's tree and character shadows already read as
+soft-edged **and** keep their silhouettes. The deprecation was a real defect in what the file
+*claimed* and close to a non-issue in what the player saw.
 
-If softer shadows are wanted later, the untried levers are a 4096 map (smaller texels, four
-times the memory) or a smaller `SHADOW_EXTENT` (the same map over less ground, so shadows only
-near the player). Not another pass at VSM. The attempt is preserved in commit `4c29901` on the
-way to this one, so the configuration is recoverable without redoing the tuning.
+The attempt is preserved in commit `4c29901`, so the configuration is recoverable without
+redoing the tuning. Not another pass at VSM.
+
+**The 4096 map was then tried, and it is now what ships — but it is a detail lever, not a
+softness one.** That correction matters because it was first written down here as a route to
+softer shadows, which it is not: PCF's filter kernel is fixed in texel space, so halving the
+texel size makes edges *crisper*. Compared at 1:1 — which took forcing the drawing buffer to
+match the screenshot size, since every earlier comparison in this document was made on a
+1.6x-downscaled capture that hid the difference entirely — the character's shadow goes from
+rendering the staff as a vague smear at 2048 to a clean thin line at 4096. The benefit grows
+with the player's display rather than shrinking, because more screen pixels per shadow texel is
+what makes a coarse map look blocky, and `setPixelRatio(min(devicePixelRatio, 2))` means a
+retina canvas is already twice the size this was judged at.
+
+It cost roughly 50 MB: a 4096-square depth texture is about 67 MB against 2048's 17 MB, for the
+game's one shadow-casting light, plus four times the shadow-pass fragments. **Frame cost was not
+measured, and could not be** — the browser harness only runs its render loop while its pane is
+frontmost, so no `requestAnimationFrame` timing probe can complete, and both configurations
+would have been vsync-capped on this machine anyway. That is the open risk on weaker GPUs.
+
+Retesting VSM at 4096 settled the last question: it does **not** rescue it. The acne threshold
+barely moved — still banded at `normalBias` 0.2, where the character's shadow is already washing
+out — which means texel footprint was never what drove the acne. The remaining untried lever is
+a smaller `SHADOW_EXTENT`, which is also the cheapest way to undo the memory cost if it ever
+matters.
 
 **Two of the wrong turns are worth keeping**, because both were confident comments written
 before anything was looked at. The first VSM commit stated that VSM needs no bias, on the
