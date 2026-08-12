@@ -816,6 +816,8 @@ describe('armour, as a per-source fraction of a blow', () => {
       vortex: { damage: 1, knockback: 0.5 },
       wave: { damage: 1, knockback: 1 },
       staff: { damage: 0.25, knockback: 0.5 },
+      grip: { damage: 1, knockback: 0 },
+      freeze: { damage: 1, knockback: 1 },
     },
   }
 

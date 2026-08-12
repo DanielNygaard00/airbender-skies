@@ -537,22 +537,35 @@ export function stepEncounter(
     )
     // Read before the pull lands, so a connect means a live soldier was gripped rather than a
     // body being dragged across the island — the same rule the other four resolvers apply.
-    grippedThisFrame = enemies
-      .filter((enemy) => caught.has(enemy.id) && isTargetable(enemy))
-      .map((enemy) => enemy.id)
+    // A soldier whose armour turns the grip away entirely is not a connect: it goes to the
+    // deflect list instead, the same split `resolveBlow` makes for the four air moves.
+    const gripHeld = (enemy: Enemy) =>
+      caught.has(enemy.id) && isTargetable(enemy) && !deflects(c.enemies[enemy.kind], 'grip')
+    grippedThisFrame = enemies.filter(gripHeld).map((enemy) => enemy.id)
+    deflectedThisFrame.push(...enemies
+      .filter((enemy) => caught.has(enemy.id) && isTargetable(enemy)
+        && deflects(c.enemies[enemy.kind], 'grip'))
+      .map((enemy) => enemy.id))
     enemies = enemies.map((enemy) => {
-      if (!caught.has(enemy.id) || !isTargetable(enemy)) return enemy
+      if (!gripHeld(enemy)) return enemy
       // Zero damage, like the Vortex: the move is control. `hitEnemy` still interrupts a
       // wind-up, and `holdEnemy` then keeps the soldier interrupted, which is the difference
       // between water and air on the same key.
+      //
+      // The impulse goes through armour, which is what makes the heavy's `grip` row mean
+      // anything: at knockback 0 the water takes hold and the body does not move, so plate
+      // resists being dragged while the hold still lands. Scaled rather than skipped, unlike a
+      // deflect — a partially-resisted pull is a shorter drag, not a cancelled move.
       //
       // Pull first, hold second, and the order is load-bearing: `holdEnemy` resets
       // `stanceTime` and would otherwise be overwritten by `hitEnemy`'s own reset to
       // 'recover'. It also means the pull's impulse is already on the body when the hold
       // starts, which is what makes the yank visible rather than instantaneous.
-      const pulled = hitEnemy(
-        enemy, 0, waterGripImpulse(input.playerPosition, enemy.position, c.water),
+      const armoured = throughArmour(
+        0, waterGripImpulse(input.playerPosition, enemy.position, c.water),
+        c.enemies[enemy.kind].armour.grip,
       )
+      const pulled = hitEnemy(enemy, armoured.damage, armoured.impulse)
       return holdEnemy(pulled, c.water.gripHoldSeconds)
     })
     waterGripCooldown = c.water.gripCooldownSeconds
@@ -640,18 +653,26 @@ export function stepEncounter(
         iceLockTargets(input.playerPosition, input.playerForward, enemies, c.water)
           .map((enemy) => enemy.id),
       )
-      frozenThisFrame = enemies
-        .filter((enemy) => caught.has(enemy.id) && isTargetable(enemy))
-        .map((enemy) => enemy.id)
+      // `throughArmour` has nothing to scale here — the freeze carries no damage and no
+      // impulse — so armour can only speak about this move in the one way `deflects` reports:
+      // all of it, or none of it. Nothing in the shipped config turns a freeze away (the
+      // heavy's `freeze` row is 1 and 1, argued in `config.ts`), so this branch never fires
+      // today. It exists so that row is a live lever rather than a comment: blocking the
+      // freeze against a kind is now a config edit with working code behind it.
+      const frozen = (enemy: Enemy) =>
+        caught.has(enemy.id) && isTargetable(enemy) && !deflects(c.enemies[enemy.kind], 'freeze')
+      frozenThisFrame = enemies.filter(frozen).map((enemy) => enemy.id)
+      deflectedThisFrame.push(...enemies
+        .filter((enemy) => caught.has(enemy.id) && isTargetable(enemy)
+          && deflects(c.enemies[enemy.kind], 'freeze'))
+        .map((enemy) => enemy.id))
       // No `hitEnemy` at all, unlike the grip: the freeze applies no impulse and no damage, so
       // there is nothing for it to deliver. `holdEnemy` does the interrupting on its own.
       // Passing a zero impulse through `hitEnemy` would work and would be worse — it would put
       // the soldier into 'recover' for one frame before the hold took over, and it would reset
       // `sinceHit`, which is the regeneration clock and has nothing to do with being frozen.
       enemies = enemies.map((enemy) =>
-        caught.has(enemy.id) && isTargetable(enemy)
-          ? holdEnemy(enemy, c.water.freezeHoldSeconds)
-          : enemy)
+        frozen(enemy) ? holdEnemy(enemy, c.water.freezeHoldSeconds) : enemy)
       focusSpent += c.water.freezeFocusCost
       breathSpent += c.water.freezeBreathCost
       freezeFired = true

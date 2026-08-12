@@ -146,6 +146,27 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
      *   deliberately bad answer rather than nothing: an opener does 0.245 and a finisher 0.42,
      *   so a full three-swing combo is 0.91 against 4.0 health, and grinding one down with the
      *   staff alone takes roughly eight combos per rung. That is meant to feel wrong.
+     * - **grip: knockback 0, and the hold still lands.** The Water Grip is a pull, and a pull
+     *   is displacement -- the currency this type exists to defend. So the water takes hold and
+     *   the body does not move: plate resists being dragged, and the ice shell drawn around a
+     *   heavy that visibly did not slide is the tell, so nothing happens silently. `damage` is 1
+     *   and moot, exactly as the vortex row above explains, because the grip carries none.
+     *
+     *   Deliberately not 0 and 0. That would make `deflects` report the grip as turned away and
+     *   skip it whole, which reads as "water does not work on plate" -- and water is the control
+     *   element, so refusing it outright would leave the type with no answer at all from the one
+     *   element whose entire job is answering things you cannot hurt.
+     * - **freeze: everything, and this is a decision rather than an omission.** The Ice Lock
+     *   holds a heavy for its full duration. Ice closing round the legs is not a blow being
+     *   shrugged off by a breastplate, and more importantly the freeze cannot *break* a heavy:
+     *   water carries no damage, so nothing about it moves this soldier down the recovery
+     *   ladder. What a freeze buys is the seconds to set up the wave, which is the answer
+     *   section 4.4 names -- and section 4.2's own worked example is "vortex a group, freeze the
+     *   front rank, drop a pillar under them", the control element enabling the removal.
+     *
+     *   Recorded because it was raised as a balance problem and settled the other way: if it
+     *   should be blocked after playing it, this row is now the one line that does it, which it
+     *   was not before -- `BendingSource` had no entry for water at all.
      *
      * Every number below is an argued guess. Nothing here has been played.
      */
@@ -198,6 +219,8 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
         vortex: { damage: 1, knockback: 0.45 },
         wave: { damage: 1, knockback: 1 },
         staff: { damage: 0.35, knockback: 0.3 },
+        grip: { damage: 1, knockback: 0 },
+        freeze: { damage: 1, knockback: 1 },
       },
     },
     /**

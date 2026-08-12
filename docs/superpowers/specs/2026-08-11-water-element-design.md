@@ -96,13 +96,33 @@ different design.
   `freezeFired` are for; earth and fire want the same pair.
 - **Air is never gated.** It is the baseline; `isElementAvailable` may refuse borrowed elements when
   acts exist, but air is what the player always has.
+- **Every move an element throws needs a `BendingSource` and an armour row.** Water did not have one
+  when it shipped: `BendingSource` named only the four air moves, so `ArmourTable` had no row for a
+  grip or a freeze, `deflects` could not be asked about either, and the heavy armoured soldier — the
+  one type built around refusing a blow — had no defence against water at all. Nothing said whether
+  that was intended, because there was nowhere to say it.
 
-### 2.4 The one thing water did *not* establish
+  That is closed. `BendingSource` now carries `'grip'` and `'freeze'`, and both water resolvers
+  consult the table: the grip scales its impulse through `throughArmour` and skips a soldier whose
+  row is a full deflect, and the freeze — which has no damage and no impulse to scale — skips on a
+  full deflect and reports it. Earth and fire must do the same, and the `Record` is total, so
+  forgetting is a compile error at every armour table rather than an `undefined` when a blow lands.
 
-Water spends Focus; air does not. Whether earth and fire also spend it is open, and it is a balance
+  **This matters most for earth**, which section 4.4 names as the heavy's designed answer alongside
+  the environment. Earth arrives with the heavy's armour rows already waiting for it, and the row it
+  is given is the whole of whether the design document's claim is true.
+
+### 2.4 The two things water did *not* establish
+
+**Focus.** Water spends it; air does not. Whether earth and fire also spend it is open, and it is a balance
 question rather than a contract one. What the contract fixes is only the *mechanism*: `focusSpent` on
 `EncounterStep`, applied unramped in `stepFocus`. If two elements both spend, they share one bar and
 that needs pricing against each other as well as against the Avatar State.
+
+**The heavy's rows for earth and fire.** The armour *mechanism* now covers any element (see 2.3),
+but only water's two rows are filled in. What plate should do to a raised pillar or a fire burst is
+undecided, and for earth it is not a detail: section 4.4 makes earth the answer to this type, so
+whichever fractions earth is given are what make that sentence true or false.
 
 ---
 

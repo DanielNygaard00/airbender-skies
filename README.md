@@ -74,6 +74,12 @@ dive is the one thing its armour does not blunt at all — or the edge of the is
 between you and the rim, dive on it, and the shockwave puts it over the side. A staff will chip
 away at it if you have no height to spend, but slowly, and that is on purpose.
 
+Water splits the difference on a heavy, and the split is the point. A Water Grip takes hold of one
+and cannot drag it — the water closes, the plate stays put — so you cannot reel a heavy in the way
+you can reel in a spear. An Ice Lock holds one exactly as long as it holds anyone: ice round the
+legs does not care what the chest is wearing. Neither hurts it, because water never hurts anything.
+What a freeze buys you is the few seconds it takes to climb and line up the dive that does.
+
 **A net thrower** sits between the spears and the archers, and it pressures flight itself. It
 winds up longer than anything else in the patrol and paints the lane it is about to throw down,
 so the throw is genuinely avoidable — but if the net lands it folds your wings and refuses to let

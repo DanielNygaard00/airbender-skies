@@ -5,7 +5,7 @@ import {
   type EncounterInput, type EnemySpawn, type PlayerHit,
 } from './encounter'
 import { isDowned } from './health'
-import { horizontalDistance, UNARMOURED, type EnemyConfig } from './enemy'
+import { deflects, horizontalDistance, UNARMOURED, type EnemyConfig } from './enemy'
 import { gustTargets } from './gust'
 import { spawnProjectile } from './projectile'
 import { DEFAULT_COMBAT_CONFIG, DEFAULT_PATROL_CONFIG, HOME_PATROL } from './config'
@@ -65,6 +65,13 @@ const C: CombatConfig = {
         vortex: { damage: 1, knockback: 0.5 },
         wave: { damage: 1, knockback: 1 },
         staff: { damage: 0.5, knockback: 0.5 },
+        // Deliberately unlike the shipped heavy on both rows, so a test here that happened to
+        // read the real config instead of this fixture is visible: the grip resists a *little*
+        // rather than completely, and the freeze is turned away outright, which is the
+        // opposite of what ships. Both behaviours need a fixture that exercises them, and
+        // neither is what the game does.
+        grip: { damage: 1, knockback: 0.5 },
+        freeze: { damage: 0, knockback: 0 },
       },
     },
     /**
@@ -2583,5 +2590,166 @@ describe('switching element on the same frame as a release', () => {
       ...defaults, element: 'air', vortexReleased: true,
     }, 1 / 60, C, DEPS)
     expect(later.vortexFired).toBeNull()
+  })
+})
+
+/**
+ * Water against plate.
+ *
+ * Before this, `BendingSource` named only the four air moves, so `ArmourTable` had no row for a
+ * grip or a freeze and `deflects` could not be asked about either. The heavy armoured soldier —
+ * the one type whose whole identity is that a blow can be refused — had no defence against water
+ * of any kind, and nothing said whether that was intended. It was an expressiveness gap before it
+ * was a balance one: there was no way to write the rule down. These tests pin the rule written.
+ *
+ * **Two things had to be got right before any of this was falsifiable, and the first draft got
+ * both wrong.**
+ *
+ * The shipped values are asserted against `DEFAULT_COMBAT_CONFIG`, not against this file's `C`.
+ * The fixture's armour is deliberately unlike the real heavy's on every row — that is what makes
+ * a test accidentally reading the wrong config visible — so a claim about what the *game* does
+ * has to name the game's config. The first draft asserted shipped behaviour while running on the
+ * fixture and failed on its own mismatch.
+ *
+ * And "the body did not move" is not a claim position can carry for an *unheld* soldier: it
+ * advances on its own, so a deflected heavy walks 0.3 units in twenty frames and a position
+ * assertion catches its aggro rather than the pull. Position is only used where both soldiers are
+ * held — a held soldier is inert, so the only thing left that can move it is the pull.
+ */
+describe('water against plate', () => {
+  const SHIPPED = DEFAULT_COMBAT_CONFIG
+  const HEAVY = SHIPPED.enemies.heavy.armour
+  /**
+   * A heavy and a spear side by side, both inside the shipped grip's cone.
+   *
+   * At (±1.5, 0, −4) each is 4.27 out and 20.6 degrees off the axis, against the shipped grip's
+   * range of 10 and half-angle of 30 degrees, on ground flat enough for its 3-unit band. The
+   * spear is the positive control on every assertion below: "nothing happened to the heavy"
+   * passes for a grip aimed at empty sky, a cone that caught nobody, an `element` that never
+   * reached the resolver, and a fight that threw nothing — and every one of those shows up here
+   * as the spear being untouched too.
+   */
+  const PAIR: EnemySpawn[] = [
+    { id: 'plate', position: new Vector3(-1.5, 0, -4), kind: 'heavy' },
+    { id: 'leather', position: new Vector3(1.5, 0, -4), kind: 'spear' },
+  ]
+  const find = (e: Encounter, id: string) => {
+    const found = e.enemies.find((enemy) => enemy.id === id)
+    if (!found) throw new Error(`no soldier named ${id}`)
+    return found
+  }
+  const gripThePair = (config = SHIPPED, frames = 20) => {
+    const from = startEncounter(PAIR, config)
+    const before = {
+      plate: find(from, 'plate').position.clone(),
+      leather: find(from, 'leather').position.clone(),
+    }
+    const first = stepEncounter(
+      from, { ...defaults, element: 'water', gustPressed: true }, 1 / 60, config, DEPS,
+    )
+    let encounter = first.encounter
+    for (let i = 0; i < frames; i++) {
+      encounter = stepEncounter(
+        encounter, { ...defaults, element: 'water' }, 1 / 60, config, DEPS,
+      ).encounter
+    }
+    return { first, encounter, before }
+  }
+  const freezeThePair = (config = SHIPPED) => stepEncounter(
+    { ...startEncounter(PAIR, config), vortexHeldSeconds: 0 },
+    { ...defaults, element: 'water', vortexReleased: true, focusAvailable: 100 },
+    1 / 60, config, DEPS,
+  )
+
+  it('writes the decision down in the shipped config', () => {
+    // The two rows, pinned as values rather than left to the prose in `config.ts`. Both are the
+    // decision this work exists to record: the pull is refused, the hold is not.
+    expect(HEAVY.grip).toEqual({ damage: 1, knockback: 0 })
+    expect(HEAVY.freeze).toEqual({ damage: 1, knockback: 1 })
+    // And neither is a full deflect, which is what keeps the move landing at all. A grip row of
+    // 0 and 0 would make `deflects` true and skip the hold with it — the thing the config
+    // comment argues against, asserted rather than trusted.
+    expect(deflects(SHIPPED.enemies.heavy, 'grip')).toBe(false)
+    expect(deflects(SHIPPED.enemies.heavy, 'freeze')).toBe(false)
+  })
+
+  it('takes hold of a heavy without dragging it, and drags the spear beside it', () => {
+    // The rule. Both halves asserted, because either alone is the wrong feature: a heavy that
+    // gets dragged has no armour, and a heavy that does not get held is immune to the control
+    // element outright. Position is meaningful here precisely because both are held, so neither
+    // is walking and the pull is the only thing left that could move them.
+    const { first, encounter, before } = gripThePair()
+    expect(first.grippedThisFrame).toEqual(expect.arrayContaining(['plate', 'leather']))
+    expect(find(first.encounter, 'plate').stance).toBe('held')
+    expect(find(first.encounter, 'leather').stance).toBe('held')
+
+    expect(find(encounter, 'plate').position.distanceTo(before.plate)).toBeCloseTo(0, 5)
+    expect(find(encounter, 'leather').position.distanceTo(before.leather)).toBeGreaterThan(0.5)
+  })
+
+  it('freezes a heavy for the full duration, which is decided rather than overlooked', () => {
+    // Raised as a balance problem and settled the other way, so it is pinned as behaviour: ice
+    // round the legs is not a blow shrugged off by a breastplate, and a freeze cannot break a
+    // heavy in any case — water carries no damage, so nothing about it moves this soldier down
+    // the recovery ladder. What it buys is the seconds to set up the wave, which is the answer
+    // section 4.4 names for this type.
+    const step = freezeThePair()
+    expect(step.frozenThisFrame).toEqual(expect.arrayContaining(['plate', 'leather']))
+    // One frame under the configured duration, not equal to it, and that is `stepEnemy` doing
+    // what it documents: the hold is decremented once at the top of the step, so a hold applied
+    // during the same step is already a frame old by the time the step returns. Written as the
+    // arithmetic rather than as 3.1833 so a retune of `freezeHoldSeconds` carries the assertion
+    // with it, and so the one-frame offset stays visible instead of looking like a rounded literal.
+    expect(find(step.encounter, 'plate').heldSeconds)
+      .toBeCloseTo(SHIPPED.water.freezeHoldSeconds - 1 / 60, 5)
+    // Identical to the unarmoured soldier's, which is the claim: armour has nothing to say here.
+    expect(find(step.encounter, 'plate').heldSeconds)
+      .toBeCloseTo(find(step.encounter, 'leather').heldSeconds, 5)
+  })
+
+  it('reports a grip a kind turns away outright, instead of doing nothing quietly', () => {
+    // The lever the widened table exists to provide, at a config that ships nowhere. A refused
+    // move has to reach the feedback layer or it reads as a bug — the same contract the gust's
+    // clang already has. No position assertion on the heavy: a deflected soldier is not held, so
+    // it advances under its own aggro and its position would be measuring that.
+    const immune: CombatConfig = {
+      ...SHIPPED,
+      enemies: {
+        ...SHIPPED.enemies,
+        heavy: {
+          ...SHIPPED.enemies.heavy,
+          armour: { ...HEAVY, grip: { damage: 0, knockback: 0 } },
+        },
+      },
+    }
+    const { first } = gripThePair(immune)
+    expect(first.deflectedThisFrame).toContain('plate')
+    expect(first.grippedThisFrame).not.toContain('plate')
+    expect(find(first.encounter, 'plate').stance).not.toBe('held')
+    // The control on the same frame: one kind's armour, not a grip that stopped working.
+    expect(first.grippedThisFrame).toContain('leather')
+    expect(find(first.encounter, 'leather').stance).toBe('held')
+  })
+
+  it('reports a freeze a kind turns away outright, and leaves it unheld', () => {
+    // The branch that never fires in the shipped game, kept live by a test rather than by a
+    // comment, so the `freeze` row is a working lever if playing it says the freeze should be
+    // blocked after all.
+    const immune: CombatConfig = {
+      ...SHIPPED,
+      enemies: {
+        ...SHIPPED.enemies,
+        heavy: {
+          ...SHIPPED.enemies.heavy,
+          armour: { ...HEAVY, freeze: { damage: 0, knockback: 0 } },
+        },
+      },
+    }
+    const step = freezeThePair(immune)
+    expect(step.deflectedThisFrame).toContain('plate')
+    expect(step.frozenThisFrame).not.toContain('plate')
+    expect(find(step.encounter, 'plate').stance).not.toBe('held')
+    expect(step.frozenThisFrame).toContain('leather')
+    expect(find(step.encounter, 'leather').stance).toBe('held')
   })
 })

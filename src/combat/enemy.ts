@@ -65,7 +65,7 @@ export type EnemyAttack =
  * blow itself: `hitEnemy` takes a damage figure and an impulse and has no idea what threw
  * them, which is what lets the four resolvers in `stepEncounter` share one code path.
  */
-export type BendingSource = 'gust' | 'vortex' | 'wave' | 'staff'
+export type BendingSource = 'gust' | 'vortex' | 'wave' | 'staff' | 'grip' | 'freeze'
 
 /**
  * How much of a blow actually lands, as fractions of what was thrown.
@@ -97,6 +97,12 @@ export const UNARMOURED: ArmourTable = {
   vortex: { damage: 1, knockback: 1 },
   wave: { damage: 1, knockback: 1 },
   staff: { damage: 1, knockback: 1 },
+  // Water's two, added when the element and the armour met. Both fractions are moot for a
+  // move that carries no damage and, in the freeze's case, no impulse either -- but the table
+  // is a total Record for a reason, and an armour model that could not be *asked* about water
+  // was the actual defect here. A kind that should resist a pull now has somewhere to say so.
+  grip: { damage: 1, knockback: 1 },
+  freeze: { damage: 1, knockback: 1 },
 }
 
 /**

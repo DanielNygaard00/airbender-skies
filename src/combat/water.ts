@@ -33,27 +33,28 @@ import { isTargetable, type Enemy } from './enemy'
  * `isElementAvailable` in `src/elements/element.ts` for the related decision about drawing
  * from a source.
  *
- * **Open, and opened by a merge rather than by either branch: water is outside the armour
- * model.** `BendingSource` in `enemy.ts` is `'gust' | 'vortex' | 'wave' | 'staff'`, so
- * `ArmourTable` has no entry for a grip or a freeze and `deflects` cannot be asked about
- * either. The heavy armoured soldier therefore has no defence against water at all: its whole
- * identity is that a gust does nothing to it and the answer is the environment, and a Water
- * Grip drags it as readily as it drags a spear.
+ * **Water is inside the armour model, and the heavy's two rows are a decision.** This used to
+ * be an open question recorded here, because `BendingSource` named only the four air moves:
+ * `ArmourTable` had no row for a grip or a freeze, `deflects` could not be asked about either,
+ * and the one type built around refusing a blow therefore had no defence against water at all.
+ * That was an expressiveness gap before it was a balance one — there was no way to write the
+ * rule down.
  *
- * This is recorded rather than fixed because it is a balance decision with an argument on both
- * sides, and neither branch could have seen it — water was built against an archipelago with
- * no armour in it, and the armour was built against one with no water.
+ * `BendingSource` now carries `'grip'` and `'freeze'`, so the table is total over both, and the
+ * heavy armoured soldier answers each differently:
  *
- * For leaving it: water does no damage, so it cannot move a heavy down the recovery ladder,
- * and section 4.4 assigns the heavy the *knockback economy* rather than immunity in general.
- * A hold that buys three seconds and no progress is arguably exactly what the control element
- * should give against a target it cannot hurt.
+ * - **The pull is refused** (`grip` knockback 0). Displacement is the currency section 4.4 gives
+ *   that type, and a pull is displacement. The water still takes hold — the row is not a full
+ *   deflect — so plate resists being dragged without being immune to the control element.
+ * - **The hold lands in full** (`freeze` 1 and 1). Ice round the legs is not a blow shrugged off
+ *   by a breastplate, and a freeze cannot break a heavy in any case: water carries no damage, so
+ *   nothing here moves a soldier down the recovery ladder. What it buys is the seconds to set up
+ *   the wave, which is the answer the design document names for the type, and section 4.2's own
+ *   worked example is exactly that chain.
  *
- * Against leaving it: a freeze neutralises a heavy completely for `freezeHoldSeconds`, which
- * is a better answer to plate than the environmental route the design document names, and it
- * arrives two acts early. If it should be closed, the shape is to widen `BendingSource` with
- * water's two sources and give the heavy a knockback fraction of 0 for the grip while leaving
- * the freeze alone -- the pull is the part that reads as moving armour, the hold is not.
+ * Both rows carry their full argument in `config.ts`, and `encounter.test.ts`'s "water against
+ * plate" block pins them. A full deflect on either row is a live branch with a test behind it
+ * rather than dead config, so blocking either move against a kind is now one line.
  */
 export interface WaterConfig {
   /**
