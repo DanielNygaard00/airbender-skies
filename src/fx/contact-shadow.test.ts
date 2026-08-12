@@ -9,7 +9,7 @@ import {
  * A camera looking along world +X, which is deliberately **not** three.js's default
  * heading of -Z.
  *
- * This project has shipped a set of eight tests that all shared a camera basis which
+ * This project has shipped a whole block of tests that all shared a camera basis which
  * happened to be the library's default, so an implementation ignoring the camera
  * entirely passed every one of them. A non-default basis is what makes the assertions
  * below able to fail.
