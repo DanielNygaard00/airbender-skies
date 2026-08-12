@@ -42,7 +42,12 @@ function drawnContains(fill: Mesh, point: Vector3): boolean {
   let relative = Math.atan2(local.y, local.x) - p.thetaStart
   const turn = Math.PI * 2
   relative = ((relative % turn) + turn) % turn
-  return relative <= p.thetaLength
+  // `relative` (atan2 plus a modulo) and `p.thetaLength` (the config angle through the
+  // geometry constructor) are two different float paths to the same boundary; a sample
+  // landing exactly on the sector edge can disagree by an ulp. The epsilon resolves that
+  // tie toward inclusion, matching inCone's own `>=`, and at 1e-9 radians sits ~10 orders
+  // of magnitude below the ~20-degree error this assertion exists to catch.
+  return relative <= p.thetaLength + 1e-9
 }
 
 describe('createStaffArc', () => {
