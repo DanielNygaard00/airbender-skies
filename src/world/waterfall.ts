@@ -104,15 +104,14 @@ export function createWaterfall(
   })
 
   const mesh = new Mesh(geometry, material)
-  // A translucent curtain, so it must never contribute depth. Two passes read this flag
-  // and both of them render geometry without its own material: `enableShadows` in
-  // `src/core/sun.ts` uses it to keep the curtain out of the shadow map, and
-  // `excludedFromDepth` in `src/fx/contact-shadow.ts` uses it to hide the curtain while
-  // the contact shadow pass renders scene depth under `scene.overrideMaterial`. That
-  // override replaces the material above wholesale, `depthWrite: false` included, so
-  // without this flag the depth target would record the curtain as an opaque near
-  // surface — and the contact term would then darken a band of rim rock that the colour
-  // frame shows you straight through, because the curtain overlaps the lip by LIP_RAISE.
+  // A translucent curtain, so it must never contribute depth. `enableShadows` in
+  // `src/core/sun.ts` reads this flag to keep the curtain out of the shadow map, and any
+  // future pass that renders the scene under `scene.overrideMaterial` must read it too.
+  // An override replaces the material above wholesale, `depthWrite: false` included, so
+  // such a pass would record the curtain as an opaque near surface — and because the
+  // curtain overlaps the lip by LIP_RAISE, that would darken a band of rim rock the
+  // colour frame shows you straight through. The removed contact shadow pass was the
+  // first consumer to hit this; see docs/HANDOFF.md for why it is no longer here.
   mesh.userData.excludeFromShadows = true
   // The plane's origin is its centre, so drop it half its length to hang from the lip,
   // raised by LIP_RAISE above the found ground so the mesh overlaps the rock and hides the seam.

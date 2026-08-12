@@ -113,14 +113,14 @@ describe('createWaterfall', () => {
     vi.unstubAllGlobals()
   })
 
-  it('casts no shadow and contributes no depth to the contact shadow pass', () => {
+  it('casts no shadow, and contributes no depth under an override material', () => {
     // The curtain is translucent — `transparent: true` at `opacity: 0.55` with
     // `depthWrite: false` — and it overlaps the rim rock by LIP_RAISE, so any pass that
     // treats it as an opaque surface darkens rock the player can see straight through.
-    // Both consumers of this flag replace the curtain's own material and would do
-    // exactly that: `enableShadows` in `src/core/sun.ts` and `excludedFromDepth` in
-    // `src/fx/contact-shadow.ts`. This is the assertion that was missing when the
-    // contact shadow pass shipped, which is why the flag is now load-bearing twice over.
+    // `enableShadows` in `src/core/sun.ts` is the consumer today, and it replaces the
+    // curtain's own material, as would any later pass rendering depth under
+    // `scene.overrideMaterial`. This assertion was missing until the contact shadow pass
+    // found the gap; the pass has since been removed and the flag is still correct.
     const waterfall = createWaterfall(island, def(), solid)!
     expect(waterfall.mesh.userData.excludeFromShadows).toBe(true)
   })
