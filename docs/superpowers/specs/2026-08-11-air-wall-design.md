@@ -217,6 +217,30 @@ drawn: that depth is interception tolerance so a dropped frame cannot let a shot
 not a mechanic. The same trade `gust-cone.ts` makes in the other axis, where it draws the
 footprint and leaves the slab's height undrawn.
 
+### What looking at it changed
+
+The panel was rendered over the home island's real terrain, at the player's actual footing, with
+a spear soldier beside it for scale. Two things came back from that and neither was findable from
+the tests, which passed throughout:
+
+- **The tint was wrong.** The first pass used the guard shell's near-white `0xd6f6ff`, arguing
+  that the two are the same category of thing. Rendered, that was `gust-cone.ts`'s own documented
+  mistake repeated: a pale blue sits almost on top of both the washed sky and the pale green
+  terrain, and the panel was present in the frame while reading as nothing. The guard shell gets
+  away with it because it is a small sphere hugging a dark silhouette; a four-unit panel against
+  open sky does not. It now takes the gust cone's cyan `0x7fe4ff`, which also puts every effect
+  in the game made of moving air on one colour, and `PEAK_OPACITY` went from 0.50 to 0.55.
+- **The edge falloff was eating the reach.** The shader's softening was 0.18 of the arc and 0.22
+  of the height at each end, so 36% of the width and 44% of the height were faded and the barrier
+  read visibly narrower and shorter than the volume that deflects. That is the failure this
+  codebase treats as a bug rather than a style choice, for the reason `gust-cone.ts` states: a hit
+  landing outside the visible shape reads as a bug. Cut to 0.10 and 0.12, which keeps the shape
+  from having hard cut edges and leaves four fifths of it at full strength.
+
+The shader itself was also confirmed to compile against the real `WebGLRenderer` — the chunk trap
+is silent, and a passing unit test proving the source lacks `_pars_fragment` is not the same thing
+as a program that links. It draws, `gl.getError()` is 0, and the console is clean.
+
 ---
 
 ## Deliberately not built

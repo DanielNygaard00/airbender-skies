@@ -29,24 +29,30 @@ export interface AirWallPanel {
 }
 
 /**
- * A cool white-blue, a shade paler than the gust cone's 0x7fe4ff.
+ * The gust cone's cyan exactly, and it took a look at the rendered thing to get here.
  *
- * Deliberately close to the guard shell's 0xd6f6ff rather than to the gust's tint, because the
- * two are the same category of thing — a defence the player is holding — and the game's attack
- * tells are all the one cyan. Same argument the gust cone's own comment makes about separating
- * from the pale green terrain and the washed sky: this sits on the bright side of both.
+ * The first pass used the guard shell's near-white 0xd6f6ff, on the argument that the two are
+ * the same category of thing — a defence the player is holding. Rendered, that was the gust
+ * cone's own documented mistake repeated: a pale blue sits almost on top of both the washed sky
+ * and the pale green terrain, so the panel was present in the frame and read as nothing. The
+ * guard shell gets away with the pale tint because it is a small sphere hugging a dark
+ * silhouette; a panel four units wide against open sky does not.
+ *
+ * So it takes the cyan the gust cone was retuned to for the same reason, which also puts every
+ * effect in the game made of moving air on one colour. `gust-cone.ts` carries the original
+ * measurement.
  */
-const TINT = 0xd6f6ff
+const TINT = 0x7fe4ff
 /**
  * Peak alpha before the shader's own falloff and streaks take their bite out of it.
  *
- * Above the gust cone's 0.34 fill because this shape is seen face-on and edge-lit rather than
- * flat on the ground, and because it must read against sky as well as terrain — the glider is
- * the posture section 4.3 cares about. The fragment shader multiplies this down by roughly a
- * third at the panel's centre, so the drawn result is nearer the gust's fill than this number
- * suggests.
+ * Above the gust cone's 0.34 fill because this shape is seen face-on rather than flat on the
+ * ground, and because it must read against sky as well as terrain — the glider is the posture
+ * section 4.3 cares about. The fragment shader multiplies this down to between 0.55 and 1.0 of
+ * itself across the streaks and to nothing at the four edges, so the drawn result sits either
+ * side of the gust's fill rather than above it everywhere.
  */
-const PEAK_OPACITY = 0.5
+const PEAK_OPACITY = 0.55
 /** Short: the wall is a reaction, and a barrier that faded up would arrive after the arrow. */
 const FADE_IN_SECONDS = 0.05
 /**
@@ -81,6 +87,13 @@ const VERTEX_SHADER = /* glsl */ `
  * banding up it that drifts sideways with `time`. The drift is what says "air": a still panel
  * of even alpha reads as glass, which is the wrong material for a move whose whole fiction is
  * that it is a cushion of wind.
+ *
+ * The two falloff widths were cut from 0.18 and 0.22 after looking at the rendered panel over
+ * the home island. At those values the softening ate 36% of the arc and 44% of the height, so
+ * the barrier read visibly narrower and shorter than the volume that actually deflects — which
+ * is the failure mode this codebase treats as a bug rather than a style choice, because a hit
+ * landing outside the visible shape reads as a bug. 0.10 and 0.12 keep the shape from having
+ * hard cut edges while leaving four fifths of it at full strength.
  */
 const FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 tint;
@@ -88,8 +101,8 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform float time;
   varying vec2 vUv;
   void main() {
-    float across = smoothstep(0.0, 0.18, vUv.x) * smoothstep(1.0, 0.82, vUv.x);
-    float up = smoothstep(0.0, 0.22, vUv.y) * smoothstep(1.0, 0.78, vUv.y);
+    float across = smoothstep(0.0, 0.10, vUv.x) * smoothstep(1.0, 0.90, vUv.x);
+    float up = smoothstep(0.0, 0.12, vUv.y) * smoothstep(1.0, 0.88, vUv.y);
     float streak = 0.55 + 0.45 * sin(vUv.x * 38.0 + vUv.y * 6.0 - time);
     gl_FragColor = vec4(tint, alpha * across * up * streak);
     #include <tonemapping_fragment>
