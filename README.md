@@ -18,6 +18,7 @@ back down to a walking stick.
 | `Shift` | Sprint — stacks with the air scooter, so sprinting while riding is faster than riding alone | Hover — hold position in mid-air |
 | `Q` | Air blast dash — three in a chain, then a short recovery | — |
 | `F` | Gust — a wide sweep of air that knocks enemies back | Gust |
+| `G` | Air Wall — hold to raise a short-lived barrier that turns arrows around instead of swallowing them | Air Wall |
 | `E` | Avatar State — once the pip under your Focus bar is full | Avatar State |
 | `R` | Vortex — hold to charge, release to pull nearby enemies inward and lift them off their feet | Vortex |
 | `C` | Slipstream — a short dash, briefly unhittable | Slipstream |
@@ -49,13 +50,31 @@ over.
 It cuts both ways: run your own health out and you go down too, waking up back at the island
 with a full bar of health, an empty bar of Focus, and the patrol exactly as you left it.
 
+Two archers stand further back, and they are the reason height stops being free: they measure
+their range straight through the air, so climbing away from the spears puts you in front of a
+bow instead. Their arrows are the one attack you can send back. Hold `G` and a short-lived wall
+of air stands in front of you, and an arrow that meets it comes off it rather than into you —
+still carrying its own damage, now aimed at whoever it lands on. Most often that is the spear
+soldier closing on you, which is the cheapest hit available to you: you did not throw anything.
+Putting it back into the archer that fired it is possible and it is a fine shot rather than a
+reliable one.
+
+The wall is the one thing you aim where looking up and down matters. Everything else you throw
+is flat, however far you tilt the view; the wall is a mirror, so the angle you hold it at is
+where the arrow goes. Standing level with an archer, the arrow arrives at your ankles, so a
+wall held straight up and down returns it into the ground a few paces away — aim a little high
+and it carries. From the glider it is the opposite and much kinder: the shot climbed a long way
+to reach you, so looking back down the line it came up sends it a long way back down. It costs
+breath, it stands for under a second, and the wait before the next one is exactly as long as
+the wait between dodges, so it answers a draw you saw rather than every arrow in the air.
+
 A small reticle sits where your next attack will go, rather than in the middle of the screen,
 and warms when something is inside the gust's reach. When you take a hit, a wedge appears around
 it pointing at where the hit came from, and fades. A dodge shows one too, so slipping an attack
 still tells you where it was thrown from.
 
 Reach has a height as well as a distance. Every one of your moves — both staff arcs, the gust,
-the Vortex and the Pressure Wave — sweeps a band around your own footing rather than an endless
+the Vortex, the Pressure Wave and the Air Wall — sweeps a band around your own footing rather than an endless
 column, so a soldier far enough below or above you is out of range even when it is squarely in
 front. Each move gets its own band, and they are not the same: a swing with a staff barely
 reaches past your own height, a gust of air reaches a good deal further, and the Vortex reaches
@@ -79,7 +98,8 @@ up — once for the double jump, once to snap the wings back open — and you're
 
 Focus is the reward for playing well rather than merely surviving. It builds while you hold a clean
 line — gliding above stall speed, and about twice as fast riding a thermal or a wind river — and
-much faster in a fight, on every gust that connects and every soldier you put down. Standing still
+much faster in a fight, on every gust that connects, every arrow you turn around and every soldier
+you put down. Standing still
 drains it, and a spear hit takes nearly a third of the bar. The longer you go unbroken the better
 everything pays, so a long run is worth more than the sum of its parts, and losing it costs more too.
 From a standing start, a clean glide fills the bar in around half a minute.

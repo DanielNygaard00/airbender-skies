@@ -14,6 +14,9 @@ import { vortexCharge, vortexImpulse, vortexTargets, type VortexConfig } from '.
 import { staffDamage, staffImpulse, staffTargets, type StaffArcConfig } from './staff-arc'
 import { shouldRestorePatrol, type PatrolConfig } from './patrol'
 import { spawnProjectile, stepProjectile, type Projectile, type ProjectileConfig } from './projectile'
+import {
+  deflect, idleAirWall, isAirWallUp, stepAirWall, type AirWallConfig, type AirWallState,
+} from './air-wall'
 import type { StaffSwing } from '../player/staff'
 
 /**
@@ -42,6 +45,16 @@ export interface Encounter {
   /** Seconds the player has held a charge, or 0. Not the 0-to-1 fraction. */
   vortexHeldSeconds: number
   vortexCooldown: number
+  /**
+   * The Air Wall's lifetime and cooldown.
+   *
+   * Nested rather than flattened into two more fields beside `gustCooldown`, unlike the way
+   * `PlayerState` carries the Slipstream's two. That flattening exists because a dozen
+   * movement tests build `PlayerState` fixtures by hand and widening the struct costs every
+   * one of them; nothing builds an `Encounter` by hand — `startEncounter` is the only
+   * constructor — so the module that owns the rule gets to own the struct.
+   */
+  airWall: AirWallState
 }
 
 export interface CombatConfig {
@@ -59,6 +72,7 @@ export interface CombatConfig {
   pressureWave: PressureWaveConfig
   vortex: VortexConfig
   staffArc: StaffArcConfig
+  airWall: AirWallConfig
 }
 
 export interface EnemySpawn {
@@ -98,12 +112,31 @@ export function startEncounter(spawns: readonly EnemySpawn[], c: CombatConfig): 
     gustCooldown: 0,
     vortexHeldSeconds: 0,
     vortexCooldown: 0,
+    airWall: idleAirWall(),
   }
 }
 
 export interface EncounterInput {
   playerPosition: Vector3
   playerForward: Vector3
+  /**
+   * The player's full three-dimensional aim, which the Air Wall alone reads.
+   *
+   * Distinct from `playerForward` on purpose, and the only place in the fight where the
+   * distinction matters. `playerForward` is flattened by construction on foot and is the
+   * glider's flight path in the air, so it can never point up or down at will in either
+   * posture — and the wall's normal has to, or a reflection cannot change an arrow's vertical
+   * rate. See the module comment on `air-wall.ts` for the measurement that forced this.
+   *
+   * The wiring layer passes the look direction in both postures, so the wall is angled by
+   * where the player looks whether they are on foot or gliding. That is deliberately not what
+   * the gust does — the gust reads `playerForward`, the nose, in the glider. The gust has no
+   * elevation to get right, so it does not need the distinction; this one does, and one rule
+   * across both postures beats matching a move that does not have the problem.
+   */
+  playerAim: Vector3
+  /** Breath in hand, so `stepAirWall` can refuse a raise it cannot pay for. */
+  playerBreath: number
   /** Edge-triggered: the player asked to gust this frame. */
   gustPressed: boolean
   /** A Pressure Wave landed at the player's feet this frame, or null. */
@@ -116,6 +149,8 @@ export interface EncounterInput {
   playerInvulnerable: boolean
   /** The swing the player's staff started this frame, or null. */
   staffSwing: StaffSwing | null
+  /** G held: raise or keep an Air Wall up. A hold rather than an edge, per section 4.2. */
+  airWallHeld: boolean
 }
 
 /** One hit aimed at the player this frame, and where it came from. */
@@ -189,6 +224,35 @@ export interface EncounterStep {
   /** Projectile ids loosed this frame, so a bow release can be made audible. */
   firedThisFrame: string[]
   /**
+   * Projectile ids an Air Wall turned around this frame. The Focus list for section 4.5's
+   * "redirected projectiles".
+   *
+   * Paid at the moment of the redirect rather than when the returned arrow lands, because the
+   * redirect is the skilled act — angling a barrier onto a bearing inside the arrow's flight
+   * time. Whether it then finds a body is partly the fight's arrangement, and a grant that
+   * waited for the landing would pay nothing for a well-walled arrow that happened to have
+   * open ground behind it.
+   */
+  redirectedThisFrame: string[]
+  /**
+   * Enemies a returned arrow struck this frame.
+   *
+   * Kept apart from `hitThisFrame` and reported for feedback only — it feeds no Focus grant.
+   * The redirect has already been paid for by `redirectedThisFrame`, and if the arrow puts a
+   * soldier down, `firstDownsThisFrame` pays for that as well. Folding this into the gust's
+   * connect list would be a third payment for one act, which is the exact mistake
+   * `slamHitThisFrame` and `staffHitThisFrame` exist as separate lists to avoid.
+   */
+  redirectHitsThisFrame: string[]
+  /**
+   * Breath the Air Wall spent this frame, for the caller to deduct.
+   *
+   * Reported rather than applied, the contract `stepSlipstream` already has: a fight has no
+   * business writing to the player's meters, and `Encounter` deliberately holds none of them
+   * except the health pool the fight itself damages.
+   */
+  airWallBreathSpent: number
+  /**
    * Where each hit on the player came from this frame, in world space, with its damage.
    *
    * A list rather than one aggregated direction: two spears and an arrow can land on the
@@ -227,6 +291,16 @@ export function canVortex(encounter: Encounter): boolean {
  * different reason: the enemy pass is what spawns this frame's new arrows, and an
  * arrow stepped before it exists would advance on the very frame it is fired,
  * appearing already a metre or two from the bow.
+ *
+ * The Air Wall sits inside that same arrow pass, and both halves of where it sits are
+ * load-bearing. It is stepped immediately *before* the loop, so a wall raised this frame can
+ * catch an arrow already inside the wedge on the frame the player reacted rather than one
+ * frame later. And each arrow is offered to the barrier *before* it advances, not after: at
+ * the archer's shipped speed of 34 an arrow covers 0.57 units a frame at 60 Hz, so testing a
+ * post-step position asks whether the arrow is in front of the wall having already crossed
+ * it. A returned arrow's hit on a soldier also lands here, ahead of the enemy pass, for the
+ * reason the gust, the staff and the wave all land ahead of it: `hitEnemy` interrupts a
+ * wind-up, and an interrupt applied after the soldier has acted is not an interrupt.
  */
 export function stepEncounter(
   encounter: Encounter,
@@ -355,12 +429,22 @@ export function stepEncounter(
         : enemy)
   }
 
+  // The barrier, resolved before the arrows it is meant to meet. `input.playerBreath` rather
+  // than anything on `Encounter`: breath is the player's meter and the fight only reads it.
+  const wall = stepAirWall(
+    encounter.airWall, input.airWallHeld, input.playerBreath, dt, c.airWall,
+  )
+  const airWall = wall.state
+  const wallUp = isAirWallUp(airWall)
+
   // Stepped before the enemy loop spawns this frame's shots, so a new arrow does not
   // advance on the frame it is fired and appear already metres from the bow. The
   // ordering comment at the top of this function applies here too: this order is
   // load-bearing, not incidental.
   let projectiles: Projectile[] = []
   let projectileDamage = 0
+  const redirectedThisFrame: string[] = []
+  const redirectHitsThisFrame: string[] = []
   // Reported here, before `avoided` below can zero any of it. An arrow's `from` is
   // `arrow.position` -- the position it entered this step at, not the archer's -- because
   // by the time an arrow connects the archer that loosed it may have moved on, and the
@@ -369,10 +453,32 @@ export function stepEncounter(
   // than computing anything new.
   const playerHitsThisFrame: PlayerHit[] = []
   for (const arrow of encounter.projectiles) {
-    const step = stepProjectile(arrow, input.playerPosition, deps.ground, dt, c.projectile)
+    // Offered to the barrier before it advances -- see the ordering comment above. `turned` is
+    // null on almost every frame, including every frame with no wall up, so the common path is
+    // the same one arrow of code it always was.
+    const turned = wallUp
+      ? deflect(arrow, input.playerPosition, input.playerAim, c.airWall)
+      : null
+    if (turned) redirectedThisFrame.push(turned.id)
+    const flying = turned ?? arrow
+
+    const step = stepProjectile(
+      flying, input.playerPosition, enemies, deps.ground, dt, c.projectile,
+    )
     projectileDamage += step.damageToPlayer
     if (step.damageToPlayer > 0) {
       playerHitsThisFrame.push({ from: arrow.position.clone(), damage: step.damageToPlayer })
+    }
+    if (step.hitEnemyId !== null) {
+      redirectHitsThisFrame.push(step.hitEnemyId)
+      const hit = step.hitEnemyId
+      enemies = enemies.map((enemy) => (enemy.id === hit
+        // A zero impulse, so no new tuning number is invented: an arrow is a thin shaft, and
+        // the gust's 26 knockback is the weight of a mass of moving air. The stagger comes
+        // free -- `hitEnemy` cancels a wind-up whatever the impulse, which is the same reason
+        // the Vortex can pass zero damage and still interrupt.
+        ? hitEnemy(enemy, flying.damage, new Vector3())
+        : enemy))
     }
     if (step.projectile) projectiles.push(step.projectile)
   }
@@ -468,7 +574,7 @@ export function stepEncounter(
   return {
     encounter: {
       enemies, projectiles, nextProjectileId, playerHealth, gustCooldown, vortexHeldSeconds,
-      vortexCooldown,
+      vortexCooldown, airWall,
     },
     downedThisFrame,
     firstDownsThisFrame,
@@ -482,6 +588,9 @@ export function stepEncounter(
     damageAvoided: avoided,
     vortexFired,
     firedThisFrame,
+    redirectedThisFrame,
+    redirectHitsThisFrame,
+    airWallBreathSpent: wall.breathSpent,
     playerHitsThisFrame,
   }
 }

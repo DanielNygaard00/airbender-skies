@@ -34,6 +34,15 @@ export interface InputState {
   vortexReleased: boolean
   /** C, edge-triggered: a slipstream dodge. */
   slipstreamPressed: boolean
+  /**
+   * G held: raise or hold an Air Wall.
+   *
+   * A held key with no release edge, unlike the Vortex's pair. The Vortex needs the edge
+   * because releasing it is what *fires* the move and the charge in between is accumulated
+   * state; a wall simply stands while the key is down, so the absence of a key-up event — which
+   * is what a window blur produces — correctly drops it rather than freezing it.
+   */
+  airWallHeld: boolean
   /** Left mouse button, edge-triggered, only while the canvas holds the pointer lock. */
   staffPressed: boolean
 }

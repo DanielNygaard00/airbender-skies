@@ -134,6 +134,11 @@ describe('a motionless player is left alone', () => {
       vortexReleased: false,
       playerInvulnerable: false,
       staffSwing: null,
+      playerAim: new Vector3(0, 0, -1),
+      playerBreath: 100,
+      // No wall. A player who loads the game and touches nothing is not holding one, and a
+      // wall up for these 600 frames could hide a badly placed archer by deflecting its shot.
+      airWallHeld: false,
     }
 
     let encounter = startEncounter(HOME_PATROL, DEFAULT_COMBAT_CONFIG)

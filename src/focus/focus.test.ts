@@ -3,6 +3,7 @@ import {
   chainRamp, emptyFocus, isFull, noFocusEvents, stepFocus,
   type Focus, type FocusConfig, type FocusEvents,
 } from './focus'
+import { DEFAULT_FOCUS_CONFIG } from './config'
 
 /**
  * Round numbers chosen so every expectation below can be a hand-computed literal
@@ -24,6 +25,9 @@ const C: FocusConfig = {
   dodgeGain: 8,
   staffConnectGain: 3,
   accidentDownGain: 4,
+  // Deliberately distinct from every other gain here, so an assertion that paid the wrong
+  // source would land on a different number rather than passing by coincidence.
+  redirectGain: 7,
 }
 
 const focusAt = (value: number, chainTime = 0): Focus => ({ value, max: C.maxFocus, chainTime })
@@ -278,5 +282,40 @@ describe('a removal by accident pays less than a knockdown', () => {
   it('pays nothing when nothing was lost', () => {
     const next = stepFocus(focusAt(0, 0), input({ events: { accidents: 0 } }), 1 / 60, C)
     expect(next.value).toBeCloseTo(0, 5)
+  })
+})
+
+describe('a redirected projectile', () => {
+  it('pays the redirect gain for one arrow turned around', () => {
+    // A literal, for the reason the accident gain above is one: `toBe(C.redirectGain)` would
+    // pass for any value including dodgeGain, and dodgeGain is exactly the neighbour this
+    // source has to be distinguishable from.
+    const next = stepFocus(focusAt(0, 0), input({ events: { redirects: 1 } }), 1 / 60, C)
+    expect(next.value).toBeCloseTo(7, 5)
+  })
+
+  it('pays per arrow', () => {
+    const next = stepFocus(focusAt(0, 0), input({ events: { redirects: 2 } }), 1 / 60, C)
+    expect(next.value).toBeCloseTo(14, 5)
+  })
+
+  it('pays nothing when no arrow was turned', () => {
+    const next = stepFocus(focusAt(0, 0), input({ events: { redirects: 0 } }), 1 / 60, C)
+    expect(next.value).toBeCloseTo(0, 5)
+  })
+
+  it('rides the chain ramp like every other gain', () => {
+    const cold = stepFocus(focusAt(0, 0), input({ events: { redirects: 1 } }), 1 / 60, C)
+    const hot = stepFocus(focusAt(0, 30), input({ events: { redirects: 1 } }), 1 / 60, C)
+    expect(hot.value).toBeGreaterThan(cold.value * 1.2)
+  })
+
+  it('is worth more than a dodge and less than a knockdown in the shipped config', () => {
+    // The ordering argument, checked against the real numbers rather than this file's round
+    // fixture. A redirect strictly dominates a dodge — it avoids the hit and returns it — so it
+    // must pay more; and it is setup rather than a removal, and an arrow that does put a
+    // soldier down pays downGain on top, so it must pay less than one.
+    expect(DEFAULT_FOCUS_CONFIG.redirectGain).toBeGreaterThan(DEFAULT_FOCUS_CONFIG.dodgeGain)
+    expect(DEFAULT_FOCUS_CONFIG.redirectGain).toBeLessThan(DEFAULT_FOCUS_CONFIG.downGain)
   })
 })

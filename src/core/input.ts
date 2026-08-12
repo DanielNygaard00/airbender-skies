@@ -45,6 +45,13 @@ export function toInputState(
     vortexReleased,
     slipstreamPressed,
     staffPressed,
+    // G, and it needs no entry in the tracker's edge bookkeeping below: this is the second
+    // purely-held intent after `sprint` and `tuck`, so the held-key set is the whole
+    // implementation. Chosen because it is free and sits under the index finger next to the
+    // gust on F -- the two moves the player throws air with are neighbours, which is worth more
+    // than any other free key's arrangement. Every alternative was taken: mouse, WASD, Z, Shift,
+    // Q, F, E, R, C, Ctrl, Space, H and Escape all mean something already.
+    airWallHeld: held.has('KeyG'),
   }
 }
 

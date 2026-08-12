@@ -27,6 +27,7 @@ const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({
   avatarStateReady: false,
   vortexReady: true,
   slipstreamReady: true,
+  airWallReady: true,
   ...over,
 })
 

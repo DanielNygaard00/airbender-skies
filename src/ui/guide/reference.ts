@@ -38,6 +38,15 @@ export const COMBOS: readonly Combo[] = [
       'never expires, so you can hold the third one for when you need it.',
   },
   {
+    name: 'Give the arrow back',
+    keys: ['G', 'F'],
+    detail: 'Hold G facing an archer as it draws and the arrow it looses comes off the wall ' +
+      'instead of into you, and it hurts whatever it lands on. Whoever is closing on you is ' +
+      'usually what that is, which is the cheapest damage in the game — you did not throw ' +
+      'anything. Threading it back into the archer that fired it is a fine shot rather than a ' +
+      'reliable one, so gust the spears off you first and let the wall handle the range.',
+  },
+  {
     name: 'Ride the air rather than fight it',
     keys: ['W', 'A', 'D'],
     detail: 'Thrust costs breath; a thermal does not. Steering into a mote cloud and ' +

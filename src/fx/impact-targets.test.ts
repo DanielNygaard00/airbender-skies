@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { impactTargets, type ImpactLists } from './impact-targets'
 
 const lists = (over: Partial<ImpactLists> = {}): ImpactLists => ({
-  hits: [], slamHits: [], staffHits: [], downed: [], ...over,
+  hits: [], slamHits: [], staffHits: [], redirectHits: [], downed: [], ...over,
 })
 
 describe('the union of everything that connected', () => {
@@ -20,6 +20,13 @@ describe('the union of everything that connected', () => {
     // hit spark -- and a staff swing that downed a soldier still sparked, through the
     // separate downed loop, which is what hid it.
     expect(impactTargets(lists({ staffHits: ['a'] })).hits).toEqual(['a'])
+  })
+
+  it('sparks a soldier struck by a redirected arrow', () => {
+    // The one list here that pays no Focus, so it would be easy to leave out of the union as
+    // well — and a soldier taking an arrow it fired with no burst at all is the single event in
+    // the fight a player most needs to see land.
+    expect(impactTargets(lists({ redirectHits: ['a'] })).hits).toEqual(['a'])
   })
 
   it('sparks one enemy once when two attacks land on it in a frame', () => {

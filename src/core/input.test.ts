@@ -144,6 +144,26 @@ describe('toInputState', () => {
     expect(s.sprint).toBe(false)
   })
 
+  it('raises an Air Wall while G is down, and drops it when it is not', () => {
+    // A pure read of the held set, unlike the scooter and the dash below, which is exactly why
+    // a `toInputState` test is the right level here rather than the tracker-level one those
+    // need. The negative line is the one with teeth: a binding that reported `true`
+    // unconditionally would satisfy the first assertion on its own.
+    expect(toInputState(new Set(['KeyG']), LOOK, false).airWallHeld).toBe(true)
+    expect(toInputState(new Set(), LOOK, false).airWallHeld).toBe(false)
+  })
+
+  it('does not let any other bound key raise an Air Wall', () => {
+    // The keys G had to be chosen around. A wall going up on a gust or a dodge would be a
+    // silent breath drain in the middle of a fight rather than anything visibly wrong.
+    for (const code of [
+      'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyZ', 'KeyQ', 'KeyF', 'KeyE', 'KeyR', 'KeyC',
+      'ShiftLeft', 'ControlLeft', 'Space', 'KeyH', 'Escape',
+    ]) {
+      expect(toInputState(new Set([code]), LOOK, false).airWallHeld, code).toBe(false)
+    }
+  })
+
 })
 
 /**

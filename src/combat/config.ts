@@ -215,6 +215,44 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     openerKnockback: 4,
     finisherKnockback: 18,
   },
+  /**
+   * Air Wall.
+   *
+   * The odd one out among the five moves: it is the only one whose numbers are set by the
+   * *archer* rather than by the other four moves. Three of the six come straight off the
+   * archer's shipped attack — `range` from how far an arrow travels in a frame at speed 34,
+   * `halfAngle` from how far a glider can turn inside the 0.88 s an arrow takes to cross the
+   * 30-unit firing range, `maxSeconds` from that same 0.88 s — because a barrier is defined by
+   * what it has to stop and not by what the rest of the kit does.
+   *
+   * The other three are set against the kit: `verticalReach` against `range` rather than
+   * against the other moves' bands, `cooldownSeconds` composed out of the Slipstream's own 1.5,
+   * and `breathCost` under the Slipstream's 28 because the general defensive tool should cost
+   * more than the specific one. Each field carries its own argument in `air-wall.ts`; this is
+   * the summary.
+   *
+   * Two consequences worth having in hand before playing it. The wall is available 37% of the
+   * time, against two archers who between them put an arrow up about every 0.95 s, so most
+   * arrows still have to be answered with movement. And a return that reaches the archer that
+   * fired it is a roughly one-degree shot at maximum range — the reliable payoff is the arrow
+   * going into whatever stands close in front of the wall, which is section 4.1's "his damage
+   * largely comes from ... enemies hitting each other" arriving literally.
+   *
+   * Every value here is an argued guess. None of it has been played.
+   */
+  airWall: {
+    range: 4.0,
+    // 90 degrees spanned, against the gust's 120.
+    halfAngle: Math.PI / 4,
+    // Equal to `range`, deliberately, and the only one of the five bands that is not chosen
+    // against the other four. `air-wall.test.ts` pins the relationship, not the literal.
+    verticalReach: 4.0,
+    maxSeconds: 0.9,
+    // 0.9 up plus 1.5 down, the 1.5 being DEFAULT_SLIPSTREAM_CONFIG.cooldownSeconds exactly.
+    cooldownSeconds: 2.4,
+    // Under the Slipstream's 28 and above FlightConfig.bendFloor's 15.
+    breathCost: 20,
+  },
 }
 
 /**

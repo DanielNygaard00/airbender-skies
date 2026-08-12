@@ -37,6 +37,11 @@ export interface ActionContext {
   vortexReady: boolean
   /** A slipstream is off cooldown and not already running. The caller asks `canSlipstream`. */
   slipstreamReady: boolean
+  /**
+   * An Air Wall can be raised: off cooldown, not already up, and paid for. The caller asks
+   * `canAirWall`, which is the same predicate `stepAirWall` gates the raise on.
+   */
+  airWallReady: boolean
 }
 
 export interface GameAction {
@@ -126,6 +131,19 @@ export const ACTIONS: readonly GameAction[] = [
     key: 'F', name: 'Gust', mode: 'both', available: (ctx) => ctx.gustReady,
     detail: 'A wide sweep of air, thrown where you are looking. Knocks enemies back and '
       + 'interrupts a strike; barely hurts them.',
+  },
+  {
+    key: 'G', press: 'hold', name: 'Air Wall', mode: 'both',
+    available: (ctx) => ctx.airWallReady,
+    detail: 'A short-lived barrier of air, held in front of you, that turns arrows around '
+      + 'instead of swallowing them — and a turned arrow hurts whoever it hits. It only covers '
+      + 'the way you are looking, and only stops things in flight: a spear thrust goes '
+      + 'straight through it. Unlike everything else you aim, looking up and down matters '
+      + 'here, because the wall is a mirror and the angle you hold it at is where the arrow '
+      + 'goes. Level with the shooter, aim a little high or the arrow comes back into the '
+      + 'ground; from the glider, look down the line the shot came up. It spends breath, it '
+      + 'lasts under a second, and the gap before the next one is as long as the gap between '
+      + 'dodges, so it answers a shot you saw coming rather than every shot.',
   },
   {
     key: 'E', name: 'Avatar State', mode: 'both', available: (ctx) => ctx.avatarStateReady,

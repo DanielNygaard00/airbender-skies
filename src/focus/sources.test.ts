@@ -21,8 +21,9 @@ const C: FocusConfig = {
   dodgeGain: 8,
   staffConnectGain: 3,
   // Unused by anything this file tests (traversalRatePerSecond, fellOutOfWorld);
-  // present only because FocusConfig now requires it.
+  // present only because FocusConfig now requires them.
   accidentDownGain: 4,
+  redirectGain: 7,
 }
 
 const FLIGHT: FlightConfig = { ...DEFAULT_FLIGHT_CONFIG, stallSpeed: 10 }

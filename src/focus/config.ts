@@ -39,6 +39,20 @@ export const DEFAULT_FOCUS_CONFIG: FocusConfig = {
   // Roughly a third of downGain's 14, and just below dodgeGain's 8: losing a soldier
   // over the edge still pays, but putting one down is clearly the better line.
   accidentDownGain: 5,
+  /**
+   * Above dodgeGain (8) and below downGain (14).
+   *
+   * Above the dodge because a redirect strictly dominates one: it avoids the hit exactly as a
+   * Slipstream does *and* sends the shot back, and it costs a barrier angled onto a bearing
+   * inside the arrow's flight time rather than a single well-timed press. Below a down because
+   * the redirect is setup — an arrow that actually puts a soldier down pays downGain on top,
+   * so a redirect worth a down's Focus would make the pair the best-paying line in the game.
+   *
+   * Note what it replaces rather than stacks with: a redirected arrow never reaches the
+   * player, so `damageAvoided` does not fire for it and this is paid instead of dodgeGain, not
+   * as well as it.
+   */
+  redirectGain: 10,
 }
 
 /**

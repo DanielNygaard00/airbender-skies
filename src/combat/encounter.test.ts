@@ -77,6 +77,15 @@ const C: CombatConfig = {
     openerKnockback: 4,
     finisherKnockback: 18,
   },
+  // Deliberately unlike the shipped values on every axis a test here could read by accident:
+  // range 5 rather than 4, a 30-degree half-angle rather than 45, and a vertical extent that
+  // is not equal to the range. The one relationship the shipped config asserts --
+  // `verticalReach >= range` -- is pinned in `air-wall.test.ts` against the real config, so
+  // breaking it here costs nothing and makes a fixture mix-up visible.
+  airWall: {
+    range: 5, halfAngle: Math.PI / 6, verticalReach: 6,
+    maxSeconds: 1, cooldownSeconds: 3, breathCost: 20,
+  },
 }
 
 const ORIGIN = new Vector3(0, 0, 0)
@@ -96,6 +105,9 @@ const DEPS = { ground: flatGround, worldFloorY: -50, spawns: [], patrol: { respa
 const defaults: EncounterInput = {
   playerPosition: ORIGIN, playerForward: NORTH, gustPressed: false, slam: null,
   vortexHeld: false, vortexReleased: false, playerInvulnerable: false, staffSwing: null,
+  // Aim starts equal to `playerForward`, which is what the game hands over on foot: there
+  // `player.forward` IS the flattened look direction. Tests that need an elevation override it.
+  playerAim: NORTH, playerBreath: 100, airWallHeld: false,
 }
 
 /** Run the fight with fixed input. */
@@ -1486,5 +1498,158 @@ describe('an archer on high ground measures its range in 3D through a played fig
     // stopping it above. Under a horizontal-only measurement the two cases are identical
     // and both fire, which is what makes the pair a real test of the split.
     expect(play(ON_THE_LEVEL, flatGround).arrows).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * The Air Wall as the fight resolves it.
+ *
+ * `air-wall.ts` owns the lifecycle and the reflection and is tested on its own; this block is
+ * about the wiring — that the barrier is stepped and consulted inside the arrow pass, that the
+ * breath is billed once and reported, and that a returned arrow reaches the enemy list the
+ * fight is holding rather than a copy of it.
+ */
+describe('the Air Wall inside the fight', () => {
+  const W = C.airWall
+  /**
+   * An arrow closing on a player at the origin, level at half a metre.
+   *
+   * Level and off the ground on purpose: level so the mirror is an exact reversal and the aim
+   * below can be a plain `NORTH`, and off the ground so `flatGround` does not swallow the
+   * return before it reaches anything.
+   */
+  const closing = (from = -8) => spawnProjectile('a1', new Vector3(0, 0.5, from), new Vector3(0, 0, 1), 0.8, 20)
+
+  /** An encounter with one arrow already in the air and, optionally, soldiers. */
+  function withArrow(spawns: EnemySpawn[] = [], from = -8): Encounter {
+    return { ...startEncounter(spawns, C), projectiles: [closing(from)] }
+  }
+
+  /** Run until the arrow is gone, or `frames` elapse, gathering what the fight reported. */
+  function fly(start: Encounter, over: Partial<EncounterInput>, frames = 120) {
+    let encounter = start
+    const redirected: string[] = []
+    const redirectHits: string[] = []
+    let breathSpent = 0
+    let damageAvoided = false
+    let playerHit = false
+    for (let frame = 0; frame < frames; frame++) {
+      const step = stepEncounter(encounter, { ...defaults, ...over }, 1 / 60, C, DEPS)
+      encounter = step.encounter
+      redirected.push(...step.redirectedThisFrame)
+      redirectHits.push(...step.redirectHitsThisFrame)
+      breathSpent += step.airWallBreathSpent
+      damageAvoided = damageAvoided || step.damageAvoided
+      playerHit = playerHit || step.playerHit
+    }
+    return { encounter, redirected, redirectHits, breathSpent, damageAvoided, playerHit }
+  }
+
+  const held = { airWallHeld: true, playerAim: NORTH, playerBreath: 100 }
+
+  it('turns an arrow around instead of letting it land', () => {
+    const walled = fly(withArrow(), held)
+    expect(walled.redirected).toEqual(['a1'])
+    expect(walled.playerHit).toBe(false)
+    // The control, and it is the whole test: the identical arrow with no wall held does hurt
+    // the player. Without it this would pass against a fight that quietly drops every arrow.
+    const bare = fly(withArrow(), {})
+    expect(bare.redirected).toEqual([])
+    expect(bare.playerHit).toBe(true)
+  })
+
+  it('bills the breath once for a wall held its whole life', () => {
+    // Over 120 frames — twice `maxSeconds` at this fixture's 1 second — so the wall goes up,
+    // stands, and expires inside the window. One charge, not one per frame and not one per
+    // frame the key is down.
+    expect(fly(withArrow(), held).breathSpent).toBeCloseTo(W.breathCost)
+  })
+
+  it('refuses to raise a wall the player cannot pay for', () => {
+    const broke = fly(withArrow(), { ...held, playerBreath: W.breathCost - 1 })
+    expect(broke.breathSpent).toBe(0)
+    expect(broke.redirected).toEqual([])
+    expect(broke.playerHit).toBe(true)
+    // The control: one unit more breath and the same frame raises a wall that saves them.
+    const paid = fly(withArrow(), { ...held, playerBreath: W.breathCost })
+    expect(paid.redirected).toEqual(['a1'])
+    expect(paid.playerHit).toBe(false)
+  })
+
+  it('sends the arrow into a soldier standing behind the wall', () => {
+    // The payoff: an arrow aimed at the player goes into what is closing on them. The soldier
+    // sits past the wall's reach so the arrow really is turned before it gets there.
+    const spear: EnemySpawn = { id: 'spear-1', position: new Vector3(0, 0, -6), kind: 'spear' }
+    const walled = fly(withArrow([spear]), held)
+    expect(walled.redirectHits).toEqual(['spear-1'])
+    // And it cost the soldier real health rather than merely being reported.
+    const hurt = walled.encounter.enemies[0]!
+    expect(hurt.health.current).toBeLessThan(C.enemies.spear.maxHealth)
+    // The control: with no wall the same soldier is untouched, because a fresh arrow passes
+    // straight through its own side.
+    const bare = fly(withArrow([spear]), {})
+    expect(bare.redirectHits).toEqual([])
+    expect(bare.encounter.enemies[0]!.health.current).toBe(C.enemies.spear.maxHealth)
+  })
+
+  it('interrupts a soldier the returned arrow lands on', () => {
+    // The reason the hit is applied inside the arrow pass, ahead of the enemy step: `hitEnemy`
+    // cancels a wind-up, and an interrupt applied after the soldier has acted is not one. A
+    // struck soldier is left recovering rather than advancing or winding up.
+    // Thirty frames: the arrow is turned at the wall's face around frame 9 and lands around
+    // frame 12, which leaves the soldier well inside this fixture's `recoverSeconds` of 0.6 at
+    // the end of the window. Running longer would see it back on its feet and advancing, which
+    // is correct behaviour and would make this assertion about the clock instead of the hit.
+    const spear: EnemySpawn = { id: 'spear-1', position: new Vector3(0, 0, -6), kind: 'spear' }
+    const walled = fly(withArrow([spear]), held, 30)
+    expect(walled.redirectHits).toEqual(['spear-1'])
+    expect(walled.encounter.enemies[0]!.stance).toBe('recover')
+    // The control: with no wall the same soldier at the same moment is still advancing, so
+    // 'recover' above is the arrow's doing rather than the fixture's starting state.
+    expect(fly(withArrow([spear]), {}, 30).encounter.enemies[0]!.stance).toBe('advance')
+  })
+
+  it('does not also report the arrow as damage avoided', () => {
+    // Focus would pay both `redirectGain` and `dodgeGain` for one arrow otherwise. A redirected
+    // arrow never reaches the player, so there is no damage for the dodge to have avoided --
+    // asserted rather than assumed, because `damageAvoided` is computed from a total the arrow
+    // used to feed.
+    const walled = fly(withArrow(), { ...held, playerInvulnerable: true })
+    expect(walled.redirected).toEqual(['a1'])
+    expect(walled.damageAvoided).toBe(false)
+    // The control: the same invulnerable player with no wall does record an avoided hit, so
+    // the flag is reachable in this fixture and the silence above means something.
+    expect(fly(withArrow(), { playerInvulnerable: true }).damageAvoided).toBe(true)
+  })
+
+  it('leaves an arrow coming from behind the player alone', () => {
+    // The wall is a facing, not a bubble. Same arrow, same wall, aim turned around.
+    const behind = fly(withArrow(), { ...held, playerAim: new Vector3(0, 0, 1) })
+    expect(behind.redirected).toEqual([])
+    expect(behind.playerHit).toBe(true)
+  })
+
+  it('saves a player from an arrow arriving on the frame the wall goes up', () => {
+    // The ordering test, and the fixture is chosen so it can actually fail. The arrow sits one
+    // step from connecting, so the hit lands on frame one — which means the barrier has to be
+    // stepped *before* the arrow pass and each arrow offered to it *before* it advances. Step
+    // the wall after the loop and its state is a frame stale, so it is not up when this arrow
+    // arrives; deflect after `stepProjectile` and the damage is already reported. Either way
+    // the player takes it.
+    //
+    // Arrow at z −1.0 at 20 units/sec: one step of 0.333 puts it at −0.667, and hypot(0.667,
+    // 0.5) is 0.83 against this fixture's hitRadius of 0.9.
+    const oneStepOut = { ...startEncounter([], C), projectiles: [closing(-1)] }
+    const walled = stepEncounter(oneStepOut, { ...defaults, ...held }, 1 / 60, C, DEPS)
+    expect(walled.redirectedThisFrame).toEqual(['a1'])
+    expect(walled.playerHit).toBe(false)
+    // The control that proves the fixture connects on frame one, which is the whole premise:
+    // without the wall this same single step hurts the player.
+    const bare = stepEncounter(oneStepOut, defaults, 1 / 60, C, DEPS)
+    expect(bare.playerHit).toBe(true)
+  })
+
+  it('starts every fight with no wall up', () => {
+    expect(startEncounter([], C).airWall).toEqual({ elapsed: null, cooldown: 0 })
   })
 })

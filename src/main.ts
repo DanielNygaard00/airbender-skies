@@ -37,6 +37,8 @@ import { createImpact } from './fx/impact'
 import { createAvatarAura } from './fx/avatar-aura'
 import { createSlipstreamTrail } from './fx/slipstream-trail'
 import { createGuardShell } from './fx/guard-shell'
+import { createAirWallPanel } from './fx/air-wall'
+import { canAirWall, isAirWallUp } from './combat/air-wall'
 import { createVortexRing } from './fx/vortex-ring'
 import { createVortexChargeTell } from './fx/vortex-charge'
 import { vortexRadius } from './combat/vortex'
@@ -297,6 +299,13 @@ function start(): void {
   const aimTell = createAimTell()
   scene.add(aimTell.object)
 
+  // Scene-parented for the same reason `aimTell` is, and it is the stronger case of the two:
+  // this shape is not a preview of a hit volume, it IS one, and its tilt is the whole control
+  // the move has. Parenting it to the avatar would inherit the interpolated heading and draw a
+  // barrier at an angle the deflection never used.
+  const airWallPanel = createAirWallPanel()
+  scene.add(airWallPanel.object)
+
   // BASE_URL, not a bare absolute path: vite.config.ts sets base to
   // '/airbender-skies/' for GitHub Pages, so "/models/..." would resolve in dev
   // and 404 only on the deployed site. Fire-and-forget on purpose — loadGLTF
@@ -376,6 +385,9 @@ function start(): void {
         { elapsed: player.slipstreamElapsed, cooldown: player.slipstreamCooldown },
         player.breath,
         DEFAULT_SLIPSTREAM_CONFIG,
+      ),
+      airWallReady: canAirWall(
+        encounter.airWall, player.breath, DEFAULT_COMBAT_CONFIG.airWall,
       ),
     }), settings)
   }, (patch) => {
@@ -627,6 +639,14 @@ function start(): void {
         // here. DEFAULT_COMBAT_CONFIG.vortex stands in for it safely: avatarActive is
         // false after recover(), so the boosted and unboosted configs agree at this point.
         chargeTell.update(dt, 0, DEFAULT_COMBAT_CONFIG.vortex)
+        // Driven to `up: false` so the barrier fades out behind the full black rather than
+        // being revealed still standing at the respawn point, the same reason the glider is
+        // stowed and the aura and guard are settled here. `DEFAULT_COMBAT_CONFIG.airWall`
+        // stands in for `fightConfig` safely for the reason the vortex line above does:
+        // `boostedCombatConfig` does not touch this key at all, so the two are the same object.
+        airWallPanel.update(
+          dt, false, player.position, player.forward, DEFAULT_COMBAT_CONFIG.airWall,
+        )
         avatar.setAnimation(animationFor(player))
         wind.update(0, 0)
         followSun(player.position)
@@ -859,6 +879,15 @@ function start(): void {
     const fight = stepEncounter(encounter, {
       playerPosition: player.position,
       playerForward: player.forward,
+      // `state.lookDirection`, not `player.forward`, and only the Air Wall reads it. On foot
+      // `player.forward` IS the flattened look direction, so the two agree on yaw and differ
+      // only in that this one carries the pitch the wall's normal needs; in the glider
+      // `player.forward` is the nose, and requiring a pilot to fly at an arrow to wall it would
+      // leave the mouse — which the design document says trims — doing nothing for the one move
+      // whose elevation matters. `EncounterInput.playerAim` carries the full argument.
+      playerAim: state.lookDirection,
+      playerBreath: player.breath,
+      airWallHeld: state.airWallHeld,
       gustPressed: state.gustPressed,
       slam: slam ? { strength: slam.strength } : null,
       vortexHeld: state.vortexHeld,
@@ -875,6 +904,22 @@ function start(): void {
       spawns: patrolSpawns, patrol: DEFAULT_PATROL_CONFIG,
     })
     encounter = fight.encounter
+    // Deducted here, from the value the fight reported rather than by re-asking whether a wall
+    // went up. `stepAirWall` already made that decision against `canAirWall`, and a second
+    // decision in this file — which has no tests — is a second decision that can disagree.
+    // Clamped for the reason `controllerStep` clamps the Slipstream's spend: the gate and the
+    // deduction agree today and a negative bar would read as a permanently unusable move if
+    // they ever drifted.
+    if (fight.airWallBreathSpent > 0) {
+      player = { ...player, breath: Math.max(0, player.breath - fight.airWallBreathSpent) }
+    }
+    // Fed the same `state.lookDirection` the fight was handed, so the drawn barrier is the plane
+    // the deflection used. Every frame rather than only while a wall is up, because the panel
+    // owns its own fade in both directions.
+    airWallPanel.update(
+      dt, isAirWallUp(encounter.airWall), player.position, state.lookDirection,
+      fightConfig.airWall,
+    )
     // A restored soldier reuses its id, so its interpolator still holds wherever the
     // body fell. Left alone the view would blend from there to the spawn point --
     // sliding across the map, or climbing up out of the void for one that fell off the
@@ -933,6 +978,7 @@ function start(): void {
       hits: fight.hitThisFrame,
       slamHits: fight.slamHitThisFrame,
       staffHits: fight.staffHitThisFrame,
+      redirectHits: fight.redirectHitsThisFrame,
       downed: fight.downedThisFrame,
     })
     for (const id of bursts.hits) {
@@ -1031,6 +1077,9 @@ function start(): void {
       damageAvoided: fight.damageAvoided,
       staffConnects: fight.staffHitThisFrame.length,
       accidents: fight.lostThisFrame.length,
+      // redirectedThisFrame, not redirectHitsThisFrame: §4.5 pays for the redirect, and the
+      // arrow finding a body pays separately through `downs` if it puts one down.
+      redirects: fight.redirectedThisFrame.length,
     }
     const inWind = lastWind.accel.lengthSq() > 1e-6 || lastWind.liftScale !== 1
     focus = stepFocus(focus, {

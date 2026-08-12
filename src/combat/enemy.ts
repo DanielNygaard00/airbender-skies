@@ -177,8 +177,15 @@ export interface EnemyStep {
   firedProjectile: { origin: Vector3; direction: Vector3 } | null
 }
 
-/** Chest height, so an arrow leaves the archer rather than the ground it stands on. */
-const SHOT_HEIGHT = 1.1
+/**
+ * Chest height, so an arrow leaves the archer rather than the ground it stands on.
+ *
+ * Exported since the Air Wall arrived, so that `air-wall.test.ts` can build the archer's own
+ * shot rather than restating 1.1 beside it. That matters there and not elsewhere: those tests
+ * reason about the *height* a mirrored arrow comes home at, and a second copy of this number
+ * would let the reasoning and the game drift apart without a failure.
+ */
+export const SHOT_HEIGHT = 1.1
 
 /**
  * The horizontal heading from `from` to `to`, or null when there is no horizontal
