@@ -17,8 +17,14 @@ export type Stance = 'advance' | 'wind-up' | 'recover' | 'downed' | 'rising'
  * Identity, not behaviour — the behaviour lives in `EnemyAttack` below. Kept separate
  * because the view layer and the per-kind config lookup both need to know *which* type
  * they are looking at, and two types could one day share an attack shape.
+ *
+ * `heavy` and `nets` are section 4.4's third and fourth rows. Neither needed a new state
+ * machine, which is the argument for them being kinds rather than something larger: a
+ * heavy soldier advances, winds up and swings exactly like a spear, and a netter is a
+ * ranged attacker with the archer's beats. What is new about each of them lives in data —
+ * `armour` for the heavy, the projectile's `tangleSeconds` for the netter.
  */
-export type EnemyKind = 'spear' | 'archer'
+export type EnemyKind = 'spear' | 'archer' | 'heavy' | 'nets'
 
 /**
  * What a release produces.
@@ -30,7 +36,104 @@ export type EnemyKind = 'spear' | 'archer'
  */
 export type EnemyAttack =
   | { kind: 'melee'; damage: number }
-  | { kind: 'projectile'; damage: number; speed: number }
+  | {
+      kind: 'projectile'
+      damage: number
+      speed: number
+      /**
+       * Seconds the glider is refused after this projectile connects. Zero for an arrow.
+       *
+       * A required field on the existing `projectile` variant rather than a third `net`
+       * variant, and the choice is deliberate. A net *is* a projectile in every way this
+       * module cares about: it is loosed at the end of a wind-up, it flies in a straight
+       * line, it is measured in 3D, and it ends on the player or the ground. The only
+       * thing that differs is what it does on arrival, so the payload is what gains a
+       * field. A `net` variant would instead have forced `stepEnemy`'s `ranged` test,
+       * `stepEncounter`'s spawn branch and `off-screen.ts`'s melee gate each to grow a
+       * second case for a type that behaves identically in all three.
+       *
+       * Required rather than optional so a future ranged kind has to state its answer.
+       * Zero is the "does nothing" value and the archer says so out loud.
+       */
+      tangleSeconds: number
+    }
+
+/**
+ * Which of the player's moves a blow came from.
+ *
+ * Exists only so `armour` below can answer per source. Deliberately not a property of the
+ * blow itself: `hitEnemy` takes a damage figure and an impulse and has no idea what threw
+ * them, which is what lets the four resolvers in `stepEncounter` share one code path.
+ */
+export type BendingSource = 'gust' | 'vortex' | 'wave' | 'staff'
+
+/**
+ * How much of a blow actually lands, as fractions of what was thrown.
+ *
+ * Two numbers rather than one, because damage and displacement are separate currencies in
+ * this fight and the heavy armoured soldier is the type that proves it: section 4.4 gives
+ * it "knockback economy" to pressure, which only means anything if a move can be allowed
+ * to hurt without moving it, or to move it without hurting it.
+ */
+export interface Armour {
+  /** 1 takes the whole blow; 0 takes none of it. */
+  damage: number
+  /** Same scale, applied to the impulse — horizontal push and vertical lift alike. */
+  knockback: number
+}
+
+/**
+ * What each of the player's moves gets through with.
+ *
+ * A full Record rather than a partial one, for the same reason `CombatConfig.enemies` is a
+ * Record over `EnemyKind`: a move nobody thought about is a typecheck error where the
+ * config is written, not an `undefined` at the moment a blow lands.
+ */
+export type ArmourTable = Record<BendingSource, Armour>
+
+/** Whole force through, from every direction. What everyone but the heavy wears. */
+export const UNARMOURED: ArmourTable = {
+  gust: { damage: 1, knockback: 1 },
+  vortex: { damage: 1, knockback: 1 },
+  wave: { damage: 1, knockback: 1 },
+  staff: { damage: 1, knockback: 1 },
+}
+
+/**
+ * A blow after this soldier's armour has had it.
+ *
+ * Applied here rather than inside `hitEnemy`, and that split is load-bearing rather than
+ * stylistic. `hitEnemy` means "take this blow, whatever it turned out to be": it advances
+ * the recovery ladder off the damage it is handed, so it has to be handed the *final*
+ * figure. Folding the armour into it instead would have given it a fourth parameter that
+ * twenty existing call sites do not pass, and a defaulted fourth parameter is exactly how
+ * a resolver ends up silently ignoring armour.
+ *
+ * The impulse is scaled rather than zeroed component-wise, so a fraction between 0 and 1
+ * means "shoved less far" rather than "shoved sideways but not up".
+ */
+export function throughArmour(
+  damage: number, impulse: Vector3, a: Armour,
+): { damage: number; impulse: Vector3 } {
+  return {
+    damage: damage * a.damage,
+    impulse: impulse.clone().multiplyScalar(a.knockback),
+  }
+}
+
+/**
+ * Whether this kind's armour turns a given move away completely.
+ *
+ * Read off the config rather than off an outcome, and that matters: the vortex carries no
+ * damage at all by design, so "the damage came out at zero" would report every vortex on
+ * every soldier as deflected. A deflect is a property of the pairing — this armour against
+ * that move — and the pairing is what the feedback layer needs to know about, because a
+ * move that does nothing with no sound and no burst reads as a bug rather than as armour.
+ */
+export function deflects(c: EnemyConfig, source: BendingSource): boolean {
+  const a = c.armour[source]
+  return a.damage === 0 && a.knockback === 0
+}
 
 /**
  * Just the ground height, and nothing else.
@@ -99,6 +202,18 @@ export interface EnemyConfig extends HealthConfig {
    * projectile's damage is not split between the enemy and the arrow it fires.
    */
   attack: EnemyAttack
+  /**
+   * What each of the player's moves gets through with, against this kind.
+   *
+   * Config rather than a branch in `stepEncounter`, because section 4.4's "immune to
+   * gusts" is a statement about one enemy type and not about the gust. Written as a branch
+   * it would have been a `kind === 'heavy'` test inside the gust resolver, which is the
+   * shape that makes the next armoured type a second branch in the same place.
+   *
+   * Everyone who is not wearing plate takes `UNARMOURED`, which is all ones, so this field
+   * is a no-op for three of the four kinds and the fight does not have to know that.
+   */
+  armour: ArmourTable
   /** How fast knockback bleeds away, per second. */
   knockbackDamping: number
   /** Matches the world's own gravity in DEFAULT_GROUND_CONFIG. */
@@ -439,12 +554,24 @@ export function stepEnemy(
   // `enemy.test.ts`'s 'still thrusts at a player almost directly overhead' pins that as
   // intended behaviour rather than an oversight.
   //
-  // What climbing escapes is the *archer*, and that is the whole reason this is the one
-  // place the two types genuinely diverge: an arrow does reach up, so both of its ranges are
+  // What climbing escapes is the *ranged* soldier, and that is the whole reason this is the
+  // one place the types genuinely diverge: an arrow does reach up, so both of its ranges are
   // measured in 3D and altitude buys real distance from it. Measured horizontally an archer
   // would read a hovering player as being at distance 0 too — permanently in range, and
   // unable to be escaped by climbing, which is backwards for the type whose entire job is to
   // pressure altitude.
+  //
+  // The net thrower is on the 3D side of that line too, and by its own argument rather than by
+  // inheritance. Section 4.4 gives it *flight itself* to pressure, so a netter that could not
+  // reach a player in the air would be pressuring nothing at all — the only target worth
+  // grounding is one that is currently off the ground. It pays for that reach with a much
+  // shorter strikeRange than the archer's, so climbing still buys distance from it, just less
+  // of it per metre than from a spear.
+  //
+  // The heavy armoured soldier is on the *horizontal* side, with the spear, and that is a
+  // warning rather than a reassurance: it swings at a player hovering directly overhead, at
+  // any altitude, exactly as a spear does. Its answer to a hovering player is not reach, it
+  // is that a hovering player cannot hurt it either.
   const ranged = c.attack.kind === 'projectile'
   const horizontalGap = horizontalDistance(moved.position, playerPosition)
   const distance = ranged ? moved.position.distanceTo(playerPosition) : horizontalGap

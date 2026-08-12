@@ -101,7 +101,7 @@ const player = (over: Partial<PlayerState> = {}): PlayerState => ({
   mode: 'ground', position: new Vector3(0, 0, 0), velocity: new Vector3(),
   forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
   grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0, coyoteTime: 0, jumpBuffer: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0, slipstreamElapsed: null, slipstreamCooldown: 0,
-  staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, ...over,
+  staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, tangled: 0, ...over,
 })
 
 describe('mode switching', () => {
@@ -1062,5 +1062,136 @@ describe('an exhausted glider does not buzz', () => {
     // redden if the floor were removed (back to 300) and it would redden just the same if
     // someone later added hysteresis without updating this assertion (down to 0).
     expect(engagedFrames()).toBe(210)
+  })
+})
+
+describe('a net that has the wings shut', () => {
+  const TANGLE = 2
+
+  /** Airborne with the air jump already spent, so an action press is a deploy and nothing else. */
+  const falling = (over: Partial<PlayerState> = {}) => player({
+    position: new Vector3(0, 200, 0),
+    grounded: false,
+    velocity: new Vector3(0, -12, 0),
+    airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps,
+    ...over,
+  })
+
+  it('refuses the deploy while the countdown is running', () => {
+    const s = controllerStep(
+      falling({ tangled: TANGLE }), input({ actionPressed: true }), 1 / 60, deps(voidWorld),
+    )
+    expect(s.mode).toBe('ground')
+  })
+
+  it('allows the identical press with nothing owed', () => {
+    // The positive control, and it is what makes the assertion above a statement about the net
+    // rather than about the fixture: the same state, the same press, the same world, differing
+    // only in `tangled`. Without it, a `falling()` that had drifted out of the deploy gate's
+    // preconditions -- an unspent air jump, ground within the buffer window, a busy staff --
+    // would produce `mode: 'ground'` for four other reasons and read as the refusal working.
+    const s = controllerStep(
+      falling({ tangled: 0 }), input({ actionPressed: true }), 1 / 60, deps(voidWorld),
+    )
+    expect(s.mode).toBe('glider')
+  })
+
+  it('folds a glider already in the air, without being asked', () => {
+    // A net that only refused the *next* deploy would do nothing at all to a player who is
+    // already flying, which is the population the type exists to threaten.
+    const gliding = player({
+      mode: 'glider', position: new Vector3(0, 200, 0), grounded: false,
+      velocity: new Vector3(0, -6, -40), tangled: TANGLE,
+    })
+    const s = controllerStep(gliding, input(), 1 / 60, deps(voidWorld))
+    expect(s.mode).toBe('ground')
+    expect(s.grounded).toBe(false)
+  })
+
+  it('leaves the same glider flying with nothing owed', () => {
+    // The control for the forced stow. `actionPressed` is false in both, so a stow branch wired
+    // to the wrong condition entirely would show here.
+    const gliding = player({
+      mode: 'glider', position: new Vector3(0, 200, 0), grounded: false,
+      velocity: new Vector3(0, -6, -40), tangled: 0,
+    })
+    expect(controllerStep(gliding, input(), 1 / 60, deps(voidWorld)).mode).toBe('glider')
+  })
+
+  it('keeps the horizontal momentum through the forced fold', () => {
+    // Section 2.3 is explicit that stowing keeps horizontal momentum, and it is also what makes
+    // being netted survivable: the player arrives in ground mode already travelling, rather than
+    // starting a two-second dead drop from a standstill. Asserted on the horizontal components
+    // only, since gravity is entitled to the vertical one.
+    const gliding = player({
+      mode: 'glider', position: new Vector3(0, 200, 0), grounded: false,
+      velocity: new Vector3(9, -6, -40), tangled: TANGLE,
+    })
+    const s = controllerStep(gliding, input(), 1 / 60, deps(voidWorld))
+    expect(s.velocity.x).toBeCloseTo(9, 6)
+    expect(s.velocity.z).toBeCloseTo(-40, 6)
+  })
+
+  it('counts the refusal down in the glider posture as well as on foot', () => {
+    // The countdown lives after both posture branches for this reason. It cannot currently be
+    // reached in glider mode -- the gate refuses the deploy and the branch above folds the wing
+    // -- but a timer that only runs in one posture is a timer that stops working after an
+    // unrelated edit, and the failure would be a player permanently unable to fly.
+    const gliding = player({
+      mode: 'glider', position: new Vector3(0, 200, 0), grounded: false,
+      velocity: new Vector3(0, -6, -40), tangled: TANGLE,
+    })
+    const s = controllerStep(gliding, input(), 1 / 60, deps(voidWorld))
+    expect(s.tangled).toBeCloseTo(TANGLE - 1 / 60, 8)
+  })
+
+  it('counts down on foot too', () => {
+    const s = controllerStep(player({ tangled: TANGLE }), input(), 1 / 60, deps(flatGround))
+    expect(s.tangled).toBeCloseTo(TANGLE - 1 / 60, 8)
+  })
+
+  it('hands the wings back the frame after the countdown expires, and not before', () => {
+    // The player's whole out, asserted as a boundary rather than as an eventual outcome. Both
+    // sides are pinned: still refused on the last owed frame, and allowed on the first free one.
+    // Only the second half would pass for a refusal that never happened.
+    let s = falling({ tangled: TANGLE })
+    let deployedWhileOwed = false
+    let frames = 0
+    // Step with no press until the countdown is spent, watching that a press would still be
+    // refused on every one of those frames.
+    while (s.tangled > 0 && frames < 600) {
+      const pressing = controllerStep(s, input({ actionPressed: true }), 1 / 60, deps(voidWorld))
+      if (pressing.mode === 'glider') deployedWhileOwed = true
+      s = controllerStep(s, input(), 1 / 60, deps(voidWorld))
+      frames++
+    }
+    expect(deployedWhileOwed, 'the glider opened while a net was still holding it').toBe(false)
+    // About two seconds of frames, so the refusal really did last its stated time rather than
+    // ending on frame one.
+    expect(frames).toBeGreaterThanOrEqual(120)
+    expect(frames).toBeLessThanOrEqual(121)
+    // And now it opens.
+    expect(controllerStep(s, input({ actionPressed: true }), 1 / 60, deps(voidWorld)).mode)
+      .toBe('glider')
+  })
+
+  it('is cleared by a respawn rather than carried into the next life', () => {
+    // The down beat already costs the walk back and the whole Focus meter. Arriving at the spawn
+    // point still unable to open the wings would be a punishment carried over from a life that
+    // has ended, and the same argument the staff combo and the dash chain are cleared under.
+    expect(respawn(player({ tangled: TANGLE }), deps(flatGround)).tangled).toBe(0)
+  })
+
+  it('respawns a player whose countdown has gone non-finite rather than flying on', () => {
+    // `isFinitePlayer` watches the field, and this is why. A NaN fails `isTangled`'s `> 0` test,
+    // so a corrupt countdown would silently *free* the wings forever rather than lock them --
+    // invisible in play, and exactly the class of failure this codebase guards by respawning.
+    const s = controllerStep(
+      player({ tangled: Number.NaN, position: new Vector3(5, 9, 5) }),
+      input(), 1 / 60, deps(flatGround),
+    )
+    expect(s.tangled).toBe(0)
+    // Actually respawned, not merely repaired in place: the spawn point for 'flat' is the origin.
+    expect(s.position.toArray()).toEqual([0, 0, 0])
   })
 })

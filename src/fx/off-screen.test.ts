@@ -259,3 +259,90 @@ describe('enemyMarker', () => {
     }
   })
 })
+
+describe('the marker rules against the two newest kinds', () => {
+  const HEAVY = DEFAULT_COMBAT_CONFIG.enemies.heavy
+  const NETS = DEFAULT_COMBAT_CONFIG.enemies.nets
+
+  it('marks every kind in the shipped roster when one is engaged and off the frame', () => {
+    // The audit, iterated over the Record rather than written out per kind. `main.ts` builds this
+    // ring for every soldier in the fight, so a kind that could never earn a chevron would be a
+    // threat the player has no off-screen warning about at all — and a missed branch is the most
+    // likely way for a new kind to arrive half-wired.
+    for (const [kind, config] of Object.entries(DEFAULT_COMBAT_CONFIG.enemies)) {
+      // Just inside the kind's own notice range, whatever that range happens to be.
+      const near = spawnEnemy('a', new Vector3(config.aggroRange - 1, 0, 0), kind as never, config)
+      expect(enemyMarker(near, PLAYER, OFF_FRAME, 0.5, config), kind)
+        .toEqual({ bearing: 0.5, strength: 1, winding: false })
+    }
+  })
+
+  it('marks a heavy standing underneath a hovering player, because it can still swing at them', () => {
+    // The melee clause, and the heavy is the kind that most needs it: it measures `strikeRange`
+    // horizontally, so a player hovering directly over one is inside its 3.6 at any altitude and
+    // takes 2 damage a swing. Without the clause this overlay would stay silent about the hardest
+    // hitter in the game while it connected repeatedly — the exact defect the clause was added for
+    // on the spear.
+    const under = spawnEnemy('plate', new Vector3(1, -40, 0), 'heavy', HEAVY)
+    const hovering = new Vector3(0, 0, 0)
+    // Out of range in 3D, so the notice clause cannot be what admits it.
+    expect(under.position.distanceTo(hovering)).toBeGreaterThan(HEAVY.aggroRange)
+    // In range horizontally, which is what the fight measures for a melee soldier.
+    expect(Math.hypot(1, 0)).toBeLessThan(HEAVY.strikeRange)
+    expect(enemyMarker(under, hovering, OFF_FRAME, 0.2, HEAVY)).not.toBeNull()
+  })
+
+  it('drops a heavy that is out of range on both clauses', () => {
+    // The anti-clutter control. Without it the test above passes for a clause that admits every
+    // melee soldier on the island.
+    const far = spawnEnemy('plate', new Vector3(10, -40, 0), 'heavy', HEAVY)
+    expect(enemyMarker(far, PLAYER, OFF_FRAME, 0.2, HEAVY)).toBeNull()
+  })
+
+  it('drops a net thrower a hovering player has climbed away from', () => {
+    // The other side of the split. A netter is ranged, so both of its clauses are the 3D one and
+    // altitude genuinely buys distance from it — which is what makes climbing the answer to a
+    // netter, and what makes it wrong to keep drawing a chevron for one after the player has left
+    // its reach.
+    const below = spawnEnemy('net-1', new Vector3(1, -40, 0), 'nets', NETS)
+    const hovering = new Vector3(0, 0, 0)
+    expect(below.position.distanceTo(hovering)).toBeGreaterThan(NETS.aggroRange)
+    expect(enemyMarker(below, hovering, OFF_FRAME, 0.2, NETS)).toBeNull()
+  })
+
+  it('marks the same net thrower once the player comes back within its notice range', () => {
+    // The positive control for the drop above: the fixture can earn a marker, and altitude is the
+    // only thing that took it away.
+    const below = spawnEnemy('net-1', new Vector3(1, -10, 0), 'nets', NETS)
+    expect(enemyMarker(below, new Vector3(0, 0, 0), OFF_FRAME, 0.2, NETS)).not.toBeNull()
+  })
+
+  it('flares for a netter mid-throw, which is the moment that matters most', () => {
+    // Being netted costs the whole air layer, so the wind-up flare is the most valuable one in the
+    // ring. It comes free from the shared stance rule, and it is pinned because "comes free" is
+    // exactly the reasoning that stops being true after an edit.
+    const near = spawnEnemy('net-1', new Vector3(10, 0, 0), 'nets', NETS)
+    expect(enemyMarker({ ...near, stance: 'wind-up' }, PLAYER, OFF_FRAME, 0, NETS)?.winding)
+      .toBe(true)
+    expect(enemyMarker(near, PLAYER, OFF_FRAME, 0, NETS)?.winding).toBe(false)
+  })
+
+  it('draws nothing for any kind that is comfortably on screen', () => {
+    // The strength rule, across the roster: a soldier the player can see needs no chevron, and
+    // this is the assertion that would catch a new kind wired to a strength of 1 unconditionally.
+    for (const [kind, config] of Object.entries(DEFAULT_COMBAT_CONFIG.enemies)) {
+      const near = spawnEnemy('a', new Vector3(config.aggroRange - 1, 0, 0), kind as never, config)
+      expect(enemyMarker(near, PLAYER, ON_FRAME, 0, config), kind).toBeNull()
+    }
+  })
+
+  it('draws nothing for a downed soldier of any kind', () => {
+    // `isTargetable` is the gate, and it is the same predicate the fight's resolvers ask. A chevron
+    // pointing at a body would send the player back to a threat that is not there.
+    for (const [kind, config] of Object.entries(DEFAULT_COMBAT_CONFIG.enemies)) {
+      const near = spawnEnemy('a', new Vector3(config.aggroRange - 1, 0, 0), kind as never, config)
+      const flat = { ...near, health: { ...near.health, current: 0 }, stance: 'downed' as const }
+      expect(enemyMarker(flat, PLAYER, OFF_FRAME, 0, config), kind).toBeNull()
+    }
+  })
+})

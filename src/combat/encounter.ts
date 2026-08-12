@@ -3,8 +3,8 @@ import {
   applyDamage, fullHealth, isDowned, stepHealth, type Health, type HealthConfig,
 } from './health'
 import {
-  hitEnemy, isTargetable, spawnEnemy, stepEnemy,
-  type Enemy, type EnemyConfig, type EnemyKind, type GroundHeightQuery,
+  deflects, hitEnemy, isTargetable, spawnEnemy, stepEnemy, throughArmour,
+  type BendingSource, type Enemy, type EnemyConfig, type EnemyKind, type GroundHeightQuery,
 } from './enemy'
 import { gustImpulse, gustTargets, type GustConfig } from './gust'
 import {
@@ -177,6 +177,17 @@ export interface EncounterStep {
   /** Enemies a staff swing connected with. Kept apart from hitThisFrame and
    *  slamHitThisFrame because each feeds a differently tuned Focus grant. */
   staffHitThisFrame: string[]
+  /**
+   * Enemies whose armour turned a whole blow away this frame.
+   *
+   * Disjoint from the three connect lists, and it pays no Focus: nothing happened to the
+   * soldier, so paying for it would make plate armour a Focus battery. It exists so the
+   * effects layer can say something — a move that produces no damage, no push, no sound and
+   * no burst reads as a bug, and the heavy armoured soldier's whole design depends on the
+   * player learning quickly that the gust is the wrong tool rather than that the gust is
+   * broken.
+   */
+  deflectedThisFrame: string[]
   /** Whether the player was hit this frame, for feedback. */
   playerHit: boolean
   /**
@@ -188,6 +199,14 @@ export interface EncounterStep {
   vortexFired: number | null
   /** Projectile ids loosed this frame, so a bow release can be made audible. */
   firedThisFrame: string[]
+  /**
+   * Seconds of glider refusal a net just landed on the player, or 0.
+   *
+   * Reported rather than applied, like every other effect on the player in this struct: the
+   * fight owns enemies and arrows, and the glider is the player controller's business.
+   * Already zeroed by a Slipstream, so a caller can add it unconditionally.
+   */
+  tangleSeconds: number
   /**
    * Where each hit on the player came from this frame, in world space, with its damage.
    *
@@ -202,6 +221,71 @@ export interface EncounterStep {
    * wrong one.
    */
   playerHitsThisFrame: PlayerHit[]
+}
+
+/** What one of the player's moves did to everyone it caught. */
+interface Blow {
+  enemies: Enemy[]
+  /** Live soldiers that took something. Feeds a Focus grant and an impact burst. */
+  connected: string[]
+  /**
+   * Live soldiers whose armour turned the whole blow away.
+   *
+   * Disjoint from `connected` by construction, so a caller cannot pay Focus for a move that
+   * did nothing. Kept as its own list rather than folded into `connected` with a flag,
+   * because the feedback for the two is different in kind: one is a hit and one is a clang.
+   */
+  deflected: string[]
+}
+
+/**
+ * Resolve one of the player's moves against everyone it caught.
+ *
+ * All four moves used to be four near-identical `enemies.map` blocks, and the reason to
+ * fold them into one is not brevity. `isTargetable` is the gate every resolver has to ask,
+ * the four copies had already drifted once (`hitThisFrame` was read before the hits landed
+ * in three of them and the vortex reported nothing at all), and armour has just given each
+ * of them a second thing to get right. One function is one place for both.
+ *
+ * `damage` and `impulse` are callbacks rather than values because the vortex's impulse
+ * depends on the charge and the staff's on which swing it was, and both are per-target.
+ * Everything the caller already computed stays in the caller's closure.
+ *
+ * Reads `enemies` before it writes, so "connected" means a live soldier took the blow
+ * rather than a body being shoved around the island — the property the gust resolver's
+ * original comment insisted on, now true for all four by construction.
+ */
+function resolveBlow(
+  enemies: readonly Enemy[],
+  caught: ReadonlySet<string>,
+  source: BendingSource,
+  c: CombatConfig,
+  damage: (enemy: Enemy) => number,
+  impulse: (enemy: Enemy) => Vector3,
+): Blow {
+  const connected: string[] = []
+  const deflected: string[] = []
+  for (const enemy of enemies) {
+    if (!caught.has(enemy.id) || !isTargetable(enemy)) continue
+    if (deflects(c.enemies[enemy.kind], source)) deflected.push(enemy.id)
+    else connected.push(enemy.id)
+  }
+  const turnedAway = new Set(deflected)
+  return {
+    connected,
+    deflected,
+    enemies: enemies.map((enemy) => {
+      if (!caught.has(enemy.id) || !isTargetable(enemy)) return enemy
+      // A deflected blow is not merely reduced to nothing, it is skipped: `hitEnemy` also
+      // interrupts a wind-up and resets the stance, and armour that stopped the blow has no
+      // business also cancelling the swing it was in the middle of.
+      if (turnedAway.has(enemy.id)) return enemy
+      const armoured = throughArmour(
+        damage(enemy), impulse(enemy), c.enemies[enemy.kind].armour[source],
+      )
+      return hitEnemy(enemy, armoured.damage, armoured.impulse)
+    }),
+  }
 }
 
 /** Whether a gust can fire: off cooldown only. */
@@ -243,25 +327,33 @@ export function stepEncounter(
   let gustCooldown = Math.max(0, encounter.gustCooldown - dt)
 
   let hitThisFrame: string[] = []
+  /**
+   * Every soldier that had a blow turned away by its armour this frame, from any of the four
+   * moves below.
+   *
+   * One list rather than four, because the feedback is one clang per soldier however many
+   * moves bounced off it, and because nothing downstream tunes a deflect by which move
+   * produced it. That is the opposite of the connect lists, which stay separate precisely
+   * because each feeds a differently sized Focus grant.
+   */
+  const deflectedThisFrame: string[] = []
 
   if (input.gustPressed && canGust(encounter)) {
     const caught = new Set(
       gustTargets(input.playerPosition, input.playerForward, enemies, c.gust)
         .map((enemy) => enemy.id),
     )
-    // Read before the hits land, so "connected" means a live enemy took it rather
-    // than a body being blown around the island.
-    hitThisFrame = enemies
-      .filter((enemy) => caught.has(enemy.id) && isTargetable(enemy))
-      .map((enemy) => enemy.id)
-    enemies = enemies.map((enemy) =>
-      caught.has(enemy.id) && isTargetable(enemy)
-        ? hitEnemy(
-            enemy,
-            c.gust.damage,
-            gustImpulse(input.playerPosition, enemy.position, c.gust),
-          )
-        : enemy)
+    const blow = resolveBlow(
+      enemies, caught, 'gust', c,
+      () => c.gust.damage,
+      (enemy) => gustImpulse(input.playerPosition, enemy.position, c.gust),
+    )
+    enemies = blow.enemies
+    hitThisFrame = blow.connected
+    deflectedThisFrame.push(...blow.deflected)
+    // Spent whether or not anything was standing there, and whether or not the armour of
+    // whoever was turned it away. A gust that costs nothing against a heavy would make
+    // spamming it into plate free, which is the opposite of a knockback economy.
     gustCooldown = c.gust.cooldownSeconds
   }
 
@@ -294,14 +386,19 @@ export function stepEncounter(
       const caught = new Set(
         vortexTargets(input.playerPosition, enemies, charge, c.vortex).map((e) => e.id),
       )
-      enemies = enemies.map((enemy) =>
-        caught.has(enemy.id) && isTargetable(enemy)
-          // Zero damage: the move is setup. hitEnemy still interrupts, which is
-          // what a control move should do to a wind-up.
-          ? hitEnemy(enemy, 0, vortexImpulse(
-              input.playerPosition, enemy.position, charge, c.vortex,
-            ))
-          : enemy)
+      const blow = resolveBlow(
+        enemies, caught, 'vortex', c,
+        // Zero damage: the move is setup. hitEnemy still interrupts, which is
+        // what a control move should do to a wind-up.
+        () => 0,
+        (enemy) => vortexImpulse(input.playerPosition, enemy.position, charge, c.vortex),
+      )
+      enemies = blow.enemies
+      // Deliberately not reported as a connect: a vortex has never paid Focus, because
+      // `hitThisFrame` feeds the gust's grant and the move carries no damage. Its deflects
+      // are reported, though — nothing in the game deflects a vortex today, but if a future
+      // armour does, the player must hear it rather than watch a charge do nothing.
+      deflectedThisFrame.push(...blow.deflected)
       vortexFired = charge
       vortexCooldown = c.vortex.cooldownSeconds
     }
@@ -318,18 +415,15 @@ export function stepEncounter(
       staffTargets(input.playerPosition, input.playerForward, finisher, enemies, c.staffArc)
         .map((enemy) => enemy.id),
     )
-    // Read before the hits land, so a connect means a live enemy took it rather than a body
-    // being shoved around the island.
-    staffHitThisFrame = enemies
-      .filter((enemy) => caught.has(enemy.id) && isTargetable(enemy))
-      .map((enemy) => enemy.id)
     const damage = staffDamage(finisher, c.staffArc)
-    enemies = enemies.map((enemy) =>
-      caught.has(enemy.id) && isTargetable(enemy)
-        ? hitEnemy(enemy, damage, staffImpulse(
-            input.playerPosition, enemy.position, finisher, c.staffArc,
-          ))
-        : enemy)
+    const blow = resolveBlow(
+      enemies, caught, 'staff', c,
+      () => damage,
+      (enemy) => staffImpulse(input.playerPosition, enemy.position, finisher, c.staffArc),
+    )
+    enemies = blow.enemies
+    staffHitThisFrame = blow.connected
+    deflectedThisFrame.push(...blow.deflected)
   }
 
   let slamHitThisFrame: string[] = []
@@ -340,19 +434,15 @@ export function stepEncounter(
       waveTargets(input.playerPosition, enemies, strength, c.pressureWave)
         .map((enemy) => enemy.id),
     )
-    // Read before the hits land, so a connect means a live enemy took it.
-    slamHitThisFrame = enemies
-      .filter((enemy) => caught.has(enemy.id) && isTargetable(enemy))
-      .map((enemy) => enemy.id)
     const damage = waveDamage(strength, c.pressureWave)
-    enemies = enemies.map((enemy) =>
-      caught.has(enemy.id) && isTargetable(enemy)
-        ? hitEnemy(
-            enemy,
-            damage,
-            waveImpulse(input.playerPosition, enemy.position, strength, c.pressureWave),
-          )
-        : enemy)
+    const blow = resolveBlow(
+      enemies, caught, 'wave', c,
+      () => damage,
+      (enemy) => waveImpulse(input.playerPosition, enemy.position, strength, c.pressureWave),
+    )
+    enemies = blow.enemies
+    slamHitThisFrame = blow.connected
+    deflectedThisFrame.push(...blow.deflected)
   }
 
   // Stepped before the enemy loop spawns this frame's shots, so a new arrow does not
@@ -361,6 +451,15 @@ export function stepEncounter(
   // load-bearing, not incidental.
   let projectiles: Projectile[] = []
   let projectileDamage = 0
+  /**
+   * The longest refusal any net landed this frame, not their sum.
+   *
+   * Two nets arriving together should not stack into four seconds on the ground. The player
+   * side takes the larger of this and whatever is already owed (`applyTangle`), so a volley
+   * costs exactly one refusal and the extra nets are wasted — which is the right answer for a
+   * mechanic whose cost is measured in seconds of being unable to fly.
+   */
+  let tangleIncoming = 0
   // Reported here, before `avoided` below can zero any of it. An arrow's `from` is
   // `arrow.position` -- the position it entered this step at, not the archer's -- because
   // by the time an arrow connects the archer that loosed it may have moved on, and the
@@ -371,6 +470,7 @@ export function stepEncounter(
   for (const arrow of encounter.projectiles) {
     const step = stepProjectile(arrow, input.playerPosition, deps.ground, dt, c.projectile)
     projectileDamage += step.damageToPlayer
+    tangleIncoming = Math.max(tangleIncoming, step.tangleSeconds)
     if (step.damageToPlayer > 0) {
       playerHitsThisFrame.push({ from: arrow.position.clone(), damage: step.damageToPlayer })
     }
@@ -402,6 +502,7 @@ export function stepEncounter(
         step.firedProjectile.direction,
         config.attack.damage,
         config.attack.speed,
+        config.attack.tangleSeconds,
       ))
       firedThisFrame.push(id)
     }
@@ -415,6 +516,20 @@ export function stepEncounter(
   // Avoided only counts when something was actually coming.
   const avoided = input.playerInvulnerable && damageToPlayer > 0
   const applied = avoided ? 0 : damageToPlayer
+
+  /**
+   * The refusal that actually lands, after a Slipstream has had its say.
+   *
+   * Gated on `input.playerInvulnerable` directly rather than on `avoided`, and the difference
+   * is not cosmetic. `avoided` requires `damageToPlayer > 0`, so a net tuned to zero damage
+   * would slip straight through a dodge — a coupling between the netter's damage figure and
+   * whether its net is dodgeable, sitting in a different file from either. Read this way the
+   * two are independent: an invulnerable player is not netted, whatever the net does.
+   *
+   * `damageAvoided` below keeps its own rule, because that flag pays Focus and is documented
+   * as being about damage. Dodging a net still pays through its 0.5 damage.
+   */
+  const tangleSeconds = input.playerInvulnerable ? 0 : tangleIncoming
 
   const hurt = applied > 0 ? applyDamage(encounter.playerHealth, applied) : encounter.playerHealth
   const playerHealth = stepHealth(hurt, dt, c.player)
@@ -478,10 +593,12 @@ export function stepEncounter(
     hitThisFrame,
     slamHitThisFrame,
     staffHitThisFrame,
+    deflectedThisFrame,
     playerHit: applied > 0,
     damageAvoided: avoided,
     vortexFired,
     firedThisFrame,
+    tangleSeconds,
     playerHitsThisFrame,
   }
 }

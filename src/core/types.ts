@@ -76,6 +76,14 @@ export interface PlayerState {
   staffRecovery: number
   /** Seconds since the last swing ended, mid-combo. See `StaffState.sinceSwing`. */
   staffSinceSwing: number
+  /**
+   * Seconds of glider refusal still owed after a net landed. 0 when free to fly.
+   *
+   * A number rather than a boolean so the countdown *is* the state: a flag would need a second
+   * field to say how long is left, and the two could disagree. See `src/player/tangle.ts` for
+   * the arithmetic and `controller.ts`'s deploy gate for what reads it.
+   */
+  tangled: number
 }
 
 export interface TerrainHit {

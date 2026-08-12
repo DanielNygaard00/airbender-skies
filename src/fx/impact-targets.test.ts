@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { impactTargets, type ImpactLists } from './impact-targets'
+import { impactShape } from './impact'
 
 const lists = (over: Partial<ImpactLists> = {}): ImpactLists => ({
-  hits: [], slamHits: [], staffHits: [], downed: [], ...over,
+  hits: [], slamHits: [], staffHits: [], downed: [], deflected: [], ...over,
 })
 
 describe('the union of everything that connected', () => {
@@ -54,5 +55,67 @@ describe('a down is the louder statement', () => {
     const targets = impactTargets(lists())
     expect(targets.hits).toEqual([])
     expect(targets.downs).toEqual([])
+    expect(targets.deflects).toEqual([])
+  })
+})
+
+describe('a blow that bounced off armour', () => {
+  it('sparks a deflect of its own', () => {
+    const targets = impactTargets(lists({ deflected: ['a'] }))
+    expect(targets.deflects).toEqual(['a'])
+    // And not as a hit. A deflect that leaked into the hit list would draw the connect burst and
+    // play the impact thud for a move that did nothing, which is worse than silence: it tells the
+    // player the gust is working.
+    expect(targets.hits).toEqual([])
+  })
+
+  it('deduplicates, so a soldier that bounced two blows clangs once', () => {
+    expect(impactTargets(lists({ deflected: ['a', 'a'] })).deflects).toEqual(['a'])
+  })
+
+  it('yields to a real hit on the same soldier in the same frame', () => {
+    // The cross-move case, and the only one that needs a precedence rule: a gust and a staff
+    // finisher can both land on one heavy on one frame, and the gust bounces while the staff
+    // bites. Something did happen to that soldier, so drawing a "nothing happened" spark over the
+    // connect would contradict it and the player would have to guess which burst to believe.
+    const targets = impactTargets(lists({ staffHits: ['a'], deflected: ['a'] }))
+    expect(targets.hits).toEqual(['a'])
+    expect(targets.deflects).toEqual([])
+  })
+
+  it('yields to a down on the same soldier too', () => {
+    const targets = impactTargets(lists({ downed: ['a'], deflected: ['a'] }))
+    expect(targets.downs).toEqual(['a'])
+    expect(targets.deflects).toEqual([])
+    expect(targets.hits).toEqual([])
+  })
+
+  it('still clangs for a different soldier in the same frame', () => {
+    // The control on the two precedence tests above: they must not be satisfied by a deflect list
+    // that is simply always emptied. One gust across two soldiers, one of them armoured.
+    const targets = impactTargets(lists({ hits: ['a'], deflected: ['b'] }))
+    expect(targets.hits).toEqual(['a'])
+    expect(targets.deflects).toEqual(['b'])
+  })
+})
+
+describe('the three bursts read as three different events', () => {
+  it('draws a deflect smaller and shorter than a connect', () => {
+    // The one thing this burst must not do is read as a weaker connect -- that would teach the
+    // player the gust is working badly rather than not working at all. Asserted as comparisons
+    // against `hit` rather than against literals, so retuning the connect drags the deflect with
+    // it instead of letting the two cross over.
+    expect(impactShape('deflect').radius).toBeLessThan(impactShape('hit').radius)
+    expect(impactShape('deflect').lifetime).toBeLessThan(impactShape('hit').lifetime)
+    // And brighter at its peak, which is the half that makes it read as a spark off metal rather
+    // than as a smaller puff of air.
+    expect(impactShape('deflect').opacity).toBeGreaterThan(impactShape('hit').opacity)
+  })
+
+  it('gives all three their own tint', () => {
+    const tints = new Set(
+      (['hit', 'down', 'deflect'] as const).map((kind) => impactShape(kind).tint),
+    )
+    expect(tints.size).toBe(3)
   })
 })

@@ -1,4 +1,5 @@
 import { Vector3 } from 'three'
+import { UNARMOURED } from './enemy'
 import type { CombatConfig, EnemySpawn } from './encounter'
 import type { PatrolConfig } from './patrol'
 
@@ -45,6 +46,7 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
        * than from reading this, and each rung costs less of the player's time than the last.
        */
       recoveryHealthFractions: [0.6, 0.3],
+      armour: UNARMOURED,
     },
     /**
      * The archer. Section 4.4 gives it altitude to pressure, and its numbers are the
@@ -89,7 +91,11 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
       recoverSeconds: 1.1,
       // Same damage as a spear thrust. At 34 units/sec an arrow crosses the 30-unit firing
       // range in about 0.9 seconds: fast enough to threaten, slow enough to see coming.
-      attack: { kind: 'projectile', damage: 1, speed: 34 },
+      //
+      // `tangleSeconds: 0` said out loud rather than defaulted. An arrow does not ground the
+      // player, and the field being required on every projectile is what forces a future
+      // ranged kind to make that decision on purpose. See `EnemyAttack` in `enemy.ts`.
+      attack: { kind: 'projectile', damage: 1, speed: 34, tangleSeconds: 0 },
       knockbackDamping: 2.6,
       gravity: 20,
       snapDistance: 1.2,
@@ -103,6 +109,179 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
       downedSeconds: 18,
       risingSeconds: 1.2,
       recoveryHealthFractions: [0.6, 0.3],
+      armour: UNARMOURED,
+    },
+    /**
+     * Heavy armoured infantry. Section 4.4 gives it **knockback economy** to pressure, and
+     * that phrase is the whole design: the player's cheap displacement move does nothing to
+     * it, and the expensive one does everything.
+     *
+     * The doc's other half — "must be broken with earth or the environment" — names a tool
+     * this game does not have. There is no earthbending, so the environment carries the whole
+     * load, and the environment in an archipelago means the rim. `heavy-environment.test.ts`
+     * measures that route at the real home island rather than asserting it here, because it
+     * is a property of these numbers *and* the terrain and cannot be read off either alone.
+     *
+     * Its armour is the only non-`UNARMOURED` table in the game, and each row is a decision:
+     *
+     * - **gust: nothing at all.** Section 4.4's word is "immune", so it is 0 and 0 rather than
+     *   a large reduction. A gust is a sweep of moving air, and a soldier in plate with its
+     *   weight behind a shield does not move and does not care. This is the row the whole type
+     *   exists for, and `deflects` reports it so the player hears a clang and sees a spark
+     *   instead of watching a move do nothing — see `deflectedThisFrame` in `encounter.ts`.
+     * - **wave: everything.** A Pressure Wave is a shock travelling through the ground rather
+     *   than air pushed at a body, and it is the move the doc ties to the traversal layer. So
+     *   the heavy is the enemy that only *earned* knockback moves, which is what makes this a
+     *   knockback economy rather than a knockback immunity. It is also the only reason the type
+     *   is beatable at all in the current kit.
+     * - **vortex: knockback at 0.45.** Reduced, not removed. Full charge gives 18 pull and 11
+     *   lift, so 8.1 and 4.95 get through: about half a second off the ground — inert, per
+     *   `stepEnemy`'s airborne branch — and roughly three metres of drift toward the player.
+     *   Enough to drag a heavy toward a rim from a hover beyond it; nowhere near enough to
+     *   juggle one. Zeroing it was the first draft and it made the type unbeatable, because the
+     *   vortex is the only move that can move a body the player is not standing next to.
+     *   `damage` here is 1 and is moot: the vortex carries no damage by design, and writing 0
+     *   would have made `deflects` report every vortex on every soldier as turned away.
+     * - **staff: 0.35 damage, 0.3 knockback.** A wooden staff against plate. Left as a real but
+     *   deliberately bad answer rather than nothing: an opener does 0.245 and a finisher 0.42,
+     *   so a full three-swing combo is 0.91 against 4.0 health, and grinding one down with the
+     *   staff alone takes roughly eight combos per rung. That is meant to feel wrong.
+     *
+     * Every number below is an argued guess. Nothing here has been played.
+     */
+    heavy: {
+      /**
+       * Well over twice the spear's 1.5, and picked against the Pressure Wave rather than in
+       * the abstract: a full-strength slam does 2.2, so two committed dives put one down, and
+       * the ladder below asks for two more and then one. Five real dives for a permanent down.
+       */
+      maxHealth: 4,
+      outOfCombatSeconds: 6,
+      regenPerSecond: 0,
+      // The slowest thing in the game, well under the spear's 4.2. Armour is heavy, and
+      // walking away from this one always works — which is the point of a wall.
+      moveSpeed: 2.6,
+      // A little past the spear's 3.2: a longer, heavier weapon swung with both arms.
+      strikeRange: 3.6,
+      /**
+       * The *shortest* notice range in the game, below the spear's 26 on purpose. A leash is a
+       * promise to pursue, and at 2.6 m/s this one cannot keep it: noticing at 26 would mean a
+       * heavy trudging after a player for twenty seconds and never arriving, which reads as a
+       * broken enemy rather than a slow one. Short enough that it holds a piece of ground
+       * instead of chasing, which is what it is for.
+       */
+      aggroRange: 20,
+      // The most generous telegraph of the three melee-class windows (spear 0.55): a heavy
+      // swing is slow to start, and at 2 damage the dodge has to be genuinely available.
+      windUpSeconds: 0.95,
+      // Nearly double the spear's 0.7. The punish window is where the staff route lives.
+      recoverSeconds: 1.3,
+      // Twice a spear thrust, so two connects and a bit take the player's whole 5-point bar.
+      // The trade for being unable to chase: standing next to one is the mistake.
+      attack: { kind: 'melee', damage: 2 },
+      knockbackDamping: 2.6,
+      gravity: 20,
+      snapDistance: 1.2,
+      downedSeconds: 18,
+      // Half again the spear's 1.2: more to lift, and the extra window is worth having on the
+      // one enemy the player most wants to hit again before it is up.
+      risingSeconds: 1.8,
+      /**
+       * The same ladder shape as everyone else, deliberately. Against maxHealth 4 the rungs
+       * come to 4, then 2.4, then 1.2, so each descent costs fewer full slams than the last —
+       * the same "three, then two, then one" curve the spear's numbers produce, in the currency
+       * this type is actually paid in.
+       */
+      recoveryHealthFractions: [0.6, 0.3],
+      armour: {
+        gust: { damage: 0, knockback: 0 },
+        vortex: { damage: 1, knockback: 0.45 },
+        wave: { damage: 1, knockback: 1 },
+        staff: { damage: 0.35, knockback: 0.3 },
+      },
+    },
+    /**
+     * The net thrower. Section 4.4 gives it **flight itself** to pressure: a net that connects
+     * stows the glider and refuses a redeploy for a spell, which drops the player into the
+     * ground layer — the posture section 2.2 calls his most vulnerable.
+     *
+     * Mechanically it is the archer's path: a wind-up, a projectile, a recovery, both ranges
+     * measured in 3D. What is different is the payload, and it is the payload that carries the
+     * whole type — see `tangleSeconds` on `EnemyAttack`.
+     *
+     * The numbers are all bought from the archer's, in the direction that makes a net readable
+     * rather than oppressive: slower in the air, shorter reach, a longer telegraph, and a
+     * longer recovery. Being grounded is the worst thing in the game that is not damage, so
+     * every figure here leans toward "the player could have seen that coming".
+     */
+    nets: {
+      // The most fragile of the four, under the archer's 1.2. Its job is done the instant one
+      // net lands, so it has no business also being durable — and the recovery window below is
+      // long enough that a player who closes on it should be rewarded for the read.
+      maxHealth: 1,
+      outOfCombatSeconds: 6,
+      regenPerSecond: 0,
+      // Between the archer's 3.4 and the spear's 4.2. It wants to stay in throwing range of a
+      // player who is trying to leave it, which needs more than the archer's walk.
+      moveSpeed: 3.8,
+      /**
+       * Its throwing range, eight units below `aggroRange` — the same closing band the archer
+       * uses, and for the same reason: a patrol member must not open fire the instant it
+       * notices. At `moveSpeed` 3.8 that band is about 2.1 seconds of walking.
+       *
+       * A third of the archer's 30, and this is the load-bearing number of the type. A net is
+       * heavy, thrown by hand, and it has to be escapable by *moving up* — at 22 units a player
+       * who climbs is out of a netter's reach long before they are out of an archer's, so the
+       * two ranged types pressure altitude in opposite directions: the archer punishes hovering
+       * low, the netter punishes flying close.
+       */
+      strikeRange: 22,
+      /**
+       * Eight above `strikeRange`, and comfortably below the archer's 38, which is what keeps
+       * `DEFAULT_PATROL_CONFIG.respawnRange` where it is — see the note on that value.
+       */
+      aggroRange: 30,
+      /**
+       * The longest telegraph in the game, past the archer's 0.8. Deliberately the most
+       * generous window of the four: an arrow costs a fifth of the player's health, and a net
+       * costs the entire air layer for two seconds. The dodge has to be there for the taking.
+       */
+      windUpSeconds: 1,
+      /**
+       * The longest recovery too, past the archer's 1.1. A thrown net has to be gathered back
+       * up before the next throw, and that gap is the answer to a netter: close on it during
+       * the recovery rather than trading with it at range.
+       */
+      recoverSeconds: 1.6,
+      /**
+       * Half a spear thrust — one gust's worth — and 22 units a second, well under the arrow's
+       * 34. A net is heavy and it tumbles: crossing the full 22-unit throwing range takes a
+       * whole second, which is a real chance to leave the lane after it is in the air.
+       *
+       * The damage is small on purpose. The cost of a net is the two seconds on the ground,
+       * and stacking real damage on top of that would make one connect decide a fight. It is
+       * not *zero* only because a mechanic that costs no health should still register as a hit
+       * — the hurt flash, the direction wedge and the Focus drain all key off damage.
+       *
+       * `tangleSeconds: 2` is the whole type, and it is measured against the fall rather than
+       * chosen for feel. Two seconds of ground-mode fall from a stow is 40 m at gravity 20,
+       * against the 600 m of drop between the island band and `worldFloorY`: the refusal costs
+       * about a fifteenth of the air available over open sky, so being netted mid-crossing is a
+       * scare and a loss of altitude rather than a death. `net-recovery.test.ts` measures that
+       * over the real level instead of trusting this paragraph.
+       */
+      attack: { kind: 'projectile', damage: 0.5, speed: 22, tangleSeconds: 2 },
+      knockbackDamping: 2.6,
+      gravity: 20,
+      snapDistance: 1.2,
+      // The shared ladder again. Against maxHealth 1 the rungs are 1, then 0.6, then 0.3 —
+      // two gusts, then two, then one. Nothing about this type argues for its own countdown.
+      downedSeconds: 18,
+      risingSeconds: 1.2,
+      recoveryHealthFractions: [0.6, 0.3],
+      // A net and a coil of chain, not plate. Every one of the player's moves works on it,
+      // which is the trade for the thing it does.
+      armour: UNARMOURED,
     },
   },
   /**
@@ -220,10 +399,25 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
 /**
  * Where the first fight lives: on the home island, out from the spawn.
  *
- * Three spears and two archers, with the archers further back, so the group has a shape
- * rather than being a blob. Section 4.4 builds encounters as combinations of types, and
- * this is the intended bind: close the distance and the spears punish you, hold back or
- * climb and the archers do.
+ * Four ranks now, in radius order out from the spawn: one heavy, three spears, one net
+ * thrower, two archers. Section 4.4 builds encounters as combinations of types, and this is
+ * the intended bind — every posture the player might retreat into is covered by something:
+ * close the distance and the spears punish you, hold back or climb high and the archers do,
+ * fly *near* and the netter grounds you, and the one thing that would answer all three at
+ * once (a gust to open a gap) does nothing at all to the heavy holding the front.
+ *
+ * **One encounter site rather than two, deliberately.** Seven soldiers on one island is a
+ * bigger fight than five, and the argument for splitting them was that the heavy and the
+ * netter each teach a lesson the other four do not. But both lessons are *comparative* — the
+ * gust works on these and not on that one; climbing escapes the archer and closing escapes
+ * the netter — and a lesson taught by contrast needs the thing it contrasts with standing
+ * next to it. A second site would also have needed a second `patrolSpawns`, a second
+ * `PatrolConfig` and a second restore rule in `main.ts`, none of which exists yet, for a
+ * fight the player would meet later and learn less from.
+ *
+ * The cost is real and worth writing down: the heavy at radius 28 sits inside the spears, so
+ * a player walking out meets the wall first and the gust-immunity lesson lands before they
+ * have anything else to worry about. That is the ordering this layout is buying.
  *
  * **Every soldier sits outside its own notice range of the player's spawn point**, so a
  * player who loads the game and touches nothing is not engaged. `patrol-placement.test.ts`
@@ -237,17 +431,64 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
  * noticed: `spear-3` sat 20 units out against a notice range of 26 and had been advancing
  * on the spawn since long before archers existed.
  *
- * The radii are what matter, not the exact bearings: spears at roughly 34 to 36, archers
- * at roughly 55. Both lines are on the −Z side, and the archers deliberately stop short of
- * radius 60 — the island's ground runs out near 65, and a soldier parked much closer to the
- * rim gets deleted by ordinary knockback, which turns every fight into free environmental
- * removals. Avoid the +X+Z quadrant entirely past radius 56: the spire island is stacked
- * overhead there and `groundHeightAt` returns its surface, hundreds of units up.
+ * The radii are what matter, not the exact bearings: the heavy at roughly 28, spears at
+ * roughly 34 to 36, the netter at roughly 48, archers at roughly 55. Every line is on the −Z
+ * side, and the archers deliberately stop short of radius 60 — the island's ground runs out
+ * near 65, and a soldier parked much closer to the rim gets deleted by ordinary knockback,
+ * which turns every fight into free environmental removals. Avoid the +X+Z quadrant entirely
+ * past radius 56: the spire island is stacked overhead there and `groundHeightAt` returns its
+ * surface, hundreds of units up.
+ *
+ * The heavy is the tightest fit of the seven and the one to check first when retuning. Its
+ * `aggroRange` is only 20, so radius 30 leaves it 10.5 units of 3D margin beyond noticing the
+ * spawn — comfortable, but it is comfortable *because* the notice range is short, and pushing
+ * that range up without moving this coordinate out is how the "does not engage a player who has
+ * just loaded the game" guard breaks. Measured at the real terrain: the ground under (4, −30) is
+ * 9.98, the spawn point is 13.87, so the 3D distance is 30.51.
  */
 export const HOME_PATROL: EnemySpawn[] = [
+  /**
+   * Innermost by radius, and holding the near flank of the line rather than standing in front
+   * of its middle. Both halves of that are measurements rather than taste.
+   *
+   * It first shipped at (22, −18), directly inboard of `spear-1` on the same bearing, which put
+   * the two 5.66 m apart. That broke a property `reach-geometry.test.ts` records and
+   * `HOME_PATROL`'s own note above depends on: the patrol's closest pair is 11.31 m, which is
+   * what keeps neither staff arc nor either radial move at its weakest able to hold two
+   * soldiers at once — the group has a shape instead of being a blob. It also put the hardest
+   * melee attacker in the game, at 2 damage a swing, inside its own reach of the first spear a
+   * new player closes on.
+   *
+   * There is no slot on the spear line's own bearings that fixes it. The heavy's `aggroRange` of
+   * 20 needs about 26 m of 3D separation from the spawn to stay asleep at load, and the spears
+   * sit at radius 34 to 36, so a position 11.3 m inboard of one of them on its own bearing lands
+   * at radius 23 and wakes up on the first step the player takes. Moving round to a flank is the
+   * only answer, and this is the flattest one: ground varying by 1.705 m inside a 12 m footprint
+   * (under even the staff's 2.0 band, so no move loses a stance around it), 30.51 m from the
+   * spawn in 3D against a notice range of 20, and 14.0 m from the nearest other soldier.
+   */
+  { id: 'heavy-1', position: new Vector3(4, 0, -30), kind: 'heavy' },
   { id: 'spear-1', position: new Vector3(26, 0, -22), kind: 'spear' },
   { id: 'spear-2', position: new Vector3(34, 0, -12), kind: 'spear' },
   { id: 'spear-3', position: new Vector3(18, 0, -30), kind: 'spear' },
+  // Between the spears and the archers: close enough that its 22-unit throw covers the spear
+  // line, far enough back that a player fighting the spears is inside its reach and does not
+  // yet know it.
+  //
+  // Sited at (42, −24) rather than the (30, −34) this first shipped as, and the reason is a
+  // measurement rather than a preference. `reach-geometry.test.ts` pins the property that every
+  // stance the vertical bands take away is on the two rim archers, which is what makes the
+  // coverage shortfall readable as one piece of terrain rather than a systematic shortage. At
+  // (30, −34) the ground inside a 12 m gust footprint varies by 5.741 m against the gust's 5.0
+  // band, so the netter became a third place the fight quietly stopped working — and it broke
+  // that test, which is that test doing its job. Here the same figure is 1.535 m, under even
+  // the staff's 2.0, so no move loses a single stance around it.
+  //
+  // (36, −28) was the first replacement and was rejected for a second reason: it sits 10.77 m
+  // from `archer-1`, closer than the patrol's previous closest pair, which cuts the margin
+  // under a least-charge vortex's 10 m diameter to 0.77 m. This position is 14.14 m from its
+  // nearest neighbour and leaves the closest pair in the patrol exactly where it was.
+  { id: 'nets-1', position: new Vector3(42, 0, -24), kind: 'nets' },
   { id: 'archer-1', position: new Vector3(40, 0, -38), kind: 'archer' },
   { id: 'archer-2', position: new Vector3(18, 0, -52), kind: 'archer' },
 ]
@@ -272,5 +513,18 @@ export const HOME_PATROL: EnemySpawn[] = [
  * Left deliberately above the bare floor. Sitting at 50 would satisfy the test and
  * leave nothing for the next few units of retuning, and the whole reason this number
  * needed fixing once already is that it was pinned to a value the archer then outgrew.
+ *
+ * **It did not move for the heavy armoured soldier or the net thrower, and that is a
+ * measurement rather than an oversight.** The heavy notices at 20 and the netter at 30, both
+ * comfortably under the archer's 38, so the archer is still the widest and still the value
+ * this one tracks: `38 × 1.3 = 49.4` is the floor `patrol.test.ts` enforces and 52 clears it.
+ * The slack that was left here for "the next few units of retuning" is exactly what paid for
+ * two new kinds without a change, which is the argument for having left it.
+ *
+ * The check is not free, though. Raising the netter's 30 past 40 would put it over this
+ * value's floor, and the ceiling in the other direction is `patrol-placement.test.ts`'s
+ * requirement that somewhere on the home island lies beyond `respawnRange` of *every* spawn
+ * point — the far rim clears the closest of the seven by about 90 units today, so there is
+ * headroom, but a patrol spread further out would eat it.
  */
 export const DEFAULT_PATROL_CONFIG: PatrolConfig = { respawnRange: 52 }

@@ -13,6 +13,15 @@ export interface Projectile {
   position: Vector3
   velocity: Vector3
   damage: number
+  /**
+   * Seconds of glider refusal this carries. Zero for an arrow, non-zero for a net.
+   *
+   * Carried on the projectile rather than looked up from the enemy that loosed it, for the
+   * same reason `damage` is: by the time a net arrives the netter may be downed, restored,
+   * or have walked out of the fight, and a payload that has to ask its thrower what it does
+   * is a payload that can arrive to find nobody home.
+   */
+  tangleSeconds: number
   /** Seconds alive, so a stray arrow cannot outlive the encounter that fired it. */
   age: number
 }
@@ -27,10 +36,28 @@ export interface ProjectileStep {
   /** null once it is gone: it hit, it reached the ground, or it expired. */
   projectile: Projectile | null
   damageToPlayer: number
+  /**
+   * Seconds of glider refusal this projectile just inflicted, or 0.
+   *
+   * Non-zero only on the frame a net connects, and reported rather than applied for the same
+   * reason `damageToPlayer` is: this function advances one projectile and knows nothing about
+   * the player's posture or the state that holds the refusal.
+   */
+  tangleSeconds: number
 }
 
 export function spawnProjectile(
-  id: string, origin: Vector3, direction: Vector3, damage: number, speed: number,
+  id: string,
+  origin: Vector3,
+  direction: Vector3,
+  damage: number,
+  speed: number,
+  /**
+   * Required rather than defaulted to 0. A default would compile at the one production call
+   * site that matters — `stepEncounter`'s spawn branch — and make every net in the game
+   * inert, with nothing anywhere to notice.
+   */
+  tangleSeconds: number,
 ): Projectile {
   // Normalised here rather than trusting the caller, so a direction built from a
   // subtraction cannot silently become a speed multiplier.
@@ -41,6 +68,7 @@ export function spawnProjectile(
     position: origin.clone(),
     velocity: heading.multiplyScalar(speed),
     damage,
+    tangleSeconds,
     age: 0,
   }
 }
@@ -63,14 +91,18 @@ export function stepProjectile(
   const age = p.age + dt
 
   if (position.distanceTo(playerPosition) <= c.hitRadius) {
-    return { projectile: null, damageToPlayer: p.damage }
+    // The one branch that reports a payload: a net that lands on the terrain or expires in
+    // the air has caught nothing, so its `tangleSeconds` goes nowhere.
+    return { projectile: null, damageToPlayer: p.damage, tangleSeconds: p.tangleSeconds }
   }
 
   // A null height is the void between islands, where there is nothing to stop an arrow.
   const height = ground.groundHeightAt(position.x, position.z)
-  if (height !== null && position.y <= height) return { projectile: null, damageToPlayer: 0 }
+  if (height !== null && position.y <= height) {
+    return { projectile: null, damageToPlayer: 0, tangleSeconds: 0 }
+  }
 
-  if (age >= c.maxSeconds) return { projectile: null, damageToPlayer: 0 }
+  if (age >= c.maxSeconds) return { projectile: null, damageToPlayer: 0, tangleSeconds: 0 }
 
-  return { projectile: { ...p, position, age }, damageToPlayer: 0 }
+  return { projectile: { ...p, position, age }, damageToPlayer: 0, tangleSeconds: 0 }
 }

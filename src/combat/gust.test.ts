@@ -3,7 +3,9 @@ import { Vector3 } from 'three'
 import {
   inGust, gustImpulse, gustTargets, liveGustTargets, anyLiveGustTarget, type GustConfig,
 } from './gust'
-import { spawnEnemy, type Enemy, type EnemyConfig } from './enemy'
+import {
+  spawnEnemy, UNARMOURED, type Enemy, type EnemyConfig, type EnemyKind,
+} from './enemy'
 import { DEFAULT_COMBAT_CONFIG } from './config'
 
 const G: GustConfig = {
@@ -35,6 +37,20 @@ const E: EnemyConfig = {
   // Matches DEFAULT_COMBAT_CONFIG.enemies.spear.snapDistance.
   snapDistance: 1.2,
   downedSeconds: 18, risingSeconds: 1.2, recoveryHealthFractions: [0.6, 0.3],
+  armour: UNARMOURED,
+}
+
+/**
+ * Every kind unarmoured, so the existing preview tests read only the `isTargetable` rule.
+ *
+ * `liveGustTargets` and `anyLiveGustTarget` now also ask each soldier's armour whether the gust
+ * reaches it at all. Handed a table where nobody deflects, they behave exactly as they did
+ * before armour existed — which is what keeps every assertion below about the thing it was
+ * written to be about. The armour rule gets its own describe block at the bottom of this file,
+ * with a fixture that actually deflects.
+ */
+const NO_ARMOUR: Record<EnemyKind, EnemyConfig> = {
+  spear: E, archer: E, heavy: E, nets: E,
 }
 
 const ORIGIN = new Vector3(0, 0, 0)
@@ -131,14 +147,14 @@ describe('the gust impulse', () => {
 describe('only the soldiers still standing', () => {
   it('includes a live enemy inside the cone', () => {
     const live = enemyAt(new Vector3(0, 0, -4))
-    expect(liveGustTargets(ORIGIN, NORTH, [live], G).map((e) => e.id)).toEqual([live.id])
+    expect(liveGustTargets(ORIGIN, NORTH, [live], G, NO_ARMOUR).map((e) => e.id)).toEqual([live.id])
   })
 
   it('excludes a downed enemy inside the cone', () => {
     // The whole reason this function exists next to gustTargets. A preview that lights up
     // for a body is a preview that lies about what a gust would achieve.
     const corpse = { ...enemyAt(new Vector3(0, 0, -4)), health: { current: 0, max: 1.5, sinceHit: 0 } }
-    expect(liveGustTargets(ORIGIN, NORTH, [corpse], G)).toEqual([])
+    expect(liveGustTargets(ORIGIN, NORTH, [corpse], G, NO_ARMOUR)).toEqual([])
   })
 
   it('includes a soldier pushing back up, because a gust would actually connect', () => {
@@ -151,19 +167,19 @@ describe('only the soldiers still standing', () => {
       health: { current: 0, max: 1.5, sinceHit: 0 },
       stance: 'rising' as const,
     }
-    expect(liveGustTargets(ORIGIN, NORTH, [rising], G).map((e) => e.id)).toEqual([rising.id])
+    expect(liveGustTargets(ORIGIN, NORTH, [rising], G, NO_ARMOUR).map((e) => e.id)).toEqual([rising.id])
   })
 
   it('excludes a live enemy outside the cone', () => {
     const behind = enemyAt(new Vector3(0, 0, 4))
-    expect(liveGustTargets(ORIGIN, NORTH, [behind], G)).toEqual([])
+    expect(liveGustTargets(ORIGIN, NORTH, [behind], G, NO_ARMOUR)).toEqual([])
   })
 
   it('keeps only the live ones from a mixed group', () => {
     const live = enemyAt(new Vector3(0, 0, -4))
     const corpse = { ...enemyAt(new Vector3(1, 0, -4)), id: 'corpse', health: { current: 0, max: 1.5, sinceHit: 0 } }
     const far = { ...enemyAt(new Vector3(0, 0, -400)), id: 'far' }
-    const caught = liveGustTargets(ORIGIN, NORTH, [live, corpse, far], G).map((e) => e.id)
+    const caught = liveGustTargets(ORIGIN, NORTH, [live, corpse, far], G, NO_ARMOUR).map((e) => e.id)
     expect(caught).toEqual([live.id])
   })
 
@@ -175,22 +191,22 @@ describe('only the soldiers still standing', () => {
       { ...enemyAt(new Vector3(3, 0, -5)), id: 'b' },
       { ...enemyAt(new Vector3(0, 0, 6)), id: 'behind' },
     ]
-    expect(liveGustTargets(ORIGIN, NORTH, group, G).map((e) => e.id))
+    expect(liveGustTargets(ORIGIN, NORTH, group, G, NO_ARMOUR).map((e) => e.id))
       .toEqual(gustTargets(ORIGIN, NORTH, group, G).map((e) => e.id))
   })
 })
 
 describe('whether a gust would catch anyone at all', () => {
   it('says no with nobody in the fight', () => {
-    expect(anyLiveGustTarget(ORIGIN, NORTH, [], G)).toBe(false)
+    expect(anyLiveGustTarget(ORIGIN, NORTH, [], G, NO_ARMOUR)).toBe(false)
   })
 
   it('says yes for a live enemy inside the cone', () => {
-    expect(anyLiveGustTarget(ORIGIN, NORTH, [enemyAt(new Vector3(0, 0, -4))], G)).toBe(true)
+    expect(anyLiveGustTarget(ORIGIN, NORTH, [enemyAt(new Vector3(0, 0, -4))], G, NO_ARMOUR)).toBe(true)
   })
 
   it('says no for a live enemy outside the cone', () => {
-    expect(anyLiveGustTarget(ORIGIN, NORTH, [enemyAt(new Vector3(0, 0, 4))], G)).toBe(false)
+    expect(anyLiveGustTarget(ORIGIN, NORTH, [enemyAt(new Vector3(0, 0, 4))], G, NO_ARMOUR)).toBe(false)
   })
 
   it('says no for a downed enemy inside the cone', () => {
@@ -201,7 +217,7 @@ describe('whether a gust would catch anyone at all', () => {
       ...enemyAt(new Vector3(0, 0, -4)),
       health: { current: 0, max: 1.5, sinceHit: 0 },
     }
-    expect(anyLiveGustTarget(ORIGIN, NORTH, [corpse], G)).toBe(false)
+    expect(anyLiveGustTarget(ORIGIN, NORTH, [corpse], G, NO_ARMOUR)).toBe(false)
   })
 
   it('says yes for a soldier pushing back up, so the reticle does not stay dark on a target the gust can reach', () => {
@@ -212,7 +228,7 @@ describe('whether a gust would catch anyone at all', () => {
       health: { current: 0, max: 1.5, sinceHit: 0 },
       stance: 'rising' as const,
     }
-    expect(anyLiveGustTarget(ORIGIN, NORTH, [rising], G)).toBe(true)
+    expect(anyLiveGustTarget(ORIGIN, NORTH, [rising], G, NO_ARMOUR)).toBe(true)
   })
 
   it('finds the one live soldier in a crowd of corpses and distant enemies', () => {
@@ -228,7 +244,7 @@ describe('whether a gust would catch anyone at all', () => {
       downed('corpse-b', new Vector3(2, 0, -3)),
       { ...enemyAt(new Vector3(-2, 0, -5)), id: 'live' },
     ]
-    expect(anyLiveGustTarget(ORIGIN, NORTH, crowd, G)).toBe(true)
+    expect(anyLiveGustTarget(ORIGIN, NORTH, crowd, G, NO_ARMOUR)).toBe(true)
   })
 
   it('answers exactly what liveGustTargets being non-empty answers', () => {
@@ -252,8 +268,95 @@ describe('whether a gust would catch anyone at all', () => {
     ]
     for (const group of groups) {
       const ids = group.map((e) => e.id).join(',')
-      expect(anyLiveGustTarget(ORIGIN, NORTH, group, G), `group [${ids}]`)
-        .toBe(liveGustTargets(ORIGIN, NORTH, group, G).length > 0)
+      expect(anyLiveGustTarget(ORIGIN, NORTH, group, G, NO_ARMOUR), `group [${ids}]`)
+        .toBe(liveGustTargets(ORIGIN, NORTH, group, G, NO_ARMOUR).length > 0)
     }
+  })
+})
+
+describe('the aim preview and armour the gust cannot get through', () => {
+  /**
+   * The same four kinds, but plate on the heavy: a gust turns away entirely.
+   *
+   * Only the `gust` row is 0 and 0. The other three are left whole on purpose, so nothing in this
+   * block can pass because the fixture happens to be immune to everything.
+   */
+  const WITH_PLATE: Record<EnemyKind, EnemyConfig> = {
+    spear: E,
+    archer: E,
+    nets: E,
+    heavy: {
+      ...E,
+      armour: { ...UNARMOURED, gust: { damage: 0, knockback: 0 } },
+    },
+  }
+  const heavyAt = (position: Vector3, id = 'plate'): Enemy => spawnEnemy(id, position, 'heavy', E)
+
+  it('stays cold for a soldier the gust cannot touch', () => {
+    // The same argument that keeps the preview dark for a body, applied to a second population: a
+    // preview that warms on a heavy promises something the move cannot deliver. This is the type's
+    // first and cheapest tell, because it costs the player nothing to learn from.
+    const plate = heavyAt(new Vector3(0, 0, -4))
+    expect(liveGustTargets(ORIGIN, NORTH, [plate], G, WITH_PLATE)).toEqual([])
+    expect(anyLiveGustTarget(ORIGIN, NORTH, [plate], G, WITH_PLATE)).toBe(false)
+  })
+
+  it('warms for the identical soldier once the plate comes off', () => {
+    // The positive control on the assertion above, and the one that makes it a statement about
+    // armour: same enemy, same position, same cone, an unarmoured table. Without it, a fixture
+    // that had drifted out of the cone would read as the armour filter working.
+    const plate = heavyAt(new Vector3(0, 0, -4))
+    expect(anyLiveGustTarget(ORIGIN, NORTH, [plate], G, NO_ARMOUR)).toBe(true)
+  })
+
+  it('still warms for the spear standing beside the heavy', () => {
+    // The case the player actually meets, and the reason this is a good tell rather than a
+    // confusing one: the preview lights for the group and goes dark only when the heavy is the
+    // whole of what is in the cone.
+    const group = [heavyAt(new Vector3(-1, 0, -4)), enemyAt(new Vector3(1, 0, -4), 'leather')]
+    expect(liveGustTargets(ORIGIN, NORTH, group, G, WITH_PLATE).map((e) => e.id))
+      .toEqual(['leather'])
+    expect(anyLiveGustTarget(ORIGIN, NORTH, group, G, WITH_PLATE)).toBe(true)
+  })
+
+  it('is still the geometry that decides for an unarmoured soldier out of the cone', () => {
+    // The armour filter must not become the only thing the preview asks. A spear behind the player
+    // is out regardless of what anybody is wearing.
+    const behind = [enemyAt(new Vector3(0, 0, 4), 'leather')]
+    expect(anyLiveGustTarget(ORIGIN, NORTH, behind, G, WITH_PLATE)).toBe(false)
+  })
+
+  it('keeps the cheap answer agreeing with the list form once armour is in play', () => {
+    // The same derivation the block above runs against `isTargetable`, extended to the armour
+    // rule: two implementations of one rule are two places it can be got wrong.
+    const groups: Enemy[][] = [
+      [heavyAt(new Vector3(0, 0, -4))],
+      [heavyAt(new Vector3(0, 0, 4))],
+      [heavyAt(new Vector3(0, 0, -4)), enemyAt(new Vector3(1, 0, -4), 'leather')],
+      [enemyAt(new Vector3(1, 0, -4), 'leather'), heavyAt(new Vector3(0, 0, -4))],
+      [
+        heavyAt(new Vector3(0, 0, -4)),
+        { ...enemyAt(new Vector3(1, 0, -4), 'leather'), health: { current: 0, max: 1.5, sinceHit: 0 } },
+      ],
+      [heavyAt(new Vector3(0, 0, -400))],
+    ]
+    for (const group of groups) {
+      const ids = group.map((e) => e.id).join(',')
+      expect(anyLiveGustTarget(ORIGIN, NORTH, group, G, WITH_PLATE), `group [${ids}]`)
+        .toBe(liveGustTargets(ORIGIN, NORTH, group, G, WITH_PLATE).length > 0)
+    }
+  })
+
+  it('goes cold for the shipped heavy against the shipped gust', () => {
+    // The fixtures above are about the mechanism. This is the one assertion tying it to what
+    // actually ships, so the tell working in a fixture cannot coexist with it not working in the
+    // game. `DEFAULT_COMBAT_CONFIG.gust` and `.enemies` both, so neither can be retuned out from
+    // under it silently.
+    const shipped = DEFAULT_COMBAT_CONFIG
+    const plate = spawnEnemy('plate', new Vector3(0, 0, -4), 'heavy', shipped.enemies.heavy)
+    const leather = spawnEnemy('leather', new Vector3(1, 0, -4), 'spear', shipped.enemies.spear)
+    expect(anyLiveGustTarget(ORIGIN, NORTH, [plate], shipped.gust, shipped.enemies)).toBe(false)
+    // And the control, from the shipped config too.
+    expect(anyLiveGustTarget(ORIGIN, NORTH, [leather], shipped.gust, shipped.enemies)).toBe(true)
   })
 })

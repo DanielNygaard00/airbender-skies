@@ -92,20 +92,65 @@ describe('the home patrol does not engage a player who has just loaded the game'
     }
   })
 
-  it('keeps the archers behind the spears', () => {
-    // The shape section 4.4 asks for: walking out from the spawn you meet the spears first
-    // and the archers cover them from behind. Asserted as a relationship between the two
-    // groups rather than against literal radii, so the layout can be retuned freely.
+  it('lays the four kinds out in four ranks, innermost to outermost', () => {
+    // The shape section 4.4 asks for, now that there are four kinds rather than two: walking out
+    // from the spawn you reach the heavy, then the spears, then the net thrower, then the archers.
+    // Every posture the player might retreat into is covered by something further back, and the
+    // one move that would open a gap in all of it -- a gust -- does nothing at all to the soldier
+    // holding the front.
+    //
+    // Asserted as relationships between consecutive ranks rather than against literal radii, so
+    // the layout can be retuned freely as long as the ordering survives. Iterated as a list, so
+    // adding a fifth kind means adding one entry rather than writing a new comparison.
     const placed = placedPatrol(homeTerrain())
-    const radius = (id: string) => {
-      const found = placed.find((p) => p.spawn.id === id)
-      if (!found) throw new Error(`no soldier named ${id}`)
-      return Math.hypot(found.spawn.position.x, found.spawn.position.z)
+    const radiiOf = (kind: string) => {
+      const group = placed.filter((p) => p.spawn.kind === kind)
+      if (group.length === 0) throw new Error(`the patrol has no ${kind}`)
+      return group.map((p) => Math.hypot(p.spawn.position.x, p.spawn.position.z))
     }
-    const spears = placed.filter((p) => p.spawn.kind === 'spear').map((p) => radius(p.spawn.id))
-    const archers = placed.filter((p) => p.spawn.kind === 'archer').map((p) => radius(p.spawn.id))
+    const ORDER = ['heavy', 'spear', 'nets', 'archer'] as const
+    for (let i = 0; i + 1 < ORDER.length; i++) {
+      const inner = radiiOf(ORDER[i]!)
+      const outer = radiiOf(ORDER[i + 1]!)
+      expect(
+        Math.min(...outer),
+        `every ${ORDER[i + 1]} should stand behind every ${ORDER[i]}`,
+      ).toBeGreaterThan(Math.max(...inner))
+    }
+    // Every kind in the shipped config is represented, so the ordering above is about the whole
+    // roster rather than about whichever kinds happen to be placed.
+    expect(new Set(placed.map((p) => p.spawn.kind)))
+      .toEqual(new Set(Object.keys(DEFAULT_COMBAT_CONFIG.enemies)))
+  })
 
-    expect(Math.min(...archers)).toBeGreaterThan(Math.max(...spears))
+  it('keeps every soldier far enough from every other to stay a separate engagement', () => {
+    // `HOME_PATROL`'s own note calls the group "a shape rather than a blob", and
+    // `reach-geometry.test.ts` records the consequence: at 11.31 m between the closest pair,
+    // neither staff arc nor either radial move at its weakest can hold two soldiers at once.
+    //
+    // Pinned here as well, and against a floor rather than the exact figure, because the property
+    // is what matters and it has already been broken once: the heavy first shipped directly
+    // inboard of `spear-1` on the same bearing, 5.66 m away, which put the hardest melee attacker
+    // in the game inside its own reach of the first spear a new player closes on.
+    const placed = placedPatrol(homeTerrain())
+    let closest = Infinity
+    let pair = ''
+    for (let i = 0; i < placed.length; i++) {
+      for (let j = i + 1; j < placed.length; j++) {
+        const a = placed[i]!.spawn
+        const b = placed[j]!.spawn
+        const gap = Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z)
+        if (gap < closest) {
+          closest = gap
+          pair = `${a.id} and ${b.id}`
+        }
+      }
+    }
+    expect(closest, `${pair} stand too close together`).toBeGreaterThan(10)
+    // And past the diameter of the smallest radial move, which is the concrete thing the floor
+    // above is protecting: a least-charge vortex reaches 5, so 10 is where it starts being able to
+    // hold two soldiers at once.
+    expect(closest).toBeGreaterThan(DEFAULT_COMBAT_CONFIG.vortex.minRadius * 2)
   })
 })
 
@@ -139,19 +184,61 @@ describe('a motionless player is left alone', () => {
     let encounter = startEncounter(HOME_PATROL, DEFAULT_COMBAT_CONFIG)
     const full = encounter.playerHealth.current
     let arrowsSeen = 0
+    let tangleSeen = 0
 
     // Ten seconds. The old layout's first hit landed at 1.80s and zero health at 5.63s, so
     // this window is well past the failure it guards against.
     for (let frame = 0; frame < 600; frame++) {
       const step = stepEncounter(encounter, input, 1 / 60, DEFAULT_COMBAT_CONFIG, deps)
       arrowsSeen += step.firedThisFrame.length
+      tangleSeen = Math.max(tangleSeen, step.tangleSeconds)
       encounter = step.encounter
     }
 
     expect(encounter.playerHealth.current, 'a motionless player lost health').toBe(full)
     // And nothing was even thrown at them — health surviving because every arrow happened to
-    // miss would be luck, not placement.
-    expect(arrowsSeen, 'an archer loosed at a motionless player').toBe(0)
+    // miss would be luck, not placement. Covers the net thrower along with the archers, since
+    // both loose through the same projectile path and both appear in `firedThisFrame`.
+    expect(arrowsSeen, 'a ranged soldier loosed at a motionless player').toBe(0)
+    // Stated separately because a net costs no health, so the health assertion above would stay
+    // green for a player who had been grounded at the spawn point and could not fly.
+    expect(tangleSeen, 'a net grounded a motionless player').toBe(0)
+  })
+
+  it('does not let a single soldier so much as wind up over ten seconds', () => {
+    // The strongest form of "a patrol member must not open fire at spawn", and the one that covers
+    // the heavy — which has no projectile to count and could be mid-telegraph at the spawn point
+    // with `firedThisFrame` empty and the player's health untouched for the whole window, because
+    // its 0.95 s wind-up plus its 1.3 s recovery would not complete a cycle inside a reach it does
+    // not have. Asserted on the stance instead: nobody in the patrol may leave `advance`.
+    const terrain = homeTerrain()
+    const spawn = spawnPointFor(ARCHIPELAGO, terrain)('home')
+    const deps = {
+      ground: terrain,
+      worldFloorY: ARCHIPELAGO.worldFloorY,
+      spawns: HOME_PATROL,
+      patrol: DEFAULT_PATROL_CONFIG,
+    }
+    const input = {
+      playerPosition: spawn,
+      playerForward: new Vector3(0, 0, -1),
+      gustPressed: false,
+      slam: null,
+      vortexHeld: false,
+      vortexReleased: false,
+      playerInvulnerable: false,
+      staffSwing: null,
+    }
+
+    let encounter = startEncounter(HOME_PATROL, DEFAULT_COMBAT_CONFIG)
+    const stirred = new Set<string>()
+    for (let frame = 0; frame < 600; frame++) {
+      encounter = stepEncounter(encounter, input, 1 / 60, DEFAULT_COMBAT_CONFIG, deps).encounter
+      for (const enemy of encounter.enemies) {
+        if (enemy.stance !== 'advance') stirred.add(`${enemy.id} (${enemy.kind})`)
+      }
+    }
+    expect([...stirred], 'a patrol member wound up at a motionless player').toEqual([])
   })
 })
 

@@ -42,5 +42,6 @@ export function createPlayerState(
     scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
     slipstreamElapsed: null, slipstreamCooldown: 0,
     staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0,
+    tangled: 0,
   }
 }
