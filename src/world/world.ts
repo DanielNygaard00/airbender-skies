@@ -33,9 +33,12 @@ export function buildWorld(level: Level): World {
   const terrain = createTerrainQuery(islands)
 
   for (const def of level.islands) {
-    const offsets = level.shrines
-      .filter((s) => s.islandId === def.id)
-      .map((s) => s.offset)
+    // Shrines and payloads both, because both are things the player has to be able to walk
+    // up to: a payload inside a boulder is a proximity interaction with no way in.
+    const offsets = [
+      ...level.shrines.filter((s) => s.islandId === def.id).map((s) => s.offset),
+      ...(level.payloads ?? []).filter((p) => p.islandId === def.id).map((p) => p.offset),
+    ]
     const props = buildProps(def, terrain, offsets)
     if (props) group.add(props)
   }

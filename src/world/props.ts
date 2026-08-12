@@ -34,16 +34,21 @@ const ARCH_DISTANCE = 16
 /**
  * Deterministic decorative prop placements for one island. Purely visual —
  * callers must never feed the resulting meshes into the terrain query.
+ *
+ * `clearanceOffsets` is every island-relative point that must stay walkable: shrines, and
+ * the payload's resting spot. It was `shrineOffsets` while shrines were the only such thing,
+ * and the rename is the point — a payload inside a tree is a proximity interaction the
+ * player cannot reach, which is a worse failure than a shrine sharing a boulder.
  */
 export function propPlacements(
   def: IslandDef,
   terrain: TerrainQuery,
-  shrineOffsets: readonly Vector3[],
+  clearanceOffsets: readonly Vector3[],
 ): PropPlacement[] {
   // +1 keeps the prop stream independent of the geometry noise stream.
   const rng = mulberry32(def.noiseSeed + 1)
   // Respawns land at the island center, so it gets the same clearance as shrines.
-  const clearancePoints = [def.position.clone(), ...shrineOffsets.map((o) => new Vector3().addVectors(def.position, o))]
+  const clearancePoints = [def.position.clone(), ...clearanceOffsets.map((o) => new Vector3().addVectors(def.position, o))]
   const placements: PropPlacement[] = []
 
   const groundAt = (x: number, z: number): TerrainHit | null => {
@@ -106,8 +111,15 @@ export function propPlacements(
 const TREE_GREENS = [0x4f7a3a, 0x5d8a44, 0x6a9a50] as const
 const TRUNK_BROWN = 0x6b4f35
 
-/** Flat-shade and fill a primitive with one color, ready for merging. */
-function colored(source: BufferGeometry, hex: number): BufferGeometry {
+/**
+ * Flat-shade and fill a primitive with one color, ready for merging.
+ *
+ * Exported for `payload.ts`, which builds its placeholder the same way and out of the same
+ * primitives. A second copy of this would be a second place for the indexed/non-indexed
+ * guard below to be got wrong, and that guard is the whole reason this function is not two
+ * lines.
+ */
+export function colored(source: BufferGeometry, hex: number): BufferGeometry {
   // Cylinders, cones, and boxes are indexed; icosahedra already are not.
   // Calling toNonIndexed on a non-indexed geometry logs a warning and
   // returns the same object, so guard on the index.
@@ -173,9 +185,9 @@ function archParts(top: number, cliff: number): BufferGeometry[] {
 export function buildProps(
   def: IslandDef,
   terrain: TerrainQuery,
-  shrineOffsets: readonly Vector3[],
+  clearanceOffsets: readonly Vector3[],
 ): Mesh | null {
-  const placements = propPlacements(def, terrain, shrineOffsets)
+  const placements = propPlacements(def, terrain, clearanceOffsets)
   if (placements.length === 0) return null
 
   const palette = BIOME_PALETTES[def.biome]
