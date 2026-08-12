@@ -1,10 +1,11 @@
 import {
-  WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, Vector3,
+  WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, Vector3, Vector2,
   HemisphereLight, ACESFilmicToneMapping, PCFShadowMap,
 } from 'three'
 import { BASE_FOV } from '../fx/mapping'
 import { createSkyDome, SKY_HORIZON } from './sky'
 import { aimSun, createSun } from './sun'
+import { createContactShadowPass } from '../fx/contact-shadow-pass'
 
 export const WEBGL_MESSAGE =
   'This game needs WebGL, which your browser has disabled or does not support. ' +
@@ -110,12 +111,47 @@ export function createRenderer(canvas: HTMLCanvasElement) {
 
   const camera = new PerspectiveCamera(BASE_FOV, 1, 0.5, FOG_FAR)
 
+  /**
+   * Scratch for `renderer.getDrawingBufferSize`, reused rather than allocated on
+   * construction and on every `resize` call below.
+   */
+  const drawingBufferSize = new Vector2()
+
+  /**
+   * The contact shadow pass, which owns a depth target that must align pixel-for-pixel
+   * with the canvas it reads from and draws over.
+   *
+   * Sized from `renderer.getDrawingBufferSize`, not from `window.innerWidth/innerHeight`.
+   * `setPixelRatio` above makes the WebGL drawing buffer up to twice the window's CSS
+   * pixel dimensions — on a device pixel ratio of 2, an 800x450 window produces a
+   * 1600x900 drawing buffer — so sizing the depth target from the window would hand it a
+   * quarter of the pixels of the canvas it has to line up with. `contact-shadow.ts`'s
+   * `depthTargetSize` is "Full resolution, deliberately", and that comment is only true
+   * if the resolution it is handed is the canvas's real one. The mismatch would not
+   * throw or warn — every sample would land a fraction of a pixel off from where it
+   * should, which reads as a soft halo along every edge in the finished frame.
+   *
+   * The size read on this line is provisional and is always superseded. `resize()` below
+   * runs unconditionally a few lines down, calls `setSize` and re-reads the drawing buffer,
+   * so the depth target is resized before a single frame is drawn. This read exists only
+   * because `createContactShadowPass` needs some size to construct its render target with,
+   * and a plausible one beats a zero — which is also why the pixel-ratio reasoning above
+   * still has to hold here, even though the value never survives to be used.
+   */
+  renderer.getDrawingBufferSize(drawingBufferSize)
+  const contactShadows = createContactShadowPass(drawingBufferSize.x, drawingBufferSize.y)
+
   function resize(): void {
     const width = window.innerWidth
     const height = window.innerHeight
     renderer.setSize(width, height, false)
     camera.aspect = width / Math.max(height, 1)
     camera.updateProjectionMatrix()
+    // Read back after `setSize`, not before: the drawing buffer only reflects the new
+    // dimensions once the renderer has actually resized, and reading the window's own
+    // width/height here would reintroduce the pixel-ratio mismatch described above.
+    renderer.getDrawingBufferSize(drawingBufferSize)
+    contactShadows.resize(drawingBufferSize.x, drawingBufferSize.y)
   }
   resize()
   window.addEventListener('resize', resize)
@@ -128,5 +164,16 @@ export function createRenderer(canvas: HTMLCanvasElement) {
     aimSun(sun, target)
   }
 
-  return { renderer, scene, camera, resize, followSun }
+  /**
+   * Draw one frame, including the contact shadow pass.
+   *
+   * Callers use this instead of `renderer.render`. The pass performs the scene render
+   * itself, in between rendering depth and multiplying the contact term over the
+   * result, so calling both would draw the frame twice.
+   */
+  function renderScene(scene: Scene, camera: PerspectiveCamera): void {
+    contactShadows.render(renderer, scene, camera)
+  }
+
+  return { renderer, scene, camera, resize, followSun, renderScene }
 }

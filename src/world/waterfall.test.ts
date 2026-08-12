@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest'
 import { Mesh, MeshBasicMaterial, Vector3 } from 'three'
-import { waterfallAnchor, advanceScroll, type WaterfallDef } from './waterfall'
+import { waterfallAnchor, advanceScroll, createWaterfall, type WaterfallDef } from './waterfall'
 import { createIslandGeometry, type IslandDef } from './island'
 import { createTerrainQuery, type IslandMesh } from './terrain-query'
 import { ARCHIPELAGO } from './levels/archipelago'
@@ -89,6 +89,40 @@ describe('waterfallAnchor', () => {
     const b = waterfallAnchor(island, def(), solid)!
     expect(a.position.toArray()).toEqual(b.position.toArray())
     expect(a.rotationY).toBeCloseTo(b.rotationY, 10)
+  })
+})
+
+describe('createWaterfall', () => {
+  /*
+   * This suite runs in vitest's `node` environment, which has no DOM, while
+   * `createWaterfallTexture` draws its streaks into a real 2D canvas. The stub below
+   * stands in for the handful of calls that generator makes. three.js's `CanvasTexture`
+   * stores whatever object it is handed and only inspects it during a WebGL upload,
+   * which never happens in this suite, so a plain object is enough.
+   */
+  beforeAll(() => {
+    vi.stubGlobal('document', {
+      createElement: () => ({
+        width: 0,
+        height: 0,
+        getContext: () => ({ fillStyle: '', fillRect: () => {} }),
+      }),
+    })
+  })
+  afterAll(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('casts no shadow and contributes no depth to the contact shadow pass', () => {
+    // The curtain is translucent — `transparent: true` at `opacity: 0.55` with
+    // `depthWrite: false` — and it overlaps the rim rock by LIP_RAISE, so any pass that
+    // treats it as an opaque surface darkens rock the player can see straight through.
+    // Both consumers of this flag replace the curtain's own material and would do
+    // exactly that: `enableShadows` in `src/core/sun.ts` and `excludedFromDepth` in
+    // `src/fx/contact-shadow.ts`. This is the assertion that was missing when the
+    // contact shadow pass shipped, which is why the flag is now load-bearing twice over.
+    const waterfall = createWaterfall(island, def(), solid)!
+    expect(waterfall.mesh.userData.excludeFromShadows).toBe(true)
   })
 })
 

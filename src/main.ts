@@ -170,7 +170,7 @@ function start(): void {
     return showFallback(`The level failed to load: ${(error as Error).message}`)
   }
 
-  const { renderer, scene, camera, followSun } = createRenderer(canvas)
+  const { scene, camera, followSun, renderScene } = createRenderer(canvas)
   scene.add(world.group)
   enableShadows(world.group)
 
@@ -1589,7 +1589,7 @@ function start(): void {
     // **This line has to stay above both projections below, and the reason is not the one a
     // reader would guess.** `updateProjectionMatrix` rebuilds only `projectionMatrix`;
     // `Vector3.project` also reads `camera.matrixWorldInverse`, and nothing above has
-    // refreshed that — `renderer.render` is what normally does, and it runs *after*
+    // refreshed that — `renderScene` is what normally does, and it runs *after*
     // `syncVisuals`. `getWorldDirection` calls `updateWorldMatrix`, which `Camera` overrides
     // to refresh `matrixWorldInverse` as well, so this call is doing double duty: it produces
     // the camera heading the marker loop needs *and* it is the only thing that brings the
@@ -1720,7 +1720,7 @@ function start(): void {
     update,
     render: (alpha, frameDt) => {
       syncVisuals(alpha, frameDt)
-      renderer.render(scene, camera)
+      renderScene(scene, camera)
     },
   })
 
@@ -1824,7 +1824,7 @@ function start(): void {
       // one they can. The selection itself is untouched — no simulation time passes — so it comes
       // back exactly as it was.
       elementRadial.hide()
-      renderer.render(scene, camera)
+      renderScene(scene, camera)
     } else {
       stepper.advance((now - last) / 1000)
       last = now
