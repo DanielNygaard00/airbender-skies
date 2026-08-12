@@ -90,6 +90,24 @@ describe('stepStaff', () => {
     expect(stepStaff(state, true, 1 / 60, S).started).toBeNull()
   })
 
+  it('refuses a press on a full chain with nothing owed, which only a caller can hand it', () => {
+    // `stepStaff` cannot reach this state. The finisher's own frame routes through `spent`,
+    // which zeroes the chain before recovery is ever paid off, so a full chain and an empty
+    // recovery never coexist in anything this function returns — which is why the test above,
+    // pressing during recovery, exercises the gate's `recovery` half and never its chain half.
+    // The state is constructed here on purpose: the module is pure and takes a `StaffState`
+    // from its caller, the chain half of the gate is the only bound on that input, and without
+    // this test deleting it reddens nothing. Not a claim that the game can produce this.
+    const fullChainNothingOwed: StaffState = {
+      chain: S.maxChain, elapsed: null, recovery: 0, sinceSwing: 0,
+    }
+    const { state, started } = stepStaff(fullChainNothingOwed, true, 1 / 60, S)
+    expect(started).toBeNull()
+    // The ceiling itself: without the gate's chain half this becomes maxChain + 1, and keeps
+    // climbing on every later press.
+    expect(state.chain).toBe(S.maxChain)
+  })
+
   it('owes recovery once the combo ends', () => {
     const { state } = chain(S.maxChain)
     const after = wait(state, S.swingSeconds)
