@@ -5,7 +5,8 @@ import {
 } from 'three'
 import { SUN_DIRECTION } from '../core/sun'
 import {
-  CONTACT_BIAS, CONTACT_FADE_END, CONTACT_FADE_START, CONTACT_RANGE, CONTACT_STEPS,
+  CONTACT_BIAS, CONTACT_FADE_END, CONTACT_FADE_START, CONTACT_NORMAL_OFFSET,
+  CONTACT_RANGE, CONTACT_STEPS,
   CONTACT_STRENGTH, CONTACT_THICKNESS, depthTargetSize, excludedFromDepth, sunDirectionInView,
 } from './contact-shadow'
 
@@ -64,6 +65,7 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform float uStrength;
   uniform float uBias;
   uniform float uThickness;
+  uniform float uNormalOffset;
   uniform float uFadeStart;
   uniform float uFadeEnd;
 
@@ -109,7 +111,59 @@ const FRAGMENT_SHADER = /* glsl */ `
     }
 
     float viewZ = perspectiveDepthToViewZ(depth, uNear, uFar);
-    vec3 origin = viewPositionAt(vUv, depth, viewZ);
+    vec3 surface = viewPositionAt(vUv, depth, viewZ);
+
+    /*
+     * The surface's own normal, and it is what makes the march usable on anything that is
+     * not a flat wall square to the camera.
+     *
+     * 'uBias' plus the per-step 'selfOcclusion' term below cancel the depth gap the march
+     * opens up against a *plane perpendicular to the view axis*, exactly. Nothing in this
+     * scene is that. On a sloped or curved surface a residual survives the cancellation,
+     * proportional to the surface's own depth gradient along the sun direction — and the
+     * measured consequence was that tree trunks, the character's limbs and every facet of
+     * a floating rock reported themselves fully occluded at the very first step. The
+     * occlusion mask read almost black over every cylinder in the scene while the flat
+     * ground read white, which is the signature of a correction that only handles flatness.
+     *
+     * Reconstructed from the depth buffer with screen-space derivatives rather than carried
+     * in a second render target, because the depth pass already exists and a normal pass
+     * would double its cost for a value that is one cross product away. The sign is chosen
+     * so the normal faces the camera: 'dFdy' runs down the screen while view Y runs up it,
+     * so the naive cross product points away.
+     */
+    vec3 normal = normalize(cross(dFdx(surface), dFdy(surface)));
+
+    /*
+     * Start the ray off the surface rather than on it.
+     *
+     * This is the fix for the residual above, and it works where a larger 'uBias' does not:
+     * a bias big enough to clear a trunk's curvature — measured at around 0.15, seven times
+     * the current value — throws away every genuine shallow contact in the scene at the same
+     * time, because a constant cannot tell curvature from a real occluder pressed against a
+     * surface. Lifting the origin along the normal instead scales the correction with the
+     * geometry that caused it: a facet's neighbour is no longer nearer than the ray, while
+     * an occluder genuinely standing above the surface still is.
+     */
+    vec3 origin = surface + normal * uNormalOffset;
+
+    /*
+     * A surface facing away from the sun is already dark, and darkening it again is the
+     * double-count this pass has no way to see.
+     *
+     * The multiply lands on a frame the shadow map and the diffuse term have both already
+     * shaded, so on a face angled away from the light the direct contribution is at or near
+     * zero before this pass touches it. Contact-darkening it a second time is not a subtler
+     * shadow, it is the same shadow twice — and it is precisely where the false hits
+     * concentrate, because a back-facing surface is the case the flat-plane cancellation is
+     * furthest from describing. 'smoothstep' rather than a hard cut, so the term arrives as
+     * the surface turns into the light rather than switching on along a visible contour.
+     */
+    float facing = smoothstep(0.0, 0.25, dot(normal, uSunView));
+    if (facing <= 0.0) {
+      gl_FragColor = vec4(1.0);
+      return;
+    }
 
     float stepLength = uRange / float(CONTACT_STEPS);
     float occlusion = 0.0;
@@ -159,7 +213,10 @@ const FRAGMENT_SHADER = /* glsl */ `
 
     float cameraDistance = -origin.z;
     float fade = 1.0 - smoothstep(uFadeStart, uFadeEnd, cameraDistance);
-    float shade = 1.0 - occlusion * uStrength * fade;
+    // 'facing' is folded in here rather than only used as the early-out above, so a
+    // surface turning into the light gains its contact term gradually instead of at a
+    // single contour the eye can find.
+    float shade = 1.0 - occlusion * uStrength * fade * facing;
 
     // Alpha must be exactly 1. MultiplyBlending resolves to
     // 'src * DST_COLOR + dst * (1 - SRC_ALPHA)', so any lower alpha adds unmultiplied
@@ -207,6 +264,7 @@ export function createContactShadowPass(width: number, height: number): ContactS
     uStrength: { value: CONTACT_STRENGTH },
     uBias: { value: CONTACT_BIAS },
     uThickness: { value: CONTACT_THICKNESS },
+    uNormalOffset: { value: CONTACT_NORMAL_OFFSET },
     uFadeStart: { value: CONTACT_FADE_START },
     uFadeEnd: { value: CONTACT_FADE_END },
   }

@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { Group, Mesh, Object3D, PerspectiveCamera, Points, Vector3 } from 'three'
 import {
   CONTACT_BIAS, CONTACT_FADE_END, CONTACT_FADE_START, CONTACT_RANGE, CONTACT_STEPS,
-  CONTACT_STRENGTH, CONTACT_THICKNESS, depthTargetSize, excludedFromDepth, sunDirectionInView,
+  CONTACT_NORMAL_OFFSET, CONTACT_STRENGTH, CONTACT_THICKNESS, depthTargetSize,
+  excludedFromDepth, sunDirectionInView,
 } from './contact-shadow'
 
 /**
@@ -190,6 +191,22 @@ describe('excludedFromDepth', () => {
 })
 
 describe('the tuning constants', () => {
+  it('starts the ray clear of its own facet without stepping over a real contact', () => {
+    // The two bounds that make the offset meaningful, both relative to the step length
+    // rather than written as literals, so retuning the range or the step count moves them.
+    //
+    // Below zero the ray would start *inside* the surface, which is the self-occlusion this
+    // exists to prevent, only worse. At or above one step length it would skip the first
+    // sample's worth of distance entirely, which is where a genuine contact — an occluder
+    // actually touching the surface — is found, so the effect would lose the very hits it
+    // is for. A constant between those is the only useful range, and the assertion is what
+    // stops someone "fixing" a residual artefact by winding this up until the pass does
+    // nothing.
+    const stepLength = CONTACT_RANGE / CONTACT_STEPS
+    expect(CONTACT_NORMAL_OFFSET).toBeGreaterThan(0)
+    expect(CONTACT_NORMAL_OFFSET).toBeLessThan(stepLength)
+  })
+
   it('fades out over a positive range', () => {
     // A backwards fade would not fail loudly; it would silently disable the effect at
     // close range, which is exactly where it is supposed to work.

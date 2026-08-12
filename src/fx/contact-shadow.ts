@@ -71,6 +71,30 @@ export const CONTACT_BIAS = 0.02
 export const CONTACT_THICKNESS = 0.5
 
 /**
+ * How far along its own normal the ray starts, off the surface, in world units.
+ *
+ * This is what makes the march usable on curved and sloped geometry, and it exists because
+ * `CONTACT_BIAS` provably cannot do the job. The bias plus the shader's per-step
+ * self-occlusion term cancel the gap the march opens against a plane perpendicular to the
+ * view axis *exactly* — and nothing in this scene is that plane. On a cylinder or a facet a
+ * residual survives, proportional to the surface's own depth gradient along the sun
+ * direction.
+ *
+ * Measured, by rendering the occlusion mask on its own: every tree trunk, the character's
+ * limbs and each facet of the floating rock came back fully occluded at the first step,
+ * while the flat ground came back clean. Raising `CONTACT_BIAS` to 0.15 — seven times its
+ * value — did reduce the trunks from solid bars to thin lines, which is what confirmed the
+ * diagnosis, but a constant bias cannot tell curvature from an occluder pressed against a
+ * surface, so it buys that at the price of every shallow contact in the scene.
+ *
+ * 0.03 is half the step length (`CONTACT_RANGE / CONTACT_STEPS` is 0.075) and a twentieth of
+ * the range, so it lifts the origin clear of its own facet without moving it far enough to
+ * step over a real occluder that is genuinely touching. An argued guess like the rest of
+ * them; the mask is how to check it.
+ */
+export const CONTACT_NORMAL_OFFSET = 0.03
+
+/**
  * Camera distances between which the effect fades away entirely.
  *
  * A fixed world-space range subtends fewer pixels the further away it is. Past a
