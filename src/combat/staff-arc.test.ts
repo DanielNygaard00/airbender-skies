@@ -33,12 +33,6 @@ describe('staffShape', () => {
     expect(staffDamage(true, A)).toBeGreaterThan(staffDamage(false, A))
   })
 
-  it('outreaches a spear', () => {
-    // The point of 3.6 against the enemy's strikeRange: melee is a spacing tool, not a
-    // trade. Derived from config so retuning either side keeps this honest.
-    expect(staffShape(false, A).range).toBeGreaterThan(E.strikeRange)
-  })
-
   it('swings to the same height on both arcs', () => {
     // Asserted as equal to each other rather than as two literals: it is the same arm and the
     // same body, so the finisher sweeps wider and shoves harder, not taller. A future change
@@ -64,6 +58,54 @@ describe('staffShape', () => {
     for (const finisher of [false, true]) {
       expect(staffShape(finisher, A).verticalReach, `finisher ${finisher}`)
         .toBeGreaterThanOrEqual(BODY_HEIGHT)
+    }
+  })
+})
+
+/**
+ * The spacing the staff is supposed to buy, stated against every melee soldier rather than
+ * against the spear alone.
+ *
+ * This replaces `'outreaches a spear'`, which read `staffShape(false, A).range >
+ * E.strikeRange` — one arc against one kind. That test could not fail for the reason its name
+ * implied: `staffShape`'s ternary could be inverted and it would still pass, because both arcs
+ * clear 3.2, and it went on passing when a second melee kind arrived with a longer weapon. The
+ * same narrowing the archers cycle recorded in `patrol.test.ts`, where a Record rename left one
+ * kind covered and the new one silently outside.
+ *
+ * Both sides of the comparison use `<=` at the boundary — `inCone` rejects `distance > range`
+ * and `stepEnemy` strikes at `distance <= strikeRange` — so equal ranges mean both connect,
+ * which is a trade rather than a standoff.
+ */
+describe('the staff against melee soldiers', () => {
+  const melee = Object.entries(DEFAULT_COMBAT_CONFIG.enemies)
+    .filter(([, config]) => config.attack.kind === 'melee')
+
+  it('covers at least the two melee kinds this asserts over', () => {
+    // Guards the filter itself. Without this, a change that renamed `'melee'` or restructured
+    // `attack` would empty the list and every assertion below would pass over nothing — the
+    // failure mode that makes an iterating test feel safer than it is.
+    expect(melee.map(([kind]) => kind)).toEqual(['spear', 'heavy'])
+  })
+
+  it('outreaches every melee soldier on the finisher', () => {
+    // The strict form of the spacing promise, and the finisher's 4.2 keeps it against both:
+    // 1.0 of standoff on a spear, 0.6 on a heavy.
+    for (const [kind, config] of melee) {
+      expect(staffShape(true, A).range, kind).toBeGreaterThan(config.strikeRange)
+    }
+  })
+
+  it('is never out-ranged by a melee soldier, even on the opener', () => {
+    // Deliberately `>=`, not `>`, because the opener does not out-space the heavy: both are
+    // 3.6, so at the boundary the swing and the two-handed weapon reach each other exactly.
+    // That is the designed answer to the heavy, and it is a timing answer rather than a
+    // spacing one — windUpSeconds 0.95 is the most generous telegraph in the game and
+    // recoverSeconds 1.3 is the punish window its own config comment says the staff route
+    // lives in. What must never happen is the opener being out-ranged outright, which would
+    // make the shorter arc unusable against that kind rather than merely even.
+    for (const [kind, config] of melee) {
+      expect(staffShape(false, A).range, kind).toBeGreaterThanOrEqual(config.strikeRange)
     }
   })
 })

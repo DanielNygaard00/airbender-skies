@@ -401,6 +401,16 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
    * one hit from down and the finisher takes anyone still standing; a gust does 0.5 with 26
    * knockback, so the staff buys damage with the reach and displacement it gives up.
    *
+   * "Out-space infantry" is true of the spear and not of the heavy, which arrived later with a
+   * `strikeRange` of 3.6 — exactly the opener's range. Both comparisons include their boundary
+   * (`inCone` rejects `distance > range`, `stepEnemy` strikes at `distance <= strikeRange`), so
+   * at 3.6 the opener and the two-handed weapon reach each other and the opener buys no standoff
+   * against a heavy at all. Only the finisher's 4.2 does, by 0.6. That sits consistently with
+   * how the heavy is meant to be answered — `windUpSeconds` 0.95 is the game's most generous
+   * telegraph and `recoverSeconds` 1.3 is the punish window, so it is a timing problem rather
+   * than a spacing one — but the parity itself was never chosen, so `staff-arc.test.ts` asserts
+   * the opener as `>=` and the finisher as `>` and says why.
+   *
    * Both arcs reach the same height, and the shortest of the four moves: this is a swing with
    * a physical implement, bounded by the character's own 1.8 height — the reference
    * `CollisionConfig.radius` and `projectile.hitRadius` both take — with margin so a soldier

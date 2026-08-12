@@ -28,6 +28,14 @@ pin it with a test that reaches it:
   so it could not fail either way. It has been replaced by a test that bounds the closing scale
   from both sides, which catches an `END_FRACTION` of 0.
 
+- `'outreaches a spear'` in `staff-arc.test.ts`, which compared one arc against one kind.
+  Replaced by two tests iterating every melee kind in the config Record, plus one that pins the
+  filter so an empty list cannot pass silently. This one was not only inert: it had gone stale.
+  The heavy arrived after it was written with a `strikeRange` of 3.6, exactly the opener's range,
+  so the spacing the test's name promised is not there against a heavy. The numbers are unchanged
+  and the parity is now written down in the config and in `HANDOFF.md`'s list of things to feel
+  for, because retuning it is a design decision.
+
 There are six more `1e-4` scale floors across `src/fx/`. They are a house convention rather
 than copies of one mistake, and not all are in the same position: `gust-cone.ts:91` scales by
 `t * c.range`, so its floor is reached on the effect's own first frame. Worth a look if anyone
@@ -42,10 +50,6 @@ decision.
 
 ## Assertions that cannot fail, or barely can
 
-- **`src/combat/staff-arc.test.ts:36`**, `'outreaches a spear'`, asserts a config invariant
-  (3.6 > 3.2) rather than any behaviour of `staffShape` — it would pass with that function's
-  ternary inverted, since both ranges exceed `strikeRange`. The sibling opener-versus-finisher
-  assertion is what actually covers the shape.
 - **The staff mash test** compares two states for equality, but `pressed` cannot matter on
   either branch during recovery, so both sides run identical code. It does pin "a press resets
   recovery to max" and gives no signal on the decay rate — a scaled-`dt` bug would leave both

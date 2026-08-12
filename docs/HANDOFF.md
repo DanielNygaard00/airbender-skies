@@ -3030,6 +3030,18 @@ In the order I would take them:
    staff's band for 58% of its airtime reads as the vortex doing its job or as the staff
    feeling broken.
 
+   **A third thing to feel for, found on 2026-08-12: the staff opener buys no spacing at all
+   against a heavy.** Both are 3.6 — `staffArc.opener.range` and `enemies.heavy.strikeRange` —
+   and both comparisons include their boundary, so the swing and the two-handed weapon reach
+   each other exactly. Only the finisher's 4.2 opens a gap, by 0.6. The staff's own config
+   comment claimed it out-spaces infantry, which was written when the spear was the only melee
+   kind; that comment is now corrected. The parity is consistent with how the heavy is supposed
+   to be answered — `windUpSeconds` 0.95 is the game's most generous telegraph and
+   `recoverSeconds` 1.3 is the punish window — so it may well be right, but it was never chosen.
+   What to feel for: whether opening on a heavy reads as a fair trade or as the staff being the
+   wrong tool. Nothing is retuned pending that, and `staff-arc.test.ts` states the opener's bound
+   as `>=` so the current numbers pass honestly rather than by a test that never looked.
+
    **The reticle and the hit-direction indicator are the other thing that needs hands, and
    they need them more completely than most.** Neither has ever been seen in a running game:
    pointer lock cannot be held here, so the reticle has never been watched tracking a turn or
