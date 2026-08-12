@@ -229,6 +229,21 @@ describe('actions owned by other systems', () => {
     })).toBe(false)
   })
 
+  it('follows the Air Wall readiness it is handed', () => {
+    // Every other flag held true in the false case, for the reason the Vortex row above does
+    // it: a row that read the wrong flag is caught rather than passing. This row is the most
+    // likely to go wrong that way, because `canAirWall` and `canSlipstream` have the same three
+    // clauses in the same order and it would be an easy copy to make.
+    expect(can('Air Wall', { airWallReady: true })).toBe(true)
+    expect(can('Air Wall', {
+      airWallReady: false,
+      gustReady: true,
+      vortexReady: true,
+      slipstreamReady: true,
+      avatarStateReady: true,
+    })).toBe(false)
+  })
+
   it('always offers this guide', () => {
     expect(can('This guide')).toBe(true)
     expect(can('This guide', { player: p({ mode: 'glider', grounded: false }) })).toBe(true)
