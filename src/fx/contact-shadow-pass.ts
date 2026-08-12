@@ -203,10 +203,31 @@ export function createContactShadowPass(width: number, height: number): ContactS
     fog: false,
   })
 
+  const quad = new Mesh(new PlaneGeometry(2, 2), quadMaterial)
+  /*
+   * The shader ignores every camera matrix; `renderer.render` does not.
+   *
+   * `WebGLRenderer.projectObject` frustum-culls each object whose `frustumCulled` is
+   * true — the default for a `Mesh` — against the camera it was handed, before the
+   * vertex shader ever runs. `PlaneGeometry(2, 2)` has a bounding-sphere radius of
+   * 1.4142 about the origin, and the default `OrthographicCamera` has `near = 0.1`, so
+   * the sphere clears the near-plane test by 1.31 units. That is the entire margin: at
+   * `near = 1.5` the composite is culled outright, the pass silently stops drawing, and
+   * the only symptom is the game looking exactly as it did before this pass existed —
+   * no error, nothing in the console.
+   *
+   * Turning culling off is what makes the camera's configuration genuinely unable to
+   * matter, which is what the comment here used to claim on the shader's behalf alone.
+   * `src/core/sky.ts` and `src/world/wind-tell.ts` use the same idiom for the same
+   * reason: an object whose bounding-sphere test can only ever waste work or be wrong.
+   */
+  quad.frustumCulled = false
   const quadScene = new Scene()
-  quadScene.add(new Mesh(new PlaneGeometry(2, 2), quadMaterial))
-  // Never configured: the vertex shader ignores every camera matrix. `renderer.render`
-  // requires a camera, so this satisfies the signature and nothing else.
+  quadScene.add(quad)
+  // Never configured, and now genuinely inert: the shader reads none of its matrices,
+  // and the quad above is exempt from the culling that was the one remaining route by
+  // which this camera's settings could affect the render. `renderer.render` requires a
+  // camera, so this satisfies the signature.
   const quadCamera = new OrthographicCamera()
 
   const previousClearColour = new Color()
