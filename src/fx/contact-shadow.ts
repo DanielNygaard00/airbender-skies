@@ -108,9 +108,17 @@ export function depthTargetSize(
  * attack effect that draws over the world sets `depthTest: false`; a gust fired toward
  * the camera would otherwise put a wall of near depth across the frame.
  *
- * The rule reuses `userData.excludeFromShadows`, which already exists for this question
- * and already marks both groups, so a future effect that opts out of the shadow map
- * opts out of this pass for free.
+ * The rule reuses `userData.excludeFromShadows`, which already exists for this question,
+ * so a future effect that opts out of the shadow map opts out of this pass for free.
+ *
+ * **It did not already mark everything, and that is worth knowing before adding a mesh.**
+ * The flag covered the two groups above because both of them are things that must not
+ * cast a shadow either. A third class was not covered: a translucent mesh that writes no
+ * depth of its own and casts no shadow because it is not solid. `src/world/waterfall.ts`
+ * was the one such mesh in the scene when this pass shipped, and it was missed — its
+ * curtains are added straight to the scene rather than under `world.group`, so
+ * `enableShadows` never traversed them and nobody had cause to check the flag. Any new
+ * translucent surface needs it set explicitly.
  *
  * **Deliberately wider than `enableShadows`, which collects meshes only.** A `Points`
  * renders under an override material and writes depth from its sprites, and

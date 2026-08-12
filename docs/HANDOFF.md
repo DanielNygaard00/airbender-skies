@@ -3224,12 +3224,40 @@ replaces every mesh's material wholesale, including its `side`, `depthWrite` and
 so the sky dome (`depthWrite: false`, `side: BackSide`) and every `depthTest: false` attack
 effect would start writing depth under the override. A gust fired straight at the camera would
 put a wall of near depth across the whole frame. The rule reuses `userData.excludeFromShadows`,
-which already marks both groups for the same reason. It collects **any** flagged node rather
+which already existed for the same question. It collects **any** flagged node rather
 than meshes only, because `src/world/wind-tell.ts` flags a `Group` sitting above a `Points`, and
 those point sprites render under the override and write depth just like a mesh would.
 `enableShadows` can ignore both — a `Group` has no `castShadow` to set, and a `Points` fails its
 `isMesh` test — but this pass cannot, so it hides the flagged ancestor and lets visibility
 inheritance cover the child.
+
+**The flag did not already mark everything that needed it, and this section and the design
+document both claimed it did.** The claim was that `userData.excludeFromShadows` "already marks
+both groups", which implied the pass inherited a complete opt-out list and had nothing left to
+audit. It was false. The flag covered those two groups because both are also things that must
+not *cast* a shadow, and there was a third class in this scene that had never needed either
+treatment: **a translucent mesh that writes no depth of its own.** `src/world/waterfall.ts`'s
+six curtains from `archipelago.ts` are exactly that — `transparent: true`, `opacity: 0.55`,
+`side: DoubleSide`, `depthWrite: false` — and they were unflagged. Under
+`scene.overrideMaterial = depthMaterial` the override supplies `depthWrite: true`, so all six
+started writing depth into the target, at sizes from 5×55 up to 10×90 world units. Each hangs
+from `anchor.y + LIP_RAISE − length/2` with `LIP_RAISE` at 0.6, which is exactly
+`CONTACT_RANGE`, so every curtain overlaps its rim rock by the full contact distance. The
+symptom is a dark band along the top of each waterfall where it meets the lip, painted over
+rock the colour frame shows you straight through, plus false darkening on the curtain itself.
+No error, nothing in the console — a stray dark band and nothing else.
+
+It escaped notice for a second reason worth recording, because it is a structural blind spot
+rather than an oversight: `src/main.ts` adds each waterfall mesh directly to `scene`, not to
+`world.group`, so `enableShadows(world.group)` never traversed it and no existing test or
+review path had cause to look at its flag. Fixed by setting the flag in `createWaterfall`, with
+an assertion in `waterfall.test.ts` red-proofed by removing the line and watching it fail.
+
+**The rule for anyone adding a mesh from here on: the flag is now load-bearing for two
+different passes, and "it casts no shadow anyway" is no longer a reason to leave it off.** A
+translucent surface that writes no depth of its own must set it, because the depth pass's
+override material writes depth whatever the mesh's own material says. The design document still
+carries the original claim; it is left as the historical record.
 
 **The `visible` restore.** The pass hides only the nodes that were actually visible, and shows
 back exactly those and nothing else. Forcing every excluded node to `true` on the way out would
