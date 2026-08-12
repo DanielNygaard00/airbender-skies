@@ -43,6 +43,20 @@ export const COMBOS: readonly Combo[] = [
     detail: 'Thrust costs breath; a thermal does not. Steering into a mote cloud and ' +
       'circling inside it climbs for free, and it builds Focus about twice as fast.',
   },
+  {
+    // Listed as a chain rather than as a note about the key, because that is what it is: the
+    // payload on its own is one press, and the interesting part is what carrying it forces you
+    // to do with everything else. It sits last on purpose — every earlier entry is a move,
+    // and this one only makes sense once thermals do.
+    name: 'Carry a payload the long way up',
+    keys: ['G', 'A', 'D'],
+    detail: 'Lift the bundle on the home plateau and it is meant for the rock island high to ' +
+      'the north. Loaded, the wing sinks faster, rolls at half the rate and drinks breath ' +
+      'half again as fast, so thrusting the whole way arrives on fumes if it arrives at all. ' +
+      'The thermal over home and the one under the island are the way there — and because you ' +
+      'turn slower loaded, you have to ease off the speed to stay inside a column rather than ' +
+      'carving out the far side of it.',
+  },
 ]
 
 export interface MeterNote {
@@ -59,9 +73,14 @@ export interface MeterNote {
 export const METERS: readonly MeterNote[] = [
   {
     name: 'Breath',
+    // The payload's drain is named here as well as on its own row, and deliberately so: this
+    // is the bar the player watches emptying, so this is where they will look to find out why
+    // it is emptying faster than they remember.
     detail: 'Flight fuel, in blue at the bottom. Thrust spends it and hovering spends it ' +
-      'fastest, because holding station carries the glider\'s whole weight. Refills when ' +
-      'you are not spending it, faster on the ground. Air shrines raise the maximum.',
+      'fastest, because holding station carries the glider\'s whole weight. Carrying a ' +
+      'payload makes both cost half again as much. Refills when you are not spending it, ' +
+      'faster on the ground. Air shrines raise the maximum, and five of them cover what a ' +
+      'payload costs you.',
   },
   {
     name: 'Focus',

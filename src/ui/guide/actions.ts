@@ -37,6 +37,16 @@ export interface ActionContext {
   vortexReady: boolean
   /** A slipstream is off cooldown and not already running. The caller asks `canSlipstream`. */
   slipstreamReady: boolean
+  /**
+   * A press of the carry key would do something: either a payload is in reach, or one is
+   * being carried and the player is standing on ground.
+   *
+   * Passed in for the same reason `gustReady` is. The rule needs the level's payload list,
+   * which is world state and has no business in a UI module, and the caller already asks
+   * `carryIntent` to resolve the press itself — so this row follows the same answer the
+   * interaction acts on rather than a second opinion about it.
+   */
+  carryReady: boolean
 }
 
 export interface GameAction {
@@ -148,6 +158,21 @@ export const ACTIONS: readonly GameAction[] = [
       + 'Timed right it also builds Focus. On foot it goes wherever you are moving or '
       + 'looking; in the glider, bank left or right to dodge sideways, since thrust and '
       + 'flare are not directions. It spends breath, so it cannot be chained forever.',
+  },
+  {
+    // 'both' rather than 'ground', even though the press only ever works with feet on the
+    // ground. The row has to be readable from the glider column too: that is where the
+    // player is when they wonder why the wing feels heavy and go looking for the rule.
+    key: 'G', name: 'Pick up or set down a payload', mode: 'both',
+    available: (ctx) => ctx.carryReady,
+    detail: 'Stand next to a bundle and press G to lift it; press G again, on the ground, to '
+      + 'set it down. Carrying it on the glider costs you three things at once: the wing '
+      + 'makes less lift, so you sink faster and cannot climb as high on a bar of breath; '
+      + 'the weight shift turns you at half the rate, so you have to slow down to fit inside '
+      + 'a thermal; and both thrust and hover drink breath half again as fast. Thrusting the '
+      + 'whole way somewhere will just about get you there with nothing left over, so ride the '
+      + 'air instead. Set it down on the island it is meant for and you are done with it. Go '
+      + 'down or fall out of the world and it goes back where you found it.',
   },
   {
     key: 'Ctrl', press: 'hold', name: 'Tuck', mode: 'glider', available: inGlider,

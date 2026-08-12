@@ -89,6 +89,32 @@ export interface HudModel {
 }
 
 /**
+ * **The payload deliberately adds nothing to this model, and that is a decision rather than an
+ * omission.** Carrying something degrades flight three ways (`src/player/payload.ts`), so a
+ * "CARRYING" label or a fourth bar is the obvious thing to reach for. Three reasons not to.
+ *
+ * The state is already on screen, continuously and in world space: the bundle is parented to
+ * the avatar and the follow camera sits behind and above it, so unlike breath or Focus — which
+ * have no representation anywhere but here — a carried payload is visible on every frame it is
+ * carried, and a HUD element would restate what the player is already looking at.
+ *
+ * The consequences are already on screen too, in the elements that exist. The faster drain is
+ * the breath bar emptying faster, and the guide's own Breath note names the payload as a cause
+ * (`reference.ts`). The lost lift shows up in the altitude and airspeed readouts and, at the
+ * limit, in the stall colour this file already mixes. A payload row would tell the player a
+ * fact; the bars tell them the size of it.
+ *
+ * And this HUD's culture is to stay quiet: `showBreath`, `showHealth` and `showFocus` all hide
+ * a bar that has nothing to say. A permanent element for a binary state that is visible in the
+ * world would be the one thing here that is on screen without earning it.
+ *
+ * What the payload does need is *why*, and that is the guide's job rather than the HUD's — a
+ * dimming row on `G` for the interaction, plus the two written notes. The trade being accepted
+ * is real and worth stating: a player who never opens the guide learns the degradation by
+ * feel, and the only thing pointing at its cause is the bundle they can see. If that proves
+ * too subtle in play, the cheap answer is a one-shot line rather than a permanent element —
+ * the fields to add would be a `payload: boolean` here and a rule beside `showBreath`.
+ *
  * Health and Focus are both optional so the HUD still works anywhere those systems
  * are not running.
  */

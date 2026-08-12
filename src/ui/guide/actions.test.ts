@@ -27,6 +27,7 @@ const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({
   avatarStateReady: false,
   vortexReady: true,
   slipstreamReady: true,
+  carryReady: true,
   ...over,
 })
 
@@ -226,6 +227,23 @@ describe('actions owned by other systems', () => {
     expect(can('Slipstream', {
       slipstreamReady: false, gustReady: true, vortexReady: true, avatarStateReady: true,
     })).toBe(false)
+  })
+
+  it('follows the carry readiness it is handed', () => {
+    // Every other flag held true in the false case, the same guard the Vortex and Slipstream
+    // rows get: a row wired to `ctx.gustReady` by a copy-paste would pass otherwise.
+    expect(can('Pick up or set down a payload', { carryReady: true })).toBe(true)
+    expect(can('Pick up or set down a payload', {
+      carryReady: false, gustReady: true, vortexReady: true, slipstreamReady: true,
+      avatarStateReady: true,
+    })).toBe(false)
+  })
+
+  it('shows the carry row in both columns', () => {
+    // 'both' rather than 'ground', even though only a grounded press does anything. The row
+    // has to be readable from the glider column, because that is where a player is standing
+    // when they wonder why the wing feels heavy.
+    expect(action('Pick up or set down a payload').mode).toBe('both')
   })
 
   it('always offers this guide', () => {
