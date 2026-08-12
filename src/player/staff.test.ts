@@ -168,6 +168,21 @@ describe('staffBusy', () => {
     // Free once recovery has fully decayed.
     expect(staffBusy(wait(afterWindowLapses, S.recoverySeconds + 0.01))).toBe(false)
   })
+
+  it('reports busy mid-swing even when chain has desynced, which only a caller can hand it', () => {
+    // `stepStaff` cannot reach this state: it sets `chain` the instant a swing starts, so
+    // every reachable mid-swing state has chain >= 1. It is constructed here on purpose,
+    // to pin the contract staffBusy's own comment states — `isSwinging` stays in the
+    // expression even though it is redundant over reachable states, because callers are
+    // entitled to rely on "mid-flight blocks the staff" without that also depending on
+    // `chain` staying in sync. Before this test existed, the only thing that reddened on
+    // deleting `isSwinging` from staffBusy was an actions.test.ts fixture that posed as a
+    // reachable game state. Not a claim that the game can produce this.
+    const midSwingChainDesynced: StaffState = {
+      chain: 0, elapsed: 0.1, recovery: 0, sinceSwing: 0,
+    }
+    expect(staffBusy(midSwingChainDesynced)).toBe(true)
+  })
 })
 
 describe('staffOf', () => {
