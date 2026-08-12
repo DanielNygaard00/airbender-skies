@@ -3008,6 +3008,12 @@ which half can fail.
 
 ## Suggested next steps
 
+`docs/deferred-findings.md` is the other list worth reading beside this one: the Minor review
+findings that finished cycles deferred rather than fixed. It exists because those findings used
+to live only in each plan's git-ignored SDD workspace, so deleting a finished workspace threw
+them away. Nothing on it is a known player-visible bug, and one item on it is a design question
+that needs the person at the controls.
+
 In the order I would take them:
 
 1. **Play it.** Nothing here has been played. An hour with the live build will find

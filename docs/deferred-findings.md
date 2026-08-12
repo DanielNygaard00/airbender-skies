@@ -1,0 +1,103 @@
+# Deferred findings
+
+Written 2026-08-12, when the last three subagent-driven-development ledgers were deleted.
+
+Every SDD cycle's task reviews produce findings, and the Minor ones are recorded in that
+cycle's ledger under `.superpowers/sdd/<plan>/progress.md` rather than fixed on the spot. That
+directory is git-ignored scratch, so those findings lived nowhere durable — deleting the
+workspace of a finished plan discarded them silently. This file is where they go instead.
+
+The list below came from the ledgers of three finished plans: staff melee (2026-08-04), vortex
+and slipstream (2026-08-04), and archers and projectiles (2026-08-05). Each item was checked
+against the code on 2026-08-12 before being carried over; six items were already fixed by
+later cycles and are listed at the end so nobody re-investigates them.
+
+None of these is a known player-visible bug. They are mostly assertions that cannot fail, an
+unreachable condition, and comments in the wrong place — the same classes the register at the
+end of `HANDOFF.md` tracks.
+
+## One design question, which is the user's to answer
+
+**In the glider, a dodge reads the wrong two axes.** `stepSlipstream` feeds
+`slipstreamHeading` the player's `input.forward` and `input.strafe`, which mean walk and
+strafe on the ground but thrust and bank in the air. Holding S is a flare in flight, so it
+maps to a backward dodge. That is surprising rather than wrong, and it is untested. Deciding
+it needs someone at the controls, which has not happened.
+
+Related and still open: no test covers the frame *after* a glider dodge. `flightStep`'s lift
+and drag scale with speed squared, so a dodge that leaves the wing unaligned spikes drag and
+then self-corrects. The reasoning says it is fine; nothing pins it.
+
+## An unreachable condition
+
+**`src/player/staff.ts:131`** — the `free` gate reads `s.recovery <= 0 && s.chain < c.maxChain`,
+but the second half can never be false there: line 122 routes the finisher through the spent
+path, which resets `chain` to 0 first. Harmless today, and misleading to a reader, who could
+infer that `chain` can sit at `maxChain` outside a swing. Either drop the condition or say
+why it is kept.
+
+## Assertions that cannot fail, or barely can
+
+- **`src/fx/vortex-ring.ts:39`** clamps the scale with `Math.max(..., 1e-4)`, and
+  `'keeps a positive scale all the way in'` does not exercise it: `END_FRACTION` 0.15 times a
+  `minRadius` of 5 is never zero, so the test passes with the guard deleted. Inherited from
+  `shockwave.ts`, so fixing one should fix both.
+- **`src/combat/staff-arc.test.ts:36`**, `'outreaches a spear'`, asserts a config invariant
+  (3.6 > 3.2) rather than any behaviour of `staffShape` — it would pass with that function's
+  ternary inverted, since both ranges exceed `strikeRange`. The sibling opener-versus-finisher
+  assertion is what actually covers the shape.
+- **The staff mash test** compares two states for equality, but `pressed` cannot matter on
+  either branch during recovery, so both sides run identical code. It does pin "a press resets
+  recovery to max" and gives no signal on the decay rate — a scaled-`dt` bug would leave both
+  sides equally wrong.
+- **The arrow's `depthTest` test** catches a flip to `false` but cannot tell an explicit `true`
+  from three.js's own default of `true`. The same ceiling an earlier health-bar spec recorded.
+- **The combat-audio no-clip assertions** use `toBeLessThanOrEqual(0.5)`, so a voice sitting
+  exactly on the ceiling counts as compliant and only a value strictly above it fails. That is
+  the convention across every voice in the file. One of the two no-clip tests also duplicates
+  the iterating test's identical check on the same value.
+
+## Comments in the wrong place, and one impossible fixture
+
+- **`src/player/cone.ts`** — the explanation that its guards are unobservable below 90 degrees
+  lives on a test constant rather than beside the guards themselves, so a reader editing only
+  `cone.ts` could remove one as dead code. A reviewer suggested an explicit early return would
+  read as intentional at any width; the current form is a lower-risk stopgap.
+- **`src/ui/guide/actions.test.ts`** has a fixture with `staffElapsed` set and `staffChain` 0 —
+  a state the staff state machine cannot reach. A gate-hole fix was written to be defensive
+  about it rather than to correct the fixture, which is defensible and leaves the fixture
+  describing something impossible.
+
+## Two watch items
+
+- **`drawnContains`** compares `relative <= thetaLength` with no epsilon, so a config angle
+  landing a sample exactly on the boundary could be flaky. Not observed.
+- **The corpse-displacement test** is only moderately robust to a knockback retune.
+  Displacement per hit is capped at `knockback / 60`, one integration frame between swings, so
+  roughly doubling knockback could push the body past the opener's 3.6 m reach and turn the
+  test back into a false pass. Worth re-reading if the knockback numbers move.
+
+## Never verified at the controls
+
+The staff's feel was signed off from tests and screenshots only: whether a 0.26 s swing is
+snappy, whether about a second without the wing is a fair price, and whether the arc reads as
+wide on screen. This is one instance of the general gap `HANDOFF.md` records — the harness
+refuses pointer lock, so nothing in this project has been played.
+
+## Already fixed, checked on 2026-08-12
+
+Listed so they are not investigated again:
+
+- A downed enemy below `worldFloorY` fell forever. `src/combat/enemy.ts:519` now arrests it.
+- The vortex charge gate read a locally decremented cooldown while `canVortex` read the stored
+  field, so the two disagreed for one frame. `src/combat/encounter.ts:588` now gates on
+  `canVortex`, with a test.
+- No readiness test covered the Vortex and Slipstream guide rows, so `ctx.gustReady`
+  copy-pasted onto the wrong row would have passed. `actions.test.ts:224` names exactly that
+  bug and pins it.
+- No test asserted that a downed archer's bow rotation resets. `enemy-mesh.test.ts:428`,
+  `'lowers a downed bow'`, does.
+- A fixture comment in `encounter.test.ts` claiming the projectile config was unexercised by
+  that file went stale and has since been removed.
+- `hitEnemy` leaving `grounded` stale for a frame and the invulnerable window running up to one
+  frame long are both intentional in a frame-stepped simulation, and documented as such.
