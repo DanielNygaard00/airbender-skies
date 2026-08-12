@@ -15,12 +15,23 @@ cycles and are listed at the end so nobody re-investigates them.
 None of these is a known player-visible bug. They are mostly assertions that cannot fail and
 comments in the wrong place — the same classes the register at the end of `HANDOFF.md` tracks.
 
-**Fixed since this file was written:** the unreachable `s.chain < c.maxChain` term in
-`stepStaff`'s `free` gate. It is kept rather than deleted, on the same grounds `staffBusy`
-keeps its redundant `isSwinging`, and it now has a test that constructs the out-of-band state
-it bounds — so it is a documented invariant rather than a term that looks dead. Deleting it
-reddens `'refuses a press on a full chain with nothing owed'` with a fourth swing in a
-three-swing combo.
+**Fixed since this file was written.** Two items, both by the same move — keep the guard,
+pin it with a test that reaches it:
+
+- The unreachable `s.chain < c.maxChain` term in `stepStaff`'s `free` gate, kept on the same
+  grounds `staffBusy` keeps its redundant `isSwinging`. Deleting it now reddens `'refuses a
+  press on a full chain with nothing owed'` with a fourth swing in a three-swing combo.
+- The `Math.max(..., 1e-4)` scale floors in `vortex-ring.ts` and `shockwave.ts`, neither of
+  which its own interpolation can reach — they bound the radius a caller passes, so both are
+  pinned with a zero-radius test. `vortex-ring`'s old `'keeps a positive scale all the way in'`
+  was worse than unexercised: with the floor in place, greater-than-zero holds for every input,
+  so it could not fail either way. It has been replaced by a test that bounds the closing scale
+  from both sides, which catches an `END_FRACTION` of 0.
+
+There are six more `1e-4` scale floors across `src/fx/`. They are a house convention rather
+than copies of one mistake, and not all are in the same position: `gust-cone.ts:91` scales by
+`t * c.range`, so its floor is reached on the effect's own first frame. Worth a look if anyone
+audits them as a group; not carried here as a finding.
 
 **On checking these.** The first version of this file carried the glider dodge's axes as an
 open design question. It was not open — it had been fixed two cycles earlier, and the check
@@ -31,10 +42,6 @@ decision.
 
 ## Assertions that cannot fail, or barely can
 
-- **`src/fx/vortex-ring.ts:39`** clamps the scale with `Math.max(..., 1e-4)`, and
-  `'keeps a positive scale all the way in'` does not exercise it: `END_FRACTION` 0.15 times a
-  `minRadius` of 5 is never zero, so the test passes with the guard deleted. Inherited from
-  `shockwave.ts`, so fixing one should fix both.
 - **`src/combat/staff-arc.test.ts:36`**, `'outreaches a spear'`, asserts a config invariant
   (3.6 > 3.2) rather than any behaviour of `staffShape` — it would pass with that function's
   ternary inverted, since both ranges exceed `strikeRange`. The sibling opener-versus-finisher
