@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { COMBOS, METERS, WIND_LEGEND, SCREEN_MARKS } from './reference'
+import { COMBOS, ELEMENT_LEGEND, METERS, WIND_LEGEND, SCREEN_MARKS } from './reference'
 import { actionKeys } from './actions'
+import { ELEMENT_ORDER } from '../../elements/element'
 import { ARCHIPELAGO } from '../../world/levels/archipelago'
 
 describe('COMBOS', () => {
@@ -69,5 +70,35 @@ describe('WIND_LEGEND', () => {
     for (const [kind, text] of Object.entries(WIND_LEGEND)) {
       expect(text.length, `${kind} has no description`).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('ELEMENT_LEGEND', () => {
+  it('describes every element the radial can select', () => {
+    // Type-level exhaustiveness over `Element` already forces an entry per element, which is the
+    // real guard — a fourth element fails to compile until it is described. This checks the other
+    // direction: that each entry actually says something, since a Record satisfied with empty
+    // strings would type-check and ship an element with a key and no explanation.
+    for (const element of ELEMENT_ORDER) {
+      expect(ELEMENT_LEGEND[element]?.length ?? 0, element).toBeGreaterThan(40)
+    }
+  })
+
+  it('names the radial direction and the number bind for each element', () => {
+    // The legend is the only place the layout is written down in prose, and the layout is what the
+    // whole design leans on — fixed slots so a flick direction means the same thing every session.
+    // A legend that described the elements without saying where they are would leave the player
+    // hunting for them mid-fight, which is when the radial is used.
+    expect(ELEMENT_LEGEND.air).toMatch(/straight up/i)
+    expect(ELEMENT_LEGEND.air).toMatch(/1/)
+    expect(ELEMENT_LEGEND.water).toMatch(/straight down/i)
+    expect(ELEMENT_LEGEND.water).toMatch(/2/)
+  })
+
+  it('says water does no damage, which is the one thing a player must not guess wrong', () => {
+    // Water is the control element and reaching for it as a damage tool is the mistake the whole
+    // kit is built to make fail. If the guide does not say so, the player learns it by losing a
+    // fight slowly.
+    expect(ELEMENT_LEGEND.water).toMatch(/no damage/i)
   })
 })

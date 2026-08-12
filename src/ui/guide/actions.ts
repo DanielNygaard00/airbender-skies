@@ -4,6 +4,7 @@ import { canDash } from '../../player/dash'
 import { canAirJump } from '../../player/jump'
 import { canBend } from '../../player/breath'
 import { staffBusy, staffOf } from '../../player/staff'
+import { isElementAvailable, type Element } from '../../elements/element'
 
 /**
  * Every action the player can perform, and whether they can perform it now.
@@ -37,6 +38,20 @@ export interface ActionContext {
   vortexReady: boolean
   /** A slipstream is off cooldown and not already running. The caller asks `canSlipstream`. */
   slipstreamReady: boolean
+  /**
+   * Which element is selected.
+   *
+   * F and R resolve to a different move per element, so four of the rows below are struck through
+   * whenever the other element is selected. That is a *binding* fact — which key does what —
+   * rather than a game rule this module would be restating, and the catalogue is exactly where
+   * binding facts live. It also makes the panel answer the question a player opening it mid-fight
+   * actually has, which is what their two bending keys do right now.
+   */
+  element: Element
+  /** A Water Grip is off cooldown and affordable. The caller asks `canGrip`. */
+  gripReady: boolean
+  /** An Ice Lock is affordable in both Focus and breath. The caller asks `canIceLock`. */
+  iceLockReady: boolean
 }
 
 export interface GameAction {
@@ -60,6 +75,15 @@ const standing = (ctx: ActionContext): boolean => onGround(ctx) && ctx.player.gr
 const airborne = (ctx: ActionContext): boolean => onGround(ctx) && !ctx.player.grounded
 /** Gliding with breath left: both thrust and hover spend it, and neither works empty. */
 const hasBreath = (ctx: ActionContext): boolean => inGlider(ctx) && canBend(ctx.player, ctx.flight)
+/**
+ * Whether a given element is the one the bending keys currently resolve to.
+ *
+ * Asks `isElementAvailable` as well, so an element that a future act structure has not unlocked
+ * is struck through even if something managed to select it — the panel must not offer a move the
+ * fight would refuse, and that predicate is the one authority on availability.
+ */
+const bending = (element: Element) => (ctx: ActionContext): boolean =>
+  ctx.element === element && isElementAvailable(element)
 
 export const ACTIONS: readonly GameAction[] = [
   {
@@ -123,9 +147,21 @@ export const ACTIONS: readonly GameAction[] = [
       && canDash({ used: ctx.player.dashesUsed, recovery: ctx.player.dashRecovery }, ctx.ground),
   },
   {
-    key: 'F', name: 'Gust', mode: 'both', available: (ctx) => ctx.gustReady,
+    key: 'F', press: 'airbending', name: 'Gust', mode: 'both',
+    available: (ctx) => bending('air')(ctx) && ctx.gustReady,
     detail: 'A wide sweep of air, thrown where you are looking. Knocks enemies back and '
-      + 'interrupts a strike; barely hurts them.',
+      + 'interrupts a strike; barely hurts them. F is whichever element you have selected — '
+      + 'switch to water and this key grips instead.',
+  },
+  {
+    key: 'F', press: 'waterbending', name: 'Water Grip', mode: 'both',
+    available: (ctx) => bending('water')(ctx) && ctx.gripReady,
+    detail: 'Pull, then hold. A narrow reach straight ahead — much tighter than a gust, and it '
+      + 'does not reach nearly as far above or below you — that yanks whoever it catches toward '
+      + 'you and locks them there for a moment. No damage at all: it drags a spear out of its own '
+      + 'reach and into yours, and a held soldier simply cannot act. The cooldown is a shade '
+      + 'shorter than the hold, so you can keep one soldier pinned indefinitely if you spend '
+      + 'nothing else on it — that buys time, not progress.',
   },
   {
     key: 'E', name: 'Avatar State', mode: 'both', available: (ctx) => ctx.avatarStateReady,
@@ -133,12 +169,23 @@ export const ACTIONS: readonly GameAction[] = [
       'a gust that downs a soldier outright, and every wind feature turning to your side.',
   },
   {
-    key: 'R', press: 'hold, then release', name: 'Vortex', mode: 'both',
-    available: (ctx) => ctx.vortexReady,
+    key: 'R', press: 'airbending: hold, then release', name: 'Vortex', mode: 'both',
+    available: (ctx) => bending('air')(ctx) && ctx.vortexReady,
     detail: 'Hold to gather a charge, release to pull everyone near you inward and lift '
       + 'them off their feet. It does no damage at all — a lifted soldier simply cannot '
       + 'act, which is the opening. Charging longer widens the reach and throws them higher. '
       + 'Releasing early cancels for free.',
+  },
+  {
+    key: 'R', press: 'waterbending: press, then release', name: 'Ice Lock', mode: 'both',
+    available: (ctx) => bending('water')(ctx) && ctx.iceLockReady,
+    detail: 'Freezes the rank in front of you where it stands — wider than the grip and '
+      + 'shorter, and it holds them far longer. No pull, no damage, and they stay frozen even if '
+      + 'you hit them, which is the whole point: a locked target is locked so you can work on '
+      + 'it. This is the one move that spends Focus, and it spends about a third of a full bar '
+      + '— rather more than a spear hit takes off you. Two are affordable from a full meter, '
+      + 'and either one costs you the Avatar State. There is no cooldown; the meter is the '
+      + 'price. Unlike the Vortex it does not charge, so how long you hold makes no difference.',
   },
   {
     key: 'C', name: 'Slipstream', mode: 'both',
@@ -148,6 +195,21 @@ export const ACTIONS: readonly GameAction[] = [
       + 'Timed right it also builds Focus. On foot it goes wherever you are moving or '
       + 'looking; in the glider, bank left or right to dodge sideways, since thrust and '
       + 'flare are not directions. It spends breath, so it cannot be chained forever.',
+  },
+  {
+    key: 'V', press: 'hold, flick, release', name: 'Element radial', mode: 'both',
+    available: always,
+    detail: 'Hold to open the radial, flick the mouse toward an element, let go. Air is straight '
+      + 'up and water is straight down. It never pauses or slows the game and it never takes the '
+      + 'mouse off you — the same flick that picks also nudges your view a little, which is the '
+      + 'price of nothing being taken away. A flick too small to mean anything keeps what you '
+      + 'had, so you can change your mind by just letting go.',
+  },
+  {
+    key: '1 / 2', name: 'Select element directly', mode: 'both', available: always,
+    detail: '1 is air, 2 is water. The same switch without the gesture, and the faster way to do '
+      + 'it once you know which one you want. Switching costs nothing at all — no cooldown, no '
+      + 'windup — so it belongs inside a combo: vortex a group, switch, freeze the front rank.',
   },
   {
     key: 'Ctrl', press: 'hold', name: 'Tuck', mode: 'glider', available: inGlider,

@@ -27,6 +27,11 @@ const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({
   avatarStateReady: false,
   vortexReady: true,
   slipstreamReady: true,
+  // Air by default, so every row that predates the element system keeps being asked in the stance
+  // it was written for. The water rows are asked with `element: 'water'` explicitly.
+  element: 'air',
+  gripReady: true,
+  iceLockReady: true,
   ...over,
 })
 
@@ -259,3 +264,63 @@ function readmeKeys(): string[] {
   }
   return [...new Set(keys)].sort()
 }
+
+describe('the bending keys follow the selected element', () => {
+  it('offers the air moves on air and strikes through the water ones', () => {
+    // The question a player opening the panel mid-fight actually has: what do my two bending keys
+    // do right now. Asserted as all four rows at once, because an implementation where every row
+    // was always available would pass each half individually — and that is exactly the bug, since
+    // the panel would then list four moves for two keys with no indication which is live.
+    const air = { element: 'air' as const }
+    expect(can('Gust', air)).toBe(true)
+    expect(can('Vortex', air)).toBe(true)
+    expect(can('Water Grip', air)).toBe(false)
+    expect(can('Ice Lock', air)).toBe(false)
+  })
+
+  it('offers the water moves on water and strikes through the air ones', () => {
+    const water = { element: 'water' as const }
+    expect(can('Water Grip', water)).toBe(true)
+    expect(can('Ice Lock', water)).toBe(true)
+    expect(can('Gust', water)).toBe(false)
+    expect(can('Vortex', water)).toBe(false)
+  })
+
+  it('follows the grip readiness it is handed, on water', () => {
+    // Every other flag is held true in the false case, so a row that read the wrong one — the
+    // gust's cooldown copied onto the grip entry, say — is caught rather than passing.
+    expect(can('Water Grip', { element: 'water', gripReady: true })).toBe(true)
+    expect(can('Water Grip', {
+      element: 'water', gripReady: false, gustReady: true, vortexReady: true,
+      iceLockReady: true, slipstreamReady: true, avatarStateReady: true,
+    })).toBe(false)
+  })
+
+  it('follows the Ice Lock readiness it is handed, on water', () => {
+    expect(can('Ice Lock', { element: 'water', iceLockReady: true })).toBe(true)
+    expect(can('Ice Lock', {
+      element: 'water', iceLockReady: false, gripReady: true, gustReady: true,
+      vortexReady: true, slipstreamReady: true, avatarStateReady: true,
+    })).toBe(false)
+  })
+
+  it('strikes through a water move even when it is affordable, if air is selected', () => {
+    // The element gate and the resource gate are independent, and the element has to win. A row
+    // that only checked affordability would tell an airbending player that a freeze is ready.
+    expect(can('Ice Lock', { element: 'air', iceLockReady: true })).toBe(false)
+    expect(can('Water Grip', { element: 'air', gripReady: true })).toBe(false)
+  })
+
+  it('always offers the radial and the direct binds', () => {
+    // Switching is free, so these two can never be unavailable — there is no cooldown, no cost and
+    // no posture requirement. Checked in both stances, since every other row varies by one or the
+    // other.
+    for (const element of ['air', 'water'] as const) {
+      expect(can('Element radial', { element })).toBe(true)
+      expect(can('Select element directly', { element })).toBe(true)
+      expect(can('Element radial', {
+        element, player: p({ mode: 'glider', grounded: false }),
+      })).toBe(true)
+    }
+  })
+})
