@@ -49,7 +49,7 @@ export const COMBOS: readonly Combo[] = [
     // to do with everything else. It sits last on purpose — every earlier entry is a move,
     // and this one only makes sense once thermals do.
     name: 'Carry a payload the long way up',
-    keys: ['G', 'A', 'D'],
+    keys: ['B', 'A', 'D'],
     detail: 'Lift the bundle on the home plateau and it is meant for the rock island high to ' +
       'the north. Loaded, the wing sinks faster, rolls at half the rate and drinks breath ' +
       'half again as fast, so thrusting the whole way arrives on fumes if it arrives at all. ' +

@@ -332,3 +332,40 @@ describe('the Space key and focused controls', () => {
     expect(tracker.sample().actionPressed).toBe(true)
   })
 })
+
+describe('InputTracker and the carry key', () => {
+  // The physical key was untested until this block existed, and the gap was not academic:
+  // the payload's key moved from G to B late, because Air Wall took G, and every artefact a
+  // player reads -- the README row, the guide row and the guide's combo entry -- says B while
+  // nothing checked that the tracker agrees. The README-versus-ACTIONS drift test compares the
+  // two places the key is *written*, not the one place it is *bound*, so a rename that missed
+  // input.ts would have shipped a guide advertising a key that does nothing.
+  it('picks up and sets down a payload on B', () => {
+    const target = new EventTarget()
+    const tracker = new InputTracker(target, fakeCanvas)
+    target.dispatchEvent(keydown('KeyB'))
+    expect(tracker.sample().carryPressed).toBe(true)
+  })
+
+  it('is not bound to G, which belongs to the Air Wall', () => {
+    // Named rather than implied. G is the one key this binding must not drift back onto: it
+    // held the carry until the two features collided, so it is the plausible wrong answer, and
+    // the collision would be silent -- both bindings would set their own field and the loser
+    // would simply never fire.
+    const target = new EventTarget()
+    const tracker = new InputTracker(target, fakeCanvas)
+    target.dispatchEvent(keydown('KeyG'))
+    expect(tracker.sample().carryPressed).toBe(false)
+  })
+
+  it('does not re-fire the carry on auto-repeat', () => {
+    // The same guard the scooter toggle has, and for the same reason: holding the key would
+    // otherwise pick the bundle up and set it back down on alternating frames.
+    const target = new EventTarget()
+    const tracker = new InputTracker(target, fakeCanvas)
+    target.dispatchEvent(keydown('KeyB'))
+    tracker.sample() // Clears the edge from the first, real press.
+    target.dispatchEvent(keydown('KeyB', true))
+    expect(tracker.sample().carryPressed).toBe(false)
+  })
+})

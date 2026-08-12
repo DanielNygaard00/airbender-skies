@@ -109,7 +109,7 @@ export interface HudModel {
  * world would be the one thing here that is on screen without earning it.
  *
  * What the payload does need is *why*, and that is the guide's job rather than the HUD's — a
- * dimming row on `G` for the interaction, plus the two written notes. The trade being accepted
+ * dimming row on `B` for the interaction, plus the two written notes. The trade being accepted
  * is real and worth stating: a player who never opens the guide learns the degradation by
  * feel, and the only thing pointing at its cause is the bundle they can see. If that proves
  * too subtle in play, the cheap answer is a one-shot line rather than a permanent element —

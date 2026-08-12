@@ -21,7 +21,7 @@ back down to a walking stick.
 | `E` | Avatar State — once the pip under your Focus bar is full | Avatar State |
 | `R` | Vortex — hold to charge, release to pull nearby enemies inward and lift them off their feet | Vortex |
 | `C` | Slipstream — a short dash, briefly unhittable | Slipstream |
-| `G` | Pick up a payload you are standing next to, or set down the one you are carrying | Set it down, once you are back on the ground |
+| `B` | Pick up a payload you are standing next to, or set down the one you are carrying | Set it down, once you are back on the ground |
 | `Ctrl` | Hold through a landing to slam | Tuck — fold the wings for a fast dive, and hold it through the landing to slam |
 | `Space` | Jump — twice, the second gains more height the faster you are rising | Deploy or stow the glider. Close to the ground the deploy gives way to the landing, so a press on the way down becomes a jump on touchdown rather than a glide you immediately stow |
 | `H` | Guide — every action, and whether you can use it right now, plus the settings at the bottom of it. Opening it hands the mouse back, which is what makes those settings usable, so closing it leaves you on the pause card and one click resumes | Guide |
@@ -34,7 +34,7 @@ because holding station carries the glider's whole weight rather than just addin
 is already flying. Collect air shrines to raise your maximum breath.
 
 There is a bundle on the west side of the home plateau, and it is meant for the high rock island
-to the north. Lift it with `G` and the glider was never built for two: the wing makes less lift,
+to the north. Lift it with `B` and the glider was never built for two: the wing makes less lift,
 so it sinks about half again as fast and a full bar of breath spent climbing gets you less than
 half as high; the weight shift rolls you at half the rate, so a thermal you used to carve
 through has to be flown slowly enough to stay inside; and thrust and hover both drink breath

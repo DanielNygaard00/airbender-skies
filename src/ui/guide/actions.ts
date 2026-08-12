@@ -163,7 +163,7 @@ export const ACTIONS: readonly GameAction[] = [
     // 'both' rather than 'ground', even though the press only ever works with feet on the
     // ground. The row has to be readable from the glider column too: that is where the
     // player is when they wonder why the wing feels heavy and go looking for the rule.
-    key: 'G', name: 'Pick up or set down a payload', mode: 'both',
+    key: 'B', name: 'Pick up or set down a payload', mode: 'both',
     available: (ctx) => ctx.carryReady,
     detail: 'Stand next to a bundle and press G to lift it; press G again, on the ground, to '
       + 'set it down. Carrying it on the glider costs you three things at once: the wing '

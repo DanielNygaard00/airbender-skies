@@ -17,7 +17,7 @@ the game had before this work rather than invented.
 | Carry interaction, degraded flight config, carry pose, respawn rule | `src/player/payload.ts` |
 | The three tuning values and their invariants | `src/core/types.ts`, `src/core/config.ts` |
 | Level definition and validation | `src/world/level.ts`, `src/world/levels/archipelago.ts` |
-| Key binding (`G`, edge-triggered) | `src/core/input.ts`, `src/core/types.ts` |
+| Key binding (`B`, edge-triggered) | `src/core/input.ts`, `src/core/types.ts` |
 | Wiring: meshes, reparenting, respawn paths, per-frame carry pose | `src/main.ts` |
 | Guide row, chain note, breath note, README | `src/ui/guide/actions.ts`, `src/ui/guide/reference.ts`, `README.md` |
 
@@ -147,7 +147,7 @@ factor damages most — the route would read as broken rather than heavy.
 
 ## Pick-up and drop: a key press, not a landing
 
-`G`, edge-triggered, both directions, and both require standing on the ground.
+`B`, edge-triggered, both directions, and both require standing on the ground.
 
 A landing-triggered drop was the tempting answer and loses to the game's own transition layer.
 §2.3 is explicit that "landing at high speed never hard-stops Aang", and `controller.ts`
@@ -225,7 +225,7 @@ Argued at length in `src/ui/hud.ts`, where a reader would go looking for it. In 
 is already on screen in world space every frame it is carried, its consequences are already
 legible in the bars and readouts that exist, and this HUD's culture is to hide anything with
 nothing to say (`showBreath`, `showHealth`, `showFocus`). The *why* is the guide's job — a
-dimming `G` row plus two written notes. The accepted trade is that a player who never opens the
+dimming `B` row plus two written notes. The accepted trade is that a player who never opens the
 guide learns the degradation by feel with only the visible bundle to explain it; if that is too
 subtle in play, the cheap answer is a one-shot line rather than a permanent element.
 

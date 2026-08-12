@@ -155,7 +155,7 @@ export class InputTracker {
       if (!e.repeat && e.code === 'KeyC') this.slipstreamPressed = true
       // Edge-triggered like the rest, and for a sharper reason than most: held down, a
       // repeating G would set the payload down and lift it again on alternate frames.
-      if (!e.repeat && e.code === 'KeyG') this.carryPressed = true
+      if (!e.repeat && e.code === 'KeyB') this.carryPressed = true
     })
     on<KeyboardEvent>('keyup', (e) => {
       this.held.delete(e.code)
