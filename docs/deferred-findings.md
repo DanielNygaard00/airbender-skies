@@ -9,24 +9,19 @@ workspace of a finished plan discarded them silently. This file is where they go
 
 The list below came from the ledgers of three finished plans: staff melee (2026-08-04), vortex
 and slipstream (2026-08-04), and archers and projectiles (2026-08-05). Each item was checked
-against the code on 2026-08-12 before being carried over; six items were already fixed by
-later cycles and are listed at the end so nobody re-investigates them.
+against the code on 2026-08-12 before being carried over; eight were already fixed by later
+cycles and are listed at the end so nobody re-investigates them.
 
 None of these is a known player-visible bug. They are mostly assertions that cannot fail, an
 unreachable condition, and comments in the wrong place — the same classes the register at the
 end of `HANDOFF.md` tracks.
 
-## One design question, which is the user's to answer
-
-**In the glider, a dodge reads the wrong two axes.** `stepSlipstream` feeds
-`slipstreamHeading` the player's `input.forward` and `input.strafe`, which mean walk and
-strafe on the ground but thrust and bank in the air. Holding S is a flare in flight, so it
-maps to a backward dodge. That is surprising rather than wrong, and it is untested. Deciding
-it needs someone at the controls, which has not happened.
-
-Related and still open: no test covers the frame *after* a glider dodge. `flightStep`'s lift
-and drag scale with speed squared, so a dodge that leaves the wing unaligned spikes drag and
-then self-corrects. The reasoning says it is fine; nothing pins it.
+**On checking these.** The first version of this file carried the glider dodge's axes as an
+open design question. It was not open — it had been fixed two cycles earlier, and the check
+that missed it was a grep for the *old* function's name, which is still called on the ground
+branch of the function that replaced it. Grepping for the symbol a finding names says where
+that symbol is used; it does not say what the code decides. Read the function that owns the
+decision.
 
 ## An unreachable condition
 
@@ -88,6 +83,22 @@ refuses pointer lock, so nothing in this project has been played.
 
 Listed so they are not investigated again:
 
+- **A glider dodge read the wrong two axes**, so holding S — a flare — dodged backwards, and
+  W, the normal flying state, turned almost every glider dodge into a forward one. Fixed by
+  `afcc06d`, "Steer a glider dodge by bank, not by thrust and flare", and `0d87e37`, which
+  pinned the banked dodge's sign. `dodgeHeading` in `src/player/slipstream.ts:81` now branches
+  on posture: a glider dodge goes along `gliderRight`, perpendicular to the flight path by
+  construction, with the bank axis choosing the side. The old `slipstreamHeading(look, forward,
+  strafe)` call survives as the *ground* branch on line 133, which is what made this look
+  unfixed from a grep. The fix also closed a free-altitude exploit: chain-dodging used to climb
+  from y 300 to y 434 with a full breath bar, and `dodge-energy.test.ts` measures the corrected
+  behaviour over forty seconds against a plain glide.
+- **No test covered the frame after a glider dodge.** `dodge-energy.test.ts` now runs
+  `controllerStep` for forty seconds through the real archipelago across about twenty dodges,
+  so the frames after each one are exercised, and a drag spike that failed to self-correct
+  would move the altitude and speed figures it asserts. There is still no assertion aimed
+  specifically at the lift-and-drag response on the frame after a dodge; the aggregate is what
+  covers it.
 - A downed enemy below `worldFloorY` fell forever. `src/combat/enemy.ts:519` now arrests it.
 - The vortex charge gate read a locally decremented cooldown while `canVortex` read the stored
   field, so the two disagreed for one frame. `src/combat/encounter.ts:588` now gates on
