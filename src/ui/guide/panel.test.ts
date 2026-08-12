@@ -36,6 +36,7 @@ const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({
   element: 'air',
   gripReady: true,
   iceLockReady: true,
+  carryReady: true,
   ...over,
 })
 

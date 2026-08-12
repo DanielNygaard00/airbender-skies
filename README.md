@@ -25,6 +25,7 @@ back down to a walking stick.
 | `V` | Element radial — hold, flick the mouse at an element, release. Air is up, water is down | Element radial |
 | `1` / `2` | Select air or water directly, without the radial | Select air or water |
 | `C` | Slipstream — a short dash, briefly unhittable | Slipstream |
+| `B` | Pick up a payload you are standing next to, or set down the one you are carrying | Set it down, once you are back on the ground |
 | `Ctrl` | Hold through a landing to slam | Tuck — fold the wings for a fast dive, and hold it through the landing to slam |
 | `Space` | Jump — twice, the second gains more height the faster you are rising | Deploy or stow the glider. Close to the ground the deploy gives way to the landing, so a press on the way down becomes a jump on touchdown rather than a glide you immediately stow |
 | `H` | Guide — every action, and whether you can use it right now, plus the settings at the bottom of it. Opening it hands the mouse back, which is what makes those settings usable, so closing it leaves you on the pause card and one click resumes | Guide |
@@ -35,6 +36,17 @@ what makes the difference: thrust is the only way to gain net altitude, and hove
 still in the air with no updraft to ride. Both spend breath, and hovering spends it fastest,
 because holding station carries the glider's whole weight rather than just adding to a wing that
 is already flying. Collect air shrines to raise your maximum breath.
+
+There is a bundle on the west side of the home plateau, and it is meant for the high rock island
+to the north. Lift it with `B` and the glider was never built for two: the wing makes less lift,
+so it sinks about half again as fast and a full bar of breath spent climbing gets you less than
+half as high; the weight shift rolls you at half the rate, so a thermal you used to carve
+through has to be flown slowly enough to stay inside; and thrust and hover both drink breath
+half again as fast. Holding thrust the whole way arrives with nothing left over, if it arrives
+at all — the thermal over home and the one under the island are the way there. Set it down on
+the island it belongs to and the job is done. Five air shrines cover roughly what a payload
+costs you, so exploring buys it back. Go down, or fall out of the world, and the bundle is
+waiting where you found it.
 
 On the ground, momentum is the resource. The run accelerates softly and slides on stops rather
 than snapping, the scooter doubles your speed while halving your steering, and holding a clean

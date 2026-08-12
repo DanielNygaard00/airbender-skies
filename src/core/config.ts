@@ -29,6 +29,44 @@ export const DEFAULT_FLIGHT_CONFIG: FlightConfig = {
   breathRegenPerSecond: 12,
   breathRegenGroundedMultiplier: 2.5,
   shrineBreathBonusFraction: 0.1,
+  // The payload's three degradations. Each number is anchored to a value the game already
+  // has rather than picked by feel, and each claim below was measured through the real
+  // `flightStep` and `steerToward` rather than argued -- see
+  // `docs/superpowers/specs/2026-08-11-payload-design.md` for the full tables.
+  //
+  // Lift: 0.7 is bounded from below by the level's own longest glide-only crossing. `home` to
+  // `ring-east` drops 80 m between the two summits over 276 m of ground to the near rim, so it
+  // demands a glide ratio of 3.46:1, and the archipelago's comment calls those ring islands
+  // "reachable by gliding alone". Measured over a 20 s unpowered glide from 25 m/s: the empty
+  // wing does 6.09:1, a factor of 0.7 does 4.40:1, and 0.5 does 3.13:1 -- which does not clear
+  // that crossing at all, so half is the value that closes a route the level teaches. 0.7
+  // keeps it open at 1.27 times the requirement, against the 1.76 times an empty wing enjoys.
+  // Centre to centre rather than to the rim the requirement is 4.03:1 and the loaded margin is
+  // 1.09 times, which is the figure for a player who insists on overflying the middle of it.
+  // What the player feels for all this is sink: 3.85 m/s empty against 5.61 loaded.
+  payloadLiftFactor: 0.7,
+  // Roll: the same 0.5 the air scooter already charges for its speed
+  // (`scooterTurnFactor`). The game has exactly one tuned number for "this posture costs you
+  // half your steering", and a loaded glider is the same bargain in the air, so it takes
+  // that number rather than a new one. Measured through `steerToward` with a full weight
+  // shift and the mouse held still: 1.70 rad/s empty against 0.85 loaded, which at 25 m/s is
+  // a turn radius of 14.7 m against 29.4 m. That is the figure that matters on the payload's
+  // route, because circling a thermal is a radius problem: the column under `climb-north` has
+  // a radius of 45, so a loaded glider still fits inside it at 25 m/s but no longer at the
+  // 40 m/s (47.1 m) an empty one can carve at. Slowing down to stay in lift is the lesson.
+  payloadTurnFactor: 0.5,
+  // Breath: 1.5, anchored twice over. It is exactly `1 + 5 * shrineBreathBonusFraction`, so on
+  // paper five air shrines restore a loaded player's thrust endurance to the empty-handed
+  // baseline to the second -- 150 breath at 27/s is 5.56 s, and 100 at 18/s is the same 5.56 s.
+  // Measured through the real gate it lands 5.6% ahead of parity rather than level, 5.00 s
+  // against 4.73 s, because `bendFloor` holds back a flat 15 units rather than a fraction of
+  // the bar and a bigger bar loses proportionally less of itself to it. Either way, with 13
+  // shrines in the archipelago the payload is a real cost that exploration can pay off rather
+  // than a permanent tax. And it sits below `hoverBreathPerSecond /
+  // breathDrainPerSecond` (1.67), which `validateFlightConfig` enforces: loaded thrust must
+  // stay cheaper than an empty-handed hover, because the guide tells the player hovering is
+  // the most expensive thing they can do with breath, and that has to keep being true.
+  payloadBreathMultiplier: 1.5,
   // canBend is re-evaluated every frame against this floor, so it gates AT the floor
   // rather than at zero: breath sits at 15, thrust takes it to 14.7, the gate closes,
   // regeneration walks it back up in about a frame and a half, and it engages again. That
@@ -47,9 +85,23 @@ export function validateFlightConfig(c: FlightConfig): void {
     'breathRegenPerSecond', 'breathRegenGroundedMultiplier',
     'shrineBreathBonusFraction', 'hoverBreathPerSecond', 'hoverDamping',
     'weightShiftTurnRate', 'tuckLiftFactor', 'tuckDragFactor', 'deployKick',
+    'payloadLiftFactor', 'payloadTurnFactor', 'payloadBreathMultiplier',
   ]
   for (const key of positive) {
     if (!(c[key] > 0)) throw new Error(`FlightConfig.${key} must be > 0, got ${c[key]}`)
+  }
+  if (!(c.payloadLiftFactor < 1) || !(c.payloadTurnFactor < 1)) {
+    throw new Error(
+      'FlightConfig payload factors must be below 1: carrying something is a weakness, so ' +
+      'it cannot hand the wing more lift or more steering than flying empty ' +
+      `(got ${c.payloadLiftFactor}, ${c.payloadTurnFactor})`,
+    )
+  }
+  if (!(c.payloadBreathMultiplier > 1)) {
+    throw new Error(
+      `FlightConfig.payloadBreathMultiplier (${c.payloadBreathMultiplier}) must exceed 1: ` +
+      'a payload that made breath cheaper would be a reward rather than a weight',
+    )
   }
   if (!(c.tuckLiftFactor < 1) || !(c.tuckDragFactor < 1)) {
     throw new Error(
@@ -62,6 +114,25 @@ export function validateFlightConfig(c: FlightConfig): void {
       `FlightConfig.hoverBreathPerSecond (${c.hoverBreathPerSecond}) must exceed ` +
       `breathDrainPerSecond (${c.breathDrainPerSecond}): hovering carries the whole ` +
       'glider, thrust only adds to a flying wing',
+    )
+  }
+  // Below the hover-versus-thrust check on purpose, not merely after it. The two overlap: a
+  // config with hovering *cheaper* than thrust also fails this one, and when this check ran
+  // first it reported the payload multiplier for a config whose actual fault had nothing to do
+  // with payloads — which quietly retargeted the existing hover-cost test in
+  // `config.test.ts` onto this message. Order the general invariant first and each failure
+  // names its own cause.
+  //
+  // The bound itself is the hover-to-thrust ratio, and it is a claim the game makes out loud
+  // rather than a safety margin: the guide calls hovering "the most expensive thing you can do
+  // with breath". A multiplier above this ratio would make loaded thrust cost more than an
+  // empty-handed hover and turn that sentence into a lie.
+  if (c.payloadBreathMultiplier * c.breathDrainPerSecond > c.hoverBreathPerSecond) {
+    throw new Error(
+      `FlightConfig.payloadBreathMultiplier (${c.payloadBreathMultiplier}) must not push ` +
+      `thrust (${c.breathDrainPerSecond}/s) above an unloaded hover ` +
+      `(${c.hoverBreathPerSecond}/s): hovering has to stay the most expensive way to spend ` +
+      'breath, because that is what the guide tells the player',
     )
   }
   if (c.stallSpeed >= c.turnRateSpeedRef) {

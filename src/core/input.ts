@@ -60,6 +60,7 @@ export function toInputState(
   slipstreamPressed = false,
   staffPressed = false,
   radial: RadialEdges = NO_RADIAL_EDGES,
+  carryPressed = false,
 ): InputState {
   const axis = (pos: string, neg: string) => (held.has(pos) ? 1 : 0) - (held.has(neg) ? 1 : 0)
   return {
@@ -93,6 +94,7 @@ export function toInputState(
     // than any other free key's arrangement. Every alternative was taken: mouse, WASD, Z, Shift,
     // Q, F, E, R, C, Ctrl, Space, H and Escape all mean something already.
     airWallHeld: held.has('KeyG'),
+    carryPressed,
   }
 }
 
@@ -171,6 +173,7 @@ export class InputTracker {
   private pointerX = 0
   private pointerY = 0
   private elementIndex: number | null = null
+  private carryPressed = false
   private readonly listeners: (() => void)[] = []
 
   constructor(target: EventTarget, canvas: HTMLCanvasElement) {
@@ -226,6 +229,15 @@ export class InputTracker {
       if (Number.isInteger(digit) && digit >= 1 && digit <= ELEMENT_BIND_COUNT) {
         this.elementIndex = digit
       }
+      // Edge-triggered like the rest, and for a sharper reason than most: held down, a
+      // repeating key would set the payload down and lift it again on alternate frames.
+      //
+      // B rather than G, which this was first written against. G went to the Air Wall, which
+      // is a combat verb pressed under pressure and wants the key next to the gust on F;
+      // carrying a bundle happens once a trip from a standing start, so it was the one to
+      // move. V was already the element radial. `input.test.ts` pins the binding, and pins
+      // that it is not G, because that is the one wrong answer it could drift back to.
+      if (!e.repeat && e.code === 'KeyB') this.carryPressed = true
     })
     on<KeyboardEvent>('keyup', (e) => {
       this.held.delete(e.code)
@@ -302,6 +314,7 @@ export class InputTracker {
         pointerDelta: { x: this.pointerX, y: this.pointerY },
         elementIndex: this.elementIndex,
       },
+      this.carryPressed,
     )
     this.pointerX = 0
     this.pointerY = 0
@@ -316,6 +329,7 @@ export class InputTracker {
     this.vortexReleased = false
     this.slipstreamPressed = false
     this.staffPressed = false
+    this.carryPressed = false
     return state
   }
 

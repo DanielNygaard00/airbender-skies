@@ -59,6 +59,7 @@ const input = (over: Partial<InputState> = {}): InputState => ({
   // and no pointer movement: none of this reaches movement code, which is the point —
   // `stepElements` is the only consumer, and it is not on the movement path.
   radialHeld: false, radialReleased: false, pointerDelta: { x: 0, y: 0 }, elementIndex: null,
+  carryPressed: false,
   ...over,
 })
 

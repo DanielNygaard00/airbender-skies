@@ -14,6 +14,8 @@ import { loadGLTF } from './core/assets'
 import { buildWorld, type World } from './world/world'
 import { ARCHIPELAGO } from './world/levels/archipelago'
 import { placeShrines } from './world/shrine'
+import { buildPayloadMesh, placePayloads } from './world/payload'
+import { carryIntent, carryPose, carryStep, loadedFlight, returnCarriedHome } from './player/payload'
 import { windSampler, stillAir, type WindSample } from './world/wind'
 import { createWindTell } from './world/wind-tell'
 import { startEncounter, stepEncounter } from './combat/encounter'
@@ -190,6 +192,19 @@ function start(): void {
   let motion: MotionScales = motionScales(settings)
   let player = createPlayerState(ARCHIPELAGO, world.terrain, save, DEFAULT_FLIGHT_CONFIG)
   let shrines = placeShrines(ARCHIPELAGO, world.terrain, save.collectedShrines)
+  /**
+   * The payloads, and which one is on the glider.
+   *
+   * Beside `shrines` rather than on `PlayerState`, and deliberately not in the save. Not on
+   * the player because `respawn()` would then carry it across a death for free — see
+   * `returnCarriedHome` for the whole argument, and the two call sites below for the two
+   * paths it covers. Not in the save because `save.ts` keeps the two things a session is
+   * meant to accumulate, shrines and the breath ceiling, and where a bundle happens to be
+   * sitting is a route in progress rather than progress: a reload puts it back on the home
+   * plateau, which is the same place a respawn puts it.
+   */
+  let payloads = placePayloads(ARCHIPELAGO, world.terrain)
+  let carriedId: string | null = null
 
   // Focus is a live meter and is deliberately not saved.
   let focus = emptyFocus(DEFAULT_FOCUS_CONFIG)
@@ -337,6 +352,56 @@ function start(): void {
   // Same attachment pattern as the aura: a child of avatar.object, not the model.
   avatar.object.add(guard.object)
 
+  /**
+   * One mesh per payload, built once and reparented rather than rebuilt.
+   *
+   * They start in the scene at their placed positions; `syncPayloadMeshes` below moves the
+   * carried one onto the avatar and back.
+   */
+  const payloadMeshes = new Map<string, Mesh>()
+  for (const payload of payloads) {
+    const mesh = buildPayloadMesh()
+    mesh.position.copy(payload.position)
+    scene.add(mesh)
+    enableShadows(mesh)
+    payloadMeshes.set(payload.id, mesh)
+  }
+
+  /**
+   * Put every payload mesh where its record says it is, reparenting the carried one.
+   *
+   * **The carried payload becomes a child of `avatar.object`** — alongside the glider, the
+   * aura, the charge tell and the guard shell — and the two things it is *not* parented to
+   * are the point. Not `modelRoot`: that inner wrapper exists to absorb the fitting scale
+   * (`fitToPlaceholder` measures whatever model loads and can pick any scale — the shipped
+   * character needed 0.34) and the charge-jump squash, so a payload in there would be
+   * resized by whichever model happened to load and would compress every time the player
+   * crouched to charge a jump. And not `glider.object`: that group lerps between the stowed
+   * pose (tilted 1.05 rad about Z, across the back) and the deployed one, and sweeps 150
+   * degrees through a staff swing, so a payload hanging off it would tumble sideways on
+   * every stow and get flung by every swing. `avatar.object` is the one node that carries
+   * nothing but the character's position and facing, which is exactly what a carried bundle
+   * needs to inherit — the same reason the comments on the aura and the guard give.
+   *
+   * Called on the frames a payload changes hands, not per frame: `Object3D.add` detaches
+   * from the previous parent, so calling it every frame would reshuffle the scene graph's
+   * child order for nothing. The carried mesh's local position is the only part that moves
+   * per frame, and `update` refreshes that on its own.
+   */
+  function syncPayloadMeshes(): void {
+    for (const payload of payloads) {
+      const mesh = payloadMeshes.get(payload.id)
+      if (!mesh) continue
+      if (payload.carried) {
+        avatar.object.add(mesh)
+        carryPose(glider.openness(), mesh.position)
+      } else {
+        scene.add(mesh)
+        mesh.position.copy(payload.position)
+      }
+    }
+  }
+
   // Parented to the scene, not the avatar, and deliberately so: the avatar is rotated in
   // syncVisuals from the *interpolated* heading, but this tell must read the simulation's
   // player.forward, which is the same value inGust tests. Parenting to the avatar would
@@ -446,6 +511,9 @@ function start(): void {
       element: elements.active,
       gripReady: canGrip(encounter, player.breath, DEFAULT_COMBAT_CONFIG.water),
       iceLockReady: canIceLock(focus.value, player.breath, DEFAULT_COMBAT_CONFIG.water),
+      // The same call `update` resolves the press with, so the row cannot dim on a frame the
+      // key would have worked — or offer itself on one where it would not.
+      carryReady: carryIntent(player, payloads, carriedId) !== null,
     }), settings)
   }, (patch) => {
     // A patch of one field, merged rather than assigned: the panel reports only what the
@@ -591,6 +659,16 @@ function start(): void {
    */
   function recover(): void {
     player = safeRespawn(player, deps)
+    // Anything on the glider goes back where it was found, for the reasons
+    // `returnCarriedHome` sets out: carried across the respawn it would be a free teleport,
+    // and dropped at the death spot it would be an objective sitting wherever the player
+    // happened to lose a fight. This is one of that function's two call sites; the other is
+    // the fall-out-of-the-world path in `update`, and both have to exist because they are
+    // genuinely different events — nothing in `controllerStep` can report the down beat, and
+    // this beat never reaches the code that watches for a fall.
+    payloads = returnCarriedHome(payloads, carriedId)
+    carriedId = null
+    syncPayloadMeshes()
     encounter = { ...encounter, playerHealth: fullHealth(DEFAULT_COMBAT_CONFIG.player) }
     focus = emptyFocus(DEFAULT_FOCUS_CONFIG)
     avatarState = restingAvatarState()
@@ -798,7 +876,36 @@ function start(): void {
     const staffSwing = willRespawn(player, ARCHIPELAGO.worldFloorY)
       ? null
       : staffStep(player, state, dt, deps.staff)
-    player = controllerStep(player, state, dt, deps)
+    /**
+     * Whether this step is a respawn, read before it runs for the same reason `crashed` is:
+     * `controllerStep` hands back an already-respawned state.
+     *
+     * `willRespawn` rather than `crashed`, so this covers a state that is already non-finite
+     * as well as one that has fallen past the floor — both of `willRespawn`'s documented
+     * triggers move the player, and both must put the payload back.
+     *
+     * The one path this cannot see is a state that goes non-finite *inside* the step, which
+     * `controllerStep`'s own trailing guard catches by respawning from the pre-step state.
+     * Nothing outside that function can observe it happening, and giving it a way to report it
+     * would mean changing what it returns — every caller and every test with it. Left
+     * uncovered knowingly: it needs `flightStep` or `groundStep` to manufacture a NaN from
+     * finite inputs, which is the pathological case that guard exists for rather than
+     * something play produces. If it ever does fire, the payload rides the respawn.
+     */
+    const respawning = willRespawn(player, ARCHIPELAGO.worldFloorY)
+    // The loaded flight model, or the ordinary one. Derived per step rather than stored,
+    // because it depends on `carriedId`, which the interaction below can change at any time;
+    // `boostedCombatConfig` is built the same way a few dozen lines down for the same reason.
+    // Only the glider branch of `controllerStep` reads any of the four fields `loadedFlight`
+    // touches, so this cannot leak into walking, jumping or a landing.
+    player = controllerStep(player, state, dt, carriedId === null
+      ? deps
+      : { ...deps, flight: loadedFlight(deps.flight) })
+    if (respawning && carriedId !== null) {
+      payloads = returnCarriedHome(payloads, carriedId)
+      carriedId = null
+      syncPayloadMeshes()
+    }
     if (avatarActive) player = refillBreath(player)
 
     // Deliberately not `crashed` here, even though both flag a respawn. `crashed`
@@ -873,6 +980,30 @@ function start(): void {
       })
     }
 
+    // Resolved after the shrine collection and after the landing inside `controllerStep`, so a
+    // press on the frame the glider touches down is a set-down rather than being dropped: the
+    // player is `grounded` by now, which is what `carryIntent` asks about. Nothing is written
+    // to the save — see the declaration of `payloads` for why a bundle's whereabouts is not
+    // progress.
+    const carry = carryStep(player, payloads, carriedId, state.carryPressed, ARCHIPELAGO)
+    if (carry.event !== null) {
+      payloads = carry.payloads
+      carriedId = carry.carriedId
+      syncPayloadMeshes()
+      // The existing 'down' burst, reused rather than given a colour of its own. It is the
+      // broader and slower of the two impacts and it is pale gold rather than red — the
+      // comment in `fx/impact.ts` is explicit that neither burst is allowed to read as
+      // lethal — so it works as punctuation for "something concluded here". A delivery is
+      // the only moment in the payload's life the player cannot see for themselves: a
+      // set-down looks identical to it, and without this the difference between the two
+      // would only be discoverable by trying to lift the bundle again.
+      //
+      // `player.position` rather than looking the payload back up: `carryStep` sets a payload
+      // down at exactly the player's position, so these are the same point, and the id is no
+      // longer on `carry.carriedId` by this line — a set-down clears it.
+      if (carry.event === 'delivered') effects.add(createImpact(player.position, 'down'))
+    }
+
     // One value, two consumers: the HUD readout and the wing shudder. stallSeverity applies
     // the posture gate itself, so neither of them has to know that a walk is slower than
     // stall speed.
@@ -904,6 +1035,15 @@ function start(): void {
       ? null
       : (player.staffChain % 2 === 0 ? 1 - rawStaffProgress : rawStaffProgress)
     glider.update(dt, player.mode === 'glider', staffProgress, stall)
+    // After `glider.update`, never before it: the carry pose is driven by the wing's own
+    // `openness`, so reading it first would hang the bundle one step behind the wing it is
+    // slung under. No timer of its own for exactly that reason — `advanceOpenness` is already
+    // framerate-independent and already eases, so the bundle travels with the fan over the
+    // same 0.3 s and cannot drift out of step with it.
+    if (carriedId !== null) {
+      const carriedMesh = payloadMeshes.get(carriedId)
+      if (carriedMesh) carryPose(glider.openness(), carriedMesh.position)
+    }
     aura.update(dt, avatarActive)
     // Tracks the invulnerability window exactly, not the whole dash: the window is
     // the mechanic, so the shell must vanish the instant `isInvulnerable` goes false.

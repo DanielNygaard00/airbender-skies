@@ -33,6 +33,7 @@ const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({
   element: 'air',
   gripReady: true,
   iceLockReady: true,
+  carryReady: true,
   ...over,
 })
 
@@ -249,6 +250,16 @@ describe('actions owned by other systems', () => {
     })).toBe(false)
   })
 
+  it('follows the carry readiness it is handed', () => {
+    // Every other flag held true in the false case, the same guard the Vortex and Slipstream
+    // rows get: a row wired to `ctx.gustReady` by a copy-paste would pass otherwise.
+    expect(can('Pick up or set down a payload', { carryReady: true })).toBe(true)
+    expect(can('Pick up or set down a payload', {
+      carryReady: false, gustReady: true, vortexReady: true, slipstreamReady: true,
+      avatarStateReady: true,
+    })).toBe(false)
+  })
+
   it('offers the wall ride only with the scooter up and a tier of charge in hand', () => {
     // The two halves of the entry gate a UI module can honestly check. The third — a
     // near-vertical wall within lateral reach — is a raycast and cannot be answered here, so the
@@ -277,6 +288,13 @@ describe('actions owned by other systems', () => {
     expect(can('Wall ride', {
       player: p({ mode: 'glider', grounded: false, scooterActive: true, scooterCharge: 1 }),
     })).toBe(false)
+  })
+
+  it('shows the carry row in both columns', () => {
+    // 'both' rather than 'ground', even though only a grounded press does anything. The row
+    // has to be readable from the glider column, because that is where a player is standing
+    // when they wonder why the wing feels heavy.
+    expect(action('Pick up or set down a payload').mode).toBe('both')
   })
 
   it('always offers this guide', () => {

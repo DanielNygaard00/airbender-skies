@@ -61,6 +61,7 @@ const input = (over: Partial<InputState> = {}): InputState => ({
   vortexHeld: false, vortexReleased: false, slipstreamPressed: false, staffPressed: false,
   airWallHeld: false,
   radialHeld: false, radialReleased: false, pointerDelta: { x: 0, y: 0 }, elementIndex: null,
+  carryPressed: false,
   ...over,
 })
 

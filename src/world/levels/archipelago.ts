@@ -76,6 +76,41 @@ export const ARCHIPELAGO: Level = {
     { islandId: 'beacon', offset: new Vector3(0, 0, 0) },
   ],
   /**
+   * The payload's route: off the home plateau and up to `climb-north`.
+   *
+   * Chosen so that carrying it teaches all three degradations at once, on a leg the player has
+   * already flown empty. `climb-north` sits 120 above home and 330 out, and the island list
+   * above introduces it as the first target that "needs sustained thrust, which introduces
+   * breath as a cost" — so it is already the lesson about breath, and the payload's 1.5 times
+   * drain lands on exactly the crossing built to teach that.
+   *
+   * What the payload removes on this leg is the room for error, and the measured figures are
+   * worth quoting exactly because the tempting overstatement is that thrust alone cannot make
+   * it. It can. A full bar spent climbing 30 degrees nose-up tops out at 191 m loaded against
+   * 442 empty, and the leg needs 106 m of climb plus 332 m of ground: budget the whole bar and
+   * then glide the distance at the loaded ratio and the sum closes with about 9 m to spare,
+   * where an empty wing closes it with roughly 280. Nine metres of *ideal-profile* margin is
+   * not a route — every turn, and every second not spent pointing at the climb, comes out of
+   * it. The thermal over home and the second one under `climb-north` are what put the room
+   * back, and riding them costs nothing, which turns the guide's existing advice ("thrust
+   * costs breath; a thermal does not") from an optimisation into the way there.
+   *
+   * The roll degradation is what makes that a skill rather than a formality: circling inside a
+   * thermal is a turn-radius problem, and the column under `climb-north` has a radius of 45,
+   * which a loaded glider fits at 25 m/s (29.4 m) and does not at 40 (47.1 m). So the payload
+   * asks the player to slow down inside lift, which is the one habit the empty glider never
+   * forces.
+   *
+   * `spire` was the rejected destination. It is higher and would dramatise the lift loss
+   * further, but it needs a dive and a zoom climb to reach, and a zoom climb is precisely the
+   * manoeuvre the lift factor damages most — the route would read as broken rather than heavy.
+   * The offset puts the bundle on the west side of the plateau, well clear of the shrine at
+   * (20, -14) and of the patrol, which holds the east.
+   */
+  payloads: [
+    { islandId: 'home', offset: new Vector3(-26, 0, 22), destinationIslandId: 'climb-north' },
+  ],
+  /**
    * The air as terrain. Placed so that every one of them serves a route the player
    * already wants: lift where the climb is otherwise expensive, a conveyor along
    * the longest crossing, and dead air where the game wants a fight kept low.
