@@ -251,6 +251,12 @@ describe('enemyMarker', () => {
       recover: false,
       rising: false,
       downed: null,
+      // Frozen or gripped: the chevron still appears — the soldier is there, is targetable, and
+      // is exactly the one the player may want to turn round and finish — but it does not flare.
+      // A flare means "this one is about to hit you", and a held soldier cannot: the whole
+      // purpose of the water kit is that it cannot act. Marking it as a warning would point the
+      // player at the one soldier on the field that is safe to ignore.
+      held: false,
     }
     for (const [stance, warns] of Object.entries(expected) as [Stance, boolean | null][]) {
       const marker = enemyMarker(withStance(nearSpear(), stance), PLAYER, OFF_FRAME, 0, SPEAR)
