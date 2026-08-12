@@ -34,6 +34,18 @@ describe('createShockwave', () => {
     expect(end).toBeCloseTo(10, 1)
   })
 
+  it('keeps a positive scale for a zero radius, which only a caller can hand it', () => {
+    // `apply`'s `Math.max(..., 1e-4)` floor, which this effect's own interpolation never
+    // reaches: it runs from START_FRACTION * radius up to radius, both positive for any
+    // positive radius. The floor bounds the radius the caller passes in, and a zero scale is
+    // a degenerate matrix. The same floor and the same gap exist in `vortex-ring.ts`, which
+    // is where this pattern came from — both are pinned now.
+    const wave = createShockwave(0, 1)
+    expect(meshOf(wave).scale.x).toBeGreaterThan(0)
+    wave.advance(5)
+    expect(meshOf(wave).scale.x).toBeGreaterThan(0)
+  })
+
   it('scales with the radius it was given', () => {
     // A big slam must read as a big ring, or the visual carries no information.
     const small = createShockwave(4, 1)
