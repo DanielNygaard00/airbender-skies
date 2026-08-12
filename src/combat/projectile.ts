@@ -13,6 +13,15 @@ export interface Projectile {
   position: Vector3
   velocity: Vector3
   damage: number
+  /**
+   * Seconds of glider refusal this carries. Zero for an arrow, non-zero for a net.
+   *
+   * Carried on the projectile rather than looked up from the enemy that loosed it, for the
+   * same reason `damage` is: by the time a net arrives the netter may be downed, restored,
+   * or have walked out of the fight, and a payload that has to ask its thrower what it does
+   * is a payload that can arrive to find nobody home.
+   */
+  tangleSeconds: number
   /** Seconds alive, so a stray arrow cannot outlive the encounter that fired it. */
   age: number
   /**
@@ -56,10 +65,28 @@ export interface ProjectileStep {
    * worth is how they come to disagree.
    */
   hitEnemyId: string | null
+  /**
+   * Seconds of glider refusal this projectile just inflicted, or 0.
+   *
+   * Non-zero only on the frame a net connects, and reported rather than applied for the same
+   * reason `damageToPlayer` is: this function advances one projectile and knows nothing about
+   * the player's posture or the state that holds the refusal.
+   */
+  tangleSeconds: number
 }
 
 export function spawnProjectile(
-  id: string, origin: Vector3, direction: Vector3, damage: number, speed: number,
+  id: string,
+  origin: Vector3,
+  direction: Vector3,
+  damage: number,
+  speed: number,
+  /**
+   * Required rather than defaulted to 0. A default would compile at the one production call
+   * site that matters — `stepEncounter`'s spawn branch — and make every net in the game
+   * inert, with nothing anywhere to notice.
+   */
+  tangleSeconds: number,
 ): Projectile {
   // Normalised here rather than trusting the caller, so a direction built from a
   // subtraction cannot silently become a speed multiplier.
@@ -70,6 +97,7 @@ export function spawnProjectile(
     position: origin.clone(),
     velocity: heading.multiplyScalar(speed),
     damage,
+    tangleSeconds,
     age: 0,
     // Fresh arrows come from bows. Only `deflect` sets this.
     deflected: false,
@@ -131,7 +159,12 @@ export function stepProjectile(
   const age = p.age + dt
 
   if (!p.deflected && position.distanceTo(playerPosition) <= c.hitRadius) {
-    return { projectile: null, damageToPlayer: p.damage, hitEnemyId: null }
+    // The one branch that reports a payload: a net that lands on the terrain or expires in
+    // the air has caught nothing, so its `tangleSeconds` goes nowhere.
+    return {
+      projectile: null, damageToPlayer: p.damage, hitEnemyId: null,
+      tangleSeconds: p.tangleSeconds,
+    }
   }
 
   if (p.deflected) {
@@ -141,7 +174,13 @@ export function stepProjectile(
       // soldier mid-push-up is — that is the state the rest of the fight treats as live.
       if (!isTargetable(enemy)) continue
       if (hitsBody(position, enemy, c)) {
-        return { projectile: null, damageToPlayer: 0, hitEnemyId: enemy.id }
+        // `tangleSeconds` 0 even for a returned net, and this is the deliberate answer rather
+        // than an oversight the merge left behind. The refusal a net carries is a refusal to
+        // deploy a glider, and a soldier has no glider to refuse — there is nothing on the
+        // enemy side for the payload to mean. A returned net therefore lands as a plain
+        // zero-damage strike, which is what `hitEnemyId` already reports. The day enemies get
+        // a posture worth taking away, this is the line that grows a branch.
+        return { projectile: null, damageToPlayer: 0, hitEnemyId: enemy.id, tangleSeconds: 0 }
       }
     }
   }
@@ -149,10 +188,14 @@ export function stepProjectile(
   // A null height is the void between islands, where there is nothing to stop an arrow.
   const height = ground.groundHeightAt(position.x, position.z)
   if (height !== null && position.y <= height) {
-    return { projectile: null, damageToPlayer: 0, hitEnemyId: null }
+    return { projectile: null, damageToPlayer: 0, hitEnemyId: null, tangleSeconds: 0 }
   }
 
-  if (age >= c.maxSeconds) return { projectile: null, damageToPlayer: 0, hitEnemyId: null }
+  if (age >= c.maxSeconds) {
+    return { projectile: null, damageToPlayer: 0, hitEnemyId: null, tangleSeconds: 0 }
+  }
 
-  return { projectile: { ...p, position, age }, damageToPlayer: 0, hitEnemyId: null }
+  return {
+    projectile: { ...p, position, age }, damageToPlayer: 0, hitEnemyId: null, tangleSeconds: 0,
+  }
 }

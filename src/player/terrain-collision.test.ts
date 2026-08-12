@@ -82,6 +82,7 @@ describe('a glider cannot fly through an island', () => {
       dashesUsed: 0, dashRecovery: 0,
       slipstreamElapsed: null, slipstreamCooldown: 0,
       staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0,
+      tangled: 0,
     }
     for (let frame = 0; frame < 150; frame++) {
       state = controllerStep(
@@ -133,6 +134,7 @@ describe('a walker cannot walk through an island', () => {
       dashesUsed: 0, dashRecovery: 0,
       slipstreamElapsed: null, slipstreamCooldown: 0,
       staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0,
+      tangled: 0,
     }
     // Honest accounting of what these two checks inside the loop actually establish,
     // because a future reader who only sees "about to respawn" and "belt and suspenders"

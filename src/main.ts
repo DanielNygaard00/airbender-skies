@@ -46,6 +46,7 @@ import { createEnemyView } from './combat/enemy-mesh'
 import { createArrowView, type ArrowView } from './fx/arrow'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
+import { applyTangle } from './player/tangle'
 import { canSlipstream, isInvulnerable, dodgeHeading } from './player/slipstream'
 import {
   controllerStep, safeRespawn, staffStep, willRespawn, type ControllerDeps,
@@ -239,7 +240,8 @@ function start(): void {
     return tell
   })
 
-  // The one encounter: three spears and two archers on the home island, per HOME_PATROL.
+  // The one encounter: a heavy, three spears, a net thrower and two archers on the home
+  // island, per HOME_PATROL.
   //
   // Hoisted into a const and handed to both startEncounter and the fight's deps below,
   // because the restore respawns from `deps.spawns` and there must be exactly one answer
@@ -259,7 +261,9 @@ function start(): void {
   }))
   let encounter = startEncounter(patrolSpawns, DEFAULT_COMBAT_CONFIG)
   const enemyViews = new Map(encounter.enemies.map((enemy) => {
-    const view = createEnemyView(enemy.kind)
+    // The config, not just the kind: the net thrower's throw lane is drawn at its real
+    // strikeRange, so the view has to be told the reach it is drawing.
+    const view = createEnemyView(enemy.kind, DEFAULT_COMBAT_CONFIG.enemies[enemy.kind])
     scene.add(view.object)
     enableShadows(view.object)
     return [enemy.id, view] as const
@@ -843,8 +847,13 @@ function start(): void {
     // the reticle's hot state, so the reticle warms on exactly the frames the world-space tell
     // does. Two calls would be two answers, and a tell that says "this will connect" beside a
     // reticle that says it will not is worse than either alone.
+    // `fightConfig.enemies` is what decides whether a soldier in the cone can be gusted at
+    // all: a heavy's armour turns the whole move away, so the tell stays cold on it and warm
+    // on the spear standing next to it. That is the type's first and cheapest tell -- the
+    // player learns the immunity without spending the move. See `liveGustTargets`.
     aimHot = anyLiveGustTarget(
       player.position, player.forward, encounter.enemies, fightConfig.gust,
+      fightConfig.enemies,
     )
 
     // fightConfig, not the unboosted default, so the preview and the fired cone
@@ -980,6 +989,7 @@ function start(): void {
       staffHits: fight.staffHitThisFrame,
       redirectHits: fight.redirectHitsThisFrame,
       downed: fight.downedThisFrame,
+      deflected: fight.deflectedThisFrame,
     })
     for (const id of bursts.hits) {
       const at = positionOf(id)
@@ -989,8 +999,15 @@ function start(): void {
       const at = positionOf(id)
       if (at) effects.add(createImpact(at, 'down'))
     }
+    for (const id of bursts.deflects) {
+      const at = positionOf(id)
+      if (at) effects.add(createImpact(at, 'deflect'))
+    }
     if (bursts.hits.length > 0) combatAudio.impact()
     if (bursts.downs.length > 0) combatAudio.down()
+    // Once for the frame, like every other voice: `impactTargets` has already reduced this to
+    // one entry per soldier, so a gust that bounces off two heavies is one clang.
+    if (bursts.deflects.length > 0) combatAudio.clang()
     // Once, with the count, like every other voice on this list. A call per arrow stacked
     // bit-identical bursts at the same currentTime; the level for a volley is decided in
     // mapping.ts, where it can be tested.
@@ -1055,6 +1072,19 @@ function start(): void {
     // a real inaccuracy and not a rounding artefact.
     for (const hit of fight.playerHitsThisFrame) {
       hitMarks.push(markFor(lookDirection, player.position, hit))
+    }
+
+    // A net landed: the wings shut. Applied here rather than inside `stepEncounter` because
+    // the fight owns enemies and arrows and the glider is the controller's business, and
+    // through `applyTangle` rather than a bare assignment so two nets a frame apart cost one
+    // refusal rather than two -- the merge rule lives in a tested module, not in this file.
+    //
+    // One frame late by construction, and that is fine: `controllerStep` has already run this
+    // frame, so the forced stow and the refused deploy both land on the next one. A single
+    // frame of glide after the net connects is 16 ms and invisible; the alternative is
+    // resolving the fight before movement, which would break every ordering comment above.
+    if (fight.tangleSeconds > 0) {
+      player = { ...player, tangled: applyTangle(player.tangled, fight.tangleSeconds) }
     }
 
     if (fight.playerHit) {

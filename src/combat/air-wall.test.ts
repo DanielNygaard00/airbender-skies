@@ -194,7 +194,9 @@ describe('airWallNormal', () => {
 describe('deflect', () => {
   /** An arrow one unit in front of the player, flying straight at them at 34 units/sec. */
   const incoming = () => spawnProjectile(
-    'a1', new Vector3(0, 0, -C.range / 2), new Vector3(0, 0, 1), 1, 34,
+    // tangleSeconds 0: an arrow carries no net. The parameter is required rather than
+    // defaulted, so every fixture has to say which kind of projectile it is making.
+    'a1', new Vector3(0, 0, -C.range / 2), new Vector3(0, 0, 1), 1, 34, 0,
   )
 
   it('reverses a head-on arrow exactly, keeping its speed and its damage', () => {
@@ -273,7 +275,7 @@ describe('where a redirected arrow goes', () => {
     const bow = archerAt.clone().setY(archerAt.y + SHOT_HEIGHT)
     if (ARCHER.attack.kind !== 'projectile') throw new Error('the archer should shoot arrows')
     return spawnProjectile(
-      'a1', bow, at.clone().sub(bow), ARCHER.attack.damage, ARCHER.attack.speed,
+      'a1', bow, at.clone().sub(bow), ARCHER.attack.damage, ARCHER.attack.speed, 0,
     )
   }
 

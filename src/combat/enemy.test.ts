@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
   spawnEnemy, stepEnemy, hitEnemy, horizontalDistance, isTargetable, risingProgress,
+  deflects, throughArmour, UNARMOURED,
   type Enemy, type EnemyConfig, type GroundHeightQuery,
 } from './enemy'
 import { isDowned } from './health'
@@ -12,6 +13,7 @@ const C: EnemyConfig = {
   moveSpeed: 4, strikeRange: 3, aggroRange: 30, windUpSeconds: 0.5, recoverSeconds: 0.6,
   attack: { kind: 'melee', damage: 1 }, knockbackDamping: 3, gravity: 20, snapDistance: 1.2,
   downedSeconds: 18, risingSeconds: 1.2, recoveryHealthFractions: [0.6, 0.3],
+  armour: UNARMOURED,
 }
 
 const AT = (x: number, z: number) => new Vector3(x, 0, z)
@@ -607,7 +609,7 @@ describe('a projectile attack reaches in three dimensions', () => {
     ...C,
     strikeRange: 30,
     aggroRange: 60,
-    attack: { kind: 'projectile', damage: 0.4, speed: 20 },
+    attack: { kind: 'projectile', damage: 0.4, speed: 20, tangleSeconds: 0 },
   }
 
   it('fires at a player inside its range', () => {
@@ -722,7 +724,7 @@ describe('a soldier with nowhere horizontal to go', () => {
   const HOVER: EnemyConfig = {
     ...C,
     moveSpeed: 3.4, strikeRange: 40, aggroRange: 48,
-    attack: { kind: 'projectile', damage: 1, speed: 34 },
+    attack: { kind: 'projectile', damage: 1, speed: 34, tangleSeconds: 0 },
   }
   /** One frame's worth of walking, the unit every assertion below is scaled against. */
   const STEP = HOVER.moveSpeed / 60
@@ -796,5 +798,220 @@ describe('a soldier with nowhere horizontal to go', () => {
     // for an archer that never advances.
     const { enemy } = track(new Vector3(0, 0, -45), 1)
     expect(horizontalDistance(enemy.position, AT(0, 0))).toBeCloseTo(STEP, 6)
+  })
+})
+
+describe('armour, as a per-source fraction of a blow', () => {
+  /**
+   * Plate: a gust turns away entirely, a staff loses most of itself, a wave lands whole.
+   *
+   * Written out here rather than read from `DEFAULT_COMBAT_CONFIG.enemies.heavy`, so these tests
+   * are about the mechanism rather than about the shipped tuning. The shipped numbers get their
+   * own assertions at the bottom of this block.
+   */
+  const PLATE: EnemyConfig = {
+    ...C,
+    armour: {
+      gust: { damage: 0, knockback: 0 },
+      vortex: { damage: 1, knockback: 0.5 },
+      wave: { damage: 1, knockback: 1 },
+      staff: { damage: 0.25, knockback: 0.5 },
+    },
+  }
+
+  it('scales damage and displacement independently', () => {
+    // The whole reason `Armour` is two numbers rather than one. A move can be allowed to hurt
+    // without moving, or to move without hurting, and the staff row exercises both at once with
+    // two different fractions -- so an implementation applying one figure to both would show.
+    const through = throughArmour(2, new Vector3(10, 4, -20), PLATE.armour.staff)
+    expect(through.damage).toBeCloseTo(0.5, 10)
+    expect(through.impulse.toArray()).toEqual([5, 2, -10])
+  })
+
+  it('scales the lift as well as the horizontal push', () => {
+    // Not a restatement of the case above: a plausible implementation scales only `x` and `z`,
+    // since that is what `knockback` means everywhere else in `Enemy`. A wave's impulse carries
+    // real lift, so an armour that reduced the shove and left the launch alone would be a
+    // soldier thrown straight up out of a blow it was supposed to absorb.
+    const through = throughArmour(0, new Vector3(0, 12, 0), { damage: 1, knockback: 0.25 })
+    expect(through.impulse.y).toBeCloseTo(3, 10)
+  })
+
+  it('leaves an unarmoured blow exactly as it was thrown', () => {
+    const impulse = new Vector3(3, -7, 11)
+    const through = throughArmour(1.75, impulse, UNARMOURED.gust)
+    expect(through.damage).toBe(1.75)
+    expect(through.impulse.toArray()).toEqual([3, -7, 11])
+  })
+
+  it('does not write into the impulse it was handed', () => {
+    // The callers pass freshly built vectors today, but `gustImpulse` and friends are pure and a
+    // future caller could reasonably cache one. Mutating the argument would then scale the same
+    // vector again on the next soldier in the loop, so the second body in a cone would take a
+    // quarter of the blow and the third a sixteenth.
+    const impulse = new Vector3(8, 8, 8)
+    throughArmour(1, impulse, { damage: 1, knockback: 0.5 })
+    expect(impulse.toArray()).toEqual([8, 8, 8])
+  })
+
+  it('reports a blow it turns away completely, and only that one', () => {
+    // Both halves matter. The positive says the gust row is recognised; the three negatives say
+    // the predicate is not simply true for anything wearing plate, which is what an
+    // implementation testing the kind rather than the pairing would produce.
+    expect(deflects(PLATE, 'gust')).toBe(true)
+    expect(deflects(PLATE, 'staff')).toBe(false)
+    expect(deflects(PLATE, 'vortex')).toBe(false)
+    expect(deflects(PLATE, 'wave')).toBe(false)
+  })
+
+  it('does not report a partial reduction as a deflect', () => {
+    // A blow reduced to almost nothing is still a blow: it pushes, and `hitEnemy` interrupts the
+    // wind-up. Calling it a deflect would play a clang over a hit that actually landed.
+    const nearly: EnemyConfig = {
+      ...C, armour: { ...UNARMOURED, gust: { damage: 0, knockback: 0.01 } },
+    }
+    expect(deflects(nearly, 'gust')).toBe(false)
+  })
+
+  it('reports nothing as deflected for a soldier wearing no armour', () => {
+    for (const source of ['gust', 'vortex', 'wave', 'staff'] as const) {
+      expect(deflects(C, source), `source: ${source}`).toBe(false)
+    }
+  })
+
+  it('leaves the shipped gust unable to touch a heavy and the shipped vortex able to lift one', () => {
+    // The one balance fact in this block, and it is here because it is the difference between a
+    // hard enemy and an unbeatable one. If the vortex row ever goes to zero the heavy becomes
+    // immovable by every move the player can throw from a distance, and the only route left is
+    // the slam -- which needs the player already standing next to it.
+    const heavy = DEFAULT_COMBAT_CONFIG.enemies.heavy
+    expect(deflects(heavy, 'gust')).toBe(true)
+    expect(heavy.armour.vortex.knockback).toBeGreaterThan(0)
+    expect(heavy.armour.wave.knockback).toBe(1)
+    expect(heavy.armour.wave.damage).toBe(1)
+    // And the staff is a real if deliberately bad answer rather than no answer at all, so a
+    // player with no altitude left to spend is not stuck.
+    expect(heavy.armour.staff.damage).toBeGreaterThan(0)
+  })
+
+  it('leaves every other shipped kind taking a whole blow from everything', () => {
+    // Armour is the heavy's identity, so a second kind quietly acquiring some is a balance change
+    // that ought to be deliberate. Iterated over the Record, so a fifth kind is covered without
+    // this test being edited.
+    for (const [kind, config] of Object.entries(DEFAULT_COMBAT_CONFIG.enemies)) {
+      if (kind === 'heavy') continue
+      for (const source of ['gust', 'vortex', 'wave', 'staff'] as const) {
+        expect(config.armour[source], `${kind} / ${source}`).toEqual({ damage: 1, knockback: 1 })
+      }
+    }
+  })
+})
+
+describe('a net thrower', () => {
+  /**
+   * Shaped like the shipped netter but with numbers of its own, so an assertion that read the
+   * real config by accident would be visible: a 3-second refusal against the shipped 2, and a
+   * strikeRange of 12 against the shipped 22.
+   */
+  const NETTER: EnemyConfig = {
+    ...C,
+    strikeRange: 12,
+    aggroRange: 24,
+    attack: { kind: 'projectile', damage: 0.5, speed: 18, tangleSeconds: 3 },
+  }
+
+  const winding = () => ({
+    ...spawnEnemy('a', AT(0, 0), 'nets', NETTER), stance: 'wind-up' as const, stanceTime: 999,
+  })
+
+  it('throws at a player in the air above it, because grounding a flier is the whole point', () => {
+    // The type's reason to exist. A netter that measured horizontally like a spear would read a
+    // hovering player as being at distance 0 -- permanently in range and impossible to escape by
+    // climbing -- and one that could not reach up at all would pressure nothing, since the only
+    // target worth grounding is one that is already off the ground.
+    const overhead = new Vector3(0, 9, -4)
+    const step = stepEnemy(winding(), overhead, flatGround, FLOOR, 1 / 60, NETTER)
+    expect(step.firedProjectile).not.toBe(null)
+    // Aimed in 3D at the player rather than along the horizontal heading, or the net passes under
+    // their feet.
+    expect(step.firedProjectile!.direction.y).toBeGreaterThan(0)
+  })
+
+  it('cannot reach a player who has climbed past its throwing range', () => {
+    // The positive control for the case above, and the reason `strikeRange` is 12 here: at a
+    // height of 20 the 3D distance is past it while the horizontal distance is still 4. So this
+    // reddens if the reach is measured horizontally and passes only if it is measured in 3D.
+    const high = new Vector3(0, 20, -4)
+    expect(horizontalDistance(AT(0, 0), high)).toBeLessThan(NETTER.strikeRange)
+    expect(AT(0, 0).distanceTo(high)).toBeGreaterThan(NETTER.strikeRange)
+    const step = stepEnemy(winding(), high, flatGround, FLOOR, 1 / 60, NETTER)
+    expect(step.firedProjectile).toBe(null)
+  })
+
+  it('deals no damage itself: the net carries the whole release', () => {
+    // The same split the archer uses. Damage counted here as well as on the projectile would hit
+    // the player twice for one throw, once instantly and once on arrival.
+    const step = stepEnemy(winding(), new Vector3(0, 0, -4), flatGround, FLOOR, 1 / 60, NETTER)
+    expect(step.firedProjectile).not.toBe(null)
+    expect(step.damageToPlayer).toBe(0)
+  })
+
+  it('sits on the same recovery ladder as everyone else', () => {
+    // Section 4.6 applies to every kind: nothing dies, and a soldier gets back up weaker until a
+    // last down sticks. Run through the real state machine rather than read off the config, so a
+    // kind that could never actually rise would show.
+    const netter = down(spawnEnemy('a', AT(0, 0), 'nets', NETTER))
+    expect(isDowned(netter.health)).toBe(true)
+    const up = settle(netter, FULL_RECOVERY + 0.1)
+    expect(up.stance).toBe('advance')
+    expect(isDowned(up.health)).toBe(false)
+    // Weaker than it was, per the ladder's first rung.
+    expect(up.health.current).toBeLessThan(NETTER.maxHealth)
+  })
+})
+
+describe('a heavy armoured soldier', () => {
+  const HEAVY = DEFAULT_COMBAT_CONFIG.enemies.heavy
+
+  it('swings horizontally, so altitude alone does not put a player out of its reach', () => {
+    // Recorded because it is the instinct a reader arrives with and it is wrong: horizontal reach
+    // means height is ignored, not protective. The heavy is melee, so a player hovering directly
+    // over one is at horizontal distance 0 and inside its 3.6 -- exactly as 'still thrusts at a
+    // player almost directly overhead' pins for the spear. What answers a hovering player is that
+    // they cannot hurt it either, not that it cannot reach them.
+    const heavy = {
+      ...spawnEnemy('a', AT(0, 0), 'heavy', HEAVY),
+      stance: 'wind-up' as const,
+      stanceTime: 999,
+    }
+    const overhead = new Vector3(0.2, 40, 0)
+    const step = stepEnemy(heavy, overhead, flatGround, FLOOR, 1 / 60, HEAVY)
+    expect(step.damageToPlayer).toBe(HEAVY.attack.damage)
+  })
+
+  it('sits on the same recovery ladder as everyone else', () => {
+    let current = down(spawnEnemy('a', AT(0, 0), 'heavy', HEAVY))
+    const far = AT(0, 500)
+    for (let t = 0; t < HEAVY.downedSeconds + HEAVY.risingSeconds + 0.1; t += 1 / 60) {
+      current = stepEnemy(current, far, flatGround, FLOOR, 1 / 60, HEAVY).enemy
+    }
+    expect(current.stance).toBe('advance')
+    expect(current.health.current).toBeCloseTo(HEAVY.maxHealth * 0.6, 6)
+  })
+
+  it('is downed by leaving the world, armour or no armour', () => {
+    // Section 4.6's environmental route has to be available to the one type whose design depends
+    // on it. Nothing about `armour` should reach the world floor -- it scales blows, not gravity
+    // -- but the whole design rests on this working, so it is pinned rather than reasoned about.
+    let current = spawnEnemy('a', new Vector3(0, 0, 0), 'heavy', HEAVY)
+    let fell = false
+    for (let t = 0; t < 10; t += 1 / 60) {
+      const step = stepEnemy(current, AT(0, 500), emptyAir, FLOOR, 1 / 60, HEAVY)
+      current = step.enemy
+      if (step.fellOutOfWorld) fell = true
+    }
+    expect(fell).toBe(true)
+    expect(isDowned(current.health)).toBe(true)
+    expect(current.downs).toBe(1)
   })
 })

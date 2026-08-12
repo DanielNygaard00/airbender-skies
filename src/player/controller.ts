@@ -14,6 +14,7 @@ import {
 } from './staff'
 import { raycastDown } from '../world/terrain-query'
 import { isWall, resolveMovement, type CollisionConfig } from '../world/collision'
+import { isTangled, stepTangle } from './tangle'
 
 export interface ControllerDeps {
   terrain: TerrainQuery
@@ -108,6 +109,12 @@ export function isFinitePlayer(s: PlayerState): boolean {
   const nums = [
     ...s.position.toArray(), ...s.velocity.toArray(), ...s.forward.toArray(),
     s.breath, s.maxBreath, s.airJumpsUsed, s.chargeTime, s.coyoteTime, s.jumpBuffer,
+    // Watched because a non-finite value here is *sticky* in the worst way: `isTangled` is a
+    // `> 0` test, and a NaN fails it, so a corrupt countdown would silently free the wings
+    // forever rather than lock them. `applyTangle` and `stepTangle` both guard their own
+    // inputs, so nothing in the game can reach this today; it is here because the failure it
+    // catches would be invisible.
+    s.tangled,
   ]
   return nums.every(Number.isFinite)
 }
@@ -146,6 +153,11 @@ export function respawn(state: PlayerState, deps: ControllerDeps): PlayerState {
     scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
     slipstreamElapsed: null, slipstreamCooldown: 0,
     ...idleStaffFields(),
+    // Cleared, like the staff combo and the dash chain above. A player who went down or fell
+    // out of the world is being put back on solid ground somewhere else entirely, and arriving
+    // there still unable to open the wings would be a punishment carried over from a life that
+    // has ended — the down beat already costs the walk back and the whole Focus meter.
+    tangled: 0,
   }
 }
 
@@ -175,6 +187,7 @@ export function safeRespawn(state: PlayerState, deps: ControllerDeps): PlayerSta
     scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
     slipstreamElapsed: null, slipstreamCooldown: 0,
     ...idleStaffFields(),
+    tangled: 0,
   }
 }
 
@@ -211,7 +224,8 @@ export function controllerStep(
 
   if (state.mode === 'ground') {
     if (input.actionPressed && !state.grounded && !canAirJump(state, deps.ground)
-        && !staffBusy(staffOf(state)) && !aboutToLand(state, deps)) {
+        && !staffBusy(staffOf(state)) && !aboutToLand(state, deps)
+        && !isTangled(state)) {
       // Deploy the glider mid-fall — but only once the air jump is spent, only once
       // the staff is free, and only while there is still air left to use the wing in.
       // The glider IS the staff, folded across the back and
@@ -222,7 +236,14 @@ export function controllerStep(
       // The wings snapping open adds a kick rather than only preserving momentum,
       // so a well-timed deploy out of a jump is rewarded.
       //
-      // `aboutToLand` is the newest of the four conditions, and it is what stops this gate
+      // `isTangled` is the fifth condition and the newest, and it is here rather than as its
+      // own branch on purpose. The gate already says "not right now" in four different voices
+      // — the air jump is unspent, the staff is busy, the ground is close, the player is
+      // already down — so a net is a fifth voice in the same chorus rather than a new
+      // mechanism. A parallel refusal somewhere above this `if` would have had to restate
+      // every one of the four, and the two copies would drift.
+      //
+      // `aboutToLand` is the second newest of the five, and it is what stops this gate
       // eating the jump buffer whole. The rest of the gate was otherwise identical to the
       // buffer's arming branch in `stepJump` minus `staffBusy`, and this runs first, so
       // `Space` with no air jump left opened the wings and the buffer could only ever arm
@@ -291,7 +312,18 @@ export function controllerStep(
         staffSinceSwing: staff.sinceSwing,
       }
     }
-  } else if (input.actionPressed) {
+  } else if (input.actionPressed || isTangled(state)) {
+    // The stow, from either of two causes through one path. A net that lands on a gliding
+    // player has to take the wings away *now* rather than merely refuse the next deploy, and
+    // this branch is already exactly what taking them away means: ground mode, not grounded,
+    // position, velocity and heading all preserved. Writing a second stow beside it would have
+    // been a second answer to "what does folding the wing do to momentum", and the design doc
+    // is specific that a stow keeps horizontal momentum.
+    //
+    // The momentum is what makes this survivable and is worth saying out loud: a glider netted
+    // at speed keeps every bit of it, so the player arrives in ground mode already travelling,
+    // and `groundStep`'s gravity then does the rest. Zeroing velocity here would have turned a
+    // two-second refusal into a two-second dead drop.
     next = {
       ...state, mode: 'ground', grounded: false,
       position: state.position.clone(),
@@ -392,6 +424,16 @@ export function controllerStep(
     // safe answer if that gate and this deduction ever drift apart, because a negative
     // bar would read as a permanently unusable dodge.
     breath: Math.max(0, next.breath - slip.breathSpent),
+    // Counted down here, after both posture branches, for the same reason the dodge is applied
+    // here: a net's refusal runs in both postures and has to keep running in whichever one the
+    // frame settled in. Putting it inside the ground branch would have frozen the countdown for
+    // any frame that ended in the glider — which cannot happen while `isTangled` is true, since
+    // the gate refuses the deploy and the stow branch above forces a fold, but "cannot happen
+    // today" is exactly the reasoning that makes a timer stop working after an unrelated edit.
+    //
+    // Decremented *after* both the gate and the stow have read `state.tangled`, so the frame a
+    // net lands is a full frame of refusal rather than a partial one.
+    tangled: stepTangle(next.tangled, dt),
   }
 
   return isFinitePlayer(next) ? next : safeRespawn(state, deps)

@@ -23,7 +23,7 @@ const DT = 1 / 60
 const NO_ENEMIES: Enemy[] = []
 
 /** An arrow at the origin heading north at 20 units a second. */
-const arrow = () => spawnProjectile('a1', new Vector3(0, 5, 0), NORTH, 0.4, 20)
+const arrow = () => spawnProjectile('a1', new Vector3(0, 5, 0), NORTH, 0.4, 20, 0)
 
 describe('flight', () => {
   it('carries the damage and speed it was given', () => {
@@ -35,7 +35,7 @@ describe('flight', () => {
   })
 
   it('normalises a direction that was not already unit length', () => {
-    const p = spawnProjectile('a1', new Vector3(), new Vector3(0, 0, -7), 1, 20)
+    const p = spawnProjectile('a1', new Vector3(), new Vector3(0, 0, -7), 1, 20, 0)
     expect(p.velocity.length()).toBeCloseTo(20)
   })
 
@@ -101,7 +101,7 @@ describe('ending', () => {
 
   it('ends at terrain height', () => {
     // Fired downward from y 5 onto ground at 0.
-    let p = spawnProjectile('a1', new Vector3(0, 5, 0), new Vector3(0, -1, 0), 0.4, 20)
+    let p = spawnProjectile('a1', new Vector3(0, 5, 0), new Vector3(0, -1, 0), 0.4, 20, 0)
     let alive = 0
     for (let i = 0; i < 60; i++) {
       const step = stepProjectile(p, new Vector3(500, 500, 500), NO_ENEMIES, flatGround, DT, C)
@@ -116,7 +116,7 @@ describe('ending', () => {
 
   it('flies on where there is no ground at all', () => {
     // Over the void between islands, groundHeightAt returns null.
-    let p = spawnProjectile('a1', new Vector3(0, 5, 0), new Vector3(0, -1, 0), 0.4, 20)
+    let p = spawnProjectile('a1', new Vector3(0, 5, 0), new Vector3(0, -1, 0), 0.4, 20, 0)
     for (let i = 0; i < 60; i++) {
       const step = stepProjectile(p, new Vector3(500, 500, 500), NO_ENEMIES, noGround, DT, C)
       if (!step.projectile) throw new Error('ended over the void, with no ground to end on')
@@ -149,7 +149,7 @@ describe('ending', () => {
     // this speed puts the arrow at y ~= -0.133, which is both within hitRadius 1 of a
     // player at y=0 and at or below the ground at 0. Testing the player first reports
     // the hit; testing the ground first would report nothing and drop the arrow silently.
-    const p = spawnProjectile('a1', new Vector3(0, 0.2, 0), new Vector3(0, -1, 0), 0.4, 20)
+    const p = spawnProjectile('a1', new Vector3(0, 0.2, 0), new Vector3(0, -1, 0), 0.4, 20, 0)
     const step = stepProjectile(p, new Vector3(0, 0, 0), NO_ENEMIES, flatGround, DT, C)
     expect(step.damageToPlayer).toBeCloseTo(0.4)
     expect(step.projectile).toBe(null)

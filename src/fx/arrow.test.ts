@@ -4,7 +4,7 @@ import { createArrowView, SHAFT_MATERIAL_OPTIONS } from './arrow'
 import { spawnProjectile } from '../combat/projectile'
 
 const arrow = (position: Vector3, direction: Vector3) =>
-  spawnProjectile('a1', position, direction, 1, 34)
+  spawnProjectile('a1', position, direction, 1, 34, 0)
 
 describe('the arrow view', () => {
   it('sits where the arrow is', () => {

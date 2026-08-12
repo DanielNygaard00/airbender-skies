@@ -5,7 +5,7 @@ import {
   type EncounterInput, type EnemySpawn, type PlayerHit,
 } from './encounter'
 import { isDowned } from './health'
-import { horizontalDistance } from './enemy'
+import { horizontalDistance, UNARMOURED, type EnemyConfig } from './enemy'
 import { gustTargets } from './gust'
 import { spawnProjectile } from './projectile'
 import { DEFAULT_COMBAT_CONFIG, DEFAULT_PATROL_CONFIG, HOME_PATROL } from './config'
@@ -22,6 +22,7 @@ const C: CombatConfig = {
       // Matches DEFAULT_COMBAT_CONFIG.enemies.spear.snapDistance.
       snapDistance: 1.2,
       downedSeconds: 18, risingSeconds: 1.2, recoveryHealthFractions: [0.6, 0.3],
+      armour: UNARMOURED,
     },
     // Deliberately different from the spear on every tuning axis, and its
     // strikeRange (22) is well past the 10 units a mixed-patrol fixture needs to
@@ -34,10 +35,52 @@ const C: CombatConfig = {
     archer: {
       maxHealth: 1, outOfCombatSeconds: 4, regenPerSecond: 0,
       moveSpeed: 3, strikeRange: 22, aggroRange: 35, windUpSeconds: 0.6, recoverSeconds: 0.9,
-      attack: { kind: 'projectile', damage: 0.8, speed: 20 }, knockbackDamping: 3,
+      attack: { kind: 'projectile', damage: 0.8, speed: 20, tangleSeconds: 0 },
+      knockbackDamping: 3,
       gravity: 20,
       snapDistance: 1.2,
       downedSeconds: 18, risingSeconds: 1.2, recoveryHealthFractions: [0.6, 0.3],
+      armour: UNARMOURED,
+    },
+    /**
+     * The heavy armoured soldier, with the one row of armour that matters set to the shipped
+     * value — a gust turns away entirely — and the other three deliberately *not* matching the
+     * shipped config.
+     *
+     * The gust row has to be 0 and 0, because that is the behaviour under test and it is a
+     * qualitative fact rather than a tuning number. Everything else here differs from
+     * `DEFAULT_COMBAT_CONFIG` on purpose, so an assertion that accidentally read the real
+     * config instead of this fixture would be visible: maxHealth 2 against the shipped 4, the
+     * staff at a flat half against the shipped 0.35 and 0.3, and the vortex at 0.5 against 0.45.
+     */
+    heavy: {
+      maxHealth: 2, outOfCombatSeconds: 4, regenPerSecond: 0,
+      moveSpeed: 2, strikeRange: 4, aggroRange: 18, windUpSeconds: 0.9, recoverSeconds: 1.2,
+      attack: { kind: 'melee', damage: 2 }, knockbackDamping: 3,
+      gravity: 20,
+      snapDistance: 1.2,
+      downedSeconds: 18, risingSeconds: 1.8, recoveryHealthFractions: [0.6, 0.3],
+      armour: {
+        gust: { damage: 0, knockback: 0 },
+        vortex: { damage: 1, knockback: 0.5 },
+        wave: { damage: 1, knockback: 1 },
+        staff: { damage: 0.5, knockback: 0.5 },
+      },
+    },
+    /**
+     * The net thrower. Its `tangleSeconds` is 3 rather than the shipped 2 and its projectile
+     * damage 0.25 rather than 0.5, so both are distinguishable from the real config and from
+     * the archer's 0.8 in an assertion.
+     */
+    nets: {
+      maxHealth: 1, outOfCombatSeconds: 4, regenPerSecond: 0,
+      moveSpeed: 3, strikeRange: 16, aggroRange: 24, windUpSeconds: 0.7, recoverSeconds: 1.4,
+      attack: { kind: 'projectile', damage: 0.25, speed: 18, tangleSeconds: 3 },
+      knockbackDamping: 3,
+      gravity: 20,
+      snapDistance: 1.2,
+      downedSeconds: 18, risingSeconds: 1.2, recoveryHealthFractions: [0.6, 0.3],
+      armour: UNARMOURED,
     },
   },
   // Both values are load-bearing here, not just shape. Three tests fly an arrow all the
@@ -1400,7 +1443,7 @@ describe('playerHitsThisFrame', () => {
       stanceTime: C.enemies.spear.windUpSeconds - 1 / 60,
     }
     const arrowFrom = new Vector3(0.5, 0, 0)
-    const arrow = spawnProjectile('arrow-test', arrowFrom, new Vector3(0, 0, 1), 0.3, 0)
+    const arrow = spawnProjectile('arrow-test', arrowFrom, new Vector3(0, 0, 1), 0.3, 0, 0)
     const encounter: Encounter = { ...near(), enemies: [spear], projectiles: [arrow] }
     const step = stepEncounter(encounter, defaults, 1 / 60, C, DEPS)
 
@@ -1518,7 +1561,9 @@ describe('the Air Wall inside the fight', () => {
    * below can be a plain `NORTH`, and off the ground so `flatGround` does not swallow the
    * return before it reaches anything.
    */
-  const closing = (from = -8) => spawnProjectile('a1', new Vector3(0, 0.5, from), new Vector3(0, 0, 1), 0.8, 20)
+  const closing = (from = -8) => spawnProjectile(
+    'a1', new Vector3(0, 0.5, from), new Vector3(0, 0, 1), 0.8, 20, 0,
+  )
 
   /** An encounter with one arrow already in the air and, optionally, soldiers. */
   function withArrow(spawns: EnemySpawn[] = [], from = -8): Encounter {
@@ -1651,5 +1696,530 @@ describe('the Air Wall inside the fight', () => {
 
   it('starts every fight with no wall up', () => {
     expect(startEncounter([], C).airWall).toEqual({ elapsed: null, cooldown: 0 })
+  })
+})
+
+describe('a gust against plate', () => {
+  /**
+   * A heavy and a spear standing side by side, both squarely inside one gust cone.
+   *
+   * **The pair is the whole design of this block, and it exists to answer the trap this
+   * codebase has already been caught by twice.** "Nothing happened to the heavy" is not a
+   * falsifiable assertion on its own: it passes just as well for a gust aimed at empty sky, for
+   * a cone whose vertical band excluded both soldiers, for a `gustPressed` that never reached
+   * the resolver, and for a fight that threw no gust at all. The spear beside it is the positive
+   * control — the same call, the same cone, the same frame — so every one of those failures
+   * shows up as the spear surviving too.
+   *
+   * They stand 3 units apart at the same height, well inside the 12-unit range and the 60-degree
+   * half-angle, so `gustTargets` catches both. `reach-geometry.test.ts` covers the geometry; this
+   * block is only ever about the armour.
+   */
+  const PAIR: EnemySpawn[] = [
+    { id: 'plate', position: new Vector3(-1.5, 0, -4), kind: 'heavy' },
+    { id: 'leather', position: new Vector3(1.5, 0, -4), kind: 'spear' },
+  ]
+  const pair = () => startEncounter(PAIR, C)
+  const gustThePair = () => stepEncounter(pair(), { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
+  const find = (e: Encounter, id: string) => {
+    const found = e.enemies.find((enemy) => enemy.id === id)
+    if (!found) throw new Error(`no soldier named ${id}`)
+    return found
+  }
+
+  it('catches both soldiers geometrically, so the cone is not what separates them', () => {
+    // Asserted through `gustTargets` rather than through the fight, because it is a statement
+    // about the cone and nothing else. Without this, every assertion below could be satisfied by
+    // a heavy that was simply never in range.
+    const caught = gustTargets(ORIGIN, NORTH, pair().enemies, C.gust).map((e) => e.id)
+    expect(caught.sort()).toEqual(['leather', 'plate'])
+  })
+
+  it('takes no health off the heavy while taking it off the spear', () => {
+    const step = gustThePair()
+    expect(find(step.encounter, 'plate').health.current).toBe(C.enemies.heavy.maxHealth)
+    // The control. If this is also unchanged the gust did not happen, and the line above says
+    // nothing about armour.
+    expect(find(step.encounter, 'leather').health.current)
+      .toBeCloseTo(C.enemies.spear.maxHealth - C.gust.damage, 6)
+  })
+
+  it('does not move the heavy at all while shoving the spear', () => {
+    // Displacement, not merely damage: knockback is the currency section 4.4 gives this type to
+    // pressure. Read off `knockback` and `verticalVelocity` rather than off `position`, so a
+    // single frame of damping cannot mask an impulse that was applied.
+    const step = gustThePair()
+    const plate = find(step.encounter, 'plate')
+    expect(plate.knockback.length()).toBe(0)
+    expect(plate.verticalVelocity).toBe(0)
+    const leather = find(step.encounter, 'leather')
+    expect(leather.knockback.length()).toBeGreaterThan(0)
+    expect(leather.verticalVelocity).toBeGreaterThan(0)
+  })
+
+  it('does not interrupt a heavy mid-wind-up, where it does interrupt the spear', () => {
+    // `hitEnemy` resets the stance to `recover`, which is how a gust "interrupts, staggers, opens
+    // gaps". Armour that stopped the blow has no business also cancelling the swing, so the
+    // deflect path skips `hitEnemy` entirely rather than calling it with zeroes.
+    //
+    // This is the assertion that would survive the two traps the knockback one cannot fully
+    // escape: a stance is not physics, so nothing about being shoved or not shoved can produce
+    // it by accident.
+    const winding: Encounter = {
+      ...pair(),
+      enemies: pair().enemies.map((e) => ({ ...e, stance: 'wind-up' as const, stanceTime: 0.1 })),
+    }
+    const step = stepEncounter(winding, { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
+    expect(find(step.encounter, 'plate').stance).toBe('wind-up')
+    expect(find(step.encounter, 'plate').stanceTime).toBeGreaterThan(0.1)
+    // The control: the spear's telegraph is cancelled, as it always was.
+    expect(find(step.encounter, 'leather').stance).toBe('recover')
+  })
+
+  it('reports the heavy as deflected and the spear as connected, and never both', () => {
+    // The two lists have to be disjoint, because `hitThisFrame` pays Focus and
+    // `deflectedThisFrame` must not: a soldier that shrugged off a move is not a soldier the
+    // player did something to, and paying for it would make plate armour a Focus battery.
+    const step = gustThePair()
+    expect(step.deflectedThisFrame).toEqual(['plate'])
+    expect(step.hitThisFrame).toEqual(['leather'])
+  })
+
+  it('reports nothing as deflected when the gust catches only unarmoured soldiers', () => {
+    // The negative control on the report itself. Without it, a `deflectedThisFrame` that simply
+    // listed everyone in the cone would satisfy the test above.
+    const step = gustOnce(near())
+    expect(step.deflectedThisFrame).toEqual([])
+    expect(step.hitThisFrame).toEqual(['a'])
+  })
+
+  it('spends the gust cooldown even when every target turned it away', () => {
+    // A gust that costs nothing against plate makes spamming it into a heavy free, which is the
+    // opposite of a knockback economy. Asserted against a lone heavy so the cooldown cannot be
+    // credited to the spear.
+    const alone = startEncounter([PAIR[0]!], C)
+    const step = stepEncounter(alone, { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
+    expect(step.deflectedThisFrame).toEqual(['plate'])
+    expect(step.encounter.gustCooldown).toBe(C.gust.cooldownSeconds)
+    expect(canGust(step.encounter)).toBe(false)
+  })
+
+  it('never deflects a blow off a downed heavy, because a downed heavy is not a target at all', () => {
+    // `isTargetable` is the gate every resolver asks, and the deflect report sits behind it
+    // rather than beside it. A clang sounding off a body on the ground would tell the player
+    // their gust reached something when it reached nothing.
+    const flat: Encounter = {
+      ...pair(),
+      enemies: pair().enemies.map((e) => ({
+        ...e, health: { ...e.health, current: 0 }, stance: 'downed' as const,
+      })),
+    }
+    const step = stepEncounter(flat, { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
+    expect(step.deflectedThisFrame).toEqual([])
+    expect(step.hitThisFrame).toEqual([])
+  })
+})
+
+describe('the moves that do still work on plate', () => {
+  const heavyAt = (z: number): EnemySpawn[] => [
+    { id: 'plate', position: new Vector3(0, 0, z), kind: 'heavy' },
+  ]
+  const plate = (step: { encounter: Encounter }) => {
+    const found = step.encounter.enemies.find((enemy) => enemy.id === 'plate')
+    if (!found) throw new Error('no plate')
+    return found
+  }
+
+  /**
+   * The heavy with its plate taken off, and nothing else about it changed.
+   *
+   * The control every comparison in this block is measured against, and the reason it is this
+   * rather than a spear is `applyDamage`'s clamp at zero. A full slam does 2.2, so a spear's 1.5
+   * health pool bottoms out and reports 1.5 lost against the heavy's 2.2 — a difference of 0.7
+   * that has nothing to do with armour and would have made an honest comparison impossible.
+   * Same maxHealth, same pool, same clamp behaviour; the armour table is the only variable.
+   */
+  const NAKED: CombatConfig = {
+    ...C,
+    enemies: { ...C.enemies, heavy: { ...C.enemies.heavy, armour: UNARMOURED } },
+  }
+
+  it('lets a full-strength slam through whole, damage and displacement alike', () => {
+    // The environment route's first half, and the reason the heavy is beatable at all. The wave
+    // row is 1 and 1, so this must be indistinguishable from a slam on the same soldier with no
+    // armour on. Compared against exactly that rather than against literals, so retuning the wave
+    // moves both sides together.
+    const slam = { ...defaults, slam: { strength: 1 } }
+    const armoured = stepEncounter(startEncounter(heavyAt(-3), C), slam, 1 / 60, C, DEPS)
+    const bare = stepEncounter(startEncounter(heavyAt(-3), NAKED), slam, 1 / 60, NAKED, DEPS)
+    expect(plate(armoured).knockback.length()).toBeCloseTo(plate(bare).knockback.length(), 10)
+    expect(plate(armoured).verticalVelocity).toBeCloseTo(plate(bare).verticalVelocity, 10)
+    expect(plate(armoured).health.current).toBeCloseTo(plate(bare).health.current, 10)
+    // And not vacuous: the slam did take health off, so "the same as unarmoured" is not "neither
+    // of them was touched".
+    expect(plate(armoured).health.current).toBeLessThan(C.enemies.heavy.maxHealth)
+    expect(plate(armoured).knockback.length()).toBeGreaterThan(0)
+    expect(armoured.slamHitThisFrame).toEqual(['plate'])
+    expect(armoured.deflectedThisFrame).toEqual([])
+  })
+
+  it('lifts a heavy off its feet with a full vortex, less far than it lifts a spear', () => {
+    // Reduced, not removed, and both halves are asserted. "Less than a spear" alone would pass
+    // for zero, which is the tuning that makes the type unbeatable; "greater than zero" alone
+    // would pass for a vortex row of 1, which would make the armour meaningless here.
+    const held = { ...defaults, vortexHeld: false, vortexReleased: true }
+    const charged = (spawns: EnemySpawn[]): Encounter => ({
+      ...startEncounter(spawns, C), vortexHeldSeconds: C.vortex.maxChargeSeconds,
+    })
+    const armoured = stepEncounter(charged(heavyAt(-3)), held, 1 / 60, C, DEPS)
+    const bare = stepEncounter(charged(heavyAt(-3)), held, 1 / 60, NAKED, DEPS)
+    expect(plate(armoured).verticalVelocity).toBeGreaterThan(0)
+    expect(plate(armoured).verticalVelocity).toBeLessThan(plate(bare).verticalVelocity)
+    expect(plate(armoured).knockback.length()).toBeGreaterThan(0)
+    expect(plate(armoured).knockback.length()).toBeLessThan(plate(bare).knockback.length())
+    // Not a deflect: a reduced blow still connects, still interrupts, and must not clang.
+    expect(armoured.deflectedThisFrame).toEqual([])
+  })
+
+  it('lets a staff finisher chip a heavy, at a fraction of what an unarmoured one takes', () => {
+    // The route that exists so a player with no altitude to spend is not stuck. Deliberately bad
+    // rather than absent, and both bounds say so: greater than zero, so there is a route, and less
+    // than unarmoured, so the plate means something.
+    const swing = { ...defaults, staffSwing: { index: 3, finisher: true } }
+    const armoured = stepEncounter(startEncounter(heavyAt(-3), C), swing, 1 / 60, C, DEPS)
+    const bare = stepEncounter(startEncounter(heavyAt(-3), NAKED), swing, 1 / 60, NAKED, DEPS)
+    const max = C.enemies.heavy.maxHealth
+    expect(max - plate(armoured).health.current).toBeGreaterThan(0)
+    expect(max - plate(armoured).health.current).toBeLessThan(max - plate(bare).health.current)
+    expect(armoured.staffHitThisFrame).toEqual(['plate'])
+    expect(armoured.deflectedThisFrame).toEqual([])
+  })
+
+  it('can be ground all the way down the recovery ladder by slams alone', () => {
+    // The claim that the type is beatable without the environment, played rather than argued: a
+    // player who keeps diving eventually takes a heavy off the ladder for good. Section 4.6's
+    // rungs are counted here too, so this reddens if armour ever lets one of them be skipped.
+    //
+    // **The player follows the body, and that is not a convenience.** A full slam shoves its
+    // target about 11.5 m, which is past the wave's own 11 m radius -- so a fixed player
+    // position lands exactly one slam and every later one misses, and the test would report the
+    // heavy as unbeatable for a reason that has nothing to do with armour. A player diving on a
+    // heavy walks to it first; the standoff below is a metre, well inside the radius.
+    let encounter = startEncounter(heavyAt(-3), C)
+    let permanent = false
+    let slams = 0
+    for (let frame = 0; frame < 60 * 300 && !permanent; frame++) {
+      const heavy = encounter.enemies[0]!
+      // Only when it is on its feet and on the ground: a body still falling out of a slam is not
+      // somewhere a player can land beside, and hitting one already at zero does not advance the
+      // ladder -- `hitEnemy` counts crossings, deliberately.
+      const worthSlamming = frame % 8 === 0 && !isDowned(heavy.health) && heavy.grounded
+      // A metre short of it, along the line back toward the island's centre.
+      const stand = heavy.position.clone().multiplyScalar(
+        Math.max(0, heavy.position.length() - 1) / Math.max(1e-6, heavy.position.length()),
+      )
+      const step = stepEncounter(
+        encounter,
+        {
+          ...defaults,
+          playerPosition: stand,
+          slam: worthSlamming ? { strength: 1 } : null,
+        },
+        1 / 60, C, DEPS,
+      )
+      if (worthSlamming) slams += step.slamHitThisFrame.length
+      encounter = step.encounter
+      const after = encounter.enemies[0]!
+      // Off the end of the ladder: downed, with more crossings than there are rungs to climb.
+      permanent = isDowned(after.health)
+        && after.downs > C.enemies.heavy.recoveryHealthFractions.length
+    }
+    expect(permanent, 'a heavy could not be taken off the recovery ladder by slams').toBe(true)
+    // The control on the loop itself: slams actually connected. Without it a `permanent` that
+    // somehow became true for another reason would read as this route working.
+    expect(slams).toBeGreaterThanOrEqual(
+      C.enemies.heavy.recoveryHealthFractions.length + 1,
+    )
+  })
+
+  it('cannot be dented at all by gusts, however many land', () => {
+    // The negative counterpart of the test above, and the sentence that makes "beatable" mean
+    // something. Two hundred seconds of gusting on every cooldown leaves a heavy at full health
+    // and standing where it started.
+    let encounter = startEncounter(heavyAt(-3), C)
+    let deflects = 0
+    for (let frame = 0; frame < 60 * 200; frame++) {
+      const step = stepEncounter(
+        encounter, { ...defaults, gustPressed: canGust(encounter) }, 1 / 60, C, DEPS,
+      )
+      encounter = step.encounter
+      deflects += step.deflectedThisFrame.length
+    }
+    expect(encounter.enemies[0]!.health.current).toBe(C.enemies.heavy.maxHealth)
+    expect(encounter.enemies[0]!.downs).toBe(0)
+    // The control that makes the two lines above a statement about armour rather than about a
+    // gust that never fired: hundreds of gusts did land on it.
+    expect(deflects).toBeGreaterThan(100)
+  })
+})
+
+describe('a net that lands on the player', () => {
+  /**
+   * The netter's release, narrowed to the projectile arm of `EnemyAttack`.
+   *
+   * The throw is asserted against `NET.tangleSeconds` and `NET.damage` rather than against
+   * literals, so the fixture is the single source of both. The narrowing throw is not ceremony:
+   * a netter whose `attack.kind` had been changed to `melee` would be a netter that cannot throw
+   * anything at all, and this is the clearest place to say so.
+   */
+  const NET = (() => {
+    const attack = C.enemies.nets.attack
+    if (attack.kind !== 'projectile') throw new Error('a net thrower has to be a ranged attacker')
+    return attack
+  })()
+  const ARROW = (() => {
+    const attack = C.enemies.archer.attack
+    if (attack.kind !== 'projectile') throw new Error('an archer has to be a ranged attacker')
+    return attack
+  })()
+
+  /**
+   * A netter standing close enough to throw immediately, already at the end of its wind-up.
+   *
+   * `stanceTime` past `windUpSeconds` so the release happens on the first frame, which is the
+   * same shortcut the archer tests take. The player stands 4 units away so the net has a
+   * fraction of a second of flight rather than none — an assertion on the frame of the throw
+   * would say nothing about the payload arriving.
+   */
+  const netterAt = (z: number): EnemySpawn[] => [
+    { id: 'net-1', position: new Vector3(0, 0, z), kind: 'nets' },
+  ]
+  const readyToThrow = (spawns: EnemySpawn[]): Encounter => {
+    const base = startEncounter(spawns, C)
+    return {
+      ...base,
+      enemies: base.enemies.map((e) => ({
+        ...e, stance: 'wind-up' as const, stanceTime: C.enemies.nets.windUpSeconds + 1,
+      })),
+    }
+  }
+
+  /** Throw one net and fly it until something reports a refusal, or the window runs out. */
+  function throwOne(over: Partial<EncounterInput> = {}) {
+    let encounter = readyToThrow(netterAt(-4))
+    let tangle = 0
+    let damage = 0
+    let arrows = 0
+    const before = encounter.playerHealth.current
+    for (let frame = 0; frame < 120; frame++) {
+      const step = stepEncounter(encounter, { ...defaults, ...over }, 1 / 60, C, DEPS)
+      encounter = step.encounter
+      tangle = Math.max(tangle, step.tangleSeconds)
+      arrows += step.firedThisFrame.length
+      damage = before - encounter.playerHealth.current
+    }
+    return { encounter, tangle, damage, arrows }
+  }
+
+  it('reports the netter config\'s own refusal, not some other kind\'s', () => {
+    // Read against the fixture's 3 rather than the shipped 2, so a payload sourced from the
+    // wrong kind's config — or from a default — is visible rather than plausible.
+    const { tangle, arrows } = throwOne()
+    expect(arrows).toBeGreaterThan(0)
+    expect(tangle).toBe(NET.tangleSeconds)
+    expect(tangle).toBe(3)
+  })
+
+  it('also takes a little health, so the hit registers as a hit', () => {
+    // Not zero on purpose: the hurt flash, the direction wedge and the Focus drain all key off
+    // damage, and a mechanic that cost no health would land silently on all three.
+    const { damage } = throwOne()
+    expect(damage).toBeCloseTo(NET.damage, 6)
+  })
+
+  it('reports no refusal on the frames before the net arrives', () => {
+    // The positive control's mirror: without this, a `tangleSeconds` wired to the netter's config
+    // rather than to the projectile's arrival would satisfy the test above while grounding the
+    // player the instant a netter decided to throw.
+    const first = stepEncounter(
+      readyToThrow(netterAt(-4)), defaults, 1 / 60, C, DEPS,
+    )
+    expect(first.firedThisFrame.length).toBe(1)
+    expect(first.tangleSeconds).toBe(0)
+  })
+
+  it('reports nothing at all from an archer, whose arrows carry no refusal', () => {
+    // The other negative control, and the one that says this is a property of the net rather than
+    // of every projectile. Same fixture shape, same flight, an arrow instead of a net.
+    //
+    // Stopped as soon as the first shot has landed rather than run for a fixed window, because
+    // this fixture reloads: at the archer's 0.6 wind-up and 0.9 recovery a two-second run lands
+    // two arrows, and an assertion on the total damage would then be comparing against twice the
+    // per-arrow figure for a reason that has nothing to do with what is under test.
+    let encounter = readyToThrow([{ id: 'bow-1', position: new Vector3(0, 0, -4), kind: 'archer' }])
+    let tangle = 0
+    let damage = 0
+    const before = encounter.playerHealth.current
+    for (let frame = 0; frame < 120 && damage === 0; frame++) {
+      const step = stepEncounter(encounter, defaults, 1 / 60, C, DEPS)
+      encounter = step.encounter
+      tangle = Math.max(tangle, step.tangleSeconds)
+      damage = before - encounter.playerHealth.current
+    }
+    // The arrow really did connect, so the zero below is about the payload and not about a shot
+    // that missed.
+    expect(damage).toBeCloseTo(ARROW.damage, 6)
+    expect(tangle).toBe(0)
+  })
+
+  it('is discarded whole by a Slipstream, along with its damage', () => {
+    // A dodge has to answer a net as completely as it answers an arrow, or the one attack in the
+    // game that takes the air layer away would be the one attack that cannot be dodged.
+    const { tangle, damage } = throwOne({ playerInvulnerable: true })
+    expect(tangle).toBe(0)
+    expect(damage).toBe(0)
+  })
+
+  it('is refused by a Slipstream even if the net is retuned to do no damage', () => {
+    // The coupling this guards is subtle and lives in two files. `damageAvoided` requires
+    // `damageToPlayer > 0`, so a `tangleSeconds` gated on that flag would let a zero-damage net
+    // straight through an invulnerable window — a dodge silently stopping working because
+    // somebody retuned a damage figure in `config.ts`. The gate reads `playerInvulnerable`
+    // directly for exactly this reason, and this is what holds it there.
+    const harmless: CombatConfig = {
+      ...C,
+      enemies: {
+        ...C.enemies,
+        nets: { ...C.enemies.nets, attack: { ...NET, damage: 0 } },
+      },
+    }
+    let encounter = readyToThrow(netterAt(-4))
+    let tangle = 0
+    let landed = 0
+    for (let frame = 0; frame < 120; frame++) {
+      const dodging = stepEncounter(
+        encounter, { ...defaults, playerInvulnerable: true }, 1 / 60, harmless, DEPS,
+      )
+      encounter = dodging.encounter
+      tangle = Math.max(tangle, dodging.tangleSeconds)
+    }
+    expect(tangle).toBe(0)
+    // And the control, on the identical harmless config with the dodge off: the net does still
+    // arrive, so the zero above is the dodge working rather than the net failing to connect.
+    let vulnerable = readyToThrow(netterAt(-4))
+    for (let frame = 0; frame < 120; frame++) {
+      const step = stepEncounter(vulnerable, defaults, 1 / 60, harmless, DEPS)
+      vulnerable = step.encounter
+      landed = Math.max(landed, step.tangleSeconds)
+    }
+    expect(landed).toBe(NET.tangleSeconds)
+  })
+
+  it('costs one refusal for two nets landing together, not two', () => {
+    // Two netters equidistant from the player throw on the same cycle and their nets arrive on
+    // the same frame. Reported as a sum this would be six seconds on the ground from one
+    // exchange, which is long enough over open sky to be a death sentence and is not what either
+    // netter threatened. `stepEncounter` takes the maximum; `applyTangle` covers the frames
+    // either side.
+    let encounter = readyToThrow([
+      { id: 'net-1', position: new Vector3(-3, 0, -3), kind: 'nets' },
+      { id: 'net-2', position: new Vector3(3, 0, -3), kind: 'nets' },
+    ])
+    let worst = 0
+    for (let frame = 0; frame < 120; frame++) {
+      const step = stepEncounter(encounter, defaults, 1 / 60, C, DEPS)
+      encounter = step.encounter
+      worst = Math.max(worst, step.tangleSeconds)
+    }
+    expect(worst).toBe(NET.tangleSeconds)
+  })
+
+  it('does not report a refusal for a net that lands on the terrain instead', () => {
+    // A net is only a net once it catches somebody. Aimed at a player who then leaves, so the
+    // projectile flies past and ends on the ground.
+    let encounter = readyToThrow(netterAt(-4))
+    // One frame with the player in place, so the throw is aimed at them...
+    let step = stepEncounter(encounter, defaults, 1 / 60, C, DEPS)
+    encounter = step.encounter
+    expect(step.firedThisFrame.length).toBe(1)
+    // ...then the player is somewhere else entirely for the rest of the flight.
+    let tangle = 0
+    const gone = { ...defaults, playerPosition: new Vector3(400, 0, 400) }
+    for (let frame = 0; frame < 240; frame++) {
+      step = stepEncounter(encounter, gone, 1 / 60, C, DEPS)
+      encounter = step.encounter
+      tangle = Math.max(tangle, step.tangleSeconds)
+    }
+    expect(tangle).toBe(0)
+    // And the net is gone rather than still in the air, so this is "it landed elsewhere" rather
+    // than "the flight window was too short".
+    expect(encounter.projectiles).toEqual([])
+  })
+})
+
+/**
+ * The two behaviours that only exist because the Air Wall and the net throwers landed in the
+ * same game.
+ *
+ * Neither branch could have written these: the wall was built against an archipelago with no
+ * nets in it, and the netters were built against one with no wall. Both interactions fall out
+ * of code neither side changed, which is exactly the kind of behaviour that is nobody's
+ * feature and therefore nobody's test until a merge makes it real.
+ */
+describe('the Air Wall against a net', () => {
+  const NET = (() => {
+    const attack = C.enemies.nets.attack
+    if (attack.kind !== 'projectile') throw new Error('a net thrower has to be a ranged attacker')
+    return attack
+  })()
+
+  /** A netter at the end of its wind-up, four units north, so the throw lands within a beat. */
+  const readyNetter = (): Encounter => {
+    const base = startEncounter([{ id: 'net-1', position: new Vector3(0, 0, -4), kind: 'nets' }], C)
+    return {
+      ...base,
+      enemies: base.enemies.map((e) => ({
+        ...e, stance: 'wind-up' as const, stanceTime: C.enemies.nets.windUpSeconds + 1,
+      })),
+    }
+  }
+
+  /** Fly the throw out, reporting the worst refusal and whether the net was ever turned. */
+  function throwAt(over: Partial<EncounterInput>) {
+    let encounter = readyNetter()
+    let tangle = 0
+    let redirected = 0
+    for (let frame = 0; frame < 120; frame++) {
+      const step = stepEncounter(encounter, { ...defaults, ...over }, 1 / 60, C, DEPS)
+      encounter = step.encounter
+      tangle = Math.max(tangle, step.tangleSeconds)
+      redirected += step.redirectedThisFrame.length
+    }
+    return { tangle, redirected }
+  }
+
+  it('turns a net around, and a turned net grounds nobody', () => {
+    // What this actually pins is that **the wall is indifferent to what kind of projectile it
+    // catches**. Nothing in `deflect` or in the loop that offers arrows to it asks whether the
+    // thing arriving is an arrow or a net, and that is the whole reason the Air Wall answers a
+    // mechanic built two branches away from it without a line of code connecting the two.
+    // Verified by mutation: gating the deflection on `arrow.tangleSeconds === 0`, which is the
+    // shape a plausible "only arrows can be walled" change would take, reddens this test alone.
+    //
+    // It is deliberately *not* a test of the `!p.deflected` guard in `stepProjectile`, which an
+    // earlier version of this comment claimed. A turned net travels away from the player and
+    // never re-enters `hitRadius`, so the guard is not what saves them here — geometry is. The
+    // guard has its own test, in `projectile.test.ts`, and dropping it reddens that one.
+    const { tangle, redirected } = throwAt({ airWallHeld: true, playerAim: NORTH })
+    expect(redirected).toBeGreaterThan(0)
+    expect(tangle).toBe(0)
+  })
+
+  it('is the only reason that net missed, which is what makes the test mean anything', () => {
+    // The control. Without it, "no refusal" would pass just as well for a netter that never
+    // threw, a net that expired early, or a fixture aimed somewhere the net could not reach.
+    const { tangle, redirected } = throwAt({})
+    expect(redirected).toBe(0)
+    expect(tangle).toBe(NET.tangleSeconds)
   })
 })

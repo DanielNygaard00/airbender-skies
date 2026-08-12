@@ -18,7 +18,7 @@ const p = (over: Partial<PlayerState> = {}): PlayerState => ({
   coyoteTime: 0, jumpBuffer: 0,
   scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
   slipstreamElapsed: null, slipstreamCooldown: 0,
-  staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, ...over,
+  staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, tangled: 0, ...over,
 })
 
 const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({

@@ -525,7 +525,10 @@ describe('the vertical extents against the real archipelago', () => {
     // short to hold a target it has just launched would fight its own effect — so this is a
     // recording problem, not a balance one.
     const vortex = swept().filter((r) => r.move.startsWith('vortex'))
-    expect(vortex.length).toBe(2 * 5)
+    // Two charges against every soldier in the shipped patrol. Read off `HOME_PATROL` rather
+    // than written as a literal: this said `2 * 5` and went red the day the patrol grew from
+    // five soldiers to seven, which is a roster count masquerading as a claim about the vortex.
+    expect(vortex.length).toBe(2 * HOME_PATROL.length)
     for (const r of vortex) {
       expect(r.stillHit, `the vortex dropped stances against ${r.soldier}`).toBe(r.inFootprint)
     }

@@ -70,6 +70,20 @@ export const COMBAT_LEVELS = {
   hurt: 0.4,
   /** An archer loosing. Louder than a staff swing, since it is a warning; below hurt. */
   bowRelease: 0.24,
+  /**
+   * A blow bouncing off plate.
+   *
+   * Deliberately equal to `impact` rather than below it. The instinct is to make a move that
+   * did nothing quieter than one that connected, and it is wrong here: quiet reads as "barely
+   * hit", and the one thing the player must not conclude from a gust on a heavy is that it
+   * hit a little. A deflect has to be as loud as a connect and *unmistakably a different
+   * sound*, so the whole difference is carried by timbre — `combat-audio.ts` plays this as a
+   * short, high, bright snap where `impact` is a low thud.
+   *
+   * Tied to `impact` by a test rather than by sharing the literal, because the two are the
+   * same number for a reason and should move together if the mix is ever rebalanced.
+   */
+  clang: 0.3,
 } as const
 
 export function swingLevel(finisher: boolean): number {

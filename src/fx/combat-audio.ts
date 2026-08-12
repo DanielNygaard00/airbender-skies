@@ -103,6 +103,19 @@ export function createCombatAudio() {
       thud(COMBAT_LEVELS.impact, 0.12, 180)
     },
 
+    /**
+     * A blow bouncing off plate: bright, short and metallic.
+     *
+     * The same level as `impact` and nothing else in common with it — see the note on
+     * `COMBAT_LEVELS.clang`. The high thud is the ring, the tight noise snap over the top is
+     * the strike itself, and both are far shorter than the 0.12 seconds `impact` runs for, so
+     * the two are separable by ear at the same loudness.
+     */
+    clang(): void {
+      thud(COMBAT_LEVELS.clang, 0.07, 1400)
+      burst(COMBAT_LEVELS.clang * 0.6, 0.05, 6000, 2200)
+    },
+
     down(): void {
       thud(COMBAT_LEVELS.down, 0.3, 120)
       burst(COMBAT_LEVELS.down * 0.5, 0.35, 900, 120)

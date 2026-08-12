@@ -65,6 +65,7 @@ const falling = (position: Vector3, islandId: string): PlayerState => ({
   coyoteTime: 0, jumpBuffer: 0, scooterActive: false, scooterCharge: 0,
   dashesUsed: 0, dashRecovery: 0, slipstreamElapsed: null, slipstreamCooldown: 0,
   staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0,
+      tangled: 0,
 })
 
 const deps = (terrain: TerrainQuery): ControllerDeps => ({

@@ -40,13 +40,39 @@ give it back. Landing never stops you dead; you skim out of it. A jump is forgiv
 both ends: press it just after walking off an edge and it still counts, and press it just before
 you land and it waits for the ground rather than vanishing.
 
-A patrol of spear infantry holds the east side of the home island. They pressure your spacing:
-they close, they telegraph, and standing still costs health. Gust knocks them back and
-interrupts a strike, but barely hurts them — enemies are downed, never killed, not for good. A
-soldier you put down will push itself back onto its feet after a while, and rejoin weaker than
-it was. Hit one while it is getting up and it goes straight back down, though that only buys
-you time: wearing a soldier out for good still means taking its health to nothing, three times
-over.
+A patrol of seven soldiers holds the east side of the home island, in four ranks out from where
+you spawn, and each rank presses on something different.
+
+**Spear infantry** — three of them, and the fight you meet in the middle. They pressure your
+spacing: they close, they telegraph, and standing still costs health.
+
+**Archers**, two of them, furthest out. They pressure altitude. Where a spear only measures the
+distance across the ground, an archer measures the straight line — so hovering above the fight
+does not get you out of its reach, and you can hear a bow release from behind you.
+
+**A heavy armoured soldier** holds the near flank, and it is the one enemy Gust does nothing to
+at all. The blast rings off the plate and the soldier does not move a centimetre — you will hear
+it and see the spark, and the aim marker stays cold when a heavy is the only thing in front of
+you, so you can tell before you spend the move. It is slow, it cannot chase you, and it hits
+harder than anything else in the patrol. The answers are a Pressure Wave — a slam out of a real
+dive is the one thing its armour does not blunt at all — or the edge of the island: line one up
+between you and the rim, dive on it, and the shockwave puts it over the side. A staff will chip
+away at it if you have no height to spend, but slowly, and that is on purpose.
+
+**A net thrower** sits between the spears and the archers, and it pressures flight itself. It
+winds up longer than anything else in the patrol and paints the lane it is about to throw down,
+so the throw is genuinely avoidable — but if the net lands it folds your wings and refuses to let
+them open again for a couple of seconds. Caught in the air, you fall. You keep every bit of your
+momentum through the fold and you can still walk, dash, dodge and swing, so the answer over land
+is to move; the answer over open sky is to ride it out, because two seconds of falling costs you
+about fifty metres of altitude and there are six hundred beneath you. A Slipstream's
+unhittable window slips a net entirely, which is the answer if your timing is good.
+
+Gust knocks the unarmoured ones back and interrupts a strike, but barely hurts them — enemies are
+downed, never killed, not for good. A soldier you put down will push itself back onto its feet
+after a while, and rejoin weaker than it was. Hit one while it is getting up and it goes straight
+back down, though that only buys you time: wearing a soldier out for good still means taking its
+health to nothing, three times over.
 It cuts both ways: run your own health out and you go down too, waking up back at the island
 with a full bar of health, an empty bar of Focus, and the patrol exactly as you left it.
 
@@ -83,8 +109,13 @@ a fight buys you less than it used to: get high enough and your own attacks stop
 high that is depends on the move — a couple of metres for the staff, a good deal more for the
 Vortex. Your reach is still a flat shape with a ceiling and a floor rather than a sphere, though:
 distance is measured across the ground and height is a separate limit, so backing away from a
-soldier costs you reach in a different currency from climbing above it. The archers, by contrast,
-measure a single straight-line distance and always did.
+soldier costs you reach in a different currency from climbing above it. The archers and the net
+thrower, by contrast, measure a single straight-line distance — so climbing does buy real distance
+from them, less of it from the netter than from an archer because its throw is much shorter. The
+spears and the heavy measure across the ground only, which cuts the other way than you would
+expect: height is *ignored* by them rather than protective, so a spear or a heavy directly beneath
+you can still swing at you however far up you are. What answers a heavy from the air is not
+distance — it is that you cannot hurt it from up there either.
 
 Height is a weapon. Hold `Ctrl` through a landing and the fall becomes a Pressure Wave — a
 ring of air that goes out in every direction, with no facing to aim and nobody safe behind
