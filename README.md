@@ -17,9 +17,11 @@ back down to a walking stick.
 | `Z` | Air scooter — tap to ride, tap to step off | — |
 | `Shift` | Sprint — stacks with the air scooter, so sprinting while riding is faster than riding alone | Hover — hold position in mid-air |
 | `Q` | Air blast dash — three in a chain, then a short recovery | — |
-| `F` | Gust — a wide sweep of air that knocks enemies back | Gust |
+| `F` | Your element's quick move. Airbending: Gust — a wide sweep of air that knocks enemies back. Waterbending: Water Grip — a narrow reach that yanks whoever it catches toward you and holds them there | As on the ground |
 | `E` | Avatar State — once the pip under your Focus bar is full | Avatar State |
-| `R` | Vortex — hold to charge, release to pull nearby enemies inward and lift them off their feet | Vortex |
+| `R` | Your element's committed move, pressed and released. Airbending: Vortex — hold to charge, release to pull nearby enemies inward and lift them off their feet. Waterbending: Ice Lock — freezes the rank in front of you and spends about a third of your Focus | As on the ground |
+| `V` | Element radial — hold, flick the mouse at an element, release. Air is up, water is down | Element radial |
+| `1` / `2` | Select air or water directly, without the radial | Select air or water |
 | `C` | Slipstream — a short dash, briefly unhittable | Slipstream |
 | `Ctrl` | Hold through a landing to slam | Tuck — fold the wings for a fast dive, and hold it through the landing to slam |
 | `Space` | Jump — twice, the second gains more height the faster you are rising | Deploy or stow the glider. Close to the ground the deploy gives way to the landing, so a press on the way down becomes a jump on touchdown rather than a glide you immediately stow |
@@ -49,17 +51,45 @@ over.
 It cuts both ways: run your own health out and you go down too, waking up back at the island
 with a full bar of health, an empty bar of Focus, and the patrol exactly as you left it.
 
+You bend two elements, and they share your two bending keys rather than adding more. `F` is
+whichever element's quick move, `R` is its committed one, and the radial on `V` — or `1` and `2` —
+decides which element that is. Switching is free and instant: no cooldown, no windup, and the game
+does not slow down or pause while the radial is open, so a switch belongs *inside* a combo rather
+than before one. Charge a Vortex and pull a group into a heap, flick to water, and freeze them
+where they landed. A small badge above the meters says which element you are holding, so you never
+have to open anything to know what a keypress will do.
+
+Air is the one you always have and the only one with any damage in it. **Water is control, and it
+does no damage whatsoever.** It pulls, it holds, and it freezes, and what it buys you is time and
+position — a Water Grip drags a spearman out of his own reach and into yours and locks him there,
+which is what makes the staff safe to commit to. An Ice Lock freezes the whole rank in front of
+you, and they stay frozen even while you hit them: a locked target is locked so that you can work
+on it. None of it moves anyone down the recovery ladder, though, so a player who only bends water
+never actually wins a fight. Water's reach is also deliberately tight — narrower than a gust and
+with much less height to it — because a move that stops someone acting entirely would otherwise
+win every fight from a hover.
+
+The Ice Lock is the one move in the game that spends Focus, and it spends about a third of a full
+bar — slightly more than a spear hit takes off you. Two are affordable from a full meter, and
+either one costs you the Avatar State, since both draw on the same bar. That trade is the whole
+point of the price.
+
 A small reticle sits where your next attack will go, rather than in the middle of the screen,
-and warms when something is inside the gust's reach. When you take a hit, a wedge appears around
-it pointing at where the hit came from, and fades. A dodge shows one too, so slipping an attack
-still tells you where it was thrown from.
+and warms when something is inside your quick move's reach — the gust's, or the grip's much
+narrower one, depending on which element you are holding. When you take a hit, a wedge appears
+around it pointing at where the hit came from, and fades. A dodge shows one too, so slipping an
+attack still tells you where it was thrown from.
 
 Reach has a height as well as a distance. Every one of your moves — both staff arcs, the gust,
-the Vortex and the Pressure Wave — sweeps a band around your own footing rather than an endless
-column, so a soldier far enough below or above you is out of range even when it is squarely in
-front. Each move gets its own band, and they are not the same: a swing with a staff barely
-reaches past your own height, a gust of air reaches a good deal further, and the Vortex reaches
-furthest of all, because getting people off their feet is the whole point of it. So climbing above
+the Vortex, both water moves and the Pressure Wave — sweeps a band around your own footing rather
+than an endless column, so a soldier far enough below or above you is out of range even when it is
+squarely in front. Each move gets its own band, and they are not the same: a swing with a staff
+barely reaches past your own height, water reaches a little further than that, a gust of air a good
+deal further again, and the Vortex furthest of all, because getting people off their feet is the
+whole point of it. Water's band is deliberately near the bottom of that list even though its moves
+are the strongest denial in the game, and for that exact reason — being unable to act at all is a
+harsher thing to do to a soldier than being shoved, so it has to be paid for by standing close. So
+climbing above
 a fight buys you less than it used to: get high enough and your own attacks stop reaching, and how
 high that is depends on the move — a couple of metres for the staff, a good deal more for the
 Vortex. Your reach is still a flat shape with a ceiling and a floor rather than a sphere, though:
@@ -83,6 +113,10 @@ much faster in a fight, on every gust that connects and every soldier you put do
 drains it, and a spear hit takes nearly a third of the bar. The longer you go unbroken the better
 everything pays, so a long run is worth more than the sum of its parts, and losing it costs more too.
 From a standing start, a clean glide fills the bar in around half a minute.
+
+Focus is spent as well as earned. The Ice Lock takes about a third of the bar every time, so
+freezing a rank and saving for the Avatar State are one budget rather than two, and the bar is the
+only place that choice is visible.
 
 Hold Focus at maximum and a thin pip fills beneath the bar. Once it is full, `E` spends the whole
 meter on the Avatar State: eight seconds of free breath, a gust that downs a soldier outright, and
