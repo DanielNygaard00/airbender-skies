@@ -12,9 +12,15 @@ and slipstream (2026-08-04), and archers and projectiles (2026-08-05). Each item
 against the code on 2026-08-12 before being carried over; eight were already fixed by later
 cycles and are listed at the end so nobody re-investigates them.
 
-None of these is a known player-visible bug. They are mostly assertions that cannot fail, an
-unreachable condition, and comments in the wrong place — the same classes the register at the
-end of `HANDOFF.md` tracks.
+None of these is a known player-visible bug. They are mostly assertions that cannot fail and
+comments in the wrong place — the same classes the register at the end of `HANDOFF.md` tracks.
+
+**Fixed since this file was written:** the unreachable `s.chain < c.maxChain` term in
+`stepStaff`'s `free` gate. It is kept rather than deleted, on the same grounds `staffBusy`
+keeps its redundant `isSwinging`, and it now has a test that constructs the out-of-band state
+it bounds — so it is a documented invariant rather than a term that looks dead. Deleting it
+reddens `'refuses a press on a full chain with nothing owed'` with a fourth swing in a
+three-swing combo.
 
 **On checking these.** The first version of this file carried the glider dodge's axes as an
 open design question. It was not open — it had been fixed two cycles earlier, and the check
@@ -22,14 +28,6 @@ that missed it was a grep for the *old* function's name, which is still called o
 branch of the function that replaced it. Grepping for the symbol a finding names says where
 that symbol is used; it does not say what the code decides. Read the function that owns the
 decision.
-
-## An unreachable condition
-
-**`src/player/staff.ts:131`** — the `free` gate reads `s.recovery <= 0 && s.chain < c.maxChain`,
-but the second half can never be false there: line 122 routes the finisher through the spent
-path, which resets `chain` to 0 first. Harmless today, and misleading to a reader, who could
-infer that `chain` can sit at `maxChain` outside a swing. Either drop the condition or say
-why it is kept.
 
 ## Assertions that cannot fail, or barely can
 

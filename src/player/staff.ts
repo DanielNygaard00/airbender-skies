@@ -128,6 +128,18 @@ export function stepStaff(
   // earlier frame, that frame already reset chain to 0 and put recovery on the clock —
   // so checking `recovery <= 0` here is enough; there is no separate window check to
   // repeat.
+  //
+  // `s.chain < c.maxChain` is unreachable over the states this function produces, and it
+  // stays for the same reason `isSwinging` stays in `staffBusy`. What caps the combo is the
+  // finisher's own frame above: it routes through `spent`, which zeroes `chain` before any
+  // recovery is paid off, so a full chain and an empty recovery never coexist in a state
+  // `stepStaff` returns — every return site keeps `chain` at 0 whenever `recovery > 0`.
+  // Do not read this term as evidence that `chain` can sit at `maxChain` outside a swing.
+  // It is a bound on out-of-band input: this module is pure and takes a `StaffState` from
+  // its caller, and without the term a state with a full chain and nothing owed would start
+  // a swing past the end of the combo and grow `chain` without a ceiling. `staff.test.ts`
+  // constructs exactly that state, so deleting this half of the gate reddens a test rather
+  // than nothing.
   const free = s.recovery <= 0 && s.chain < c.maxChain
   if (pressed && free) {
     const index = s.chain + 1
