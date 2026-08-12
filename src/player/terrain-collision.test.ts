@@ -54,6 +54,10 @@ function input(over: Partial<InputState> = {}): InputState {
     scooterPressed: false, dashPressed: false, gustPressed: false,
     avatarStatePressed: false, vortexHeld: false, vortexReleased: false,
     slipstreamPressed: false, staffPressed: false,
+  // The element radial's four fields. Air is the resting selection, the radial is closed,
+  // and no pointer movement: none of this reaches movement code, which is the point —
+  // `stepElements` is the only consumer, and it is not on the movement path.
+  radialHeld: false, radialReleased: false, pointerDelta: { x: 0, y: 0 }, elementIndex: null,
     ...over,
   }
 }

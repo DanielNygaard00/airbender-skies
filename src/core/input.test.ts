@@ -332,3 +332,246 @@ describe('the Space key and focused controls', () => {
     expect(tracker.sample().actionPressed).toBe(true)
   })
 })
+
+describe('the element radial bindings', () => {
+  const keyup = (code: string) => Object.assign(new Event('keyup'), { code }) as KeyboardEvent
+
+  it('opens the radial while V is held', () => {
+    // Read off the held set rather than tracked as an edge, so it is a state and not an event.
+    expect(toInputState(new Set(['KeyV']), LOOK, false).radialHeld).toBe(true)
+    expect(toInputState(new Set(), LOOK, false).radialHeld).toBe(false)
+  })
+
+  it('closes the radial when the held set is cleared by a blur', () => {
+    // The whole reason `radialHeld` is derived rather than latched: `InputTracker`'s blur handler
+    // clears the held keys and fires no keyup, so a latched flag would leave the radial open
+    // forever after an alt-tab.
+    const target = new EventTarget()
+    const tracker = new InputTracker(target, fakeCanvas)
+    target.dispatchEvent(keydown('KeyV'))
+    expect(tracker.sample().radialHeld).toBe(true)
+    target.dispatchEvent(new Event('blur'))
+    expect(tracker.sample().radialHeld).toBe(false)
+  })
+
+  it('reports the release edge on V, and clears it after one sample', () => {
+    const target = new EventTarget()
+    const tracker = new InputTracker(target, fakeCanvas)
+    target.dispatchEvent(keyup('KeyV'))
+    expect(tracker.sample().radialReleased).toBe(true)
+    // Exactly once per frame, like every other edge here — a release read twice would commit the
+    // pick twice, and the second time from an already-cleared offset.
+    expect(tracker.sample().radialReleased).toBe(false)
+  })
+
+  it('does not confuse the radial release with the vortex release', () => {
+    // Two keyup-driven edges added at different times to the same handler, which is exactly where
+    // a copy-paste puts the wrong field name.
+    const target = new EventTarget()
+    const tracker = new InputTracker(target, fakeCanvas)
+    target.dispatchEvent(keyup('KeyR'))
+    const state = tracker.sample()
+    expect(state.vortexReleased).toBe(true)
+    expect(state.radialReleased).toBe(false)
+  })
+
+  it('binds the number row to element indices, by code and not by key', () => {
+    // `e.code`, so the binds survive a layout where the unshifted top row produces punctuation —
+    // on AZERTY `e.key` for that key is `&`, while `e.code` stays `Digit1`.
+    const target = new EventTarget()
+    const tracker = new InputTracker(target, fakeCanvas)
+    target.dispatchEvent(keydown('Digit2'))
+    expect(tracker.sample().elementIndex).toBe(2)
+    target.dispatchEvent(keydown('Digit1'))
+    expect(tracker.sample().elementIndex).toBe(1)
+  })
+
+  it('reports no element index when no number key was pressed', () => {
+    // The positive control's other half. Null rather than 0, because 0 is a plausible index and
+    // `stepElements` would have to know to reject it.
+    expect(new InputTracker(new EventTarget(), fakeCanvas).sample().elementIndex).toBeNull()
+  })
+
+  it('clears the element index after one sample', () => {
+    const target = new EventTarget()
+    const tracker = new InputTracker(target, fakeCanvas)
+    target.dispatchEvent(keydown('Digit2'))
+    expect(tracker.sample().elementIndex).toBe(2)
+    expect(tracker.sample().elementIndex).toBeNull()
+  })
+
+  it('ignores number keys beyond the four elements the design names', () => {
+    // 5 and up are free for something else. Paired with a bound digit, so "ignored" is not
+    // passing because the whole binding is broken.
+    const target = new EventTarget()
+    const tracker = new InputTracker(target, fakeCanvas)
+    target.dispatchEvent(keydown('Digit5'))
+    expect(tracker.sample().elementIndex).toBeNull()
+    target.dispatchEvent(keydown('Digit4'))
+    expect(tracker.sample().elementIndex).toBe(4)
+  })
+
+  it('lets auto-repeat through, because selecting an element is idempotent', () => {
+    // Unlike the scooter, which toggles and must not re-fire. Re-selecting the element already
+    // selected writes the same value, so a held key cannot do anything a single press did not —
+    // and guarding it would be a rule with no behaviour behind it.
+    const target = new EventTarget()
+    const tracker = new InputTracker(target, fakeCanvas)
+    target.dispatchEvent(keydown('Digit2', true))
+    expect(tracker.sample().elementIndex).toBe(2)
+  })
+
+  it('defaults the radial fields when toInputState is called without them', () => {
+    // `toInputState` is called directly by tests and by nothing else in production, and the trailing
+    // object is optional so those call sites keep working. This pins what "absent" means.
+    const state = toInputState(new Set(), LOOK, false)
+    expect(state.radialReleased).toBe(false)
+    expect(state.elementIndex).toBeNull()
+    expect(state.pointerDelta).toEqual({ x: 0, y: 0 })
+  })
+
+  it('passes a supplied pointer delta straight through', () => {
+    const state = toInputState(
+      new Set(), LOOK, false, false, false, false, false, false, false, false, false,
+      { radialReleased: false, pointerDelta: { x: 7, y: -3 }, elementIndex: null },
+    )
+    expect(state.pointerDelta).toEqual({ x: 7, y: -3 })
+  })
+
+  it('does not let the radial fields displace the eleven edges before them', () => {
+    // The off-by-one guard this file already carries for `gustPressed` and `avatarStatePressed`,
+    // extended to the boundary the new object sits on. Every positional flag is set true and the
+    // radial object is given distinctive values, so a shifted argument shows up as a wrong field
+    // rather than as a value that happens to look plausible.
+    const state = toInputState(
+      new Set(), LOOK, true, true, true, true, true, true, true, true, true,
+      { radialReleased: true, pointerDelta: { x: 11, y: 13 }, elementIndex: 2 },
+    )
+    expect(state.actionPressed).toBe(true)
+    expect(state.staffPressed).toBe(true)
+    expect(state.radialReleased).toBe(true)
+    expect(state.elementIndex).toBe(2)
+    expect(state.pointerDelta).toEqual({ x: 11, y: 13 })
+  })
+})
+
+/**
+ * Deliver a mousemove to the tracker's own listener, with the pointer lock satisfied.
+ *
+ * The handler's first line is `document.pointerLockElement !== canvas`, and the node test
+ * environment has no `document` at all — so it is stubbed for the duration and restored
+ * afterwards. Stubbing rather than skipping, because the ruling being tested here is about what
+ * that handler does with the movement it receives, and there is nowhere else to test it: the
+ * accumulation is two statements inside a listener, not a pure function that could be lifted out.
+ */
+function withPointerLock<T>(body: () => T): T {
+  const holder = globalThis as { document?: unknown }
+  const had = 'document' in holder
+  const previous = holder.document
+  holder.document = { pointerLockElement: fakeCanvas }
+  try {
+    return body()
+  } finally {
+    if (had) holder.document = previous
+    else delete holder.document
+  }
+}
+
+/** A tracker whose listeners can be invoked directly, with the events it registered. */
+function trackerWithHandlers(): {
+  tracker: InputTracker
+  fire: (type: string, event: unknown) => void
+} {
+  const handlers = new Map<string, (e: Event) => void>()
+  const target = {
+    addEventListener: (type: string, fn: (e: Event) => void) => { handlers.set(type, fn) },
+    removeEventListener: () => {},
+  } as unknown as EventTarget
+  const tracker = new InputTracker(target, fakeCanvas)
+  return {
+    tracker,
+    fire: (type: string, event: unknown) => {
+      const handler = handlers.get(type)
+      if (!handler) throw new Error(`InputTracker registered no ${type} listener`)
+      handler(event as Event)
+    },
+  }
+}
+
+describe('holding the radial open never costs a frame of control', () => {
+  it('keeps turning the view while V is held', () => {
+    // **An owner ruling, not an inference: opening the radial must not swallow mouse-look.** The
+    // obvious implementation diverts the movement into the radial for as long as the key is down,
+    // which takes the camera away from the player mid-fight — and the radial is for use mid-fight.
+    // So the same movement does both.
+    //
+    // Asserted as the look direction actually changing, and against the identical movement with V
+    // *not* held, so the two are equal rather than merely both non-zero.
+    withPointerLock(() => {
+      const held = trackerWithHandlers()
+      held.fire('keydown', { code: 'KeyV', repeat: false })
+      held.fire('mousemove', { movementX: 120, movementY: 0 })
+      const withRadial = held.tracker.sample()
+
+      const plain = trackerWithHandlers()
+      plain.fire('mousemove', { movementX: 120, movementY: 0 })
+      const withoutRadial = plain.tracker.sample()
+
+      expect(withRadial.radialHeld).toBe(true)
+      expect(withoutRadial.radialHeld).toBe(false)
+      // The view moved at all, which is what the ruling forbids losing.
+      expect(withRadial.lookDirection.angleTo(new Vector3(0, 0, -1))).toBeGreaterThan(0.01)
+      // And it moved by exactly as much as it would have with the radial closed.
+      expect(withRadial.lookDirection.angleTo(withoutRadial.lookDirection)).toBeCloseTo(0, 9)
+    })
+  })
+
+  it('reports the same pointer movement to the radial that the look received', () => {
+    // The other half: the movement is not merely left with the camera, it also reaches the radial.
+    // Without this the ruling could be satisfied by ignoring the radial entirely.
+    withPointerLock(() => {
+      const { tracker, fire } = trackerWithHandlers()
+      fire('keydown', { code: 'KeyV', repeat: false })
+      fire('mousemove', { movementX: 30, movementY: -40 })
+      const state = tracker.sample()
+      expect(state.pointerDelta).toEqual({ x: 30, y: -40 })
+    })
+  })
+
+  it('accumulates pointer movement across several events in one frame', () => {
+    // A flick arrives as many small mousemove events between two samples, so the tracker has to sum
+    // them — reporting only the last would leave the radial permanently inside its dead zone at
+    // high frame rates.
+    withPointerLock(() => {
+      const { tracker, fire } = trackerWithHandlers()
+      for (let i = 0; i < 4; i++) fire('mousemove', { movementX: 5, movementY: -3 })
+      expect(tracker.sample().pointerDelta).toEqual({ x: 20, y: -12 })
+    })
+  })
+
+  it('clears the pointer delta each sample, so it is per frame and not cumulative', () => {
+    withPointerLock(() => {
+      const { tracker, fire } = trackerWithHandlers()
+      fire('mousemove', { movementX: 9, movementY: 9 })
+      tracker.sample()
+      expect(tracker.sample().pointerDelta).toEqual({ x: 0, y: 0 })
+    })
+  })
+
+  it('reports no pointer movement without the pointer lock', () => {
+    // The handler returns early when the canvas does not hold the lock, so a mouse moved over the
+    // page chrome while paused neither turns the view nor steers the radial.
+    const { tracker, fire } = trackerWithHandlers()
+    const holder = globalThis as { document?: unknown }
+    const had = 'document' in holder
+    const previous = holder.document
+    holder.document = { pointerLockElement: null }
+    try {
+      fire('mousemove', { movementX: 50, movementY: 50 })
+      expect(tracker.sample().pointerDelta).toEqual({ x: 0, y: 0 })
+    } finally {
+      if (had) holder.document = previous
+      else delete holder.document
+    }
+  })
+})
