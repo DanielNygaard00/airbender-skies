@@ -5,6 +5,7 @@ import {
   type EncounterInput, type EnemySpawn, type PlayerHit,
 } from './encounter'
 import { isDowned } from './health'
+import { inCone } from './cone'
 import { deflects, horizontalDistance, UNARMOURED, type EnemyConfig } from './enemy'
 import { gustTargets } from './gust'
 import { spawnProjectile } from './projectile'
@@ -699,9 +700,10 @@ describe('a staff swing', () => {
   it('does not hit a downed enemy', () => {
     // Hits exactly enough to down the enemy, not a fixed handful: each swing's
     // knockback compounds with the last (hitEnemy adds impulse onto whatever
-    // knockback is already there), and a few swings past downed fling the corpse
-    // out of the opener's range on their own. That would make the assertion below
-    // pass on distance alone, with the isDowned guard never in the loop.
+    // knockback is already there), and a few swings past downed would fling the
+    // corpse out of the opener's range on their own. Even the minimal count still
+    // drifts the corpse a little every frame, which is why the arc precondition
+    // below re-checks its position before the probe swing.
     const hitsToDown = Math.ceil(
       DEFAULT_COMBAT_CONFIG.enemies.spear.maxHealth / DEFAULT_COMBAT_CONFIG.staffArc.finisherDamage,
     )
@@ -714,6 +716,21 @@ describe('a staff swing', () => {
       ).encounter
     }
     expect(isDowned(encounter.enemies[0]?.health ?? { current: 1, max: 1, sinceHit: 0 })).toBe(true)
+    // Precondition, not a watch item: the corpse must still lie inside the opener's
+    // arc when the probe swing comes, measured with exactly the origin and forward
+    // that stepEncounter hands staffTargets (the defaults' playerPosition and
+    // playerForward). Without this check, a knockback retune big enough to push the
+    // corpse past the opener's range would make the final assertion pass on distance
+    // alone, with the isDowned guard never exercised — a silent false pass. With it,
+    // that retune reddens here instead, and the empty staffHitThisFrame below can
+    // only mean the guard did its job.
+    const corpse = encounter.enemies[0]
+    if (!corpse) throw new Error('expected the downed enemy to still exist')
+    expect(
+      inCone(defaults.playerPosition, defaults.playerForward, corpse.position,
+        DEFAULT_COMBAT_CONFIG.staffArc.opener),
+      'knockback drifted the corpse out of the opener arc; the assertion below would pass on distance alone',
+    ).toBe(true)
     const again = stepEncounter(
       encounter, { ...defaults, staffSwing: { index: 1, finisher: false } },
       1 / 60, DEFAULT_COMBAT_CONFIG, DEPS,
