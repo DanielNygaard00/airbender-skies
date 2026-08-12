@@ -3149,290 +3149,132 @@ until the A/B against PCF showed the *same* offset, because the sun sits high an
 and the offset is simply geometric. Neither error was reachable by reading the code, and both
 would have shipped as authoritative prose.
 
-## Contact shadows: compositing over the frame, and the four traps found by reading three.js
+## Contact shadows: built, measured, and removed — with the reason kept
 
-**What shipped.** `src/fx/contact-shadow.ts` is the pure, tested half: the seven tuning
-constants, `sunDirectionInView` (the sun's direction re-expressed in view space, since that is
-the space the march happens in), `depthTargetSize`, and `excludedFromDepth`. `src/fx/
-contact-shadow-pass.ts` is the other half — the GLSL and the render-target plumbing — and it
-cannot be tested here, because the shader never compiles in the node environment; Task 2's
-self-review flagged exactly this and Task 3 Step 4 measured the result on screen instead of
-asserting it. `src/core/renderer.ts` builds the pass and exposes it as `renderScene`, and
-`src/main.ts` calls `renderScene(scene, camera)` at its two render sites — the running loop
-and the paused front door — in place of what used to be a direct `renderer.render(scene,
-camera)` at both.
+**Nothing of this ships.** `src/fx/contact-shadow.ts`, `src/fx/contact-shadow-pass.ts` and
+their wiring were built, reviewed hard, corrected, measured on screen, and then deleted. The
+design doc and the plan stay in `docs/superpowers/` as the historical record, and the code is
+recoverable from the branch history around commit `838166a`. This section exists so nobody
+builds it a second time expecting a different answer.
 
-**Why it composites over the finished frame instead of rendering through a chain.** The
-conventional route renders the scene into a colour target and blits it to the canvas, and that
-puts `antialias: true` at risk: MSAA on the default framebuffer stops applying once the scene
-no longer renders straight into it, and in a low-poly game whose silhouettes are long straight
-edges, antialiasing is one of the most visible things on screen. So this pass never touches the
-colour chain at all. It renders depth into its own render target, lets the ordinary
-`renderer.render` draw the canvas exactly as it always has, and then multiplies a fullscreen
-quad over the finished result. MSAA, tone mapping and fog are all untouched, because none of
-them is in the path the pass adds. The whole feature is reversible by deleting two calls: the
-depth pre-pass and the quad composite inside `ContactShadowPass.render` are the only two render
-calls beyond the one ordinary `renderer.render(scene, camera)` that was already there before
-this cycle: delete those two and what is left is the original call.
+**What it was.** A screen-space pass that rendered the scene's depth into its own target via
+`scene.overrideMaterial`, let the ordinary `renderer.render` draw the canvas untouched, then
+multiplied a fullscreen quad over the finished frame. Compositing *over* the frame rather than
+redirecting the render path was the right architectural call and remains so if anything like
+this is ever attempted again: `antialias: true`, tone mapping and fog were all unaffected
+because none of them was touched, and the whole feature came out by deleting two calls — which
+is exactly what happened.
 
-**Four traps, all found by reading `node_modules/three` rather than by debugging, and each one
-fails silently instead of loudly.**
+**Why it was removed: the artefact and the effect were the same phenomenon.** The pass appeared
+to work. Props gained a dark contact where they met the terrain, trunks most visibly, and that
+was reported here as the feature doing its job. It was not. Rendering the occlusion mask on its
+own — no strength, no distance fade, `NoBlending` so the quad replaced the frame instead of
+multiplying into it — showed the ground and the canopies almost entirely white, and the dark
+regions were tree trunks, the character's limbs and the facets of the floating rock, all at
+occlusion 1.0, meaning a hit on the very first step of the march.
+
+The cause: `CONTACT_BIAS` plus the shader's per-step `selfOcclusion` term cancelled the depth
+gap the march opens against a plane perpendicular to the view axis, exactly — and nothing in the
+scene is that plane. On a cylinder or a facet a residual survived, proportional to the surface's
+own depth gradient along the sun direction. Raising `CONTACT_BIAS` to 0.15, seven times its
+value, reduced the trunks from solid bars to thin lines; that confirmed the diagnosis and was
+not a fix, because a constant cannot tell curvature from an occluder pressed against a surface.
+
+The real fix was to give the march a surface normal, reconstructed from the depth buffer with
+screen-space derivatives: start the ray off the surface along that normal, and skip surfaces
+facing away from the sun, since the frame being multiplied has already been shaded by the shadow
+map and the diffuse term, so darkening a back-facing surface again is the same shadow twice. It
+worked — the mask A/B shows the false occlusion essentially gone.
+
+And it took the visible effect with it, because the visible effect had been the artefact.
+Genuine contact needs a receiver close to an occluder. Here the ground is flat, the props are
+thin, the sun sits about 58 degrees up so the shadow map already covers the base of everything,
+and the follow cam watches from 15 to 40 units back. `CONTACT_RANGE` was tested at 1.5 — two and
+a half times the shipped 0.6, with the artefact now handled independently — and the composited
+frame was indistinguishable. Contact shadows are a close-up technique, and this camera does not
+give them anything to do.
+
+**The part worth keeping, and it is not about shadows.** The mask diagnostic is what turned a
+guess into a diagnosis. The description in this document before that measurement said the
+canopy's stacked cones were contact-shadowing each other. That was wrong and the geometry says
+so: `treeParts` puts the lower cone at y 2.0 to 4.8 and the upper at 4.1 to 6.3, so the gap
+between their surfaces is `1.5 - 0.194r`, between 1.21 and 1.5 units everywhere — always beyond
+a 0.6 range. The tiers could never have reached each other. Two rounds of review had read that
+sentence without checking it, and it was only ever going to be settled by rendering the term
+itself rather than looking at a tinted tree.
+
+**What survived the removal.** One line, in `src/world/waterfall.ts`: the curtains now carry
+`userData.excludeFromShadows`. The final review found them as the one translucent mesh in the
+scene that would have started writing depth under an override material, and it had gone unnoticed
+because `src/main.ts` adds the waterfall straight to `scene` rather than to `world.group`, so
+`enableShadows` never traversed it. The flag does nothing today, and it is correct anyway — a
+translucent curtain should not cast — so it stays with its test.
+
+**Four library traps, all of which fail silently, all found by reading `node_modules/three`
+rather than by debugging.** Worth keeping because any future screen-space pass meets all four:
 
 1. `MultiplyBlending` requires `material.premultipliedAlpha = true`. Without it three.js logs an
-   error at `WebGLState.js:687` and applies no blend at all — the pass would draw nothing rather
-   than crash. With it, the blend three.js applies is `blendFuncSeparate(DST_COLOR,
-   ONE_MINUS_SRC_ALPHA, ZERO, ONE)`, which only behaves like a multiply if the fragment's alpha
-   is exactly 1.0; anything lower adds unmultiplied destination colour back in.
-2. The depth target has to be cleared to white, not the WebGL default of black. Packed depth
-   lives in the colour channels here (`RGBADepthPacking`), and black unpacks to depth 0.0 — the
-   near plane — so an unwitting clear would make every pixel of the target report geometry sitting
-   on the camera.
-3. Both filters on the depth target must be `NearestFilter`. The stored values are packed depth,
-   and interpolating two packed RGBA depths produces a number that is not a depth at all; the
-   failure mode is a faint halo along every edge rather than an obvious break.
+   error at `WebGLState.js:687` and applies no blend at all. With it the blend is
+   `blendFuncSeparate(DST_COLOR, ONE_MINUS_SRC_ALPHA, ZERO, ONE)`, so the fragment's output alpha
+   must be exactly 1.0 or the result stops being a multiply.
+2. A depth target holding packed depth must be cleared to **white**. Packed depth occupies the
+   colour channels, and the default black unpacks to depth 0.0 — geometry against the near plane.
+3. `NearestFilter` on both filters. Interpolating two packed RGBA depths yields a value that is
+   not a depth.
 4. The built-in `projectionMatrix` uniform belongs to whichever camera `renderer.render` was
-   given — for the fullscreen quad, a throwaway orthographic camera that is never configured, so
-   the shader has no use for it. The scene camera's own projection and inverse-projection
-   matrices have to be pushed under separate uniform names (`uProjection`,
-   `uProjectionInverse`) rather than relied on implicitly.
+   given, which for a fullscreen quad is a throwaway orthographic one. The scene camera's
+   matrices must arrive under separate names.
 
-**The blocking defect the review caught, which trap 2 alone did not cover.** `renderer.ts` sets
-`scene.background` to a `Color`, and `WebGLBackground.render` runs on every `renderer.render`
-call — including the depth-target render — where it does `setClear(background, 1)`, sets
-`forceClear = true`, and then clears if `autoClear || forceClear`. `forceClear` is ORed with
-`autoClear` there, so turning `autoClear` off would not have helped. With the sky colour left in
-place, that branch silently discards the explicit white clear on every frame, and the depth
-target ends up holding the sky colour instead — which `unpackRGBAToDepth` reads back as roughly
-0.5027, below the shader's 0.9999 sky early-out. Every sky pixel would then present as a phantom
-surface about one view-space unit from the camera. The predicted symptom was the whole sky
-dropping to 45% brightness whenever the camera looked sunward, and popping back the instant it
-turned away. The fix is to null `scene.background` for the duration of the depth render and
-restore it afterwards; this was caught by review before it ever ran, and the fix was then
-confirmed on screen.
+**And a fifth, which none of the four covered.** `scene.background` is a `Color` in this project,
+and `WebGLBackground.render` runs on every `renderer.render` — including a render into a target.
+It does `setClear(background, 1)` and sets `forceClear = true`, then clears if
+`autoClear || forceClear`. So an explicit white clear was discarded and the depth target got the
+sky colour, which unpacks to about 0.5027 — under the 0.9999 sky early-out — making every sky
+pixel a phantom surface roughly one view-space unit from the camera. Note the `forceClear` OR:
+turning `autoClear` off would not have helped. Nulling `scene.background` around the depth render
+is the only fix. Review caught this before it ever ran.
 
-**A second real defect: a constant bias could not do the job.** `CONTACT_BIAS` at 0.02 was
-smaller than the ray's own per-step depth advance of `0.075 · |uSunView.z|`, so a surface square
-to the camera self-occluded at the very first step whenever `|uSunView.z| > 0.27` — a second,
-hard-edged 45% terminator laid straight over the diffuse lighting. The fix computes a
-`selfOcclusion` term that tracks the ray's own advance and adds it to both bounds rather than
-folding it into a larger constant bias, which could only ever be correct at one step index. The
-algebra cancels the planar case exactly: the planar `difference` comes out to `i · step · |z|`
-against a threshold of `uBias + i · step · |z|`, so it can never fire, while a genuine occluder
-standing `δ` in front of the surface still fires iff `δ > uBias`. Shifting both bounds rather
-than only correcting the lower one is what keeps `CONTACT_THICKNESS` meaning a physical property
-of an occluder, rather than a property of the march itself.
+**Two more the review caught, worth remembering for the same reason.** `WebGLShadowMap.render`
+bails only on `enabled === false` or `autoUpdate === false && needsUpdate === false`, so both
+`renderer.render` calls rasterised the full 4096-square shadow map — doubling a cost `sun.ts`
+already records as unmeasured, for a map the depth pass never read. And restoring hidden nodes
+must restore their *previous* visibility rather than forcing `true`: `src/fx/aim-tell.ts` builds
+its preview mesh invisible and shows it only when a target is in the cone, so forcing it visible
+would have left it on screen permanently.
 
-**A third: the 4096² shadow map was being rasterised twice per frame.** `WebGLShadowMap.render`
-bails only when `enabled === false` or when `autoUpdate === false && needsUpdate === false`, and
-neither held during the depth render — so both of this pass's `renderer.render` calls paid for a
-shadow map that the depth pass never reads. The fix sets `renderer.shadowMap.autoUpdate = false`
-around the depth render only. This matters because `src/core/sun.ts` already records that map's
-cost as unmeasured, and this had been quietly doubling it.
+**Register entry twenty-two**, from this cycle, and a new shape: an assertion inert because the
+*fixture's input* had a zero in the component being asserted, so no transform of the input could
+move it. `expect(result.y).toBeCloseTo(0)` for a world direction of `(1, 0, 0)` against a camera
+that maps world Y onto view Y — every expressible mutation left it at exactly 0, while the `x`
+and `z` assertions beside it in the same block were live, which is what made it easy to miss.
+Note also that the register's older claim that no entry had been found by reading an assertion
+and reasoning about what it covered no longer holds: this one was found exactly that way.
 
-**`excludedFromDepth` is deliberately wider than `enableShadows`.** `scene.overrideMaterial`
-replaces every mesh's material wholesale, including its `side`, `depthWrite` and `depthTest` —
-so the sky dome (`depthWrite: false`, `side: BackSide`) and every `depthTest: false` attack
-effect would start writing depth under the override. A gust fired straight at the camera would
-put a wall of near depth across the whole frame. The rule reuses `userData.excludeFromShadows`,
-which already existed for the same question. It collects **any** flagged node rather
-than meshes only, because `src/world/wind-tell.ts` flags a `Group` sitting above a `Points`, and
-those point sprites render under the override and write depth just like a mesh would.
-`enableShadows` can ignore both — a `Group` has no `castShadow` to set, and a `Points` fails its
-`isMesh` test — but this pass cannot, so it hides the flagged ancestor and lets visibility
-inheritance cover the child.
+**A defect I introduced twice in the same file.** The plan for the pass had backticks inside a
+GLSL comment, which close the JavaScript template literal the shader lives in; an implementer
+caught it. Writing the normal-offset fix, I did it again, in the same file, and the dev server
+caught it with a parse error. The convention in that file was already single quotes inside the
+shader body, for exactly this reason.
 
-**The flag did not already mark everything that needed it, and this section and the design
-document both claimed it did.** The claim was that `userData.excludeFromShadows` "already marks
-both groups", which implied the pass inherited a complete opt-out list and had nothing left to
-audit. It was false. The flag covered those two groups because both are also things that must
-not *cast* a shadow, and there was a third class in this scene that had never needed either
-treatment: **a translucent mesh that writes no depth of its own.** `src/world/waterfall.ts`'s
-six curtains from `archipelago.ts` are exactly that — `transparent: true`, `opacity: 0.55`,
-`side: DoubleSide`, `depthWrite: false` — and they were unflagged. Under
-`scene.overrideMaterial = depthMaterial` the override supplies `depthWrite: true`, so all six
-started writing depth into the target, at sizes from 5×55 up to 10×90 world units. Each hangs
-from `anchor.y + LIP_RAISE − length/2` with `LIP_RAISE` at 0.6, which is exactly
-`CONTACT_RANGE`, so every curtain overlaps its rim rock by the full contact distance. The
-symptom is a dark band along the top of each waterfall where it meets the lip, painted over
-rock the colour frame shows you straight through, plus false darkening on the curtain itself.
-No error, nothing in the console — a stray dark band and nothing else.
+**What was never measured, and now never will be.** Frame cost. The harness only runs its render
+loop while its pane is frontmost, so no `requestAnimationFrame` timing probe completes. That was
+already true of the 4096 shadow map and is recorded beside it. The pass would have added a second
+geometry submission and a fullscreen pass on top of it, and the exposure was on GPUs weaker than
+the development machine. Removing it removes that risk along with the effect.
 
-It escaped notice for a second reason worth recording, because it is a structural blind spot
-rather than an oversight: `src/main.ts` adds each waterfall mesh directly to `scene`, not to
-`world.group`, so `enableShadows(world.group)` never traversed it and no existing test or
-review path had cause to look at its flag. Fixed by setting the flag in `createWaterfall`, with
-an assertion in `waterfall.test.ts` red-proofed by removing the line and watching it fail.
+**Where this leaves shadows.** Four levers tried, four answers:
 
-**The rule for anyone adding a mesh from here on: the flag is now load-bearing for two
-different passes, and "it casts no shadow anyway" is no longer a reason to leave it off.** A
-translucent surface that writes no depth of its own must set it, because the depth pass's
-override material writes depth whatever the mesh's own material says. The design document still
-carries the original claim; it is left as the historical record.
+- **VSM** — closed. No `normalBias` is both free of terrain acne and solid enough to keep the
+  character's shadow readable, at either map size.
+- **A 4096 map** — shipped. A real if modest gain in shadow *detail*, at roughly 50 MB and an
+  unmeasured frame cost.
+- **A smaller `SHADOW_EXTENT`** — closed. `sun.test.ts` pins its floor above the largest island's
+  70-unit radius, so the whole usable range buys at most 1.27 times the texel density, and the
+  largest safe step was indistinguishable side by side.
+- **Contact shadows** — built and removed. Correct once it had a surface normal, and invisible at
+  this camera distance once correct.
 
-**The `visible` restore.** The pass hides only the nodes that were actually visible, and shows
-back exactly those and nothing else. Forcing every excluded node to `true` on the way out would
-have left `src/fx/aim-tell.ts`'s preview mesh — built invisible and shown only when a target is
-inside the cone — on screen permanently.
-
-**The numbers that are argued guesses.** All seven constants in `contact-shadow.ts` are tuned by
-argument rather than by measurement, because nothing in this cycle has been played:
-
-| Constant | Value | Argument |
-| --- | --- | --- |
-| `CONTACT_RANGE` | 0.6 | About a third of the 1.8-unit character — a *contact* distance, not an ambient-occlusion radius. |
-| `CONTACT_STEPS` | 8 | A `#define` loop bound. It has to stay an integer literal so `i <= CONTACT_STEPS` stays an int-to-int comparison, which GLSL ES 3.00 requires. |
-| `CONTACT_STRENGTH` | 0.55 | How dark a fully occluded pixel goes; 1.0 would be black. The value seen on screen in this cycle's verification — and a *gamma-space* multiplier, see below. |
-| `CONTACT_BIAS` | 0.02 | What is left for reconstruction noise and non-planar surfaces to absorb, once `selfOcclusion` (above) has taken the predictable part of the planar case. |
-| `CONTACT_THICKNESS` | 0.5 | Above this a hit is something far behind rather than a nearby occluder; without it every silhouette would trail a dark smear into the distance. |
-| `CONTACT_FADE_START` | 40 | Where the effect starts fading, in world units. |
-| `CONTACT_FADE_END` | 70 | Where it is gone entirely — past this a fixed world-space range subtends too few pixels for the march to sample anything but noise. |
-
-**The compounding unmeasured cost, stated plainly.** The 4096 map already added an unmeasured
-GPU cost (see "Shadows" above). This pass adds a second full-scene geometry submission plus a
-fullscreen shader pass on top of it, and that cost cannot be measured in this environment either
-— the harness only runs its render loop while its pane is frontmost, so no
-`requestAnimationFrame` timing probe ever completes, which is the same limitation already
-recorded for the shadow map. The exposure is on GPUs weaker than the development machine. Unlike
-the previous cycle's wiring, this one is at least partly caught by the typecheck: removing
-`renderScene` from `main.ts`'s destructuring of `createRenderer`'s return value produces two
-`TS2304` errors, so a broken wire-up fails the build rather than shipping silently.
-
-**A plan defect worth recording.** The plan sized the depth target from
-`window.innerWidth`/`innerHeight`, but `setPixelRatio(min(devicePixelRatio, 2))` makes the
-drawing buffer up to twice that — measured on the development machine at a device pixel ratio of
-2, where an 800×450 window produced a 1600×900 drawing buffer. Sizing the depth target from the
-window would have handed it a quarter of the canvas's actual pixels, while `depthTargetSize`'s
-own comment claims full resolution — and the symptom would not have been an error, it would have
-been a soft halo along every edge. This was corrected during implementation to size from
-`renderer.getDrawingBufferSize`, read *after* `setSize`, exactly the way `renderer.ts`'s own
-`resize` function now does it.
-
-**The false comments the final review caught, in the one file whose only automated gate is the
-typecheck.** `contact-shadow-pass.ts` holds the GLSL and the render-target plumbing, none of which
-any test can reach, so its comments are the only description of what it does — and this project
-treats a false comment as a defect. Seven were wrong or overstated, and none of them changed a
-single line of behaviour.
-
-1. **"GLSL ES 1.0" was wrong at four sites** — `contact-shadow.ts`'s `CONTACT_STEPS` comment, the
-   `defines` comment in the pass, the integer-steps test, and this document's constants table.
-   three.js 0.185 compiles *every* non-`RawShaderMaterial` as GLSL ES 3.00 unconditionally:
-   `WebGLProgram` sets `#version 300 es` and prepends the `varying` / `texture2D` /
-   `gl_FragColor` shims. GLSL ES 3.00 does not require a constant loop bound, so the stated
-   reason for keeping `CONTACT_STEPS` an integer literal was not a reason at all. **The
-   conclusion survives for a different reason and the test is still a real guard:** a
-   `#define CONTACT_STEPS 8.5` would make `i <= CONTACT_STEPS` an int-to-float comparison, which
-   GLSL ES 3.00 rejects as firmly as GLSL ES 1.0 would have. Only the rationale was rewritten.
-2. **`toneMapped: false` is half a mechanism and mostly inert.** `WebGLPrograms` turns it into
-   `toneMapping: NoToneMapping` and `WebGLProgram` gates `tonemapping_pars_fragment` on
-   `toneMapping !== NoToneMapping`, so that half really is suppressed. But
-   `colorspace_pars_fragment` is prepended to every non-raw fragment shader unconditionally and
-   `toneMapped` has no bearing on it — and since this shader includes neither
-   `<tonemapping_fragment>` nor `<colorspace_fragment>`, both prefixes are unused declarations
-   either way. The flag is kept as a statement of intent, described as one.
-3. **The consequence of (2), which was documented nowhere: `CONTACT_STRENGTH` is a gamma-space
-   multiplier.** With no colour-space chunk running, the multiply lands on the sRGB-encoded
-   values already in the canvas rather than on linear ones. That is a defensible reading of
-   "multiply over the finished frame" — it is the frame as displayed — and 0.55 is the value that
-   looked right under exactly that arrangement. It is also tied to it: move this pass inside the
-   colour chain and the same multiply applies to linear values, so the constant would need
-   re-tuning rather than carrying across. Now recorded beside the constant itself.
-4. **Both sky early-outs are optimisations, not correctness fixes, and the comments claimed
-   otherwise.** The top one said that without it "the horizon darkens and the effect reads as
-   fog". It cannot. With the target correctly cleared to white a sky pixel unpacks to depth 1.0,
-   which reconstructs to a view Z of −2200, so `cameraDistance` is 2200, `smoothstep(40, 70,
-   2200)` is 1, `fade` is 0, and `shade` is exactly 1.0 whatever the march found. The same goes
-   for the `continue` further down: a sky sample's `difference` comes out around −2190, far below
-   `uBias`, so the hit test could never fire on it. Both stay — they save up to eight texture
-   fetches and a full march per sky pixel, which is most of the frame whenever the camera looks
-   up — reworded to say they skip work the distance fade would zero anyway.
-5. **`renderer.clear()` before the depth render is redundant.** `autoClear` is still true and
-   `scene.background` has just been nulled, so `WebGLBackground` performs an identical clear one
-   line later inside `renderer.render`. Kept as belt-and-braces, and the comment now says that is
-   why: the blocking defect on this branch was something else silently taking over this exact
-   clear, and an explicit one fails visibly if that recurs.
-6. **`dispose()` is unreachable and its body was over-general.** Nothing calls it —
-   `createRenderer` builds the pass and never exposes it. The method is kept, because every view
-   module here has one, but the `quadScene.traverse` with an `isMesh` narrowing has been replaced
-   by disposing the single geometry through a local. The scene holds exactly one quad, built ten
-   lines above; the traversal was written for a scene that might hold anything.
-7. **The construction-time `getDrawingBufferSize` read in `renderer.ts` is always superseded** by
-   the unconditional `resize()` a few lines below, which calls `setSize` and re-reads. Kept,
-   because `createContactShadowPass` needs *some* size to build its render target with and a
-   plausible one beats a zero, and noted as provisional.
-
-Also corrected: this document cited `WebGLState.js:686` for the `MultiplyBlending` error. 686 is
-the `case` label; the `error(...)` call is 687. The quoted blend function and the
-alpha-must-be-1.0 reasoning were both right and are unchanged.
-
-**One divergence between the design document and the shader, left as it stands.** The design
-document says "Occlusion accumulates across the steps". The shader does not accumulate: it takes
-the *first* hit along the ray, sets `occlusion = 1 − (i − 1) / CONTACT_STEPS` so that a nearer hit
-is darker, and `break`s. The implementation's own comment describes that correctly. The design
-document is left as the historical record of what was planned, the same way it keeps the original
-`excludeFromShadows` claim; this note is the pointer for anyone who reads the two side by side and
-wonders which is authoritative. The shader is.
-
-**A guard that earned its place immediately.** While the browser pane used to verify this was
-hidden, `window.innerWidth` and the canvas dimensions all read 0 — precisely the input
-`depthTargetSize` clamps to 1×1, since a zero-dimension render target throws in WebGL rather than
-degrading.
-
-**The twenty-second assertion that could not fail, and its shape is new to the register: inert
-because the fixture's own *input* had a zero in the component being asserted.** In
-`contact-shadow.test.ts`, "maps the camera's own heading onto view -Z" asserted all three
-components of `sunDirectionInView(new Vector3(1, 0, 0), cameraLookingAlongX(), …)`. The fixture
-camera is a quarter turn about Y, so it maps world Y onto view Y, and the input's `y` is 0 —
-which means no transform of that input can put anything but 0 in `result.y`. Every mutant this
-function has: the identity (`return target.copy(worldDirection)`), `matrixWorld` in place of
-`matrixWorldInverse`, `applyMatrix4` in place of `transformDirection`, a dropped
-renormalisation, and a bare `negate()` — all of them leave that line green.
-
-What makes this one worth recording separately from the twenty-one before it is how it hid. The
-`x` and `z` assertions **bracketing it on the two adjacent lines** are real guards against those
-same mutants, so the block reads as thoroughly covered, and the line sits directly beneath a
-fixture docstring promising that "a non-default basis is what makes the assertions below able to
-fail" — true of the neighbours, false of this one. The register's previous entries were inert
-because the *claim* was weak (bare comparisons, tautologies) or because the *fixture* was
-symmetric; here the fixture is asymmetric and the claim is exact, and the assertion is still
-dead, purely because the input carried no signal in the axis being read.
-
-Fixed by adding an input with a non-zero Y aligned to no camera axis — world `(1, 1, 0)`
-normalised, 45 degrees above the camera's forward — and asserting all three components against
-`(0, 1/√2, −1/√2)`. That expectation was computed with three.js itself rather than taken on
-trust. The new Y assertion catches a sign flip anywhere in the transform and any component swap
-touching Y; the wrong-matrix mutant turns out to be a quarter turn the other way about that same
-Y axis, so it still leaves Y alone and surfaces in Z, which is asserted alongside. The original
-`y ≈ 0` line is kept with a comment saying plainly that it pins a value and covers nothing —
-the same treatment the twentieth entry's `Infinity` fixture got.
-
-**A near-miss of the same family in the file, recorded rather than changed.** `expect(depthTargetSize(1, 1))`
-sits beside `expect(depthTargetSize(0, 0))` in "never returns a zero dimension", and it is
-strictly implied by its neighbour: no implementation that returns `{1, 1}` for `(0, 0)` and
-matches the canvas exactly at 1280×720 can fail at `(1, 1)`. That is redundant rather than
-inert — it *could* fail in principle, just never independently of the two assertions around it —
-so it is left in place as a boundary-value note. Worth knowing that the distinction exists,
-because "redundant" and "cannot fail" have different fixes and the register is only about the
-second.
-
-**What was seen in the running game.** Verified by controller with `CONTACT_STRENGTH` A/B'd
-between 0.55 and 0.0 at identical framing. The console is clean — no shader compile error and no
-`premultipliedAlpha` error — which is positive evidence for trap 1 above. The sky is at full
-brightness, confirming the background-clear fix. The flat ground shows no banding and no
-terminator, confirming the self-occlusion fix. Every prop now has a distinct dark contact where
-it meets the terrain — the tree trunks most clearly, plus the small cylinders and the shrine —
-which is exactly the "pasted on rather than resting on" deficiency the pass was designed to fix.
-
-**The artefact found and deliberately not fixed.** The stacked cones that form a tree's canopy
-sit within `CONTACT_RANGE` of each other, so they contact-shadow one another and the canopy
-gains thin horizontal dark seams between its layers. The pass is working correctly — it is a
-depth-only contact term over closely stacked surfaces, and that is inherent to the technique —
-but visually it reads as banding in the foliage rather than as grounding. The two remedies are a
-smaller `CONTACT_RANGE`, which would shrink the wanted grounding by the same proportion, or a
-normal-aware variant; neither is worth choosing before anyone has played it. A second, smaller
-artefact: a dark diagonal line extends from a trunk across sloping ground, longer than the
-contact itself.
-
-**What could not be looked at.** Pointer lock is refused in this harness, so the pass has only
-been seen on the paused front door and nowhere else — it cannot be watched while the camera
-moves, which is exactly when a screen-space march shows its artefacts. The foliage banding above
-is a still-frame observation for the same reason; how it behaves in motion is unknown.
+Anything further is a different technique — cascaded shadow maps, or ambient occlusion at a real
+AO radius rather than a contact one, which is a different feature with its own tuning and its own
+artefacts. The one thing this cycle establishes about all of them: render the term on its own
+before believing what the composited frame appears to show.
