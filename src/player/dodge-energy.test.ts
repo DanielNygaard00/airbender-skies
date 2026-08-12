@@ -106,7 +106,7 @@ function input(over: Partial<InputState> = {}): InputState {
     actionPressed: false, actionHeld: false, actionReleased: false,
     scooterPressed: false, dashPressed: false, gustPressed: false,
     avatarStatePressed: false, vortexHeld: false, vortexReleased: false,
-    slipstreamPressed: false, staffPressed: false,
+    slipstreamPressed: false, staffPressed: false, carryPressed: false,
     ...over,
   }
 }

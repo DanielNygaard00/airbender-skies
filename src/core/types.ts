@@ -26,6 +26,14 @@ export interface InputState {
   dashPressed: boolean
   /** F, edge-triggered: a gust of air. */
   gustPressed: boolean
+  /**
+   * G, edge-triggered: pick up the payload in reach, or set down the one being carried.
+   *
+   * One edge for both directions rather than two keys, because the two are never both
+   * available: `carryIntent` in `src/player/payload.ts` decides which one a press means,
+   * and a player who is carrying something cannot pick anything else up.
+   */
+  carryPressed: boolean
   /** E, edge-triggered: enter the Avatar State when it is armed. */
   avatarStatePressed: boolean
   /** R held: charging a vortex. */
@@ -168,6 +176,31 @@ export interface FlightConfig {
   breathRegenGroundedMultiplier: number
   /** Each shrine adds this fraction of baseMaxBreath to the maximum. */
   shrineBreathBonusFraction: number
+  /**
+   * Lift the wing keeps while carrying a payload.
+   *
+   * The model has no mass, so weight can only be expressed as lift taken away: lift is
+   * `liftCoeff · v² · sin(2·aoa)`, and scaling `liftCoeff` is the same thing as carrying
+   * more than the wing was sized for. See `loadedFlight` in `src/player/payload.ts` for
+   * what this buys and what it deliberately does not touch.
+   */
+  payloadLiftFactor: number
+  /**
+   * Weight-shift turn rate kept while carrying a payload.
+   *
+   * Applied to `weightShiftTurnRate` and to nothing else, because that is the input a hang
+   * glider actually rolls with — `baseTurnRate` and `bankTurnRate` only govern how quickly
+   * the nose chases the mouse. See `loadedFlight`.
+   */
+  payloadTurnFactor: number
+  /**
+   * Multiplier on both breath costs while carrying a payload.
+   *
+   * One multiplier for thrust and hover together, so their tuned relationship to each other
+   * survives: `hoverBreathPerSecond` is deliberately about 1.7 times `breathDrainPerSecond`,
+   * and scaling only one of them would rewrite that as a side effect.
+   */
+  payloadBreathMultiplier: number
   /**
    * Breath needed to start bending, as opposed to zero.
    *

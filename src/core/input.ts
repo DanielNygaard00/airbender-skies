@@ -26,6 +26,7 @@ export function toInputState(
   vortexReleased = false,
   slipstreamPressed = false,
   staffPressed = false,
+  carryPressed = false,
 ): InputState {
   const axis = (pos: string, neg: string) => (held.has(pos) ? 1 : 0) - (held.has(neg) ? 1 : 0)
   return {
@@ -45,6 +46,7 @@ export function toInputState(
     vortexReleased,
     slipstreamPressed,
     staffPressed,
+    carryPressed,
   }
 }
 
@@ -111,6 +113,7 @@ export class InputTracker {
   private vortexReleased = false
   private slipstreamPressed = false
   private staffPressed = false
+  private carryPressed = false
   private readonly listeners: (() => void)[] = []
 
   constructor(target: EventTarget, canvas: HTMLCanvasElement) {
@@ -150,6 +153,9 @@ export class InputTracker {
       if (!e.repeat && e.code === 'KeyF') this.gustPressed = true
       if (!e.repeat && e.code === 'KeyE') this.avatarStatePressed = true
       if (!e.repeat && e.code === 'KeyC') this.slipstreamPressed = true
+      // Edge-triggered like the rest, and for a sharper reason than most: held down, a
+      // repeating G would set the payload down and lift it again on alternate frames.
+      if (!e.repeat && e.code === 'KeyG') this.carryPressed = true
     })
     on<KeyboardEvent>('keyup', (e) => {
       this.held.delete(e.code)
@@ -206,6 +212,7 @@ export class InputTracker {
       this.vortexReleased,
       this.slipstreamPressed,
       this.staffPressed,
+      this.carryPressed,
     )
     this.actionPressed = false
     this.actionReleased = false
@@ -216,6 +223,7 @@ export class InputTracker {
     this.vortexReleased = false
     this.slipstreamPressed = false
     this.staffPressed = false
+    this.carryPressed = false
     return state
   }
 

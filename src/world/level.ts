@@ -8,6 +8,23 @@ export interface ShrineDef {
   offset: Vector3
 }
 
+/**
+ * A carryable payload, and where it is meant to end up.
+ *
+ * Two island references rather than one, because a payload without a destination is just
+ * scenery: the whole point of §2.4's escort framing is that the weight is carried *somewhere*,
+ * and the pair of islands is what makes the degraded flight model a route rather than a
+ * handicap. `validateLevel` checks both, so a level cannot ship a payload nobody can deliver.
+ */
+export interface PayloadDef {
+  /** The island it starts on. */
+  islandId: string
+  /** Where on that island, relative to the island's centre. */
+  offset: Vector3
+  /** Setting it down anywhere on this island counts as delivered. */
+  destinationIslandId: string
+}
+
 export interface Level {
   id: string
   spawn: { islandId: string; offset: Vector3 }
@@ -15,6 +32,8 @@ export interface Level {
   worldFloorY: number
   islands: IslandDef[]
   shrines: ShrineDef[]
+  /** Things the player can carry on the glider. Optional. */
+  payloads?: PayloadDef[]
   waterfalls: WaterfallDef[]
   /** Thermals, ridge lift, rivers, downdrafts and dead air. Optional. */
   winds?: WindDef[]
@@ -44,6 +63,27 @@ export function validateLevel(level: Level): void {
   for (const shrine of level.shrines) {
     if (!ids.has(shrine.islandId)) {
       throw new Error(`Level "${level.id}" shrine references unknown island "${shrine.islandId}"`)
+    }
+  }
+  for (const payload of level.payloads ?? []) {
+    // Both ends, and the destination is the one worth being strict about: a payload whose
+    // source island is missing simply never appears, but a payload with an unknown
+    // destination appears, gets carried, and can never be delivered — a dead objective that
+    // looks alive.
+    if (!ids.has(payload.islandId)) {
+      throw new Error(`Level "${level.id}" payload references unknown island "${payload.islandId}"`)
+    }
+    if (!ids.has(payload.destinationIslandId)) {
+      throw new Error(
+        `Level "${level.id}" payload on "${payload.islandId}" references unknown ` +
+        `destination island "${payload.destinationIslandId}"`,
+      )
+    }
+    if (payload.islandId === payload.destinationIslandId) {
+      throw new Error(
+        `Level "${level.id}" payload on "${payload.islandId}" is already at its ` +
+        'destination, so carrying it would be a walk rather than a flight',
+      )
     }
   }
   for (const waterfall of level.waterfalls) {
