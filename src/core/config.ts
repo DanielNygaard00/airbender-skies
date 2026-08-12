@@ -114,6 +114,55 @@ export const DEFAULT_GROUND_CONFIG: GroundConfig = {
   scooterChargeGain: 0.35,
   scooterChargeLoss: 0.8,
   scooterTierDrop: 0.34,
+  // Wall-riding. The design doc files it inside the Air Scooter row, so its numbers sit
+  // with the rest of the scooter's rather than in a config of their own.
+  //
+  // 0.25 is a face within 14.5 degrees of vertical (acos 0.25 is 75.5 degrees), against
+  // `DEFAULT_COLLISION_CONFIG.wallNormalY`'s 0.5, which is 60 degrees. Half of it, and
+  // chosen by measurement rather than by argument: swept over the real archipelago from
+  // every position a rider could actually be standing on, relaxing this to 0.5 moves
+  // lateral contact from 0.25% of (position, bearing) pairs to 0.61% and the tallest
+  // continuous ridable band from 6.00 m to 7.00 m. So the looser threshold buys essentially
+  // nothing here, while letting the move fire on 60-degree slopes the ground snap already
+  // walks up — which would read as sticking to hillsides. See `wall-ride-geometry.test.ts`,
+  // which pins all four of those figures.
+  wallRideNormalY: 0.25,
+  // `runSpeed`. You have to be closing on the wall at least as fast as a flat-out sprint
+  // on foot, which the scooter clears easily — at the entry charge below, its multiplier is
+  // 2.20, so even a walk into a wall is 15.4 m/s. The gate is therefore about the scooter
+  // being up to speed and pointed at the wall, not about holding sprint.
+  wallRideEntrySpeed: 13,
+  // One tier: `scooterTierDrop`, the accumulator's own unit of loss. Entry and exit are then
+  // denominated in the same currency with a tier of hysteresis between them, which is what
+  // stops a charge-0 rider entering and being dropped on the next frame — a stutter against
+  // every wall on the map rather than a move.
+  wallRideMinCharge: 0.34,
+  // `scooterChargeLoss` 0.8, the rate a hard turn bleeds the accumulator, because a wall ride
+  // is the same idea pointed upward: you are spending the clean line rather than holding it. A
+  // full accumulator therefore pays for 1.25 s of wall against the 2.86 s at
+  // `scooterChargeGain` that it takes to build one, so a ride gives back well under half the
+  // line that bought it — which is what the design doc means by a vertical shortcut costing
+  // the speed you built to reach it.
+  wallRideChargeDrain: 0.8,
+  // `jumpSpeed` / `runSpeed` = 9 / 13 = 0.692, rounded. The statement it encodes: a ride
+  // entered at the slowest legal closing speed climbs at exactly the speed a jump leaves
+  // the ground with, so the worst wall ride is worth one jump and everything above it is
+  // profit. Not derived from those two at runtime, because that would move the feel of
+  // every wall ride the next time anyone retunes the jump; the relationship is asserted in
+  // `wall-ride.test.ts` instead, so a retune reddens a test rather than shipping silently.
+  wallRideRedirect: 0.7,
+  // A third of `gravity` 20 — the ball of air carries two thirds of the rider's weight
+  // while the ride lasts. Picked so the two limits on a ride bind together instead of one
+  // making the other decorative: the minimum legal ride climbs at 9.1 m/s and decays to
+  // `wallRideHoldSpeed` in 1.22 s, against the 1.25 s a full accumulator pays for at
+  // `wallRideChargeDrain`. Above the minimum, the accumulator is what runs out first, which
+  // is the ordering the design doc asks for.
+  wallRideClimbDecay: 6.7,
+  // A tenth of `jumpSpeed` 9. Zero would read simpler and would work, but a ride crawling
+  // upward at a few centimetres a second still drains the accumulator and still holds the
+  // avatar leaning into the rock, so it would look like sticking to the wall rather than
+  // like letting go of it. A tenth of a jump is below anything a player can see as a climb.
+  wallRideHoldSpeed: 0.9,
   maxDashChain: 3,
   dashSpeed: 26,
   dashRecoverySeconds: 0.7,

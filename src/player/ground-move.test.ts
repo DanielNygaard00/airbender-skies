@@ -86,7 +86,10 @@ const input = (over: Partial<InputState> = {}): InputState => ({
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({
   mode: 'ground', position: new Vector3(0, 0, 0), velocity: new Vector3(),
   forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
-  grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0, coyoteTime: 0, jumpBuffer: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0, slipstreamElapsed: null, slipstreamCooldown: 0, staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, tangled: 0, ...over,
+  grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0, coyoteTime: 0,
+  jumpBuffer: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+  slipstreamElapsed: null, slipstreamCooldown: 0, staffChain: 0, staffElapsed: null,
+  staffRecovery: 0, staffSinceSwing: 0, tangled: 0, wallRideNormal: null, ...over,
 })
 
 describe('horizontalForward', () => {
@@ -821,6 +824,147 @@ describe('the air scooter on the ground', () => {
     const clean = settle({}, 3, mount())
     const carving = settle({ strafe: 1 }, 2, clean)
     expect(carving.scooterCharge).toBeLessThan(clean.scooterCharge)
+  })
+})
+
+/**
+ * Wall-riding through the whole mover, on the synthetic wall.
+ *
+ * The rule is covered in `wall-ride.test.ts` and the geometry in
+ * `wall-ride-geometry.test.ts`. What is left for here is the wiring: the order the three
+ * steppers run in, who writes the accumulator, and what state an exit leaves behind. Those are
+ * claims about `groundStep`, so they are made against `groundStep`.
+ */
+describe('taking the scooter up a wall', () => {
+  /** A charged rider already moving at the wall at x = 5, feet on the floor. */
+  const charging = (charge = 1) => player({
+    position: new Vector3(4.4, 0, 0),
+    velocity: new Vector3(26, 0, 0),
+    forward: new Vector3(1, 0, 0),
+    scooterActive: true, scooterCharge: charge,
+  })
+  const intoTheWall = (over: Partial<InputState> = {}) =>
+    input({ forward: 1, sprint: true, lookDirection: new Vector3(1, 0, 0), ...over })
+
+  /** Step the mover against ground-and-wall, reporting every frame. */
+  function drive(frames: number, from = charging(), over: Partial<InputState> = {}) {
+    let s = from
+    const trace: PlayerState[] = []
+    for (let f = 0; f < frames; f++) {
+      s = groundStep(s, intoTheWall(over), 1 / 60, groundAndWall, G, COLLISION)
+      trace.push(s)
+    }
+    return trace
+  }
+
+  it('leaves the ground climbing on the first frame', () => {
+    const [first] = drive(1)
+    expect(first!.wallRideNormal).not.toBeNull()
+    expect(first!.grounded).toBe(false)
+    expect(first!.velocity.y).toBeGreaterThan(G.jumpSpeed)
+  })
+
+  it('records the wall it is on rather than merely a flag', () => {
+    const [first] = drive(1)
+    expect(first!.wallRideNormal!.toArray()).toEqual([-1, 0, 0])
+  })
+
+  it('spends the accumulator and never builds it back mid-ride', () => {
+    // The whole economy of the move, at the level where two systems could fight over one
+    // number. `stepScooter`'s clean-line gain is switched off for the ride's frames, so the
+    // accumulator can only fall — a rider holding a perfectly straight line up a wall must not
+    // be earning 0.35/s back against the ride's 0.8/s.
+    const riding = drive(40).filter((s) => s.wallRideNormal !== null)
+    expect(riding.length).toBeGreaterThan(5)
+    for (let i = 1; i < riding.length; i++) {
+      expect(riding[i]!.scooterCharge).toBeLessThan(riding[i - 1]!.scooterCharge)
+    }
+    // At the documented rate, not at some net of two rates.
+    const perFrame = riding[0]!.scooterCharge - riding[1]!.scooterCharge
+    expect(perFrame).toBeCloseTo(G.wallRideChargeDrain / 60, 9)
+  })
+
+  it('ends the ride when the accumulator empties, and clamps it at zero', () => {
+    // The wall here is unbounded, so the accumulator is the only limit and this is the pure
+    // test of it. 1 / 0.8 = 1.25 s.
+    const trace = drive(120)
+    const riding = trace.filter((s) => s.wallRideNormal !== null)
+    expect(riding.length / 60).toBeCloseTo(1 / G.wallRideChargeDrain, 1)
+    expect(trace.at(-1)!.scooterCharge).toBe(0)
+    expect(trace.at(-1)!.scooterCharge).not.toBeLessThan(0)
+  })
+
+  it('stows the scooter one frame after the ride ends, not during it', () => {
+    // The documented one-frame lag, asserted rather than left as prose. `stepScooter` runs
+    // before the ride can be resolved, so it is kept alive by the ride that was running when
+    // the frame began; the frame after an exit, the ordinary airborne rule stows it.
+    const trace = drive(120)
+    // A loop rather than `findLastIndex`, which needs the ES2023 lib this project does not ask
+    // for — it runs under Node either way, but `npm run typecheck` is the gate that matters.
+    let lastRiding = -1
+    for (let i = 0; i < trace.length; i++) if (trace[i]!.wallRideNormal !== null) lastRiding = i
+    expect(lastRiding).toBeGreaterThan(0)
+    expect(trace[lastRiding]!.scooterActive).toBe(true)
+    expect(trace[lastRiding + 1]!.wallRideNormal).toBeNull()
+    expect(trace[lastRiding + 1]!.scooterActive).toBe(true)
+    expect(trace[lastRiding + 2]!.scooterActive).toBe(false)
+  })
+
+  it('refuses the wall to a rider without a tier of accumulator, and merely skims it', () => {
+    // The entry gate at the integration level, and the control for everything above: the same
+    // approach with an empty accumulator is an ordinary collision, so `resolveMovement` deletes
+    // the velocity going into the rock and the rider stays on his feet.
+    const trace = drive(10, charging(0))
+    for (const s of trace) expect(s.wallRideNormal).toBeNull()
+    expect(trace.at(-1)!.grounded).toBe(true)
+    expect(trace.at(-1)!.position.x).toBeLessThanOrEqual(5)
+  })
+
+  it('lets a jump kick off the wall, and the rising bonus pays for the climb', () => {
+    // The emergent combo the guide advertises. A ride is entered from the ground with the air
+    // jump untouched, so `Space` mid-ride is the double jump — and the double jump is a downward
+    // air push that "gains more height the faster Aang is already moving upward", so kicking off
+    // while climbing hard is worth more than kicking off at the apex.
+    const climbing = drive(3)
+    const fast = climbing.at(-1)!
+    const stillRiding = drive(60).filter((s) => s.wallRideNormal !== null)
+    const slow = stillRiding.at(-1)!
+    expect(fast.velocity.y).toBeGreaterThan(slow.velocity.y)
+
+    const kickedFast = groundStep(
+      fast, intoTheWall({ actionPressed: true }), 1 / 60, groundAndWall, G, COLLISION,
+    )
+    const kickedSlow = groundStep(
+      slow, intoTheWall({ actionPressed: true }), 1 / 60, groundAndWall, G, COLLISION,
+    )
+    // The jump ends the ride: a press that leaves the ground must not be swallowed by it.
+    expect(kickedFast.wallRideNormal).toBeNull()
+    expect(kickedFast.airJumpsUsed).toBe(1)
+    // And it is worth more from the faster climb, which is the bonus doing its job.
+    expect(kickedFast.velocity.y).toBeGreaterThan(kickedSlow.velocity.y)
+    expect(kickedFast.velocity.y).toBeGreaterThan(G.airJumpSpeed)
+  })
+
+  it('lets the player release by stowing the scooter mid-ride', () => {
+    const climbing = drive(3).at(-1)!
+    const released = groundStep(
+      climbing, intoTheWall({ scooterPressed: true }), 1 / 60, groundAndWall, G, COLLISION,
+    )
+    expect(released.wallRideNormal).toBeNull()
+    expect(released.scooterActive).toBe(false)
+    expect(released.scooterCharge).toBe(0)
+    // Still in the air with the climb it had, so letting go reads as stepping off rather than
+    // as being stopped dead against the rock.
+    expect(released.grounded).toBe(false)
+    expect(released.velocity.y).toBeGreaterThan(0)
+  })
+
+  it('does not ride a wall without the scooter at all', () => {
+    const onFoot = drive(10, player({
+      position: new Vector3(4.4, 0, 0), velocity: new Vector3(26, 0, 0),
+      forward: new Vector3(1, 0, 0),
+    }))
+    for (const s of onFoot) expect(s.wallRideNormal).toBeNull()
   })
 })
 

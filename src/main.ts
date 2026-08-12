@@ -62,7 +62,7 @@ import { createAimTell } from './fx/aim-tell'
 import { anyLiveGustTarget } from './combat/gust'
 import { gripShape } from './combat/water'
 import { stallSeverity } from './player/stall'
-import { animationFor, chargeSquashScale } from './player/avatar-anim'
+import { animationFor, chargeSquashScale, wallRideLean } from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
 import { createHud, hudModelFor, VIGNETTE_SCALE_PROPERTY } from './ui/hud'
 import { reticleModel } from './ui/reticle'
@@ -132,6 +132,22 @@ const AIM_DISTANCE = DEFAULT_COMBAT_CONFIG.gust.range
  */
 const SCREEN_CENTRE = { x: 0.5, y: 0.5 }
 
+/**
+ * How sharply the avatar's wall-ride lean chases its target, per second.
+ *
+ * Chosen against `avatar.ts`'s `FADE_SECONDS` of 0.18, the cross-fade every clip change uses:
+ * at 16 the lean is 94% of the way in after that long, so the roll lands with the pose it
+ * accompanies rather than trailing it. Not `DEFAULT_GROUND_CONFIG.groundResponse` 7, which was
+ * the other candidate — that is how fast the *body* chases the stick, and at 7 the lean would
+ * still be a fifth short a full half-second after a ride begins, on a move whose median ride
+ * on this archipelago is shorter than that.
+ *
+ * Not imported from avatar.ts, which does not export it. The figure is cited rather than
+ * shared because these are two independent decisions that happen to agree, and coupling them
+ * would mean a future retune of one silently retuning the other.
+ */
+const WALL_LEAN_RESPONSE = 16
+
 function start(): void {
   if (!hasWebGL()) return showFallback(WEBGL_MESSAGE)
 
@@ -199,6 +215,15 @@ function start(): void {
   let shake = noShake()
   let hurtFlash = 0
   let dashKick = 0
+  /**
+   * The avatar's roll toward a wall it is riding, smoothed.
+   *
+   * A render-time value, so it lives here rather than on `PlayerState` and is stepped in
+   * `syncVisuals` with real frame time — the same division of labour the camera shake keeps.
+   * `wallRideLean` reads one frame of state and knows nothing about time; the easing is here,
+   * and it is exponential so it behaves the same at any refresh rate.
+   */
+  let wallLean = 0
   const shakeVec = new Vector3()
   const combatAudio = createCombatAudio()
   /**
@@ -1342,6 +1367,25 @@ function start(): void {
         sampledPosition.z + sampledForward.z,
       )
     }
+    // The wall-ride lean, rolled on after the heading rather than blended into it. `lookAt`
+    // overwrites the whole quaternion, so this has to follow it; `rotateZ` post-multiplies in
+    // the object's own space, and local +Z is the heading `lookAt` just set, so this is a roll
+    // about the character's own forward axis and nothing else.
+    //
+    // A rotation, never a scale. The glider is a direct child of `avatar.object`, so it rides
+    // this roll — which is correct: the staff is strapped across his back and should tip with
+    // him. Scaling here would compress it, which is the whole reason `setSquash` targets the
+    // model wrapper instead.
+    //
+    // Stepped with real frame time, like the shake below, so the lean keeps easing on rendered
+    // frames that fall between simulation steps.
+    //
+    // The angle is computed from `player.forward` while the roll is applied about
+    // `sampledForward`. The two differ by at most one simulation step of a turn rate the
+    // camera bounds, and the angle is a cosine projection onto that heading, so the
+    // disagreement is a fraction of a percent of the lean — not worth a second interpolator.
+    wallLean += (wallRideLean(player) - wallLean) * (1 - Math.exp(-WALL_LEAN_RESPONSE * frameDt))
+    if (Math.abs(wallLean) > 1e-4) avatar.object.rotateZ(wallLean)
 
     for (const enemy of encounter.enemies) {
       const view = enemyViews.get(enemy.id)

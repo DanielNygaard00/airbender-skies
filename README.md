@@ -14,7 +14,7 @@ back down to a walking stick.
 | `Mouse left` | Staff combo — up to three wide horizontal swings that hit everyone in front of you; keep swinging to continue, the third sweeps wider and shoves much harder | — |
 | `W` / `S` | Walk forward / back | Airbending thrust / flare |
 | `A` / `D` | Strafe | Shift your weight — this is how you steer |
-| `Z` | Air scooter — tap to ride, tap to step off | — |
+| `Z` | Air scooter — tap to ride, tap to step off. Riding, drive it square into a near-vertical wall at speed and it carries you up the wall, spending the charge you built as you climb | — |
 | `Shift` | Sprint — stacks with the air scooter, so sprinting while riding is faster than riding alone | Hover — hold position in mid-air |
 | `Q` | Air blast dash — three in a chain, then a short recovery | — |
 | `F` | Gust — a wide sweep of air that knocks enemies back | Gust |
@@ -76,6 +76,23 @@ downed, never killed, not for good. A soldier you put down will push itself back
 after a while, and rejoin weaker than it was. Hit one while it is getting up and it goes straight
 back down, though that only buys you time: wearing a soldier out for good still means taking its
 health to nothing, three times over.
+That accumulator also buys height. With a charge built and the scooter under you, drive square
+into a near-vertical wall at speed and the ball carries you up it rather than stopping you — the
+squarer you hit it, the higher you go, and a glancing approach only skims along the rock. Climbing
+spends the charge, so a shortcut up a wall costs exactly the speed you built to reach it, and you
+come off the top on foot with an empty bank. The ride ends when the charge runs out, when the wall
+does, when the climb dies away, or when you step off, and any of those leaves you in the air with
+whatever climb you had left — including your second jump, which is still in hand up there and pays
+more the faster you are rising. Be warned that these islands are round: the shipped archipelago has
+very little wall worth riding, and the best of it is a six-metre band on the spire.
+
+A patrol of spear infantry holds the east side of the home island. They pressure your spacing:
+they close, they telegraph, and standing still costs health. Gust knocks them back and
+interrupts a strike, but barely hurts them — enemies are downed, never killed, not for good. A
+soldier you put down will push itself back onto its feet after a while, and rejoin weaker than
+it was. Hit one while it is getting up and it goes straight back down, though that only buys
+you time: wearing a soldier out for good still means taking its health to nothing, three times
+over.
 It cuts both ways: run your own health out and you go down too, waking up back at the island
 with a full bar of health, an empty bar of Focus, and the patrol exactly as you left it.
 

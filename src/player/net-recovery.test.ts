@@ -90,7 +90,7 @@ const glidingOverTheVoid = (over: Partial<PlayerState> = {}): PlayerState => ({
   lastGroundIslandId: 'home',
   airJumpsUsed: DEFAULT_GROUND_CONFIG.maxAirJumps,
   chargeTime: 0, coyoteTime: 0, jumpBuffer: 0,
-  scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+  scooterActive: false, scooterCharge: 0, wallRideNormal: null, dashesUsed: 0, dashRecovery: 0,
   slipstreamElapsed: null, slipstreamCooldown: 0,
   staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0,
   tangled: 0,
