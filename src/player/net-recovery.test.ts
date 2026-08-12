@@ -60,6 +60,7 @@ const input = (over: Partial<InputState> = {}): InputState => ({
   scooterPressed: false, dashPressed: false, gustPressed: false, avatarStatePressed: false,
   vortexHeld: false, vortexReleased: false, slipstreamPressed: false, staffPressed: false,
   airWallHeld: false,
+  radialHeld: false, radialReleased: false, pointerDelta: { x: 0, y: 0 }, elementIndex: null,
   ...over,
 })
 

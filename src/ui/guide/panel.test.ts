@@ -31,6 +31,11 @@ const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({
   vortexReady: true,
   slipstreamReady: true,
   airWallReady: true,
+  // Air by default, so every row that predates the element system keeps being asked in the stance
+  // it was written for. The water rows are asked with `element: 'water'` explicitly.
+  element: 'air',
+  gripReady: true,
+  iceLockReady: true,
   ...over,
 })
 

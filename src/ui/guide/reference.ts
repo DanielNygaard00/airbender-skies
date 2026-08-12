@@ -1,4 +1,5 @@
 import type { WindKind } from '../../world/wind'
+import type { Element } from '../../elements/element'
 
 /**
  * The parts of the guide that are not a key with a rule: the chains that emerge from
@@ -47,6 +48,22 @@ export const COMBOS: readonly Combo[] = [
       'reliable one, so gust the spears off you first and let the wall handle the range.',
   },
   {
+    name: 'Gather them, then freeze them',
+    keys: ['R', '2', 'R'],
+    detail: 'Charge a Vortex on air and release to pull a group into one place, then 2 to switch '
+      + 'to water and R again to freeze the lot where they land. Switching is free and instant, so '
+      + 'this is one continuous action rather than three — which is the whole reason the two '
+      + 'bending keys mean a different move per element.',
+  },
+  {
+    name: 'Drag one out of the group and deal with it',
+    keys: ['2', 'F', 'Mouse left'],
+    detail: 'On water, F yanks whoever is in front of you toward you and holds them there. The '
+      + 'pull lands them inside the staff\'s reach and the hold means they cannot answer, so the '
+      + 'combo goes in for free. Water does no damage at all — it makes the staff\'s damage safe '
+      + 'to spend.',
+  },
+  {
     name: 'Ride the air rather than fight it',
     keys: ['W', 'A', 'D'],
     detail: 'Thrust costs breath; a thermal does not. Steering into a mote cloud and ' +
@@ -79,7 +96,9 @@ export const METERS: readonly MeterNote[] = [
       'drains unless you are riding the scooter — walking costs it exactly as fast as ' +
       'standing still. A hit takes nearly a third. The longer you go unbroken the ' +
       'better everything pays. Hold it at full and the thin pip beneath it fills; once ' +
-      'that is full, E spends the lot on the Avatar State.',
+      'that is full, E spends the lot on the Avatar State. It is also spent, about a third at ' +
+      'a time, by the Ice Lock — so freezing a rank and saving for the Avatar State are the ' +
+      'same budget, and the bar is the only place that trade is visible.',
   },
   {
     name: 'Health',
@@ -115,6 +134,34 @@ export const SCREEN_MARKS: readonly MeterNote[] = [
       + 'while that soldier is winding up to attack — that is the moment to move.',
   },
 ]
+
+/**
+ * What each element is for, in one line each.
+ *
+ * Typed as a `Record` over `Element` for the same reason `WIND_LEGEND` is typed over `WindKind`:
+ * adding earth or fire fails to compile until it has been described here. Cheaper and stronger
+ * than a test that could be deleted, and it means the guide can never ship an element the player
+ * has a key for and no explanation of.
+ *
+ * Each line says what the element *does to a fight*, not what its two moves are — the rows in the
+ * action catalogue already list the moves, and repeating them here would be the same text twice
+ * with two places to keep it true. What a player reading this section needs is the reason to
+ * switch at all.
+ *
+ * The availability rule is expressible here and today has nothing to say, which is deliberate.
+ * When acts exist and `isElementAvailable` starts refusing, an unavailable element is already
+ * struck through in the radial and its rows are already struck through in the columns above; this
+ * legend is where the sentence explaining *why* would go.
+ */
+export const ELEMENT_LEGEND: Record<Element, string> = {
+  air: 'Always yours, and the only element with a damage move in it at all. Wide, fast, and it '
+    + 'moves people — a gust clears space and a Vortex gathers a group. Everything else in the '
+    + 'kit is built on top of it. Straight up on the radial, or 1.',
+  water: 'Control. It does no damage whatsoever: it pulls, it holds, and it freezes, and what it '
+    + 'buys you is time and position for the staff to work in. Its reach is narrow and it does '
+    + 'not extend nearly as far above or below you as air does, so it is a close-quarters answer '
+    + 'rather than something to throw from a hover. Straight down on the radial, or 2.',
+}
 
 /**
  * What the mote clouds mean.

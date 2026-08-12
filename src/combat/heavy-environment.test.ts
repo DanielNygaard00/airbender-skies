@@ -80,6 +80,12 @@ function inputAt(playerPosition: Vector3): EncounterInput {
     playerAim: new Vector3(0, 0, -1),
     playerBreath: 100,
     airWallHeld: false,
+    // Air, so `gustPressed` resolves to a gust rather than a Water Grip. Nothing in this file
+    // presses a bending key, but the field is not optional and the element decides what the
+    // two bending keys mean, so the neutral frame has to name one.
+    element: 'air' as const,
+    focusAvailable: 0,
+    breathAvailable: 100,
   }
 }
 

@@ -24,14 +24,48 @@ export interface InputState {
   scooterPressed: boolean
   /** Q, edge-triggered: an air blast dash. */
   dashPressed: boolean
-  /** F, edge-triggered: a gust of air. */
+  /**
+   * F, edge-triggered: the active element's light verb.
+   *
+   * Named for the air move it started as rather than renamed to `lightPressed`, deliberately.
+   * A rename would reach `InputState`, `EncounterInput`, `main.ts` and every fixture in
+   * `encounter.test.ts` — a large diff across three modules a parallel branch is already
+   * editing, in exchange for a better name. What the key does is decided by
+   * `EncounterInput.element`; this field only says the key went down.
+   */
   gustPressed: boolean
   /** E, edge-triggered: enter the Avatar State when it is armed. */
   avatarStatePressed: boolean
-  /** R held: charging a vortex. */
+  /** R held: charging the active element's heavy verb. Only air actually charges. */
   vortexHeld: boolean
-  /** R, edge-triggered on key-up: release the vortex. */
+  /**
+   * R, edge-triggered on key-up: fire the active element's heavy verb.
+   *
+   * Air reads the charge this release ends; water ignores it and freezes. One gesture, two
+   * moves, which is what keeps the element radial from needing a key per element per move.
+   */
   vortexReleased: boolean
+  /** V held: the element radial is open. */
+  radialHeld: boolean
+  /** V, edge-triggered on key-up: commit the wedge the radial is pointing at. */
+  radialReleased: boolean
+  /**
+   * Pointer movement since the last sample, in pixels.
+   *
+   * Reported alongside the look direction rather than instead of it: the same movement turns
+   * the camera *and* steers the radial, because the owner's ruling is that holding the radial
+   * open must not cost the player a frame of control. Only the element system reads it, and only
+   * while `radialHeld`, but it is reported unconditionally — a delta that appeared only while a
+   * key was held would be a second thing for the tracker to get wrong.
+   */
+  pointerDelta: { x: number; y: number }
+  /**
+   * A number-row element bind, 1-based, or null. 1 is air and 2 is water.
+   *
+   * The alternative to the radial rather than a shortcut into it: it selects directly and never
+   * opens anything, which is why it can be pressed mid-combo with no gesture at all.
+   */
+  elementIndex: number | null
   /** C, edge-triggered: a slipstream dodge. */
   slipstreamPressed: boolean
   /**

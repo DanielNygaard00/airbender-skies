@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  spawnEnemy, stepEnemy, hitEnemy, horizontalDistance, isTargetable, risingProgress,
-  deflects, throughArmour, UNARMOURED,
+  spawnEnemy, stepEnemy, hitEnemy, holdEnemy, horizontalDistance, isHeld, isTargetable,
+  risingProgress, deflects, throughArmour, UNARMOURED,
   type Enemy, type EnemyConfig, type GroundHeightQuery,
 } from './enemy'
 import { isDowned } from './health'
@@ -1013,5 +1013,188 @@ describe('a heavy armoured soldier', () => {
     expect(fell).toBe(true)
     expect(isDowned(current.health)).toBe(true)
     expect(current.downs).toBe(1)
+  })
+})
+
+describe('being held or frozen', () => {
+  /**
+   * A soldier standing just inside its own reach of a player at the origin.
+   *
+   * Inside `strikeRange`, so an unheld soldier at this distance winds up and lands a thrust well
+   * inside the windows tested below. That is what makes "it never hit the player" mean something
+   * here: the control case does hit.
+   */
+  const adjacent = () => spawnEnemy('a', AT(0, C.strikeRange - 0.5), 'spear', C)
+  const PLAYER = AT(0, 0)
+
+  it('stops a held soldier acting, where the same soldier unheld lands hits', () => {
+    // **The positive control is the whole test.** "A held soldier dealt no damage" is
+    // unfalsifiable on its own — it passes for a soldier out of range, for a broken fixture, and
+    // for a `strikeRange` typo. So the identical arrangement is run twice, differing only in the
+    // hold, and the unheld run has to actually connect.
+    const unheld = fight(2, PLAYER, adjacent())
+    const held = fight(2, PLAYER, holdEnemy(adjacent(), 5))
+    expect(unheld.damage).toBeGreaterThan(0)
+    expect(held.damage).toBe(0)
+  })
+
+  it('stops a held soldier closing, where the same soldier unheld walks in', () => {
+    // The second axis of "unable to act": it does not advance either. Again as a pair, and this is
+    // the trap the brief names — knockback physics runs regardless of stance, so a body can leave
+    // a cone by being shoved rather than by being inert. `holdEnemy` applies no impulse, so there
+    // is no knockback here at all, and the distance is asserted as *unchanged* rather than merely
+    // large.
+    const from = spawnEnemy('a', AT(0, 20), 'spear', C)
+    const unheld = fight(1, PLAYER, from)
+    const held = fight(1, PLAYER, holdEnemy(from, 5))
+    const start = horizontalDistance(from.position, PLAYER)
+    expect(horizontalDistance(unheld.enemy.position, PLAYER)).toBeLessThan(start - 1)
+    expect(horizontalDistance(held.enemy.position, PLAYER)).toBeCloseTo(start, 6)
+  })
+
+  it('interrupts a wind-up already in progress', () => {
+    // A hold has to buy the interruption a gust buys, and then keep it. Stepped to mid-wind-up
+    // first, so the soldier really is committed when the ice lands, and the control run confirms
+    // that this same wind-up would otherwise have landed.
+    const winding = fight(C.windUpSeconds * 0.6, PLAYER, adjacent()).enemy
+    expect(winding.stance).toBe('wind-up')
+    const frozen = holdEnemy(winding, 5)
+    expect(frozen.stance).toBe('held')
+    expect(fight(2, PLAYER, frozen).damage).toBe(0)
+    expect(fight(2, PLAYER, winding).damage).toBeGreaterThan(0)
+  })
+
+  it('expires after its own duration and not before', () => {
+    // Both edges, off one duration. A hold that never expired would pass a test that only checked
+    // the soldier was still held partway through, and a hold that expired instantly would pass one
+    // that only checked it eventually acted.
+    const hold = 1.5
+    const frozen = holdEnemy(adjacent(), hold)
+    expect(settle(frozen, hold * 0.9).stance).toBe('held')
+    expect(settle(frozen, hold + 0.1).stance).not.toBe('held')
+  })
+
+  it('releases into recover, not straight into a thrust', () => {
+    // Released into 'advance' instead, a soldier frozen at spear reach would thrust on the very
+    // frame the hold ended — an unavoidable hit, which would make the move a liability at exactly
+    // the range it is for. So the release owes the same beat a hit owes, and the soldier's first
+    // damage lands no sooner than `recoverSeconds` plus `windUpSeconds` after the ice breaks.
+    const hold = 1
+    const frozen = holdEnemy(adjacent(), hold)
+    const justAfter = fight(hold + 1 / 30, PLAYER, frozen)
+    expect(justAfter.enemy.stance).toBe('recover')
+    expect(justAfter.damage).toBe(0)
+    // Not merely "not immediately": nothing lands for the whole recover-then-wind-up window.
+    const window = hold + C.recoverSeconds + C.windUpSeconds - 2 / 60
+    expect(fight(window, PLAYER, frozen).damage).toBe(0)
+    // And the positive control, so the window above is a delay rather than a permanent silence.
+    expect(fight(window + 0.2, PLAYER, frozen).damage).toBeGreaterThan(0)
+  })
+
+  it('stays held through a hit, which is the point of locking a target', () => {
+    // A locked target is locked so it can be worked on. Freeing it by hitting it would make the
+    // freeze useless for anything except walking away — and it would make the grip actively
+    // counterproductive, since the grip's own job is to set up a staff combo.
+    const frozen = holdEnemy(adjacent(), 5)
+    const struck = hitEnemy(frozen, 0.5, new Vector3())
+    expect(struck.stance).toBe('held')
+    expect(struck.health.current).toBeLessThan(frozen.health.current)
+    expect(fight(2, PLAYER, struck).damage).toBe(0)
+  })
+
+  it('does not let a hit extend or shorten the ice', () => {
+    // Only `holdEnemy` writes the timer. A hit that reset it would let the player keep a soldier
+    // frozen forever with the staff, and one that cleared it would make hitting a frozen soldier
+    // a mistake.
+    const frozen = holdEnemy(adjacent(), 2)
+    expect(hitEnemy(frozen, 0.5, new Vector3()).heldSeconds).toBe(frozen.heldSeconds)
+  })
+
+  it('is still targetable while held, by the one gate every resolver asks', () => {
+    // `isTargetable` is deliberately unchanged: adding "unless frozen" would change the gate for
+    // every resolver at once and stop a frozen soldier taking staff damage, which is backwards.
+    // `isHeld` is the separate predicate for anything that needs the distinction.
+    const frozen = holdEnemy(adjacent(), 5)
+    expect(isTargetable(frozen)).toBe(true)
+    expect(isHeld(frozen)).toBe(true)
+    expect(isHeld(adjacent())).toBe(false)
+  })
+
+  it('takes the longer of two holds rather than stacking them', () => {
+    // A grip landing on a frozen target must not shorten the freeze, and a freeze landing on a
+    // gripped one must not be stacked into something longer than either move earns. Both
+    // directions, because `Math.max` and `Math.min` each satisfy one of them.
+    const long = holdEnemy(adjacent(), 3)
+    expect(holdEnemy(long, 1).heldSeconds).toBe(3)
+    const short = holdEnemy(adjacent(), 1)
+    expect(holdEnemy(short, 3).heldSeconds).toBe(3)
+  })
+
+  it('refuses to hold a downed soldier, so the ice cannot outlive a knockdown', () => {
+    // The recovery ladder owns a body on the ground. Holding one would mean two systems counting
+    // down over the same soldier, with the hold outliving the rise — so a soldier could push
+    // itself back up and be frozen on the spot by ice thrown while it was already down.
+    const body = down(adjacent())
+    expect(holdEnemy(body, 5)).toBe(body)
+    expect(holdEnemy(body, 5).stance).not.toBe('held')
+  })
+
+  it('drops the ice when a held soldier is taken down', () => {
+    // The other direction of the same rule: the hold is cleared on the crossing, so a soldier that
+    // was frozen and is then knocked down rises clean rather than re-freezing on its feet.
+    const frozen = holdEnemy(adjacent(), 5)
+    const felled = hitEnemy(frozen, frozen.health.max, new Vector3())
+    expect(isDowned(felled.health)).toBe(true)
+    expect(felled.heldSeconds).toBe(0)
+    expect(felled.stance).toBe('downed')
+    // And it comes back up able to act, which is what makes the clear meaningful rather than
+    // cosmetic — a stale timer would leave it frozen at the top of its rise.
+    const risen = settle(felled, FULL_RECOVERY + 0.1)
+    expect(risen.stance).not.toBe('held')
+    expect(fight(3, PLAYER, risen).damage).toBeGreaterThan(0)
+  })
+
+  it('still falls while held, and settles', () => {
+    // Held is not weightless. A soldier frozen over a drop keeps falling, which is what keeps
+    // §4.6's "blown off a ledge" available as a way to remove a frozen soldier.
+    const airborne = holdEnemy(
+      { ...adjacent(), position: AT(0, 2).setY(10), grounded: false }, 5,
+    )
+    const fallen = settle(airborne, 1)
+    expect(fallen.position.y).toBeLessThan(10)
+    expect(fallen.stance).toBe('held')
+    const landed = settle(airborne, 3)
+    expect(landed.position.y).toBeCloseTo(0, 3)
+  })
+
+  it('goes down by leaving the world even while held', () => {
+    // The hold must not make a soldier immune to the one removal that is not damage. Over empty
+    // air with no ground anywhere, a frozen soldier falls past the floor and is downed.
+    const overNothing = holdEnemy(
+      { ...adjacent(), grounded: false, verticalVelocity: -5 }, 30,
+    )
+    const gone = settle(overNothing, 6, emptyAir)
+    expect(isDowned(gone.health)).toBe(true)
+    expect(gone.stance).toBe('downed')
+  })
+
+  it('counts the hold down once per step, on every path through the function', () => {
+    // The decrement lives in a three-line preamble at the top of `stepEnemy` precisely so that no
+    // one of its eight exits can forget it — a per-branch decrement would eventually acquire a
+    // path that skips it, and it would present as a soldier frozen forever on one code path only.
+    // Checked against real elapsed time rather than a frame count, across a run that passes
+    // through the airborne branch and the grounded one.
+    //
+    // Toleranced at exactly one step rather than with `toBeCloseTo`, because `settle`'s
+    // `t += 1 / 60` accumulates floating-point error and runs one extra frame at 0.5 seconds —
+    // 30 steps land on 0.49999999999999994, which is still under the bound. That is a property of
+    // the helper and not of the countdown, so the assertion says "within one step" and means it,
+    // rather than picking a decimal precision that happens to swallow it.
+    const seconds = 0.5
+    const frozen = holdEnemy({ ...adjacent(), grounded: false, position: AT(0, 2).setY(3) }, 4)
+    const after = settle(frozen, seconds)
+    expect(Math.abs(after.heldSeconds - (4 - seconds))).toBeLessThanOrEqual(1 / 60 + 1e-9)
+    // Never negative, so the expiry test cannot be reached from the wrong side.
+    expect(settle(frozen, 10).heldSeconds).toBe(0)
   })
 })

@@ -3,9 +3,14 @@ import {
   applyDamage, fullHealth, isDowned, stepHealth, type Health, type HealthConfig,
 } from './health'
 import {
-  deflects, hitEnemy, isTargetable, spawnEnemy, stepEnemy, throughArmour,
+  deflects, hitEnemy, holdEnemy, isTargetable, spawnEnemy, stepEnemy, throughArmour,
   type BendingSource, type Enemy, type EnemyConfig, type EnemyKind, type GroundHeightQuery,
 } from './enemy'
+import {
+  canIceLock, canWaterGrip, iceLockTargets, waterGripImpulse, waterGripTargets,
+  type WaterConfig,
+} from './water'
+import type { Element } from '../elements/element'
 import { gustImpulse, gustTargets, type GustConfig } from './gust'
 import {
   waveDamage, waveImpulse, waveTargets, type PressureWaveConfig,
@@ -55,6 +60,15 @@ export interface Encounter {
    * constructor — so the module that owns the rule gets to own the struct.
    */
   airWall: AirWallState
+  /**
+   * Seconds until the next Water Grip is available.
+   *
+   * Its own field rather than one shared "light verb cooldown", because the two moves on that
+   * key have deliberately different cooldowns — 0.45 for a gust, 1.1 for a grip — and a shared
+   * timer would let switching element launder one move's cooldown into the other's. Earth and
+   * fire add their own for the same reason.
+   */
+  waterGripCooldown: number
 }
 
 export interface CombatConfig {
@@ -73,6 +87,7 @@ export interface CombatConfig {
   vortex: VortexConfig
   staffArc: StaffArcConfig
   airWall: AirWallConfig
+  water: WaterConfig
 }
 
 export interface EnemySpawn {
@@ -113,6 +128,7 @@ export function startEncounter(spawns: readonly EnemySpawn[], c: CombatConfig): 
     vortexHeldSeconds: 0,
     vortexCooldown: 0,
     airWall: idleAirWall(),
+    waterGripCooldown: 0,
   }
 }
 
@@ -137,13 +153,25 @@ export interface EncounterInput {
   playerAim: Vector3
   /** Breath in hand, so `stepAirWall` can refuse a raise it cannot pay for. */
   playerBreath: number
-  /** Edge-triggered: the player asked to gust this frame. */
+  /**
+   * Which element is selected, and therefore which move each bending key resolves to.
+   *
+   * F is the light verb and R is the heavy one, and the element decides what those are: air
+   * gives Gust and Vortex, water gives Water Grip and Ice Lock. So this field is what makes the
+   * two keys mean four moves, and it is the single place a new element plugs into the fight.
+   *
+   * On the input rather than on `Encounter`, because the selection is not fight state: it
+   * survives a respawn and it survives leaving the fight entirely, the way the direction the
+   * player is facing does.
+   */
+  element: Element
+  /** Edge-triggered: the player pressed the light bending key this frame. */
   gustPressed: boolean
   /** A Pressure Wave landed at the player's feet this frame, or null. */
   slam: { strength: number } | null
-  /** R held: a vortex is charging. */
+  /** R held: a vortex is charging. Only air charges; see the dispatch in `stepEncounter`. */
   vortexHeld: boolean
-  /** R released this frame. */
+  /** R released this frame: fire the active element's heavy verb. */
   vortexReleased: boolean
   /** The player is inside a slipstream's invulnerable window. */
   playerInvulnerable: boolean
@@ -151,6 +179,17 @@ export interface EncounterInput {
   staffSwing: StaffSwing | null
   /** G held: raise or keep an Air Wall up. A hold rather than an edge, per section 4.2. */
   airWallHeld: boolean
+  /**
+   * Focus the player has right now, so a move priced in Focus can refuse itself.
+   *
+   * Passed in rather than the fight owning a meter: `Focus` belongs to `src/focus`, and the
+   * alternative — `main.ts` deciding whether the player can afford a freeze and passing a
+   * pre-filtered edge — would put the rule in the one module with no tests. The fight decides,
+   * and reports the bill as `focusSpent`.
+   */
+  focusAvailable: number
+  /** Breath the player has right now, for the same reason. */
+  breathAvailable: number
 }
 
 /** One hit aimed at the player this frame, and where it came from. */
@@ -232,6 +271,36 @@ export interface EncounterStep {
   damageAvoided: boolean
   /** The charge a vortex fired at, or null. For the effect that draws it. */
   vortexFired: number | null
+  /**
+   * Live soldiers a Water Grip caught this frame.
+   *
+   * Kept out of `hitThisFrame` and its three siblings, all of which feed a Focus grant. Neither
+   * water move pays Focus, for the reason the Vortex pays none: a control move that also earned
+   * meter would be a Focus engine, and the freeze *spends* the same meter — a move that paid
+   * part of its own price back would be priced twice and would not read as a cost at all.
+   */
+  grippedThisFrame: string[]
+  /** Live soldiers an Ice Lock froze this frame. Out of the Focus lists, for the same reason. */
+  frozenThisFrame: string[]
+  /**
+   * Whether the grip fired at all, even catching nobody.
+   *
+   * Reported separately from `grippedThisFrame` because the effect and the voice fire on the
+   * *attempt* — the same way `main.ts` draws a gust cone from the press rather than from a
+   * connect. A move that is silent when it misses reads as a move that did not come out.
+   */
+  gripFired: boolean
+  /** Whether the freeze fired at all. Same reason. */
+  freezeFired: boolean
+  /**
+   * Focus this frame's moves spent. Zero on almost every frame.
+   *
+   * Reported rather than applied, the same contract `stepEnemy` uses for `damageToPlayer`: this
+   * function advances a fight and has no business holding the player's meters.
+   */
+  focusSpent: number
+  /** Breath this frame's moves spent. Zero on almost every frame. */
+  breathSpent: number
   /** Projectile ids loosed this frame, so a bow release can be made audible. */
   firedThisFrame: string[]
   /**
@@ -363,6 +432,18 @@ export function canVortex(encounter: Encounter): boolean {
 }
 
 /**
+ * Whether a Water Grip can fire: off cooldown, and with the breath to pay for it.
+ *
+ * A thin wrapper over `canWaterGrip`, which owns the rule, so the fight and the action guide
+ * ask the same question through the same shape the other two `can*` predicates here have. The
+ * guide reaches this one rather than `canWaterGrip` directly for exactly that symmetry —
+ * otherwise one row in the panel would be reading a cooldown off an `Encounter` by hand.
+ */
+export function canGrip(encounter: Encounter, breath: number, c: WaterConfig): boolean {
+  return canWaterGrip(encounter.waterGripCooldown, breath, c)
+}
+
+/**
  * Advance the whole fight one frame.
  *
  * Order matters: the gust resolves, then the vortex, then the staff, then the wave,
@@ -399,6 +480,7 @@ export function stepEncounter(
 
   let enemies = encounter.enemies
   let gustCooldown = Math.max(0, encounter.gustCooldown - dt)
+  let waterGripCooldown = Math.max(0, encounter.waterGripCooldown - dt)
 
   let hitThisFrame: string[] = []
   /**
@@ -411,8 +493,18 @@ export function stepEncounter(
    * because each feeds a differently sized Focus grant.
    */
   const deflectedThisFrame: string[] = []
+  let grippedThisFrame: string[] = []
+  let frozenThisFrame: string[] = []
+  let gripFired = false
+  let freezeFired = false
+  let focusSpent = 0
+  let breathSpent = 0
 
-  if (input.gustPressed && canGust(encounter)) {
+  // The light bending key, dispatched on the active element. Air gusts; water grips. Both
+  // cooldowns tick every frame regardless of which element is selected, above — switching away
+  // must not park a cooldown, or a player could hide a gust's recovery inside water and come
+  // back to a gust that never recovered.
+  if (input.gustPressed && input.element === 'air' && canGust(encounter)) {
     const caught = new Set(
       gustTargets(input.playerPosition, input.playerForward, enemies, c.gust)
         .map((enemy) => enemy.id),
@@ -431,6 +523,43 @@ export function stepEncounter(
     gustCooldown = c.gust.cooldownSeconds
   }
 
+  // Water Grip: pull, then hold. Same key as the gust, resolved here because water is selected.
+  //
+  // `canGrip(encounter, ...)` rather than the locally decremented `waterGripCooldown`, for the
+  // reason the gust and the vortex both read their pre-step predicates: reading the decremented
+  // copy would let a grip fire on the frame the cooldown expired, one frame before the action
+  // guide would admit it could.
+  if (input.gustPressed && input.element === 'water'
+    && canGrip(encounter, input.breathAvailable, c.water)) {
+    const caught = new Set(
+      waterGripTargets(input.playerPosition, input.playerForward, enemies, c.water)
+        .map((enemy) => enemy.id),
+    )
+    // Read before the pull lands, so a connect means a live soldier was gripped rather than a
+    // body being dragged across the island — the same rule the other four resolvers apply.
+    grippedThisFrame = enemies
+      .filter((enemy) => caught.has(enemy.id) && isTargetable(enemy))
+      .map((enemy) => enemy.id)
+    enemies = enemies.map((enemy) => {
+      if (!caught.has(enemy.id) || !isTargetable(enemy)) return enemy
+      // Zero damage, like the Vortex: the move is control. `hitEnemy` still interrupts a
+      // wind-up, and `holdEnemy` then keeps the soldier interrupted, which is the difference
+      // between water and air on the same key.
+      //
+      // Pull first, hold second, and the order is load-bearing: `holdEnemy` resets
+      // `stanceTime` and would otherwise be overwritten by `hitEnemy`'s own reset to
+      // 'recover'. It also means the pull's impulse is already on the body when the hold
+      // starts, which is what makes the yank visible rather than instantaneous.
+      const pulled = hitEnemy(
+        enemy, 0, waterGripImpulse(input.playerPosition, enemy.position, c.water),
+      )
+      return holdEnemy(pulled, c.water.gripHoldSeconds)
+    })
+    waterGripCooldown = c.water.gripCooldownSeconds
+    breathSpent += c.water.gripBreathCost
+    gripFired = true
+  }
+
   let vortexCooldown = Math.max(0, encounter.vortexCooldown - dt)
   let vortexHeldSeconds = encounter.vortexHeldSeconds
   let vortexFired: number | null = null
@@ -439,7 +568,11 @@ export function stepEncounter(
   // on the locally decremented copy above — reading the copy let charge start on the frame
   // the cooldown expired, one frame before the guide would admit it could. The gust does
   // the same thing with `canGust(encounter)`.
-  if (input.vortexHeld && canVortex(encounter)) {
+  //
+  // Gated on air as well, so holding the heavy key with water selected banks no charge. Without
+  // that a player could charge under water, switch to air and release into a full-strength
+  // vortex they never held air for.
+  if (input.vortexHeld && input.element === 'air' && canVortex(encounter)) {
     vortexHeldSeconds = Math.min(
       vortexHeldSeconds + dt, c.vortex.maxChargeSeconds,
     )
@@ -454,8 +587,23 @@ export function stepEncounter(
     vortexHeldSeconds = 0
   }
 
+  /**
+   * The heavy key's release, on the air branch.
+   *
+   * **Gated on the element, and it took a test to establish that it has to be.** The first version
+   * of this dispatch left the release ungated, on the argument that a charge cannot survive into
+   * water because the `else` branch above zeroes it every frame water is selected. That argument
+   * is wrong by exactly one frame: the `else` is guarded on `!input.vortexReleased`, so on a frame
+   * where the player switches to water *and* releases R, the charge built under air is still
+   * standing when this block runs. A player who charged a vortex, pressed 2 and let go on the same
+   * frame therefore got a full-strength vortex *and* an Ice Lock, and paid Focus for the freeze —
+   * two heavy moves for one press.
+   *
+   * `vortexHeldSeconds` is still cleared unconditionally below, whichever element is selected, so
+   * a release under water discards the charge rather than parking it for later.
+   */
   if (input.vortexReleased) {
-    if (vortexHeldSeconds >= c.vortex.minChargeSeconds) {
+    if (input.element === 'air' && vortexHeldSeconds >= c.vortex.minChargeSeconds) {
       const charge = vortexCharge(vortexHeldSeconds, c.vortex)
       const caught = new Set(
         vortexTargets(input.playerPosition, enemies, charge, c.vortex).map((e) => e.id),
@@ -479,6 +627,39 @@ export function stepEncounter(
     // Either way the charge is spent. A release below the minimum costs nothing,
     // so a mistaken tap is not punished with a 3.5 second cooldown.
     vortexHeldSeconds = 0
+  }
+
+  // Ice Lock: the heavy key with water selected. The same press-and-release gesture the Vortex
+  // uses, and deliberately not a charge — the freeze has one duration, and a charge would be a
+  // second price on a move that is already priced in Focus. It fires on the release rather than
+  // the press so that one gesture drives both elements' heavy verbs, which is what lets the two
+  // keys mean four moves without a fifth binding.
+  if (input.vortexReleased && input.element === 'water') {
+    if (canIceLock(input.focusAvailable, input.breathAvailable, c.water)) {
+      const caught = new Set(
+        iceLockTargets(input.playerPosition, input.playerForward, enemies, c.water)
+          .map((enemy) => enemy.id),
+      )
+      frozenThisFrame = enemies
+        .filter((enemy) => caught.has(enemy.id) && isTargetable(enemy))
+        .map((enemy) => enemy.id)
+      // No `hitEnemy` at all, unlike the grip: the freeze applies no impulse and no damage, so
+      // there is nothing for it to deliver. `holdEnemy` does the interrupting on its own.
+      // Passing a zero impulse through `hitEnemy` would work and would be worse — it would put
+      // the soldier into 'recover' for one frame before the hold took over, and it would reset
+      // `sinceHit`, which is the regeneration clock and has nothing to do with being frozen.
+      enemies = enemies.map((enemy) =>
+        caught.has(enemy.id) && isTargetable(enemy)
+          ? holdEnemy(enemy, c.water.freezeHoldSeconds)
+          : enemy)
+      focusSpent += c.water.freezeFocusCost
+      breathSpent += c.water.freezeBreathCost
+      freezeFired = true
+    }
+    // A refused freeze costs nothing at all — no Focus, no breath, no cooldown. The same shape
+    // `stepSlipstream` gives a dodge that cannot be paid for, and the same shape a
+    // below-minimum vortex release gets: a press the game declines must not be a press the
+    // player is charged for.
   }
 
   let staffHitThisFrame: string[] = []
@@ -689,7 +870,7 @@ export function stepEncounter(
   return {
     encounter: {
       enemies, projectiles, nextProjectileId, playerHealth, gustCooldown, vortexHeldSeconds,
-      vortexCooldown, airWall,
+      vortexCooldown, airWall, waterGripCooldown,
     },
     downedThisFrame,
     firstDownsThisFrame,
@@ -703,6 +884,12 @@ export function stepEncounter(
     playerHit: applied > 0,
     damageAvoided: avoided,
     vortexFired,
+    grippedThisFrame,
+    frozenThisFrame,
+    gripFired,
+    freezeFired,
+    focusSpent,
+    breathSpent,
     firedThisFrame,
     redirectedThisFrame,
     redirectHitsThisFrame,

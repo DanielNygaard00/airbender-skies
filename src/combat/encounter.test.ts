@@ -129,6 +129,28 @@ const C: CombatConfig = {
     range: 5, halfAngle: Math.PI / 6, verticalReach: 6,
     maxSeconds: 1, cooldownSeconds: 3, breathCost: 20,
   },
+  /**
+   * Water, with round numbers chosen so the assertions below are arithmetic rather than
+   * transcriptions of the shipped config — the same reason every other block in this fixture
+   * differs from `DEFAULT_COMBAT_CONFIG`.
+   *
+   * Two relationships are load-bearing and are deliberately preserved from the real config,
+   * because tests below turn on them: the freeze holds longer than the grip, and the freeze's cone
+   * is wider but shorter than the grip's. The shipped numbers' own inequalities are asserted
+   * against `DEFAULT_COMBAT_CONFIG` in `water.test.ts`, which is where a retune has to be caught.
+   */
+  water: {
+    grip: { range: 10, halfAngle: Math.PI / 6 },
+    freeze: { range: 8, halfAngle: Math.PI / 2.5 },
+    verticalReach: 3,
+    pullSpeed: 12,
+    gripHoldSeconds: 1.5,
+    gripCooldownSeconds: 1.1,
+    gripBreathCost: 12,
+    freezeHoldSeconds: 3,
+    freezeFocusCost: 35,
+    freezeBreathCost: 18,
+  },
 }
 
 const ORIGIN = new Vector3(0, 0, 0)
@@ -144,13 +166,25 @@ const flatGround = { groundHeightAt: () => 0 }
 // restore has its own deps, built in its own describe block.
 const DEPS = { ground: flatGround, worldFloorY: -50, spawns: [], patrol: { respawnRange: 40 } }
 
-/** A neutral frame of input: nothing pressed, nothing held. */
+/**
+ * A neutral frame of input: nothing pressed, nothing held.
+ *
+ * `element: 'air'` is what keeps every test in this file that predates the element system
+ * exercising exactly what it used to: F resolves to a gust and R to a vortex under air, which is
+ * the only behaviour those tests know about. The water tests set it explicitly.
+ *
+ * The two meters are generous rather than zero, so a test that fires a water move without saying
+ * anything about resources is not silently refused for want of Focus — the affordability rule has
+ * its own tests, and a fixture that made every other water test depend on it would hide failures
+ * behind a refusal.
+ */
 const defaults: EncounterInput = {
-  playerPosition: ORIGIN, playerForward: NORTH, gustPressed: false, slam: null,
+  playerPosition: ORIGIN, playerForward: NORTH, element: 'air', gustPressed: false, slam: null,
   vortexHeld: false, vortexReleased: false, playerInvulnerable: false, staffSwing: null,
   // Aim starts equal to `playerForward`, which is what the game hands over on foot: there
   // `player.forward` IS the flattened look direction. Tests that need an elevation override it.
   playerAim: NORTH, playerBreath: 100, airWallHeld: false,
+  focusAvailable: 100, breathAvailable: 100,
 }
 
 /** Run the fight with fixed input. */
@@ -2221,5 +2255,333 @@ describe('the Air Wall against a net', () => {
     const { tangle, redirected } = throwAt({})
     expect(redirected).toBe(0)
     expect(tangle).toBe(NET.tangleSeconds)
+  })
+})
+
+describe('the bending keys resolve on the active element', () => {
+  /** One frame of the fight, with whatever input the case needs. */
+  const frame = (over: Partial<EncounterInput>, from = near()) =>
+    stepEncounter(from, { ...defaults, ...over }, 1 / 60, C, DEPS)
+
+  it('gusts on air and grips on water, from the same key', () => {
+    // The core claim of the element system, and both halves are needed. Air's press damages the
+    // soldier and does not hold it; water's press holds it and does no damage. Either assertion
+    // alone would pass for an implementation that ignored the element and always did one of them.
+    const air = frame({ element: 'air', gustPressed: true })
+    const water = frame({ element: 'water', gustPressed: true })
+    const airSoldier = air.encounter.enemies[0]
+    const waterSoldier = water.encounter.enemies[0]
+
+    expect(air.hitThisFrame).toEqual(['a'])
+    expect(air.grippedThisFrame).toEqual([])
+    expect(airSoldier?.health.current).toBeLessThan(C.enemies.spear.maxHealth)
+    expect(airSoldier?.stance).not.toBe('held')
+
+    expect(water.grippedThisFrame).toEqual(['a'])
+    expect(water.hitThisFrame).toEqual([])
+    expect(waterSoldier?.health.current).toBe(C.enemies.spear.maxHealth)
+    expect(waterSoldier?.stance).toBe('held')
+  })
+
+  it('vortexes on air and freezes on water, from the same release', () => {
+    // The heavy key, same shape. The vortex lifts and does no damage; the freeze holds and applies
+    // no impulse at all — so `verticalVelocity` is the discriminator, and it is asserted in both
+    // directions rather than only for the move that produces it.
+    const charged = { ...near(), vortexHeldSeconds: C.vortex.maxChargeSeconds }
+    const air = frame({ element: 'air', vortexReleased: true }, charged)
+    const water = frame({ element: 'water', vortexReleased: true }, charged)
+
+    expect(air.vortexFired).not.toBeNull()
+    expect(air.frozenThisFrame).toEqual([])
+    expect(air.encounter.enemies[0]?.verticalVelocity).toBeGreaterThan(0)
+
+    expect(water.frozenThisFrame).toEqual(['a'])
+    expect(water.vortexFired).toBeNull()
+    expect(water.encounter.enemies[0]?.verticalVelocity).toBe(0)
+    expect(water.encounter.enemies[0]?.stance).toBe('held')
+  })
+
+  it('banks no vortex charge while water is selected', () => {
+    // Without the element gate on the charge accumulator, a player could hold R under water,
+    // switch to air and release into a full-strength vortex they never held air for. Paired with
+    // the air run, so "no charge accumulated" is not passing because charging is broken outright.
+    let underWater = near()
+    let underAir = near()
+    for (let i = 0; i < 60; i++) {
+      underWater = frame({ element: 'water', vortexHeld: true }, underWater).encounter
+      underAir = frame({ element: 'air', vortexHeld: true }, underAir).encounter
+    }
+    expect(underWater.vortexHeldSeconds).toBe(0)
+    expect(underAir.vortexHeldSeconds).toBeGreaterThan(0)
+  })
+
+  it('ticks both light-verb cooldowns whatever element is selected', () => {
+    // Switching away must not park a cooldown. Otherwise a player could hide a gust's recovery
+    // inside water and come back to a gust that never recovered — and the same in reverse.
+    const gusted = frame({ element: 'air', gustPressed: true }).encounter
+    expect(gusted.gustCooldown).toBeGreaterThan(0)
+    let waiting = gusted
+    for (let i = 0; i < 60; i++) {
+      waiting = frame({ element: 'water' }, waiting).encounter
+    }
+    expect(waiting.gustCooldown).toBe(0)
+
+    const gripped = frame({ element: 'water', gustPressed: true }).encounter
+    expect(gripped.waterGripCooldown).toBeGreaterThan(0)
+    let waitingToo = gripped
+    for (let i = 0; i < 90; i++) {
+      waitingToo = frame({ element: 'air' }, waitingToo).encounter
+    }
+    expect(waitingToo.waterGripCooldown).toBe(0)
+  })
+
+  it('keeps the two cooldowns independent, so an element switch launders neither', () => {
+    // A single shared "light verb cooldown" would let the player gust, switch, and grip
+    // immediately at the gust's shorter recovery — or worse, grip and then gust at once. Two
+    // fields, and this pins that gusting leaves the grip's own timer untouched.
+    const gusted = frame({ element: 'air', gustPressed: true }).encounter
+    expect(gusted.waterGripCooldown).toBe(0)
+    const gripped = frame({ element: 'water', gustPressed: true }).encounter
+    expect(gripped.gustCooldown).toBe(0)
+  })
+})
+
+describe('the Water Grip', () => {
+  const W = C.water
+  const frame = (over: Partial<EncounterInput>, from = near()) =>
+    stepEncounter(from, { ...defaults, ...over }, 1 / 60, C, DEPS)
+  const grip = (over: Partial<EncounterInput> = {}, from = near()) =>
+    frame({ element: 'water', gustPressed: true, ...over }, from)
+
+  it('pulls the target toward the caster', () => {
+    // The direction is the move. Asserted as a distance closing over several frames rather than as
+    // an impulse sign, because the pull is delivered as decaying knockback and what matters is
+    // that the body actually travels.
+    const start = horizontalDistance(ORIGIN, near().enemies[0]!.position)
+    let encounter = grip().encounter
+    for (let i = 0; i < 20; i++) encounter = frame({ element: 'water' }, encounter).encounter
+    expect(horizontalDistance(ORIGIN, encounter.enemies[0]!.position)).toBeLessThan(start)
+  })
+
+  it('does no damage at all', () => {
+    // Water is the control element, and there is no damage parameter to set. This is the assertion
+    // that would catch one appearing.
+    expect(grip().encounter.enemies[0]?.health.current).toBe(C.enemies.spear.maxHealth)
+  })
+
+  it('spends breath and refuses below the cost', () => {
+    // The contract `stepSlipstream` uses for a dodge, and both halves. The refusal costs nothing:
+    // no breath, no cooldown, no hold — a press the game declines must not be a press the player
+    // is charged for.
+    const paid = grip({ breathAvailable: W.gripBreathCost })
+    expect(paid.breathSpent).toBe(W.gripBreathCost)
+    expect(paid.gripFired).toBe(true)
+
+    const refused = grip({ breathAvailable: W.gripBreathCost - 1 })
+    expect(refused.breathSpent).toBe(0)
+    expect(refused.gripFired).toBe(false)
+    expect(refused.grippedThisFrame).toEqual([])
+    expect(refused.encounter.waterGripCooldown).toBe(0)
+    expect(refused.encounter.enemies[0]?.stance).not.toBe('held')
+  })
+
+  it('spends no Focus', () => {
+    // Water's light verb is free of the meter in both directions: it neither pays nor charges. A
+    // control move that earned Focus would be a Focus engine, and the freeze spends the same bar.
+    const step = grip()
+    expect(step.focusSpent).toBe(0)
+    expect(step.grippedThisFrame).toEqual(['a'])
+  })
+
+  it('reports the fire even when it catches nobody', () => {
+    // The effect and the voice fire on the attempt, the way the gust cone is drawn from the press:
+    // a move that is silent when it misses reads as a move that did not come out. The empty catch
+    // list is what distinguishes this from a connect.
+    const empty = startEncounter([], C)
+    const step = grip({}, empty)
+    expect(step.gripFired).toBe(true)
+    expect(step.grippedThisFrame).toEqual([])
+    expect(step.breathSpent).toBe(W.gripBreathCost)
+  })
+
+  it('does not drag a downed body, and does not report one as a connect', () => {
+    // `isTargetable` is the gate, the same one every other resolver asks.
+    //
+    // **The assertion that matters here is the knockback, and finding that out is what mutation
+    // testing is for.** The first version of this test checked only `grippedThisFrame` and the
+    // stance, and it survived removing the `isTargetable` gate from the resolver's map — because
+    // `holdEnemy` refuses a downed soldier on its own, so the stance stayed 'downed' and the report
+    // list is filtered separately. What the gate actually protects is the *pull*: without it,
+    // `hitEnemy(enemy, 0, impulse)` still lands, so a corpse in the cone gets yanked across the
+    // island. That is the "a body being dragged around the island" this file's other resolvers all
+    // guard against, and it is now the thing being asserted.
+    const body = downedSoldier(1)
+    const before = body.enemies[0]!.position.clone()
+    const step = grip({}, body)
+    const after = step.encounter.enemies[0]!
+
+    expect(step.grippedThisFrame).toEqual([])
+    expect(after.stance).toBe('downed')
+    expect(after.knockback.lengthSq()).toBe(0)
+    expect(after.position.x).toBeCloseTo(before.x, 6)
+    expect(after.position.z).toBeCloseTo(before.z, 6)
+
+    // The positive control on the identical arrangement, differing only in the soldier being alive:
+    // a live one *is* dragged, so the assertions above are about the body's state rather than about
+    // the grip failing to reach it.
+    const live = grip()
+    expect(live.grippedThisFrame).toEqual(['a'])
+    expect(live.encounter.enemies[0]!.knockback.lengthSq()).toBeGreaterThan(0)
+  })
+})
+
+describe('the Ice Lock', () => {
+  const W = C.water
+  const freeze = (over: Partial<EncounterInput> = {}, from = near()) =>
+    stepEncounter(from, {
+      ...defaults, element: 'water', vortexReleased: true, ...over,
+    }, 1 / 60, C, DEPS)
+
+  it('freezes the rank in front and does no damage', () => {
+    const step = freeze()
+    expect(step.frozenThisFrame).toEqual(['a'])
+    expect(step.encounter.enemies[0]?.stance).toBe('held')
+    expect(step.encounter.enemies[0]?.health.current).toBe(C.enemies.spear.maxHealth)
+  })
+
+  it('spends Focus, and reports the bill rather than applying it', () => {
+    // The fight has no meter of its own — `stepEncounter` reports `focusSpent` and `main.ts` hands
+    // it to `stepFocus`, the same division of labour `stepEnemy` keeps for `damageToPlayer`.
+    const step = freeze()
+    expect(step.focusSpent).toBe(W.freezeFocusCost)
+    expect(step.breathSpent).toBe(W.freezeBreathCost)
+  })
+
+  it('refuses below the Focus cost, and charges nothing for the refusal', () => {
+    // Both sides of the boundary, one unit apart, so a `>` where a `>=` belongs is caught. And the
+    // refusal is total: no Focus, no breath, and nobody frozen.
+    const paid = freeze({ focusAvailable: W.freezeFocusCost })
+    expect(paid.freezeFired).toBe(true)
+    expect(paid.frozenThisFrame).toEqual(['a'])
+
+    const refused = freeze({ focusAvailable: W.freezeFocusCost - 1 })
+    expect(refused.freezeFired).toBe(false)
+    expect(refused.focusSpent).toBe(0)
+    expect(refused.breathSpent).toBe(0)
+    expect(refused.frozenThisFrame).toEqual([])
+    expect(refused.encounter.enemies[0]?.stance).not.toBe('held')
+  })
+
+  it('refuses below the breath cost even with a full Focus bar', () => {
+    const refused = freeze({ focusAvailable: 100, breathAvailable: W.freezeBreathCost - 1 })
+    expect(refused.freezeFired).toBe(false)
+    expect(refused.focusSpent).toBe(0)
+  })
+
+  it('has no cooldown, so two back-to-back releases both fire', () => {
+    // Focus is the price and there is deliberately no second gate: a hidden timer would refuse the
+    // move for a reason the player cannot see, since the HUD draws the Focus bar and does not draw
+    // a cooldown. Two freezes from a full bar are affordable and are meant to be.
+    const first = freeze()
+    const second = freeze({}, first.encounter)
+    expect(first.freezeFired).toBe(true)
+    expect(second.freezeFired).toBe(true)
+    expect(first.focusSpent + second.focusSpent).toBe(W.freezeFocusCost * 2)
+  })
+
+  it('holds longer than a grip, measured through the fight rather than off the config', () => {
+    // The relationship that makes the freeze the heavy verb, exercised end to end: both moves are
+    // thrown at a fresh soldier and the fight is run until each hold lapses. Reading the two config
+    // numbers would assert the config against itself; running the fight asserts that the durations
+    // actually reach the soldier.
+    const gripped = stepEncounter(near(), {
+      ...defaults, element: 'water', gustPressed: true,
+    }, 1 / 60, C, DEPS).encounter
+    const frozen = freeze().encounter
+
+    const heldFor = (from: Encounter): number => {
+      let encounter = from
+      let seconds = 0
+      for (let i = 0; i < 600; i++) {
+        if (encounter.enemies[0]?.stance !== 'held') break
+        encounter = stepEncounter(encounter, defaults, 1 / 60, C, DEPS).encounter
+        seconds += 1 / 60
+      }
+      return seconds
+    }
+
+    const gripSeconds = heldFor(gripped)
+    const freezeSeconds = heldFor(frozen)
+    expect(gripSeconds).toBeGreaterThan(0)
+    expect(freezeSeconds).toBeGreaterThan(gripSeconds)
+    // And each lands within a frame of the duration the config asked for, so neither is being
+    // silently truncated or extended by the step order.
+    expect(Math.abs(gripSeconds - W.gripHoldSeconds)).toBeLessThan(2 / 60)
+    expect(Math.abs(freezeSeconds - W.freezeHoldSeconds)).toBeLessThan(2 / 60)
+  })
+
+  it('leaves a frozen soldier hittable by the staff, and it stays frozen', () => {
+    // The reason `isTargetable` was not changed. A locked target is locked so it can be worked on:
+    // the staff has to connect, has to do its damage, and must not free the soldier.
+    const frozen = freeze().encounter
+    const swung = stepEncounter(frozen, {
+      ...defaults, staffSwing: { index: 1, finisher: false },
+    }, 1 / 60, C, DEPS)
+    expect(swung.staffHitThisFrame).toEqual(['a'])
+    expect(swung.encounter.enemies[0]?.health.current).toBeLessThan(C.enemies.spear.maxHealth)
+    expect(swung.encounter.enemies[0]?.stance).toBe('held')
+  })
+
+  it('cannot be thrown while air is selected', () => {
+    // The mirror of the gust gate: releasing the heavy key under air fires a vortex or nothing, and
+    // never a freeze. Paired with the water run so this is about the element rather than about the
+    // release edge being dropped.
+    const air = stepEncounter(near(), {
+      ...defaults, element: 'air', vortexReleased: true,
+    }, 1 / 60, C, DEPS)
+    expect(air.freezeFired).toBe(false)
+    expect(air.focusSpent).toBe(0)
+    expect(freeze().freezeFired).toBe(true)
+  })
+})
+
+describe('switching element on the same frame as a release', () => {
+  it('cannot fire a vortex and an Ice Lock from one press', () => {
+    // **This case was a real bug and the fix is the element gate on the release branch.** The
+    // charge accumulator is zeroed every frame water is selected, but that `else` is guarded on
+    // `!vortexReleased` — so on the single frame where the player switches to water *and* lets go
+    // of R, a charge built under air is still standing when the release resolves. Ungated, that
+    // frame produced a full-strength vortex *and* a freeze, and charged Focus for the freeze: two
+    // heavy moves for one press.
+    //
+    // Reproduced by handing the fight a pre-loaded charge and a water release, which is exactly
+    // the state that frame is in.
+    const charged = { ...near(), vortexHeldSeconds: C.vortex.maxChargeSeconds }
+    const step = stepEncounter(charged, {
+      ...defaults, element: 'water', vortexReleased: true,
+    }, 1 / 60, C, DEPS)
+
+    expect(step.vortexFired).toBeNull()
+    // The freeze is what the player asked for, and it does happen — so this is not passing because
+    // the whole release was swallowed.
+    expect(step.freezeFired).toBe(true)
+    expect(step.focusSpent).toBe(C.water.freezeFocusCost)
+    // No lift, which is the observable signature of the vortex that must not have fired.
+    expect(step.encounter.enemies[0]?.verticalVelocity).toBe(0)
+  })
+
+  it('discards the stale charge rather than parking it for a later air release', () => {
+    // The charge is cleared on any release, whichever element is selected. Left standing, the
+    // player could switch back to air, tap R, and get the vortex they had already spent.
+    const charged = { ...near(), vortexHeldSeconds: C.vortex.maxChargeSeconds }
+    const released = stepEncounter(charged, {
+      ...defaults, element: 'water', vortexReleased: true,
+    }, 1 / 60, C, DEPS).encounter
+    expect(released.vortexHeldSeconds).toBe(0)
+
+    const later = stepEncounter(released, {
+      ...defaults, element: 'air', vortexReleased: true,
+    }, 1 / 60, C, DEPS)
+    expect(later.vortexFired).toBeNull()
   })
 })

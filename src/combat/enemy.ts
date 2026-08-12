@@ -9,7 +9,7 @@ import { applyDamage, isDowned, type Health, type HealthConfig } from './health'
  * and it punishes standing still. That is the whole behaviour — it is not built to
  * be a fair duel, it is built to make holding one spot expensive.
  */
-export type Stance = 'advance' | 'wind-up' | 'recover' | 'downed' | 'rising'
+export type Stance = 'advance' | 'wind-up' | 'recover' | 'downed' | 'rising' | 'held'
 
 /**
  * Which soldier this is.
@@ -166,6 +166,22 @@ export interface Enemy {
    * ladder always costs real damage.
    */
   downs: number
+  /**
+   * Seconds of hold left, or 0.
+   *
+   * Set by `holdEnemy`, which the water kit's two moves both go through — a grip holds
+   * briefly, a freeze holds for much longer, and the two write this one field rather than
+   * carrying separate timers, so "gripped" and "frozen" cannot disagree about whether a soldier
+   * can act. Section 4.6 lists *frozen* among the legitimate downed conditions alongside
+   * disarmed and buried to the waist, so a held soldier is on-theme non-lethality rather than
+   * an exception to it.
+   *
+   * Remaining time rather than elapsed time, so the expiry test needs no config lookup and the
+   * countdown can be decremented once at the top of `stepEnemy` for every branch below. Kept
+   * apart from `stanceTime` because that field is reset by every stance change, and a hit
+   * landing on a frozen soldier must not refill the ice.
+   */
+  heldSeconds: number
   /** Decaying horizontal push from a gust, a slam or a vortex. Horizontal only. */
   knockback: Vector3
   /** Ballistic vertical speed. Gravity acts on this; the ground snap ends it. */
@@ -262,6 +278,7 @@ export function spawnEnemy(
     stanceTime: 0,
     health: { current: c.maxHealth, max: c.maxHealth, sinceHit: c.outOfCombatSeconds },
     downs: 0,
+    heldSeconds: 0,
     knockback: new Vector3(),
     verticalVelocity: 0,
     grounded: true,
@@ -343,9 +360,63 @@ export function nextRecoveryFraction(enemy: Enemy, c: EnemyConfig): number | nul
   return fraction !== undefined && fraction > 0 ? fraction : null
 }
 
-/** Worth aiming at: on its feet, or pushing back up onto them. */
+/**
+ * Worth aiming at: on its feet, or pushing back up onto them.
+ *
+ * **Deliberately unchanged by the water kit, and a held soldier is targetable.** Every resolver
+ * in `stepEncounter` asks this and asks it identically, and adding "unless it is frozen" here
+ * would change the gate for all of them at once — a frozen soldier would stop taking staff
+ * damage, which is backwards: locking a target in place exists so that it *can* be hit.
+ * "Frozen" is asked separately, through `isHeld` below, by the one thing that needs the
+ * distinction.
+ */
 export function isTargetable(enemy: Enemy): boolean {
   return !isDowned(enemy.health) || enemy.stance === 'rising'
+}
+
+/**
+ * Held or frozen: alive, still there, and unable to act.
+ *
+ * A predicate of its own rather than a special case inside `isTargetable`, per the rule above.
+ * Reads the stance rather than the timer, because the stance is what `stepEnemy` acts on and
+ * two authorities on one condition is how they drift apart.
+ */
+export function isHeld(enemy: Enemy): boolean {
+  return enemy.stance === 'held'
+}
+
+/**
+ * Lock a soldier in place for a spell.
+ *
+ * Takes the longer of the hold already running and the new one rather than adding them, so a
+ * grip landing on an already-frozen target cannot shorten the freeze and a freeze landing on a
+ * gripped one cannot be stacked into something longer than either move earns. `Math.max` is
+ * also what makes the two water moves one kit instead of two: whichever verb reaches a soldier
+ * second, the result is the stronger of the two conditions and never a third one.
+ *
+ * A downed soldier is returned untouched. The recovery ladder in `stepEnemy` owns a body on the
+ * ground, and holding one would mean two systems counting down over the same soldier — with
+ * the hold outliving the rise, so a soldier could push itself back up and be frozen on the spot
+ * by ice thrown while it was already down.
+ *
+ * The physics are deliberately left alone: no knockback is cleared and no vertical velocity is
+ * zeroed. The grip's own pull *is* a knockback impulse, so clearing it here would cancel the
+ * pull the same frame it was applied — the whole "yank them in, then lock them" beat. A target
+ * still sliding from an earlier gust therefore keeps sliding to a stop over
+ * `knockback / knockbackDamping` while frozen, which is roughly 0.4 seconds at the shipped
+ * damping, and reads as freezing someone mid-tumble rather than as a bug.
+ */
+export function holdEnemy(enemy: Enemy, seconds: number): Enemy {
+  if (isDowned(enemy.health) || !(seconds > 0)) return enemy
+  return {
+    ...enemy,
+    heldSeconds: Math.max(enemy.heldSeconds, seconds),
+    stance: 'held',
+    // Reset, because a hold interrupts: a wind-up in progress is cancelled, exactly as
+    // `hitEnemy` cancels one. This is what makes the water kit control rather than damage —
+    // it buys the interruption a gust buys, and then keeps it.
+    stanceTime: 0,
+  }
 }
 
 /**
@@ -414,13 +485,27 @@ function fall(
  * it was blown to.
  */
 export function stepEnemy(
-  enemy: Enemy,
+  incoming: Enemy,
   playerPosition: Vector3,
   ground: GroundHeightQuery,
   worldFloorY: number,
   dt: number,
   c: EnemyConfig,
 ): EnemyStep {
+  /**
+   * The hold counted down once, at the top, before any branch runs.
+   *
+   * Every return below spreads `...enemy`, so decrementing here is what makes it impossible
+   * for one of the eight exits to forget the countdown — which is exactly the bug a per-branch
+   * decrement would eventually acquire, and it would present as a soldier frozen forever on one
+   * code path only. The parameter is shadowed rather than mutated because an `Enemy` is treated
+   * as immutable everywhere else in this module, and the clone is skipped entirely when nothing
+   * is held, so the ordinary frame allocates nothing extra.
+   */
+  const enemy: Enemy = incoming.heldSeconds > 0
+    ? { ...incoming, heldSeconds: Math.max(0, incoming.heldSeconds - dt) }
+    : incoming
+
   // Already downed and below the floor: parked. Downing a body does not stop it falling,
   // and the downed branch below keeps integrating, so without this a corpse in empty air
   // accelerates without bound — measured at 36km down and still gaining 1.2km/s a minute
@@ -522,6 +607,37 @@ export function stepEnemy(
     // Down, not gone: the body stays in the world — but it still falls, and settles.
     return {
       enemy: { ...enemy, ...moved, stance: 'downed', stanceTime },
+      damageToPlayer: 0,
+      fellOutOfWorld: false,
+      firedProjectile: null,
+    }
+  }
+
+  // Held or frozen: inert, and it still falls and settles. The water kit's entire payoff, and
+  // the same shape the airborne branch below gives a lifted enemy — one branch each, because
+  // the two conditions have different exits.
+  //
+  // Above the airborne test on purpose: a held soldier is held whether its feet are on the
+  // ground or not, so freezing a target a Vortex has just lifted must not fall through to the
+  // airborne branch and quietly resume the ordinary stance clock while the ice is on.
+  //
+  // Gated on the stance rather than on `heldSeconds`, matching `isHeld`, so there is one
+  // authority on the condition. That also means a soldier whose hold was interrupted by going
+  // down keeps a stale non-zero `heldSeconds` while it lies there and cannot be re-held by it:
+  // the downed branch above returns first, and a rise leaves the stance on 'advance'.
+  if (enemy.stance === 'held') {
+    const expired = enemy.heldSeconds <= 0
+    return {
+      enemy: {
+        ...enemy, ...moved,
+        // Into 'recover' rather than straight to 'advance', so breaking out of ice costs the
+        // same beat a hit costs. Released into 'advance' instead, a soldier frozen at spear
+        // reach would thrust on the very frame the hold ended, which turns the end of a freeze
+        // into an unavoidable hit and makes the move a liability at exactly the range it is
+        // meant to be used.
+        stance: expired ? 'recover' : 'held',
+        stanceTime: expired ? 0 : enemy.stanceTime + dt,
+      },
       damageToPlayer: 0,
       fellOutOfWorld: false,
       firedProjectile: null,
@@ -664,7 +780,15 @@ export function hitEnemy(enemy: Enemy, damage: number, impulse: Vector3): Enemy 
     // the snap, and two places deciding it is how they drift apart.
     // Being hit interrupts: a wind-up in progress is cancelled, which is how a
     // gust "interrupts, staggers, opens gaps" rather than merely chipping health.
-    stance: isDowned(health) ? 'downed' : 'recover',
+    //
+    // A hit on a held soldier leaves it held, and that is the point of the water kit: a locked
+    // target is locked so it can be hit, and freeing it by hitting it would make the freeze
+    // useless for anything except walking away. `heldSeconds` is untouched here, so hitting a
+    // frozen soldier neither shortens nor extends the ice — only `holdEnemy` writes it.
+    stance: isDowned(health) ? 'downed' : (enemy.stance === 'held' ? 'held' : 'recover'),
+    // Cleared on a crossing: the recovery ladder owns a body on the ground, and a hold that
+    // outlived a knockdown would re-freeze the soldier the moment it stood back up.
+    heldSeconds: isDowned(health) ? 0 : enemy.heldSeconds,
     stanceTime: 0,
   }
 }

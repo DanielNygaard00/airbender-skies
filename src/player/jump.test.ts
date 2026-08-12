@@ -7,6 +7,10 @@ import type { InputState, PlayerState } from '../core/types'
 const input = (over: Partial<InputState> = {}): InputState => ({
   lookDirection: new Vector3(0, 0, -1), forward: 0, strafe: 0,
   sprint: false, tuck: false, actionPressed: false, actionHeld: false, actionReleased: false, scooterPressed: false, dashPressed: false, gustPressed: false, avatarStatePressed: false, vortexHeld: false, vortexReleased: false, slipstreamPressed: false, staffPressed: false, airWallHeld: false,
+  // The element radial's four fields. Air is the resting selection, the radial is closed,
+  // and no pointer movement: none of this reaches movement code, which is the point —
+  // `stepElements` is the only consumer, and it is not on the movement path.
+  radialHeld: false, radialReleased: false, pointerDelta: { x: 0, y: 0 }, elementIndex: null,
   ...over,
 })
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({

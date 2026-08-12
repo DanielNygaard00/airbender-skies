@@ -2,7 +2,7 @@ import {
   BufferAttribute, BufferGeometry, DoubleSide, Group, Mesh, MeshBasicMaterial, Vector3,
   type Object3D,
 } from 'three'
-import type { GustConfig } from '../combat/gust'
+import type { ConeShape } from '../combat/cone'
 import { SECTOR_FLAT_ROTATION_X, sectorGeometry } from './sector'
 import { DEFAULT_AIM_TELL_CONFIG, type AimTellConfig } from './config'
 
@@ -33,10 +33,18 @@ export interface AimTell {
   object: Object3D
   /**
    * Call every frame. `targeted` is whether a live soldier is inside the cone; `ready` is
-   * whether the gust is off cooldown.
+   * whether the move is off cooldown.
+   *
+   * Takes a `ConeShape` rather than a `GustConfig`, which is a widening and not a change:
+   * `GustConfig` satisfies `ConeShape` structurally, so the original caller is unaffected. The
+   * reason for it is that F is no longer one move — the active element decides whether it throws
+   * a gust or a Water Grip, and those two cones differ in both range and half angle. Asking for
+   * the shape rather than one move's whole config is what lets one tell preview whichever is
+   * about to be thrown, and it is why the conditional geometry rebuild below now genuinely
+   * fires rather than being purely defensive.
    */
   update(
-    position: Vector3, forward: Vector3, targeted: boolean, ready: boolean, c: GustConfig,
+    position: Vector3, forward: Vector3, targeted: boolean, ready: boolean, c: ConeShape,
   ): void
   dispose(): void
 }
@@ -81,13 +89,11 @@ export function createAimTell(c: AimTellConfig = DEFAULT_AIM_TELL_CONFIG): AimTe
   marker.userData.excludeFromShadows = true
   object.add(marker)
 
-  // Built at unit radius and scaled, so a changing gust range costs a scale rather than a
-  // geometry rebuild sixty times a second. No boost changes halfAngle today —
-  // `boostedCombatConfig` (`src/focus/effects.ts`) only touches the gust's damage, knockback
-  // and cooldown, and `AvatarStateConfig` has no field that could widen an angle — so the
-  // conditional rebuild below never actually fires in the current game. It stays anyway: it
-  // costs one comparison a frame, and without it a future config that does widen the angle
-  // would draw a stale, wrong sector instead of failing loudly.
+  // Built at unit radius and scaled, so a changing range costs a scale rather than a geometry
+  // rebuild sixty times a second. The conditional rebuild below used to be purely defensive —
+  // no Avatar State boost touches `halfAngle`, so nothing ever changed it — and it is now load
+  // bearing: switching element between air and water changes the previewed cone from 60 degrees
+  // to 30, so the rebuild fires on the frame the player flicks the radial.
   const previewGeometry = sectorGeometry(1, 0, 1)
   const previewMaterial = new MeshBasicMaterial({
     color: TINT, transparent: true, side: DoubleSide, depthWrite: false,
@@ -110,7 +116,7 @@ export function createAimTell(c: AimTellConfig = DEFAULT_AIM_TELL_CONFIG): AimTe
     object,
 
     update(
-      position: Vector3, forward: Vector3, targeted: boolean, ready: boolean, gust: GustConfig,
+      position: Vector3, forward: Vector3, targeted: boolean, ready: boolean, shape: ConeShape,
     ): void {
       object.position.set(position.x, position.y + HEIGHT, position.z)
 
@@ -127,12 +133,12 @@ export function createAimTell(c: AimTellConfig = DEFAULT_AIM_TELL_CONFIG): AimTe
       if (targeted) {
         // A RingGeometry cannot change its theta after construction, so a changed half angle
         // needs a rebuild. The radius is a scale, which is why only this is conditional.
-        if (Math.abs(gust.halfAngle - builtHalfAngle) > 1e-6) {
+        if (Math.abs(shape.halfAngle - builtHalfAngle) > 1e-6) {
           preview.geometry.dispose()
-          preview.geometry = sectorGeometry(gust.halfAngle, 0, 1)
-          builtHalfAngle = gust.halfAngle
+          preview.geometry = sectorGeometry(shape.halfAngle, 0, 1)
+          builtHalfAngle = shape.halfAngle
         }
-        preview.scale.setScalar(Math.max(gust.range, 1e-4))
+        preview.scale.setScalar(Math.max(shape.range, 1e-4))
         previewMaterial.opacity = c.previewOpacity * (ready ? 1 : c.dimmedFactor)
       }
     },

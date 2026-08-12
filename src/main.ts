@@ -60,6 +60,7 @@ import { createAvatar } from './player/avatar'
 import { createGlider } from './player/glider'
 import { createAimTell } from './fx/aim-tell'
 import { anyLiveGustTarget } from './combat/gust'
+import { gripShape } from './combat/water'
 import { stallSeverity } from './player/stall'
 import { animationFor, chargeSquashScale } from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
@@ -73,7 +74,14 @@ import { bearingFromCamera, markFor, stepHitMarks, type HitMark } from './fx/hit
 import { createGuide, guideModelFor } from './ui/guide/panel'
 import { pauseReason, pauseOverlayModel } from './core/pause'
 import { createPauseOverlay } from './ui/pause-overlay'
-import { canGust, canVortex } from './combat/encounter'
+import { canGust, canGrip, canVortex } from './combat/encounter'
+import { canIceLock, anyLiveWaterGripTarget } from './combat/water'
+import {
+  DEFAULT_ELEMENT_CONFIG, radialModel, restingElements, stepElements, type ElementState,
+} from './elements/element'
+import { createElementRadial } from './ui/element-radial'
+import { createWaterReach } from './fx/water-reach'
+import { createIceShell } from './fx/ice-shell'
 import { isArmed } from './focus/avatar-state'
 import { createWindAudio } from './fx/audio'
 import { fovForSpeed, fovKickForDash } from './fx/mapping'
@@ -169,6 +177,15 @@ function start(): void {
 
   // Focus is a live meter and is deliberately not saved.
   let focus = emptyFocus(DEFAULT_FOCUS_CONFIG)
+  /**
+   * Which element is selected, and the radial's open state.
+   *
+   * Deliberately not saved, like Focus — but for the opposite reason. Focus is not saved because
+   * it is earned and a save would hand it over unearned; this is not saved because it is trivial
+   * to re-express and a game that reopened on waterbending would be lying about what F does until
+   * the player noticed. Air is where the game starts and where it restarts.
+   */
+  let elements: ElementState = restingElements()
   let avatarState = restingAvatarState()
   let avatarActive = false
   /** The beat between going down and standing back up, or null while playing. */
@@ -370,6 +387,10 @@ function start(): void {
   const reticle = createReticle(document.body)
   const hitDirection = createHitDirection(document.body)
   const offScreen = createOffScreen(document.body)
+  // Appended with the other three and before the HUD, for the same document-order reason: none of
+  // these sets a z-index, so the HUD's own full-screen `.hud-fade` has to paint over them during
+  // the down beat's blackout, and the pause card and guide panel have to paint over them too.
+  const elementRadial = createElementRadial(document.body)
   const hud = createHud(document.body)
   const overlay = createPauseOverlay(document.body)
   // Rebuilt on open rather than per frame: the simulation is paused while the guide is
@@ -393,6 +414,13 @@ function start(): void {
       airWallReady: canAirWall(
         encounter.airWall, player.breath, DEFAULT_COMBAT_CONFIG.airWall,
       ),
+      // The same three predicates the fight resolves the water moves with, asked here rather than
+      // restated: `canGrip` reads the encounter's own cooldown alongside the player's breath, and
+      // `canIceLock` reads the live Focus value the HUD is drawing. A panel that computed either
+      // rule for itself could tell the player a freeze is ready while the fight refuses it.
+      element: elements.active,
+      gripReady: canGrip(encounter, player.breath, DEFAULT_COMBAT_CONFIG.water),
+      iceLockReady: canIceLock(focus.value, player.breath, DEFAULT_COMBAT_CONFIG.water),
     }), settings)
   }, (patch) => {
     // A patch of one field, merged rather than assigned: the panel reports only what the
@@ -515,6 +543,26 @@ function start(): void {
    * stances exactly as the beat found them, so the patrol may well still be aggroed
    * on the walk back in — the cost of going down is that walk plus the wiped Focus,
    * not a guaranteed clean reset.
+   *
+   * **Two things this function deliberately does not touch, both added with water.**
+   *
+   * A held or frozen soldier keeps its hold, and keeps counting it down. Section 6 says the fight
+   * "keeps whatever state he put it in", and a hold is fight state exactly as damage and stance
+   * are — so releasing the patrol on a respawn would be handing the player a clean reset they were
+   * told they would not get, and freezing a rank and then going down on purpose would become a way
+   * to unfreeze it. It expires on its own clock while the blackout runs, because `effects.advance`
+   * and the enemy step are the two things the down beat keeps moving. In practice nothing survives
+   * the beat: the longest hold is the freeze's 3.2 seconds against `DEFAULT_DOWN_CONFIG`'s ramps,
+   * so this is a guard rather than a fix — the same standing as the `hitMarks` clear below, and it
+   * is written down for the same reason, that the relationship between those two constants is not
+   * something anyone retuning either would think to check.
+   *
+   * The selected element survives, and Focus does not, and the difference is the point. Focus is
+   * wiped because it was *earned* and section 6 names it as part of the cost. Which element is
+   * selected was not earned — it is a stance, like the direction the character is facing, which
+   * this function also does not reset — so re-picking it after every knockdown would be busywork
+   * that punishes nothing. It also means the badge the player glances at is still true when the
+   * black lifts, rather than having silently reverted to air behind it.
    */
   function recover(): void {
     player = safeRespawn(player, deps)
@@ -672,6 +720,27 @@ function start(): void {
       }, 0, 0, fadeOpacity(down, DEFAULT_DOWN_CONFIG)))
       return
     }
+
+    // The element switch, resolved before anything reads which element is active, so a flick and
+    // the bending key pressed on the same frame land in that order — which is the whole claim
+    // "fast enough to sequence mid-combo" makes. Resolved after the `down` branch above, so a
+    // number key mashed during the blackout is drained with every other edge rather than
+    // surfacing as a switch on the other side.
+    //
+    // Nothing here can refuse or delay: `stepElements` has no cooldown to check and takes no dt.
+    // It is placed among the simulation's other per-frame steps rather than in the render half
+    // because the fight reads its output on this same frame.
+    const beforeElements = elements
+    elements = stepElements(elements, {
+      radialHeld: state.radialHeld,
+      radialReleased: state.radialReleased,
+      aimDelta: state.pointerDelta,
+      directIndex: state.elementIndex,
+    }, DEFAULT_ELEMENT_CONFIG)
+    // Diffed rather than reported by `stepElements`, the same way the dash trail and the
+    // slipstream streak are detected across their step: a pure function that also returned "and
+    // this changed" would be a second thing to keep true.
+    if (elements.active !== beforeElements.active) combatAudio.elementSwitch()
 
     // Read before controllerStep: it resolves a fall internally and hands back an
     // already-respawned state, so there is nothing left to observe afterwards.
@@ -847,31 +916,54 @@ function start(): void {
     // the reticle's hot state, so the reticle warms on exactly the frames the world-space tell
     // does. Two calls would be two answers, and a tell that says "this will connect" beside a
     // reticle that says it will not is worse than either alone.
-    // `fightConfig.enemies` is what decides whether a soldier in the cone can be gusted at
-    // all: a heavy's armour turns the whole move away, so the tell stays cold on it and warm
-    // on the spear standing next to it. That is the type's first and cheapest tell -- the
-    // player learns the immunity without spending the move. See `liveGustTargets`.
-    aimHot = anyLiveGustTarget(
-      player.position, player.forward, encounter.enemies, fightConfig.gust,
-      fightConfig.enemies,
-    )
+    // Asked of whichever element's light verb the key would actually throw, so the reticle and the
+    // world-space tell warm for the reach the player has rather than for the one they had before
+    // switching. Water's cone is much narrower and its band much shorter, so a single shared
+    // answer would be wrong by a wide margin in both directions — promising a connect water cannot
+    // make, and staying cold for one it can.
+    //
+    // The gust branch also passes `fightConfig.enemies`, because a heavy's armour turns that move
+    // away entirely: the tell stays cold on the heavy and warm on the spear beside it, which is
+    // the armour's first and cheapest tell — the player learns the immunity without spending the
+    // move. The water branch has no equivalent argument to pass, because nothing in the armour
+    // model covers a Water Grip yet. See the note in `water.ts` on what that leaves open.
+    aimHot = elements.active === 'water'
+      ? anyLiveWaterGripTarget(
+        player.position, player.forward, encounter.enemies, fightConfig.water,
+      )
+      : anyLiveGustTarget(
+        player.position, player.forward, encounter.enemies, fightConfig.gust,
+        fightConfig.enemies,
+      )
 
     // fightConfig, not the unboosted default, so the preview and the fired cone
     // (`createGustCone` below, also fed `fightConfig.gust`) read one source and cannot
     // diverge if a future boost ever does touch the gust's range or half angle — the same
     // reason chargeTell reads it. Today's Avatar State does not: `boostedCombatConfig`
     // (`src/focus/effects.ts`) only scales damage, knockback and cooldown.
+    // The shape and the readiness of whichever light verb F would throw, so the preview is the
+    // reach the player has. `gripShape` is the same function `inWaterGrip` builds its test from,
+    // so the previewed cone and the cone that bites cannot diverge — the same relationship the
+    // gust half of this call has always had.
+    const water = elements.active === 'water'
     aimTell.update(
       player.position,
       player.forward,
       aimHot,
-      canGust(encounter),
-      fightConfig.gust,
+      water
+        ? canGrip(encounter, player.breath, fightConfig.water)
+        : canGust(encounter),
+      water ? gripShape(fightConfig.water) : fightConfig.gust,
     )
 
     // Asked against the pre-step encounter, so the visual agrees with what stepEncounter
-    // will actually do on this same frame rather than a frame late.
-    if (state.gustPressed && canGust(encounter)) {
+    // will actually do on this same frame rather than a frame late. Gated on the element as well,
+    // so the wrong element's cone is never drawn — `stepEncounter` applies the identical
+    // `input.element === 'air'` test, and the two have to agree or a press draws air and resolves
+    // water. The water side is drawn from `fight.gripFired` below instead, because a grip can also
+    // be refused for want of breath, which is a condition this pre-step branch cannot see without
+    // restating `canGrip`.
+    if (state.gustPressed && elements.active === 'air' && canGust(encounter)) {
       effects.add(createGustCone(player.position, player.forward, fightConfig.gust))
       combatAudio.gust()
     }
@@ -897,6 +989,7 @@ function start(): void {
       playerAim: state.lookDirection,
       playerBreath: player.breath,
       airWallHeld: state.airWallHeld,
+      element: elements.active,
       gustPressed: state.gustPressed,
       slam: slam ? { strength: slam.strength } : null,
       vortexHeld: state.vortexHeld,
@@ -906,6 +999,13 @@ function start(): void {
         DEFAULT_SLIPSTREAM_CONFIG,
       ),
       staffSwing,
+      // The live values, read at the point the fight is stepped. Focus is stepped further down
+      // this function, so this is the meter as the previous frame left it — the same one-frame
+      // convention the Avatar State's own boost runs on, and for the same reason: nothing here
+      // may need a value that depends on itself. `player.breath` is post-`controllerStep`, so a
+      // thrust or a dodge spent on this frame is already deducted and cannot be double-spent.
+      focusAvailable: focus.value,
+      breathAvailable: player.breath,
     }, dt, fightConfig, {
       ground: world.terrain, worldFloorY: ARCHIPELAGO.worldFloorY,
       // The same ground-adjusted array startEncounter was built from, never raw
@@ -929,6 +1029,34 @@ function start(): void {
       dt, isAirWallUp(encounter.airWall), player.position, state.lookDirection,
       fightConfig.airWall,
     )
+
+    /**
+     * Water's breath bill, paid the frame the move fired.
+     *
+     * Deducted here rather than inside `stepEncounter`, which has no business holding a
+     * `PlayerState` — the same division of labour `stepSlipstream` keeps by returning
+     * `breathSpent` for the controller to apply. Clamped at zero because the fight checked
+     * affordability against the pre-step breath and `controllerStep` has run since: it cannot
+     * actually go negative today, since `stepEncounter` reads the post-step value, but a floor
+     * costs one comparison and a negative breath would silently disable thrust rather than
+     * looking wrong.
+     */
+    if (fight.breathSpent > 0) {
+      player = { ...player, breath: Math.max(0, player.breath - fight.breathSpent) }
+    }
+
+    // The water moves' reaches, drawn from the fight's own report rather than from the press.
+    // A grip can be refused for want of breath and a freeze for want of Focus, and both
+    // refusals are invisible to this file — asking the fight what fired is what keeps a
+    // declined press from drawing a cone and playing a voice for a move that never happened.
+    if (fight.gripFired) {
+      effects.add(createWaterReach(player.position, player.forward, 'grip', fightConfig.water))
+      combatAudio.grip()
+    }
+    if (fight.freezeFired) {
+      effects.add(createWaterReach(player.position, player.forward, 'freeze', fightConfig.water))
+      combatAudio.freeze()
+    }
     // A restored soldier reuses its id, so its interpolator still holds wherever the
     // body fell. Left alone the view would blend from there to the spawn point --
     // sliding across the map, or climbing up out of the void for one that fell off the
@@ -1002,6 +1130,23 @@ function start(): void {
     for (const id of bursts.deflects) {
       const at = positionOf(id)
       if (at) effects.add(createImpact(at, 'deflect'))
+    }
+    // One ice shell per soldier actually caught, at the duration the fight applied, so the tell
+    // is on screen for exactly the window that soldier cannot act. `positionOf` reads
+    // `fight.enemiesBeforeRestore` for the same reason the impact bursts above do: on a frame that
+    // both restores the patrol and resolved a move, `encounter.enemies` holds fresh soldiers at
+    // their spawn points and would put the shell there.
+    //
+    // Voiced once for the whole move, above, and drawn once per soldier here — the same split the
+    // impact bursts make. Both lists are separate from the four Focus lists, because neither water
+    // move pays Focus.
+    for (const id of fight.grippedThisFrame) {
+      const at = positionOf(id)
+      if (at) effects.add(createIceShell(at, fightConfig.water.gripHoldSeconds))
+    }
+    for (const id of fight.frozenThisFrame) {
+      const at = positionOf(id)
+      if (at) effects.add(createIceShell(at, fightConfig.water.freezeHoldSeconds))
     }
     if (bursts.hits.length > 0) combatAudio.impact()
     if (bursts.downs.length > 0) combatAudio.down()
@@ -1117,6 +1262,11 @@ function start(): void {
         player, inWind, DEFAULT_FLIGHT_CONFIG, DEFAULT_FOCUS_CONFIG,
       ),
       events,
+      // The bill the fight reported, which today is only ever an Ice Lock. `stepFocus` returns
+      // early on `frozen`, so a freeze thrown during the Avatar State costs nothing — correct
+      // rather than a leak, because the state already holds the meter still and section 4.5 makes
+      // all elements free while it runs.
+      spent: fight.focusSpent,
       frozen: avatarActive,
       reset: asStep.justEnded,
     }, dt, DEFAULT_FOCUS_CONFIG)
@@ -1131,6 +1281,12 @@ function start(): void {
     // effect on the flash already running. This is the only consumer of `hurtFlash` that can
     // ever be non-zero: the `down` branch passes a literal 0, and the priming call near the
     // bottom of this function runs before any hit can have landed.
+    // Updated in `update` rather than in `syncVisuals`, unlike the reticle and the two marker
+    // rings. Those three are projected from the camera and have to be recomputed per rendered
+    // frame; this widget is anchored in viewport fractions and its contents change only when the
+    // simulation changes them, so drawing it beside the HUD — which is updated here for the same
+    // reason — keeps it on the same clock as the element it is reporting.
+    elementRadial.update(radialModel(elements, DEFAULT_ELEMENT_CONFIG))
     const shownHurtFlash = hurtFlash * motion.hurtFlash
     hud.update(hudModelFor(player, encounter.playerHealth, {
       focus: focus.max > 0 ? focus.value / focus.max : 0,
@@ -1333,6 +1489,12 @@ function start(): void {
       reticle.hide()
       hitDirection.hide()
       offScreen.hide()
+      // Hidden with them, and it is the same correctness guard rather than tidiness: `update()`
+      // returns early while `down` is set, so the radial's model is whatever it was on the frame
+      // the player went down, and it cannot be steered until the beat ends. It is also meant to
+      // be behind full black — the badge sits in the HUD's own gutter, and the blackout is
+      // supposed to be black.
+      elementRadial.hide()
       return
     }
 
@@ -1428,6 +1590,12 @@ function start(): void {
     avatarCharge: armFraction(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
     avatarActive,
   }, hurtFlash, stallSeverity(player, DEFAULT_FLIGHT_CONFIG)))
+  // Primed with the HUD, and for exactly the reason the HUD is: the paused branch of `frame()`
+  // can be the very first frame and can hold indefinitely behind the front-door card, and it
+  // never calls `update()`. Without this the badge's dot would have no colour and its label no
+  // text until the player first clicked in — a blank widget in the HUD gutter on the one screen a
+  // new player looks at longest.
+  elementRadial.update(radialModel(elements, DEFAULT_ELEMENT_CONFIG))
 
   let last = performance.now()
   /** Whether the previous frame was running, so audio follows the edge and not the state. */
@@ -1466,6 +1634,12 @@ function start(): void {
       reticle.hide()
       hitDirection.hide()
       offScreen.hide()
+      // Hidden while paused for the same reason as the other three: this branch does not call
+      // `update()`, so nothing is refreshing the radial, and an open ring frozen over the guide
+      // panel or the pause card would be a widget the player cannot operate sitting on top of the
+      // one they can. The selection itself is untouched — no simulation time passes — so it comes
+      // back exactly as it was.
+      elementRadial.hide()
       renderer.render(scene, camera)
     } else {
       stepper.advance((now - last) / 1000)

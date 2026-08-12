@@ -173,6 +173,10 @@ describe('a motionless player is left alone', () => {
     const input = {
       playerPosition: spawn,
       playerForward: new Vector3(0, 0, -1),
+      // Air, and it makes no difference here: nothing is pressed, so no move of either element
+      // resolves. Stated rather than left off because the field is required, and air is what a
+      // player who has loaded the game and touched nothing is holding.
+      element: 'air' as const,
       gustPressed: false,
       slam: null,
       vortexHeld: false,
@@ -184,6 +188,8 @@ describe('a motionless player is left alone', () => {
       // No wall. A player who loads the game and touches nothing is not holding one, and a
       // wall up for these 600 frames could hide a badly placed archer by deflecting its shot.
       airWallHeld: false,
+      focusAvailable: 0,
+      breathAvailable: 100,
     }
 
     let encounter = startEncounter(HOME_PATROL, DEFAULT_COMBAT_CONFIG)
@@ -236,6 +242,9 @@ describe('a motionless player is left alone', () => {
       playerAim: new Vector3(0, 0, -1),
       playerBreath: 100,
       airWallHeld: false,
+      element: 'air' as const,
+      focusAvailable: 0,
+      breathAvailable: 100,
     }
 
     let encounter = startEncounter(HOME_PATROL, DEFAULT_COMBAT_CONFIG)
