@@ -1,5 +1,12 @@
 # Contact Shadows Implementation Plan
 
+> **Status (2026-08-12): this plan was executed in full, and the feature was then removed.**
+> Nothing it builds is in the codebase, and it should not be executed again. The pass's apparent
+> effect was its own self-occlusion artefact, and with the artefact fixed the effect was
+> invisible at this game's camera distance. See "Contact shadows: built, measured, and removed"
+> in `docs/HANDOFF.md`, and the status note on
+> `docs/superpowers/specs/2026-08-11-contact-shadows-design.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Darken the places where geometry touches other geometry — a trunk's base, a rock's underside, a character's feet — with a screen-space contact shadow pass that the shadow map cannot resolve at 0.044 world units per texel.

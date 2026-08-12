@@ -1,5 +1,11 @@
 # Contact Shadows
 
+> **Status (2026-08-12): built, measured on screen, and removed. Nothing described below is in
+> the codebase.** The pass's apparent effect turned out to be its own self-occlusion artefact;
+> once the artefact was fixed the effect was invisible at this game's camera distance. This
+> document is kept as the historical record of the design. For what was measured and why the
+> pass came out, see "Contact shadows: built, measured, and removed" in `docs/HANDOFF.md`.
+
 ## The problem
 
 The shadow map cannot resolve a contact. `SHADOW_MAP_SIZE` 4096 over a `SHADOW_EXTENT` of 90

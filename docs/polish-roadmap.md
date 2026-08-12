@@ -83,6 +83,15 @@ and distortion. Ribbon trails behind the glider wingtips are a high-payoff start
 The follow-the-player shadow frustum works but is resolution-limited. If quality bothers
 anyone later, the three.js CSM addon (cascaded shadow maps) covers large terrain properly.
 
+Four other levers were tried on 2026-08-11 and 2026-08-12, and all four are recorded with
+their measurements in `docs/HANDOFF.md`: VSM (closed — no `normalBias` is both free of terrain
+acne and solid enough to keep the character's shadow readable), a 4096-texel map (shipped, for
+a modest detail gain), a smaller `SHADOW_EXTENT` (closed — its floor is pinned by the largest
+island), and a screen-space contact shadow pass (built and removed — a contact technique needs
+a close camera, and the follow cam watches from 15 to 40 units back). CSM is the one untried
+option left here. If what anyone actually wants is crevice darkening, ambient occlusion is the
+technique to reach for; contact shadows were measured and are not it.
+
 ## Sequencing
 
 Gameplay first — that instinct is right. The two exceptions were render interpolation
