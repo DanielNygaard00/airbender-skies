@@ -1,4 +1,5 @@
 import type { WindKind } from '../../world/wind'
+import type { Element } from '../../elements/element'
 
 /**
  * The parts of the guide that are not a key with a rule: the chains that emerge from
@@ -38,10 +39,66 @@ export const COMBOS: readonly Combo[] = [
       'never expires, so you can hold the third one for when you need it.',
   },
   {
+    name: 'Give the arrow back',
+    keys: ['G', 'F'],
+    detail: 'Hold G facing an archer as it draws and the arrow it looses comes off the wall ' +
+      'instead of into you, and it hurts whatever it lands on. Whoever is closing on you is ' +
+      'usually what that is, which is the cheapest damage in the game — you did not throw ' +
+      'anything. Threading it back into the archer that fired it is a fine shot rather than a ' +
+      'reliable one, so gust the spears off you first and let the wall handle the range.',
+  },
+  {
+    name: 'Gather them, then freeze them',
+    keys: ['R', '2', 'R'],
+    detail: 'Charge a Vortex on air and release to pull a group into one place, then 2 to switch '
+      + 'to water and R again to freeze the lot where they land. Switching is free and instant, so '
+      + 'this is one continuous action rather than three — which is the whole reason the two '
+      + 'bending keys mean a different move per element.',
+  },
+  {
+    name: 'Drag one out of the group and deal with it',
+    keys: ['2', 'F', 'Mouse left'],
+    detail: 'On water, F yanks whoever is in front of you toward you and holds them there. The '
+      + 'pull lands them inside the staff\'s reach and the hold means they cannot answer, so the '
+      + 'combo goes in for free. Water does no damage at all — it makes the staff\'s damage safe '
+      + 'to spend.',
+  },
+  {
+    name: 'Ride a wall on the scooter',
+    keys: ['Z', 'Shift', 'W'],
+    detail: 'Build a charge on the scooter, then drive it square into a near-vertical face at ' +
+      'speed and it carries you up instead of stopping you. The squarer you hit it the higher ' +
+      'you go — a glancing approach just skims along the rock. It spends the charge while you ' +
+      'climb, so a shortcut up a wall costs the speed you built to reach it, and you come off ' +
+      'the top on foot with nothing in the bank.',
+  },
+  {
+    name: 'Kick off a wall while you are still climbing',
+    keys: ['Z', 'Space'],
+    detail: 'You reach a wall on your feet, so your second jump is untouched when you get ' +
+      'there. Spend it partway up rather than at the top: the double jump is a downward air ' +
+      'push and it gains more the faster you are already rising, so kicking off early beats ' +
+      'waiting for the ride to run out.',
+  },
+  {
     name: 'Ride the air rather than fight it',
     keys: ['W', 'A', 'D'],
     detail: 'Thrust costs breath; a thermal does not. Steering into a mote cloud and ' +
       'circling inside it climbs for free, and it builds Focus about twice as fast.',
+  },
+  {
+    // Listed as a chain rather than as a note about the key, because that is what it is: the
+    // payload on its own is one press, and the interesting part is what carrying it forces you
+    // to do with everything else. It sits last on purpose — every earlier entry is a move,
+    // and this one only makes sense once thermals do.
+    name: 'Carry a payload the long way up',
+    keys: ['B', 'A', 'D'],
+    detail: 'Lift the bundle on the home plateau and it is meant for the rock island high to ' +
+      'the north. Loaded, the wing sinks faster, rolls at half the rate and drinks breath ' +
+      'half again as fast, so thrusting the whole way arrives on fumes if it arrives at all. ' +
+      'The thermal over home and the one under the island are the way there — and because you ' +
+      'turn slower loaded, you have to ease off the speed to stay inside a column rather than ' +
+      'carving out the far side of it.',
   },
 ]
 
@@ -59,9 +116,14 @@ export interface MeterNote {
 export const METERS: readonly MeterNote[] = [
   {
     name: 'Breath',
+    // The payload's drain is named here as well as on its own row, and deliberately so: this
+    // is the bar the player watches emptying, so this is where they will look to find out why
+    // it is emptying faster than they remember.
     detail: 'Flight fuel, in blue at the bottom. Thrust spends it and hovering spends it ' +
-      'fastest, because holding station carries the glider\'s whole weight. Refills when ' +
-      'you are not spending it, faster on the ground. Air shrines raise the maximum.',
+      'fastest, because holding station carries the glider\'s whole weight. Carrying a ' +
+      'payload makes both cost half again as much. Refills when you are not spending it, ' +
+      'faster on the ground. Air shrines raise the maximum, and five of them cover what a ' +
+      'payload costs you.',
   },
   {
     name: 'Focus',
@@ -70,7 +132,9 @@ export const METERS: readonly MeterNote[] = [
       'drains unless you are riding the scooter — walking costs it exactly as fast as ' +
       'standing still. A hit takes nearly a third. The longer you go unbroken the ' +
       'better everything pays. Hold it at full and the thin pip beneath it fills; once ' +
-      'that is full, E spends the lot on the Avatar State.',
+      'that is full, E spends the lot on the Avatar State. It is also spent, about a third at ' +
+      'a time, by the Ice Lock — so freezing a rank and saving for the Avatar State are the ' +
+      'same budget, and the bar is the only place that trade is visible.',
   },
   {
     name: 'Health',
@@ -106,6 +170,34 @@ export const SCREEN_MARKS: readonly MeterNote[] = [
       + 'while that soldier is winding up to attack — that is the moment to move.',
   },
 ]
+
+/**
+ * What each element is for, in one line each.
+ *
+ * Typed as a `Record` over `Element` for the same reason `WIND_LEGEND` is typed over `WindKind`:
+ * adding earth or fire fails to compile until it has been described here. Cheaper and stronger
+ * than a test that could be deleted, and it means the guide can never ship an element the player
+ * has a key for and no explanation of.
+ *
+ * Each line says what the element *does to a fight*, not what its two moves are — the rows in the
+ * action catalogue already list the moves, and repeating them here would be the same text twice
+ * with two places to keep it true. What a player reading this section needs is the reason to
+ * switch at all.
+ *
+ * The availability rule is expressible here and today has nothing to say, which is deliberate.
+ * When acts exist and `isElementAvailable` starts refusing, an unavailable element is already
+ * struck through in the radial and its rows are already struck through in the columns above; this
+ * legend is where the sentence explaining *why* would go.
+ */
+export const ELEMENT_LEGEND: Record<Element, string> = {
+  air: 'Always yours, and the only element with a damage move in it at all. Wide, fast, and it '
+    + 'moves people — a gust clears space and a Vortex gathers a group. Everything else in the '
+    + 'kit is built on top of it. Straight up on the radial, or 1.',
+  water: 'Control. It does no damage whatsoever: it pulls, it holds, and it freezes, and what it '
+    + 'buys you is time and position for the staff to work in. Its reach is narrow and it does '
+    + 'not extend nearly as far above or below you as air does, so it is a close-quarters answer '
+    + 'rather than something to throw from a hover. Straight down on the radial, or 2.',
+}
 
 /**
  * What the mote clouds mean.

@@ -67,9 +67,69 @@ export const COMBAT_LEVELS = {
   finisher: 0.26,
   impact: 0.3,
   down: 0.36,
-  hurt: 0.4,
+  /**
+   * Raised from 0.4 to 0.47 when the Ice Lock landed, and the reasoning belongs here because
+   * the number now sits between two other voices' claims rather than standing on its own.
+   *
+   * Two rules were written independently and turned out to contradict each other. The mix says
+   * a hit taken is the loudest thing in the fight, by a margin, because it is the event the
+   * player most needs to notice — `mapping.test.ts` asserts that against *every* voice in this
+   * record rather than a hand-kept list, precisely so a new voice cannot quietly outgrow it.
+   * And the Ice Lock claims the top of the player's own voices, because it is the one move that
+   * spends a third of the Focus bar and the mix has to say so.
+   *
+   * Both survive if `hurt` moves instead of `freeze`: at 0.47 it clears the freeze's 0.42 by
+   * the 1.1 margin the test demands (0.462), stays under the 0.5 ceiling every voice here is
+   * held to, and leaves the Ice Lock the loudest thing the player can *do*. Retuning `freeze`
+   * down instead would have put it at or under `down`'s 0.36, which is the opposite of what a
+   * Focus-priced move should sound like.
+   */
+  hurt: 0.47,
   /** An archer loosing. Louder than a staff swing, since it is a warning; below hurt. */
   bowRelease: 0.24,
+  /**
+   * A blow bouncing off plate.
+   *
+   * Deliberately equal to `impact` rather than below it. The instinct is to make a move that
+   * did nothing quieter than one that connected, and it is wrong here: quiet reads as "barely
+   * hit", and the one thing the player must not conclude from a gust on a heavy is that it
+   * hit a little. A deflect has to be as loud as a connect and *unmistakably a different
+   * sound*, so the whole difference is carried by timbre — `combat-audio.ts` plays this as a
+   * short, high, bright snap where `impact` is a low thud.
+   *
+   * Tied to `impact` by a test rather than by sharing the literal, because the two are the
+   * same number for a reason and should move together if the mix is ever rebalanced.
+   */
+  clang: 0.3,
+   /**
+   * A Water Grip: the water leaving and the soldier arriving.
+   *
+   * Just under the gust's 0.22, because the two are the same key and the player should be able to
+   * hear which element fired without the louder one being the tell. The difference the ear
+   * actually uses is timbre rather than level — the grip's voice sweeps its filter *upward* where
+   * the gust's falls, matching the inward-versus-outward direction the two effects are drawn
+   * with, so the pair reads consistently in both channels.
+   */
+  grip: 0.2,
+  /**
+   * An Ice Lock: the loudest voice in the fight, and the only one above `hurt`.
+   *
+   * Deliberately at the top of the list. It is the one move in the game that spends Focus, and a
+   * third of the bar is a bigger commitment than any single hit either side of the fight takes —
+   * so the mix has to say so, or the most expensive press the player can make is also one of the
+   * quietest. It is still under the 0.5 ceiling every voice here is held to.
+   */
+  freeze: 0.42,
+  /**
+   * The element switch: the quietest voice in the game, by a wide margin.
+   *
+   * Under half the softest thing in the fight, because switching is free and happens mid-combo —
+   * possibly several times in an exchange. A confirmation that carried any weight would be the
+   * most-heard sound in the game and would make a free action feel like a move. It exists at all
+   * because the switch is otherwise silent and the radial is not being looked at, which is the
+   * whole design: the click is what tells a player who flicked without looking that it took.
+   */
+  elementSwitch: 0.07,
 } as const
 
 export function swingLevel(finisher: boolean): number {

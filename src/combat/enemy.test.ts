@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  spawnEnemy, stepEnemy, hitEnemy, horizontalDistance, isTargetable, risingProgress,
+  spawnEnemy, stepEnemy, hitEnemy, holdEnemy, horizontalDistance, isHeld, isTargetable,
+  risingProgress, deflects, throughArmour, UNARMOURED,
   type Enemy, type EnemyConfig, type GroundHeightQuery,
 } from './enemy'
 import { isDowned } from './health'
@@ -12,6 +13,7 @@ const C: EnemyConfig = {
   moveSpeed: 4, strikeRange: 3, aggroRange: 30, windUpSeconds: 0.5, recoverSeconds: 0.6,
   attack: { kind: 'melee', damage: 1 }, knockbackDamping: 3, gravity: 20, snapDistance: 1.2,
   downedSeconds: 18, risingSeconds: 1.2, recoveryHealthFractions: [0.6, 0.3],
+  armour: UNARMOURED,
 }
 
 const AT = (x: number, z: number) => new Vector3(x, 0, z)
@@ -607,7 +609,7 @@ describe('a projectile attack reaches in three dimensions', () => {
     ...C,
     strikeRange: 30,
     aggroRange: 60,
-    attack: { kind: 'projectile', damage: 0.4, speed: 20 },
+    attack: { kind: 'projectile', damage: 0.4, speed: 20, tangleSeconds: 0 },
   }
 
   it('fires at a player inside its range', () => {
@@ -722,7 +724,7 @@ describe('a soldier with nowhere horizontal to go', () => {
   const HOVER: EnemyConfig = {
     ...C,
     moveSpeed: 3.4, strikeRange: 40, aggroRange: 48,
-    attack: { kind: 'projectile', damage: 1, speed: 34 },
+    attack: { kind: 'projectile', damage: 1, speed: 34, tangleSeconds: 0 },
   }
   /** One frame's worth of walking, the unit every assertion below is scaled against. */
   const STEP = HOVER.moveSpeed / 60
@@ -796,5 +798,403 @@ describe('a soldier with nowhere horizontal to go', () => {
     // for an archer that never advances.
     const { enemy } = track(new Vector3(0, 0, -45), 1)
     expect(horizontalDistance(enemy.position, AT(0, 0))).toBeCloseTo(STEP, 6)
+  })
+})
+
+describe('armour, as a per-source fraction of a blow', () => {
+  /**
+   * Plate: a gust turns away entirely, a staff loses most of itself, a wave lands whole.
+   *
+   * Written out here rather than read from `DEFAULT_COMBAT_CONFIG.enemies.heavy`, so these tests
+   * are about the mechanism rather than about the shipped tuning. The shipped numbers get their
+   * own assertions at the bottom of this block.
+   */
+  const PLATE: EnemyConfig = {
+    ...C,
+    armour: {
+      gust: { damage: 0, knockback: 0 },
+      vortex: { damage: 1, knockback: 0.5 },
+      wave: { damage: 1, knockback: 1 },
+      staff: { damage: 0.25, knockback: 0.5 },
+    },
+  }
+
+  it('scales damage and displacement independently', () => {
+    // The whole reason `Armour` is two numbers rather than one. A move can be allowed to hurt
+    // without moving, or to move without hurting, and the staff row exercises both at once with
+    // two different fractions -- so an implementation applying one figure to both would show.
+    const through = throughArmour(2, new Vector3(10, 4, -20), PLATE.armour.staff)
+    expect(through.damage).toBeCloseTo(0.5, 10)
+    expect(through.impulse.toArray()).toEqual([5, 2, -10])
+  })
+
+  it('scales the lift as well as the horizontal push', () => {
+    // Not a restatement of the case above: a plausible implementation scales only `x` and `z`,
+    // since that is what `knockback` means everywhere else in `Enemy`. A wave's impulse carries
+    // real lift, so an armour that reduced the shove and left the launch alone would be a
+    // soldier thrown straight up out of a blow it was supposed to absorb.
+    const through = throughArmour(0, new Vector3(0, 12, 0), { damage: 1, knockback: 0.25 })
+    expect(through.impulse.y).toBeCloseTo(3, 10)
+  })
+
+  it('leaves an unarmoured blow exactly as it was thrown', () => {
+    const impulse = new Vector3(3, -7, 11)
+    const through = throughArmour(1.75, impulse, UNARMOURED.gust)
+    expect(through.damage).toBe(1.75)
+    expect(through.impulse.toArray()).toEqual([3, -7, 11])
+  })
+
+  it('does not write into the impulse it was handed', () => {
+    // The callers pass freshly built vectors today, but `gustImpulse` and friends are pure and a
+    // future caller could reasonably cache one. Mutating the argument would then scale the same
+    // vector again on the next soldier in the loop, so the second body in a cone would take a
+    // quarter of the blow and the third a sixteenth.
+    const impulse = new Vector3(8, 8, 8)
+    throughArmour(1, impulse, { damage: 1, knockback: 0.5 })
+    expect(impulse.toArray()).toEqual([8, 8, 8])
+  })
+
+  it('reports a blow it turns away completely, and only that one', () => {
+    // Both halves matter. The positive says the gust row is recognised; the three negatives say
+    // the predicate is not simply true for anything wearing plate, which is what an
+    // implementation testing the kind rather than the pairing would produce.
+    expect(deflects(PLATE, 'gust')).toBe(true)
+    expect(deflects(PLATE, 'staff')).toBe(false)
+    expect(deflects(PLATE, 'vortex')).toBe(false)
+    expect(deflects(PLATE, 'wave')).toBe(false)
+  })
+
+  it('does not report a partial reduction as a deflect', () => {
+    // A blow reduced to almost nothing is still a blow: it pushes, and `hitEnemy` interrupts the
+    // wind-up. Calling it a deflect would play a clang over a hit that actually landed.
+    const nearly: EnemyConfig = {
+      ...C, armour: { ...UNARMOURED, gust: { damage: 0, knockback: 0.01 } },
+    }
+    expect(deflects(nearly, 'gust')).toBe(false)
+  })
+
+  it('reports nothing as deflected for a soldier wearing no armour', () => {
+    for (const source of ['gust', 'vortex', 'wave', 'staff'] as const) {
+      expect(deflects(C, source), `source: ${source}`).toBe(false)
+    }
+  })
+
+  it('leaves the shipped gust unable to touch a heavy and the shipped vortex able to lift one', () => {
+    // The one balance fact in this block, and it is here because it is the difference between a
+    // hard enemy and an unbeatable one. If the vortex row ever goes to zero the heavy becomes
+    // immovable by every move the player can throw from a distance, and the only route left is
+    // the slam -- which needs the player already standing next to it.
+    const heavy = DEFAULT_COMBAT_CONFIG.enemies.heavy
+    expect(deflects(heavy, 'gust')).toBe(true)
+    expect(heavy.armour.vortex.knockback).toBeGreaterThan(0)
+    expect(heavy.armour.wave.knockback).toBe(1)
+    expect(heavy.armour.wave.damage).toBe(1)
+    // And the staff is a real if deliberately bad answer rather than no answer at all, so a
+    // player with no altitude left to spend is not stuck.
+    expect(heavy.armour.staff.damage).toBeGreaterThan(0)
+  })
+
+  it('leaves every other shipped kind taking a whole blow from everything', () => {
+    // Armour is the heavy's identity, so a second kind quietly acquiring some is a balance change
+    // that ought to be deliberate. Iterated over the Record, so a fifth kind is covered without
+    // this test being edited.
+    for (const [kind, config] of Object.entries(DEFAULT_COMBAT_CONFIG.enemies)) {
+      if (kind === 'heavy') continue
+      for (const source of ['gust', 'vortex', 'wave', 'staff'] as const) {
+        expect(config.armour[source], `${kind} / ${source}`).toEqual({ damage: 1, knockback: 1 })
+      }
+    }
+  })
+})
+
+describe('a net thrower', () => {
+  /**
+   * Shaped like the shipped netter but with numbers of its own, so an assertion that read the
+   * real config by accident would be visible: a 3-second refusal against the shipped 2, and a
+   * strikeRange of 12 against the shipped 22.
+   */
+  const NETTER: EnemyConfig = {
+    ...C,
+    strikeRange: 12,
+    aggroRange: 24,
+    attack: { kind: 'projectile', damage: 0.5, speed: 18, tangleSeconds: 3 },
+  }
+
+  const winding = () => ({
+    ...spawnEnemy('a', AT(0, 0), 'nets', NETTER), stance: 'wind-up' as const, stanceTime: 999,
+  })
+
+  it('throws at a player in the air above it, because grounding a flier is the whole point', () => {
+    // The type's reason to exist. A netter that measured horizontally like a spear would read a
+    // hovering player as being at distance 0 -- permanently in range and impossible to escape by
+    // climbing -- and one that could not reach up at all would pressure nothing, since the only
+    // target worth grounding is one that is already off the ground.
+    const overhead = new Vector3(0, 9, -4)
+    const step = stepEnemy(winding(), overhead, flatGround, FLOOR, 1 / 60, NETTER)
+    expect(step.firedProjectile).not.toBe(null)
+    // Aimed in 3D at the player rather than along the horizontal heading, or the net passes under
+    // their feet.
+    expect(step.firedProjectile!.direction.y).toBeGreaterThan(0)
+  })
+
+  it('cannot reach a player who has climbed past its throwing range', () => {
+    // The positive control for the case above, and the reason `strikeRange` is 12 here: at a
+    // height of 20 the 3D distance is past it while the horizontal distance is still 4. So this
+    // reddens if the reach is measured horizontally and passes only if it is measured in 3D.
+    const high = new Vector3(0, 20, -4)
+    expect(horizontalDistance(AT(0, 0), high)).toBeLessThan(NETTER.strikeRange)
+    expect(AT(0, 0).distanceTo(high)).toBeGreaterThan(NETTER.strikeRange)
+    const step = stepEnemy(winding(), high, flatGround, FLOOR, 1 / 60, NETTER)
+    expect(step.firedProjectile).toBe(null)
+  })
+
+  it('deals no damage itself: the net carries the whole release', () => {
+    // The same split the archer uses. Damage counted here as well as on the projectile would hit
+    // the player twice for one throw, once instantly and once on arrival.
+    const step = stepEnemy(winding(), new Vector3(0, 0, -4), flatGround, FLOOR, 1 / 60, NETTER)
+    expect(step.firedProjectile).not.toBe(null)
+    expect(step.damageToPlayer).toBe(0)
+  })
+
+  it('sits on the same recovery ladder as everyone else', () => {
+    // Section 4.6 applies to every kind: nothing dies, and a soldier gets back up weaker until a
+    // last down sticks. Run through the real state machine rather than read off the config, so a
+    // kind that could never actually rise would show.
+    const netter = down(spawnEnemy('a', AT(0, 0), 'nets', NETTER))
+    expect(isDowned(netter.health)).toBe(true)
+    const up = settle(netter, FULL_RECOVERY + 0.1)
+    expect(up.stance).toBe('advance')
+    expect(isDowned(up.health)).toBe(false)
+    // Weaker than it was, per the ladder's first rung.
+    expect(up.health.current).toBeLessThan(NETTER.maxHealth)
+  })
+})
+
+describe('a heavy armoured soldier', () => {
+  const HEAVY = DEFAULT_COMBAT_CONFIG.enemies.heavy
+
+  it('swings horizontally, so altitude alone does not put a player out of its reach', () => {
+    // Recorded because it is the instinct a reader arrives with and it is wrong: horizontal reach
+    // means height is ignored, not protective. The heavy is melee, so a player hovering directly
+    // over one is at horizontal distance 0 and inside its 3.6 -- exactly as 'still thrusts at a
+    // player almost directly overhead' pins for the spear. What answers a hovering player is that
+    // they cannot hurt it either, not that it cannot reach them.
+    const heavy = {
+      ...spawnEnemy('a', AT(0, 0), 'heavy', HEAVY),
+      stance: 'wind-up' as const,
+      stanceTime: 999,
+    }
+    const overhead = new Vector3(0.2, 40, 0)
+    const step = stepEnemy(heavy, overhead, flatGround, FLOOR, 1 / 60, HEAVY)
+    expect(step.damageToPlayer).toBe(HEAVY.attack.damage)
+  })
+
+  it('sits on the same recovery ladder as everyone else', () => {
+    let current = down(spawnEnemy('a', AT(0, 0), 'heavy', HEAVY))
+    const far = AT(0, 500)
+    for (let t = 0; t < HEAVY.downedSeconds + HEAVY.risingSeconds + 0.1; t += 1 / 60) {
+      current = stepEnemy(current, far, flatGround, FLOOR, 1 / 60, HEAVY).enemy
+    }
+    expect(current.stance).toBe('advance')
+    expect(current.health.current).toBeCloseTo(HEAVY.maxHealth * 0.6, 6)
+  })
+
+  it('is downed by leaving the world, armour or no armour', () => {
+    // Section 4.6's environmental route has to be available to the one type whose design depends
+    // on it. Nothing about `armour` should reach the world floor -- it scales blows, not gravity
+    // -- but the whole design rests on this working, so it is pinned rather than reasoned about.
+    let current = spawnEnemy('a', new Vector3(0, 0, 0), 'heavy', HEAVY)
+    let fell = false
+    for (let t = 0; t < 10; t += 1 / 60) {
+      const step = stepEnemy(current, AT(0, 500), emptyAir, FLOOR, 1 / 60, HEAVY)
+      current = step.enemy
+      if (step.fellOutOfWorld) fell = true
+    }
+    expect(fell).toBe(true)
+    expect(isDowned(current.health)).toBe(true)
+    expect(current.downs).toBe(1)
+  })
+})
+
+describe('being held or frozen', () => {
+  /**
+   * A soldier standing just inside its own reach of a player at the origin.
+   *
+   * Inside `strikeRange`, so an unheld soldier at this distance winds up and lands a thrust well
+   * inside the windows tested below. That is what makes "it never hit the player" mean something
+   * here: the control case does hit.
+   */
+  const adjacent = () => spawnEnemy('a', AT(0, C.strikeRange - 0.5), 'spear', C)
+  const PLAYER = AT(0, 0)
+
+  it('stops a held soldier acting, where the same soldier unheld lands hits', () => {
+    // **The positive control is the whole test.** "A held soldier dealt no damage" is
+    // unfalsifiable on its own — it passes for a soldier out of range, for a broken fixture, and
+    // for a `strikeRange` typo. So the identical arrangement is run twice, differing only in the
+    // hold, and the unheld run has to actually connect.
+    const unheld = fight(2, PLAYER, adjacent())
+    const held = fight(2, PLAYER, holdEnemy(adjacent(), 5))
+    expect(unheld.damage).toBeGreaterThan(0)
+    expect(held.damage).toBe(0)
+  })
+
+  it('stops a held soldier closing, where the same soldier unheld walks in', () => {
+    // The second axis of "unable to act": it does not advance either. Again as a pair, and this is
+    // the trap the brief names — knockback physics runs regardless of stance, so a body can leave
+    // a cone by being shoved rather than by being inert. `holdEnemy` applies no impulse, so there
+    // is no knockback here at all, and the distance is asserted as *unchanged* rather than merely
+    // large.
+    const from = spawnEnemy('a', AT(0, 20), 'spear', C)
+    const unheld = fight(1, PLAYER, from)
+    const held = fight(1, PLAYER, holdEnemy(from, 5))
+    const start = horizontalDistance(from.position, PLAYER)
+    expect(horizontalDistance(unheld.enemy.position, PLAYER)).toBeLessThan(start - 1)
+    expect(horizontalDistance(held.enemy.position, PLAYER)).toBeCloseTo(start, 6)
+  })
+
+  it('interrupts a wind-up already in progress', () => {
+    // A hold has to buy the interruption a gust buys, and then keep it. Stepped to mid-wind-up
+    // first, so the soldier really is committed when the ice lands, and the control run confirms
+    // that this same wind-up would otherwise have landed.
+    const winding = fight(C.windUpSeconds * 0.6, PLAYER, adjacent()).enemy
+    expect(winding.stance).toBe('wind-up')
+    const frozen = holdEnemy(winding, 5)
+    expect(frozen.stance).toBe('held')
+    expect(fight(2, PLAYER, frozen).damage).toBe(0)
+    expect(fight(2, PLAYER, winding).damage).toBeGreaterThan(0)
+  })
+
+  it('expires after its own duration and not before', () => {
+    // Both edges, off one duration. A hold that never expired would pass a test that only checked
+    // the soldier was still held partway through, and a hold that expired instantly would pass one
+    // that only checked it eventually acted.
+    const hold = 1.5
+    const frozen = holdEnemy(adjacent(), hold)
+    expect(settle(frozen, hold * 0.9).stance).toBe('held')
+    expect(settle(frozen, hold + 0.1).stance).not.toBe('held')
+  })
+
+  it('releases into recover, not straight into a thrust', () => {
+    // Released into 'advance' instead, a soldier frozen at spear reach would thrust on the very
+    // frame the hold ended — an unavoidable hit, which would make the move a liability at exactly
+    // the range it is for. So the release owes the same beat a hit owes, and the soldier's first
+    // damage lands no sooner than `recoverSeconds` plus `windUpSeconds` after the ice breaks.
+    const hold = 1
+    const frozen = holdEnemy(adjacent(), hold)
+    const justAfter = fight(hold + 1 / 30, PLAYER, frozen)
+    expect(justAfter.enemy.stance).toBe('recover')
+    expect(justAfter.damage).toBe(0)
+    // Not merely "not immediately": nothing lands for the whole recover-then-wind-up window.
+    const window = hold + C.recoverSeconds + C.windUpSeconds - 2 / 60
+    expect(fight(window, PLAYER, frozen).damage).toBe(0)
+    // And the positive control, so the window above is a delay rather than a permanent silence.
+    expect(fight(window + 0.2, PLAYER, frozen).damage).toBeGreaterThan(0)
+  })
+
+  it('stays held through a hit, which is the point of locking a target', () => {
+    // A locked target is locked so it can be worked on. Freeing it by hitting it would make the
+    // freeze useless for anything except walking away — and it would make the grip actively
+    // counterproductive, since the grip's own job is to set up a staff combo.
+    const frozen = holdEnemy(adjacent(), 5)
+    const struck = hitEnemy(frozen, 0.5, new Vector3())
+    expect(struck.stance).toBe('held')
+    expect(struck.health.current).toBeLessThan(frozen.health.current)
+    expect(fight(2, PLAYER, struck).damage).toBe(0)
+  })
+
+  it('does not let a hit extend or shorten the ice', () => {
+    // Only `holdEnemy` writes the timer. A hit that reset it would let the player keep a soldier
+    // frozen forever with the staff, and one that cleared it would make hitting a frozen soldier
+    // a mistake.
+    const frozen = holdEnemy(adjacent(), 2)
+    expect(hitEnemy(frozen, 0.5, new Vector3()).heldSeconds).toBe(frozen.heldSeconds)
+  })
+
+  it('is still targetable while held, by the one gate every resolver asks', () => {
+    // `isTargetable` is deliberately unchanged: adding "unless frozen" would change the gate for
+    // every resolver at once and stop a frozen soldier taking staff damage, which is backwards.
+    // `isHeld` is the separate predicate for anything that needs the distinction.
+    const frozen = holdEnemy(adjacent(), 5)
+    expect(isTargetable(frozen)).toBe(true)
+    expect(isHeld(frozen)).toBe(true)
+    expect(isHeld(adjacent())).toBe(false)
+  })
+
+  it('takes the longer of two holds rather than stacking them', () => {
+    // A grip landing on a frozen target must not shorten the freeze, and a freeze landing on a
+    // gripped one must not be stacked into something longer than either move earns. Both
+    // directions, because `Math.max` and `Math.min` each satisfy one of them.
+    const long = holdEnemy(adjacent(), 3)
+    expect(holdEnemy(long, 1).heldSeconds).toBe(3)
+    const short = holdEnemy(adjacent(), 1)
+    expect(holdEnemy(short, 3).heldSeconds).toBe(3)
+  })
+
+  it('refuses to hold a downed soldier, so the ice cannot outlive a knockdown', () => {
+    // The recovery ladder owns a body on the ground. Holding one would mean two systems counting
+    // down over the same soldier, with the hold outliving the rise — so a soldier could push
+    // itself back up and be frozen on the spot by ice thrown while it was already down.
+    const body = down(adjacent())
+    expect(holdEnemy(body, 5)).toBe(body)
+    expect(holdEnemy(body, 5).stance).not.toBe('held')
+  })
+
+  it('drops the ice when a held soldier is taken down', () => {
+    // The other direction of the same rule: the hold is cleared on the crossing, so a soldier that
+    // was frozen and is then knocked down rises clean rather than re-freezing on its feet.
+    const frozen = holdEnemy(adjacent(), 5)
+    const felled = hitEnemy(frozen, frozen.health.max, new Vector3())
+    expect(isDowned(felled.health)).toBe(true)
+    expect(felled.heldSeconds).toBe(0)
+    expect(felled.stance).toBe('downed')
+    // And it comes back up able to act, which is what makes the clear meaningful rather than
+    // cosmetic — a stale timer would leave it frozen at the top of its rise.
+    const risen = settle(felled, FULL_RECOVERY + 0.1)
+    expect(risen.stance).not.toBe('held')
+    expect(fight(3, PLAYER, risen).damage).toBeGreaterThan(0)
+  })
+
+  it('still falls while held, and settles', () => {
+    // Held is not weightless. A soldier frozen over a drop keeps falling, which is what keeps
+    // §4.6's "blown off a ledge" available as a way to remove a frozen soldier.
+    const airborne = holdEnemy(
+      { ...adjacent(), position: AT(0, 2).setY(10), grounded: false }, 5,
+    )
+    const fallen = settle(airborne, 1)
+    expect(fallen.position.y).toBeLessThan(10)
+    expect(fallen.stance).toBe('held')
+    const landed = settle(airborne, 3)
+    expect(landed.position.y).toBeCloseTo(0, 3)
+  })
+
+  it('goes down by leaving the world even while held', () => {
+    // The hold must not make a soldier immune to the one removal that is not damage. Over empty
+    // air with no ground anywhere, a frozen soldier falls past the floor and is downed.
+    const overNothing = holdEnemy(
+      { ...adjacent(), grounded: false, verticalVelocity: -5 }, 30,
+    )
+    const gone = settle(overNothing, 6, emptyAir)
+    expect(isDowned(gone.health)).toBe(true)
+    expect(gone.stance).toBe('downed')
+  })
+
+  it('counts the hold down once per step, on every path through the function', () => {
+    // The decrement lives in a three-line preamble at the top of `stepEnemy` precisely so that no
+    // one of its eight exits can forget it — a per-branch decrement would eventually acquire a
+    // path that skips it, and it would present as a soldier frozen forever on one code path only.
+    // Checked against real elapsed time rather than a frame count, across a run that passes
+    // through the airborne branch and the grounded one.
+    //
+    // Toleranced at exactly one step rather than with `toBeCloseTo`, because `settle`'s
+    // `t += 1 / 60` accumulates floating-point error and runs one extra frame at 0.5 seconds —
+    // 30 steps land on 0.49999999999999994, which is still under the bound. That is a property of
+    // the helper and not of the countdown, so the assertion says "within one step" and means it,
+    // rather than picking a decimal precision that happens to swallow it.
+    const seconds = 0.5
+    const frozen = holdEnemy({ ...adjacent(), grounded: false, position: AT(0, 2).setY(3) }, 4)
+    const after = settle(frozen, seconds)
+    expect(Math.abs(after.heldSeconds - (4 - seconds))).toBeLessThanOrEqual(1 / 60 + 1e-9)
+    // Never negative, so the expiry test cannot be reached from the wrong side.
+    expect(settle(frozen, 10).heldSeconds).toBe(0)
   })
 })

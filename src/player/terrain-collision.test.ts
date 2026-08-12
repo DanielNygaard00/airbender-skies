@@ -53,7 +53,12 @@ function input(over: Partial<InputState> = {}): InputState {
     actionPressed: false, actionHeld: false, actionReleased: false,
     scooterPressed: false, dashPressed: false, gustPressed: false,
     avatarStatePressed: false, vortexHeld: false, vortexReleased: false,
-    slipstreamPressed: false, staffPressed: false,
+    slipstreamPressed: false, staffPressed: false, airWallHeld: false,
+  // The element radial's four fields. Air is the resting selection, the radial is closed,
+  // and no pointer movement: none of this reaches movement code, which is the point —
+  // `stepElements` is the only consumer, and it is not on the movement path.
+  radialHeld: false, radialReleased: false, pointerDelta: { x: 0, y: 0 }, elementIndex: null,
+  carryPressed: false,
     ...over,
   }
 }
@@ -78,10 +83,11 @@ describe('a glider cannot fly through an island', () => {
       grounded: false, lastGroundIslandId: 'home',
       airJumpsUsed: 0, chargeTime: 0,
       coyoteTime: 0, jumpBuffer: 0,
-      scooterActive: false, scooterCharge: 0,
+      scooterActive: false, scooterCharge: 0, wallRideNormal: null,
       dashesUsed: 0, dashRecovery: 0,
       slipstreamElapsed: null, slipstreamCooldown: 0,
       staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0,
+      tangled: 0,
     }
     for (let frame = 0; frame < 150; frame++) {
       state = controllerStep(
@@ -129,10 +135,11 @@ describe('a walker cannot walk through an island', () => {
       grounded: true, lastGroundIslandId: 'spire',
       airJumpsUsed: 0, chargeTime: 0,
       coyoteTime: 0, jumpBuffer: 0,
-      scooterActive: false, scooterCharge: 0,
+      scooterActive: false, scooterCharge: 0, wallRideNormal: null,
       dashesUsed: 0, dashRecovery: 0,
       slipstreamElapsed: null, slipstreamCooldown: 0,
       staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0,
+      tangled: 0,
     }
     // Honest accounting of what these two checks inside the loop actually establish,
     // because a future reader who only sees "about to respawn" and "belt and suspenders"

@@ -151,14 +151,41 @@ describe('the combat voices', () => {
     // finisher tests above. With `toBeGreaterThanOrEqual` and no margin, retuning `hurt`
     // down to `down`'s 0.36 — a dead tie, where the event that matters most no longer
     // stands out at all — kept this test green. 1.1 rather than those tests' 1.2 because
-    // the loudest rival, `down` at 0.36, sits 11% below `hurt`'s 0.4: this asserts the
-    // gap that is actually mixed, and tightening the mix further is a tuning decision,
-    // not something to smuggle in through a test.
-    const others = [
-      COMBAT_LEVELS.gust, COMBAT_LEVELS.swing, COMBAT_LEVELS.finisher,
-      COMBAT_LEVELS.impact, COMBAT_LEVELS.down,
-    ]
+    // the loudest rival sits comfortably below `hurt`: this asserts the gap that is
+    // actually mixed, and tightening the mix further is a tuning decision, not something
+    // to smuggle in through a test. The rival used to be `down` at 0.36 against a `hurt`
+    // of 0.4, an 11% gap; it is now the Ice Lock's 0.42 against 0.47, which is why `hurt`
+    // moved rather than the freeze -- see the note on `hurt` in `mapping.ts`.
+    // Derived from the record rather than listed, which this used to be. The list named five
+    // voices and the mix now has eight, so `bowRelease` and `clang` were both outside it -- and a
+    // new voice added at 0.45 would have left `hurt` no longer the loudest with nothing objecting.
+    // `bowRelease` is the only entry whose own level is not the whole story, and its volley
+    // ceiling has its own assertion further down.
+    const others = Object.entries(COMBAT_LEVELS)
+      .filter(([name]) => name !== 'hurt')
+      .map(([, level]) => level)
     expect(COMBAT_LEVELS.hurt).toBeGreaterThan(Math.max(...others) * 1.1)
+  })
+})
+
+describe('a blow bouncing off armour', () => {
+  it('is exactly as loud as a blow that lands', () => {
+    // Deliberately equal to `impact` rather than below it. The instinct is to make a move that did
+    // nothing quieter than one that connected, and it is wrong here: quiet reads as "barely hit",
+    // and the one conclusion the player must not draw from a gust on a heavy is that it hit a
+    // little. The whole difference is carried by timbre in `combat-audio.ts` -- a short high snap
+    // against a low thud -- so the level has to hold still.
+    //
+    // Tied to `impact` rather than pinned at 0.3, because the two are the same number for a reason
+    // and should move together if the mix is ever rebalanced.
+    expect(COMBAT_LEVELS.clang).toBe(COMBAT_LEVELS.impact)
+  })
+
+  it('is not the loudest thing in the fight', () => {
+    // A deflect is information, not an alarm. The `hurt` assertion above already covers this by
+    // derivation; stated here as well because this is where a reader looks for the clang's place
+    // in the mix.
+    expect(COMBAT_LEVELS.clang).toBeLessThan(COMBAT_LEVELS.hurt)
   })
 })
 

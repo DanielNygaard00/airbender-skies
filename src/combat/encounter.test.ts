@@ -5,7 +5,7 @@ import {
   type EncounterInput, type EnemySpawn, type PlayerHit,
 } from './encounter'
 import { isDowned } from './health'
-import { horizontalDistance } from './enemy'
+import { horizontalDistance, UNARMOURED, type EnemyConfig } from './enemy'
 import { gustTargets } from './gust'
 import { spawnProjectile } from './projectile'
 import { DEFAULT_COMBAT_CONFIG, DEFAULT_PATROL_CONFIG, HOME_PATROL } from './config'
@@ -22,6 +22,7 @@ const C: CombatConfig = {
       // Matches DEFAULT_COMBAT_CONFIG.enemies.spear.snapDistance.
       snapDistance: 1.2,
       downedSeconds: 18, risingSeconds: 1.2, recoveryHealthFractions: [0.6, 0.3],
+      armour: UNARMOURED,
     },
     // Deliberately different from the spear on every tuning axis, and its
     // strikeRange (22) is well past the 10 units a mixed-patrol fixture needs to
@@ -34,10 +35,52 @@ const C: CombatConfig = {
     archer: {
       maxHealth: 1, outOfCombatSeconds: 4, regenPerSecond: 0,
       moveSpeed: 3, strikeRange: 22, aggroRange: 35, windUpSeconds: 0.6, recoverSeconds: 0.9,
-      attack: { kind: 'projectile', damage: 0.8, speed: 20 }, knockbackDamping: 3,
+      attack: { kind: 'projectile', damage: 0.8, speed: 20, tangleSeconds: 0 },
+      knockbackDamping: 3,
       gravity: 20,
       snapDistance: 1.2,
       downedSeconds: 18, risingSeconds: 1.2, recoveryHealthFractions: [0.6, 0.3],
+      armour: UNARMOURED,
+    },
+    /**
+     * The heavy armoured soldier, with the one row of armour that matters set to the shipped
+     * value — a gust turns away entirely — and the other three deliberately *not* matching the
+     * shipped config.
+     *
+     * The gust row has to be 0 and 0, because that is the behaviour under test and it is a
+     * qualitative fact rather than a tuning number. Everything else here differs from
+     * `DEFAULT_COMBAT_CONFIG` on purpose, so an assertion that accidentally read the real
+     * config instead of this fixture would be visible: maxHealth 2 against the shipped 4, the
+     * staff at a flat half against the shipped 0.35 and 0.3, and the vortex at 0.5 against 0.45.
+     */
+    heavy: {
+      maxHealth: 2, outOfCombatSeconds: 4, regenPerSecond: 0,
+      moveSpeed: 2, strikeRange: 4, aggroRange: 18, windUpSeconds: 0.9, recoverSeconds: 1.2,
+      attack: { kind: 'melee', damage: 2 }, knockbackDamping: 3,
+      gravity: 20,
+      snapDistance: 1.2,
+      downedSeconds: 18, risingSeconds: 1.8, recoveryHealthFractions: [0.6, 0.3],
+      armour: {
+        gust: { damage: 0, knockback: 0 },
+        vortex: { damage: 1, knockback: 0.5 },
+        wave: { damage: 1, knockback: 1 },
+        staff: { damage: 0.5, knockback: 0.5 },
+      },
+    },
+    /**
+     * The net thrower. Its `tangleSeconds` is 3 rather than the shipped 2 and its projectile
+     * damage 0.25 rather than 0.5, so both are distinguishable from the real config and from
+     * the archer's 0.8 in an assertion.
+     */
+    nets: {
+      maxHealth: 1, outOfCombatSeconds: 4, regenPerSecond: 0,
+      moveSpeed: 3, strikeRange: 16, aggroRange: 24, windUpSeconds: 0.7, recoverSeconds: 1.4,
+      attack: { kind: 'projectile', damage: 0.25, speed: 18, tangleSeconds: 3 },
+      knockbackDamping: 3,
+      gravity: 20,
+      snapDistance: 1.2,
+      downedSeconds: 18, risingSeconds: 1.2, recoveryHealthFractions: [0.6, 0.3],
+      armour: UNARMOURED,
     },
   },
   // Both values are load-bearing here, not just shape. Three tests fly an arrow all the
@@ -77,6 +120,37 @@ const C: CombatConfig = {
     openerKnockback: 4,
     finisherKnockback: 18,
   },
+  // Deliberately unlike the shipped values on every axis a test here could read by accident:
+  // range 5 rather than 4, a 30-degree half-angle rather than 45, and a vertical extent that
+  // is not equal to the range. The one relationship the shipped config asserts --
+  // `verticalReach >= range` -- is pinned in `air-wall.test.ts` against the real config, so
+  // breaking it here costs nothing and makes a fixture mix-up visible.
+  airWall: {
+    range: 5, halfAngle: Math.PI / 6, verticalReach: 6,
+    maxSeconds: 1, cooldownSeconds: 3, breathCost: 20,
+  },
+  /**
+   * Water, with round numbers chosen so the assertions below are arithmetic rather than
+   * transcriptions of the shipped config — the same reason every other block in this fixture
+   * differs from `DEFAULT_COMBAT_CONFIG`.
+   *
+   * Two relationships are load-bearing and are deliberately preserved from the real config,
+   * because tests below turn on them: the freeze holds longer than the grip, and the freeze's cone
+   * is wider but shorter than the grip's. The shipped numbers' own inequalities are asserted
+   * against `DEFAULT_COMBAT_CONFIG` in `water.test.ts`, which is where a retune has to be caught.
+   */
+  water: {
+    grip: { range: 10, halfAngle: Math.PI / 6 },
+    freeze: { range: 8, halfAngle: Math.PI / 2.5 },
+    verticalReach: 3,
+    pullSpeed: 12,
+    gripHoldSeconds: 1.5,
+    gripCooldownSeconds: 1.1,
+    gripBreathCost: 12,
+    freezeHoldSeconds: 3,
+    freezeFocusCost: 35,
+    freezeBreathCost: 18,
+  },
 }
 
 const ORIGIN = new Vector3(0, 0, 0)
@@ -92,10 +166,25 @@ const flatGround = { groundHeightAt: () => 0 }
 // restore has its own deps, built in its own describe block.
 const DEPS = { ground: flatGround, worldFloorY: -50, spawns: [], patrol: { respawnRange: 40 } }
 
-/** A neutral frame of input: nothing pressed, nothing held. */
+/**
+ * A neutral frame of input: nothing pressed, nothing held.
+ *
+ * `element: 'air'` is what keeps every test in this file that predates the element system
+ * exercising exactly what it used to: F resolves to a gust and R to a vortex under air, which is
+ * the only behaviour those tests know about. The water tests set it explicitly.
+ *
+ * The two meters are generous rather than zero, so a test that fires a water move without saying
+ * anything about resources is not silently refused for want of Focus — the affordability rule has
+ * its own tests, and a fixture that made every other water test depend on it would hide failures
+ * behind a refusal.
+ */
 const defaults: EncounterInput = {
-  playerPosition: ORIGIN, playerForward: NORTH, gustPressed: false, slam: null,
+  playerPosition: ORIGIN, playerForward: NORTH, element: 'air', gustPressed: false, slam: null,
   vortexHeld: false, vortexReleased: false, playerInvulnerable: false, staffSwing: null,
+  // Aim starts equal to `playerForward`, which is what the game hands over on foot: there
+  // `player.forward` IS the flattened look direction. Tests that need an elevation override it.
+  playerAim: NORTH, playerBreath: 100, airWallHeld: false,
+  focusAvailable: 100, breathAvailable: 100,
 }
 
 /** Run the fight with fixed input. */
@@ -1388,7 +1477,7 @@ describe('playerHitsThisFrame', () => {
       stanceTime: C.enemies.spear.windUpSeconds - 1 / 60,
     }
     const arrowFrom = new Vector3(0.5, 0, 0)
-    const arrow = spawnProjectile('arrow-test', arrowFrom, new Vector3(0, 0, 1), 0.3, 0)
+    const arrow = spawnProjectile('arrow-test', arrowFrom, new Vector3(0, 0, 1), 0.3, 0, 0)
     const encounter: Encounter = { ...near(), enemies: [spear], projectiles: [arrow] }
     const step = stepEncounter(encounter, defaults, 1 / 60, C, DEPS)
 
@@ -1486,5 +1575,1013 @@ describe('an archer on high ground measures its range in 3D through a played fig
     // stopping it above. Under a horizontal-only measurement the two cases are identical
     // and both fire, which is what makes the pair a real test of the split.
     expect(play(ON_THE_LEVEL, flatGround).arrows).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * The Air Wall as the fight resolves it.
+ *
+ * `air-wall.ts` owns the lifecycle and the reflection and is tested on its own; this block is
+ * about the wiring — that the barrier is stepped and consulted inside the arrow pass, that the
+ * breath is billed once and reported, and that a returned arrow reaches the enemy list the
+ * fight is holding rather than a copy of it.
+ */
+describe('the Air Wall inside the fight', () => {
+  const W = C.airWall
+  /**
+   * An arrow closing on a player at the origin, level at half a metre.
+   *
+   * Level and off the ground on purpose: level so the mirror is an exact reversal and the aim
+   * below can be a plain `NORTH`, and off the ground so `flatGround` does not swallow the
+   * return before it reaches anything.
+   */
+  const closing = (from = -8) => spawnProjectile(
+    'a1', new Vector3(0, 0.5, from), new Vector3(0, 0, 1), 0.8, 20, 0,
+  )
+
+  /** An encounter with one arrow already in the air and, optionally, soldiers. */
+  function withArrow(spawns: EnemySpawn[] = [], from = -8): Encounter {
+    return { ...startEncounter(spawns, C), projectiles: [closing(from)] }
+  }
+
+  /** Run until the arrow is gone, or `frames` elapse, gathering what the fight reported. */
+  function fly(start: Encounter, over: Partial<EncounterInput>, frames = 120) {
+    let encounter = start
+    const redirected: string[] = []
+    const redirectHits: string[] = []
+    let breathSpent = 0
+    let damageAvoided = false
+    let playerHit = false
+    for (let frame = 0; frame < frames; frame++) {
+      const step = stepEncounter(encounter, { ...defaults, ...over }, 1 / 60, C, DEPS)
+      encounter = step.encounter
+      redirected.push(...step.redirectedThisFrame)
+      redirectHits.push(...step.redirectHitsThisFrame)
+      breathSpent += step.airWallBreathSpent
+      damageAvoided = damageAvoided || step.damageAvoided
+      playerHit = playerHit || step.playerHit
+    }
+    return { encounter, redirected, redirectHits, breathSpent, damageAvoided, playerHit }
+  }
+
+  const held = { airWallHeld: true, playerAim: NORTH, playerBreath: 100 }
+
+  it('turns an arrow around instead of letting it land', () => {
+    const walled = fly(withArrow(), held)
+    expect(walled.redirected).toEqual(['a1'])
+    expect(walled.playerHit).toBe(false)
+    // The control, and it is the whole test: the identical arrow with no wall held does hurt
+    // the player. Without it this would pass against a fight that quietly drops every arrow.
+    const bare = fly(withArrow(), {})
+    expect(bare.redirected).toEqual([])
+    expect(bare.playerHit).toBe(true)
+  })
+
+  it('bills the breath once for a wall held its whole life', () => {
+    // Over 120 frames — twice `maxSeconds` at this fixture's 1 second — so the wall goes up,
+    // stands, and expires inside the window. One charge, not one per frame and not one per
+    // frame the key is down.
+    expect(fly(withArrow(), held).breathSpent).toBeCloseTo(W.breathCost)
+  })
+
+  it('refuses to raise a wall the player cannot pay for', () => {
+    const broke = fly(withArrow(), { ...held, playerBreath: W.breathCost - 1 })
+    expect(broke.breathSpent).toBe(0)
+    expect(broke.redirected).toEqual([])
+    expect(broke.playerHit).toBe(true)
+    // The control: one unit more breath and the same frame raises a wall that saves them.
+    const paid = fly(withArrow(), { ...held, playerBreath: W.breathCost })
+    expect(paid.redirected).toEqual(['a1'])
+    expect(paid.playerHit).toBe(false)
+  })
+
+  it('sends the arrow into a soldier standing behind the wall', () => {
+    // The payoff: an arrow aimed at the player goes into what is closing on them. The soldier
+    // sits past the wall's reach so the arrow really is turned before it gets there.
+    const spear: EnemySpawn = { id: 'spear-1', position: new Vector3(0, 0, -6), kind: 'spear' }
+    const walled = fly(withArrow([spear]), held)
+    expect(walled.redirectHits).toEqual(['spear-1'])
+    // And it cost the soldier real health rather than merely being reported.
+    const hurt = walled.encounter.enemies[0]!
+    expect(hurt.health.current).toBeLessThan(C.enemies.spear.maxHealth)
+    // The control: with no wall the same soldier is untouched, because a fresh arrow passes
+    // straight through its own side.
+    const bare = fly(withArrow([spear]), {})
+    expect(bare.redirectHits).toEqual([])
+    expect(bare.encounter.enemies[0]!.health.current).toBe(C.enemies.spear.maxHealth)
+  })
+
+  it('interrupts a soldier the returned arrow lands on', () => {
+    // The reason the hit is applied inside the arrow pass, ahead of the enemy step: `hitEnemy`
+    // cancels a wind-up, and an interrupt applied after the soldier has acted is not one. A
+    // struck soldier is left recovering rather than advancing or winding up.
+    // Thirty frames: the arrow is turned at the wall's face around frame 9 and lands around
+    // frame 12, which leaves the soldier well inside this fixture's `recoverSeconds` of 0.6 at
+    // the end of the window. Running longer would see it back on its feet and advancing, which
+    // is correct behaviour and would make this assertion about the clock instead of the hit.
+    const spear: EnemySpawn = { id: 'spear-1', position: new Vector3(0, 0, -6), kind: 'spear' }
+    const walled = fly(withArrow([spear]), held, 30)
+    expect(walled.redirectHits).toEqual(['spear-1'])
+    expect(walled.encounter.enemies[0]!.stance).toBe('recover')
+    // The control: with no wall the same soldier at the same moment is still advancing, so
+    // 'recover' above is the arrow's doing rather than the fixture's starting state.
+    expect(fly(withArrow([spear]), {}, 30).encounter.enemies[0]!.stance).toBe('advance')
+  })
+
+  it('does not also report the arrow as damage avoided', () => {
+    // Focus would pay both `redirectGain` and `dodgeGain` for one arrow otherwise. A redirected
+    // arrow never reaches the player, so there is no damage for the dodge to have avoided --
+    // asserted rather than assumed, because `damageAvoided` is computed from a total the arrow
+    // used to feed.
+    const walled = fly(withArrow(), { ...held, playerInvulnerable: true })
+    expect(walled.redirected).toEqual(['a1'])
+    expect(walled.damageAvoided).toBe(false)
+    // The control: the same invulnerable player with no wall does record an avoided hit, so
+    // the flag is reachable in this fixture and the silence above means something.
+    expect(fly(withArrow(), { playerInvulnerable: true }).damageAvoided).toBe(true)
+  })
+
+  it('leaves an arrow coming from behind the player alone', () => {
+    // The wall is a facing, not a bubble. Same arrow, same wall, aim turned around.
+    const behind = fly(withArrow(), { ...held, playerAim: new Vector3(0, 0, 1) })
+    expect(behind.redirected).toEqual([])
+    expect(behind.playerHit).toBe(true)
+  })
+
+  it('saves a player from an arrow arriving on the frame the wall goes up', () => {
+    // The ordering test, and the fixture is chosen so it can actually fail. The arrow sits one
+    // step from connecting, so the hit lands on frame one — which means the barrier has to be
+    // stepped *before* the arrow pass and each arrow offered to it *before* it advances. Step
+    // the wall after the loop and its state is a frame stale, so it is not up when this arrow
+    // arrives; deflect after `stepProjectile` and the damage is already reported. Either way
+    // the player takes it.
+    //
+    // Arrow at z −1.0 at 20 units/sec: one step of 0.333 puts it at −0.667, and hypot(0.667,
+    // 0.5) is 0.83 against this fixture's hitRadius of 0.9.
+    const oneStepOut = { ...startEncounter([], C), projectiles: [closing(-1)] }
+    const walled = stepEncounter(oneStepOut, { ...defaults, ...held }, 1 / 60, C, DEPS)
+    expect(walled.redirectedThisFrame).toEqual(['a1'])
+    expect(walled.playerHit).toBe(false)
+    // The control that proves the fixture connects on frame one, which is the whole premise:
+    // without the wall this same single step hurts the player.
+    const bare = stepEncounter(oneStepOut, defaults, 1 / 60, C, DEPS)
+    expect(bare.playerHit).toBe(true)
+  })
+
+  it('starts every fight with no wall up', () => {
+    expect(startEncounter([], C).airWall).toEqual({ elapsed: null, cooldown: 0 })
+  })
+})
+
+describe('a gust against plate', () => {
+  /**
+   * A heavy and a spear standing side by side, both squarely inside one gust cone.
+   *
+   * **The pair is the whole design of this block, and it exists to answer the trap this
+   * codebase has already been caught by twice.** "Nothing happened to the heavy" is not a
+   * falsifiable assertion on its own: it passes just as well for a gust aimed at empty sky, for
+   * a cone whose vertical band excluded both soldiers, for a `gustPressed` that never reached
+   * the resolver, and for a fight that threw no gust at all. The spear beside it is the positive
+   * control — the same call, the same cone, the same frame — so every one of those failures
+   * shows up as the spear surviving too.
+   *
+   * They stand 3 units apart at the same height, well inside the 12-unit range and the 60-degree
+   * half-angle, so `gustTargets` catches both. `reach-geometry.test.ts` covers the geometry; this
+   * block is only ever about the armour.
+   */
+  const PAIR: EnemySpawn[] = [
+    { id: 'plate', position: new Vector3(-1.5, 0, -4), kind: 'heavy' },
+    { id: 'leather', position: new Vector3(1.5, 0, -4), kind: 'spear' },
+  ]
+  const pair = () => startEncounter(PAIR, C)
+  const gustThePair = () => stepEncounter(pair(), { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
+  const find = (e: Encounter, id: string) => {
+    const found = e.enemies.find((enemy) => enemy.id === id)
+    if (!found) throw new Error(`no soldier named ${id}`)
+    return found
+  }
+
+  it('catches both soldiers geometrically, so the cone is not what separates them', () => {
+    // Asserted through `gustTargets` rather than through the fight, because it is a statement
+    // about the cone and nothing else. Without this, every assertion below could be satisfied by
+    // a heavy that was simply never in range.
+    const caught = gustTargets(ORIGIN, NORTH, pair().enemies, C.gust).map((e) => e.id)
+    expect(caught.sort()).toEqual(['leather', 'plate'])
+  })
+
+  it('takes no health off the heavy while taking it off the spear', () => {
+    const step = gustThePair()
+    expect(find(step.encounter, 'plate').health.current).toBe(C.enemies.heavy.maxHealth)
+    // The control. If this is also unchanged the gust did not happen, and the line above says
+    // nothing about armour.
+    expect(find(step.encounter, 'leather').health.current)
+      .toBeCloseTo(C.enemies.spear.maxHealth - C.gust.damage, 6)
+  })
+
+  it('does not move the heavy at all while shoving the spear', () => {
+    // Displacement, not merely damage: knockback is the currency section 4.4 gives this type to
+    // pressure. Read off `knockback` and `verticalVelocity` rather than off `position`, so a
+    // single frame of damping cannot mask an impulse that was applied.
+    const step = gustThePair()
+    const plate = find(step.encounter, 'plate')
+    expect(plate.knockback.length()).toBe(0)
+    expect(plate.verticalVelocity).toBe(0)
+    const leather = find(step.encounter, 'leather')
+    expect(leather.knockback.length()).toBeGreaterThan(0)
+    expect(leather.verticalVelocity).toBeGreaterThan(0)
+  })
+
+  it('does not interrupt a heavy mid-wind-up, where it does interrupt the spear', () => {
+    // `hitEnemy` resets the stance to `recover`, which is how a gust "interrupts, staggers, opens
+    // gaps". Armour that stopped the blow has no business also cancelling the swing, so the
+    // deflect path skips `hitEnemy` entirely rather than calling it with zeroes.
+    //
+    // This is the assertion that would survive the two traps the knockback one cannot fully
+    // escape: a stance is not physics, so nothing about being shoved or not shoved can produce
+    // it by accident.
+    const winding: Encounter = {
+      ...pair(),
+      enemies: pair().enemies.map((e) => ({ ...e, stance: 'wind-up' as const, stanceTime: 0.1 })),
+    }
+    const step = stepEncounter(winding, { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
+    expect(find(step.encounter, 'plate').stance).toBe('wind-up')
+    expect(find(step.encounter, 'plate').stanceTime).toBeGreaterThan(0.1)
+    // The control: the spear's telegraph is cancelled, as it always was.
+    expect(find(step.encounter, 'leather').stance).toBe('recover')
+  })
+
+  it('reports the heavy as deflected and the spear as connected, and never both', () => {
+    // The two lists have to be disjoint, because `hitThisFrame` pays Focus and
+    // `deflectedThisFrame` must not: a soldier that shrugged off a move is not a soldier the
+    // player did something to, and paying for it would make plate armour a Focus battery.
+    const step = gustThePair()
+    expect(step.deflectedThisFrame).toEqual(['plate'])
+    expect(step.hitThisFrame).toEqual(['leather'])
+  })
+
+  it('reports nothing as deflected when the gust catches only unarmoured soldiers', () => {
+    // The negative control on the report itself. Without it, a `deflectedThisFrame` that simply
+    // listed everyone in the cone would satisfy the test above.
+    const step = gustOnce(near())
+    expect(step.deflectedThisFrame).toEqual([])
+    expect(step.hitThisFrame).toEqual(['a'])
+  })
+
+  it('spends the gust cooldown even when every target turned it away', () => {
+    // A gust that costs nothing against plate makes spamming it into a heavy free, which is the
+    // opposite of a knockback economy. Asserted against a lone heavy so the cooldown cannot be
+    // credited to the spear.
+    const alone = startEncounter([PAIR[0]!], C)
+    const step = stepEncounter(alone, { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
+    expect(step.deflectedThisFrame).toEqual(['plate'])
+    expect(step.encounter.gustCooldown).toBe(C.gust.cooldownSeconds)
+    expect(canGust(step.encounter)).toBe(false)
+  })
+
+  it('never deflects a blow off a downed heavy, because a downed heavy is not a target at all', () => {
+    // `isTargetable` is the gate every resolver asks, and the deflect report sits behind it
+    // rather than beside it. A clang sounding off a body on the ground would tell the player
+    // their gust reached something when it reached nothing.
+    const flat: Encounter = {
+      ...pair(),
+      enemies: pair().enemies.map((e) => ({
+        ...e, health: { ...e.health, current: 0 }, stance: 'downed' as const,
+      })),
+    }
+    const step = stepEncounter(flat, { ...defaults, gustPressed: true }, 1 / 60, C, DEPS)
+    expect(step.deflectedThisFrame).toEqual([])
+    expect(step.hitThisFrame).toEqual([])
+  })
+})
+
+describe('the moves that do still work on plate', () => {
+  const heavyAt = (z: number): EnemySpawn[] => [
+    { id: 'plate', position: new Vector3(0, 0, z), kind: 'heavy' },
+  ]
+  const plate = (step: { encounter: Encounter }) => {
+    const found = step.encounter.enemies.find((enemy) => enemy.id === 'plate')
+    if (!found) throw new Error('no plate')
+    return found
+  }
+
+  /**
+   * The heavy with its plate taken off, and nothing else about it changed.
+   *
+   * The control every comparison in this block is measured against, and the reason it is this
+   * rather than a spear is `applyDamage`'s clamp at zero. A full slam does 2.2, so a spear's 1.5
+   * health pool bottoms out and reports 1.5 lost against the heavy's 2.2 — a difference of 0.7
+   * that has nothing to do with armour and would have made an honest comparison impossible.
+   * Same maxHealth, same pool, same clamp behaviour; the armour table is the only variable.
+   */
+  const NAKED: CombatConfig = {
+    ...C,
+    enemies: { ...C.enemies, heavy: { ...C.enemies.heavy, armour: UNARMOURED } },
+  }
+
+  it('lets a full-strength slam through whole, damage and displacement alike', () => {
+    // The environment route's first half, and the reason the heavy is beatable at all. The wave
+    // row is 1 and 1, so this must be indistinguishable from a slam on the same soldier with no
+    // armour on. Compared against exactly that rather than against literals, so retuning the wave
+    // moves both sides together.
+    const slam = { ...defaults, slam: { strength: 1 } }
+    const armoured = stepEncounter(startEncounter(heavyAt(-3), C), slam, 1 / 60, C, DEPS)
+    const bare = stepEncounter(startEncounter(heavyAt(-3), NAKED), slam, 1 / 60, NAKED, DEPS)
+    expect(plate(armoured).knockback.length()).toBeCloseTo(plate(bare).knockback.length(), 10)
+    expect(plate(armoured).verticalVelocity).toBeCloseTo(plate(bare).verticalVelocity, 10)
+    expect(plate(armoured).health.current).toBeCloseTo(plate(bare).health.current, 10)
+    // And not vacuous: the slam did take health off, so "the same as unarmoured" is not "neither
+    // of them was touched".
+    expect(plate(armoured).health.current).toBeLessThan(C.enemies.heavy.maxHealth)
+    expect(plate(armoured).knockback.length()).toBeGreaterThan(0)
+    expect(armoured.slamHitThisFrame).toEqual(['plate'])
+    expect(armoured.deflectedThisFrame).toEqual([])
+  })
+
+  it('lifts a heavy off its feet with a full vortex, less far than it lifts a spear', () => {
+    // Reduced, not removed, and both halves are asserted. "Less than a spear" alone would pass
+    // for zero, which is the tuning that makes the type unbeatable; "greater than zero" alone
+    // would pass for a vortex row of 1, which would make the armour meaningless here.
+    const held = { ...defaults, vortexHeld: false, vortexReleased: true }
+    const charged = (spawns: EnemySpawn[]): Encounter => ({
+      ...startEncounter(spawns, C), vortexHeldSeconds: C.vortex.maxChargeSeconds,
+    })
+    const armoured = stepEncounter(charged(heavyAt(-3)), held, 1 / 60, C, DEPS)
+    const bare = stepEncounter(charged(heavyAt(-3)), held, 1 / 60, NAKED, DEPS)
+    expect(plate(armoured).verticalVelocity).toBeGreaterThan(0)
+    expect(plate(armoured).verticalVelocity).toBeLessThan(plate(bare).verticalVelocity)
+    expect(plate(armoured).knockback.length()).toBeGreaterThan(0)
+    expect(plate(armoured).knockback.length()).toBeLessThan(plate(bare).knockback.length())
+    // Not a deflect: a reduced blow still connects, still interrupts, and must not clang.
+    expect(armoured.deflectedThisFrame).toEqual([])
+  })
+
+  it('lets a staff finisher chip a heavy, at a fraction of what an unarmoured one takes', () => {
+    // The route that exists so a player with no altitude to spend is not stuck. Deliberately bad
+    // rather than absent, and both bounds say so: greater than zero, so there is a route, and less
+    // than unarmoured, so the plate means something.
+    const swing = { ...defaults, staffSwing: { index: 3, finisher: true } }
+    const armoured = stepEncounter(startEncounter(heavyAt(-3), C), swing, 1 / 60, C, DEPS)
+    const bare = stepEncounter(startEncounter(heavyAt(-3), NAKED), swing, 1 / 60, NAKED, DEPS)
+    const max = C.enemies.heavy.maxHealth
+    expect(max - plate(armoured).health.current).toBeGreaterThan(0)
+    expect(max - plate(armoured).health.current).toBeLessThan(max - plate(bare).health.current)
+    expect(armoured.staffHitThisFrame).toEqual(['plate'])
+    expect(armoured.deflectedThisFrame).toEqual([])
+  })
+
+  it('can be ground all the way down the recovery ladder by slams alone', () => {
+    // The claim that the type is beatable without the environment, played rather than argued: a
+    // player who keeps diving eventually takes a heavy off the ladder for good. Section 4.6's
+    // rungs are counted here too, so this reddens if armour ever lets one of them be skipped.
+    //
+    // **The player follows the body, and that is not a convenience.** A full slam shoves its
+    // target about 11.5 m, which is past the wave's own 11 m radius -- so a fixed player
+    // position lands exactly one slam and every later one misses, and the test would report the
+    // heavy as unbeatable for a reason that has nothing to do with armour. A player diving on a
+    // heavy walks to it first; the standoff below is a metre, well inside the radius.
+    let encounter = startEncounter(heavyAt(-3), C)
+    let permanent = false
+    let slams = 0
+    for (let frame = 0; frame < 60 * 300 && !permanent; frame++) {
+      const heavy = encounter.enemies[0]!
+      // Only when it is on its feet and on the ground: a body still falling out of a slam is not
+      // somewhere a player can land beside, and hitting one already at zero does not advance the
+      // ladder -- `hitEnemy` counts crossings, deliberately.
+      const worthSlamming = frame % 8 === 0 && !isDowned(heavy.health) && heavy.grounded
+      // A metre short of it, along the line back toward the island's centre.
+      const stand = heavy.position.clone().multiplyScalar(
+        Math.max(0, heavy.position.length() - 1) / Math.max(1e-6, heavy.position.length()),
+      )
+      const step = stepEncounter(
+        encounter,
+        {
+          ...defaults,
+          playerPosition: stand,
+          slam: worthSlamming ? { strength: 1 } : null,
+        },
+        1 / 60, C, DEPS,
+      )
+      if (worthSlamming) slams += step.slamHitThisFrame.length
+      encounter = step.encounter
+      const after = encounter.enemies[0]!
+      // Off the end of the ladder: downed, with more crossings than there are rungs to climb.
+      permanent = isDowned(after.health)
+        && after.downs > C.enemies.heavy.recoveryHealthFractions.length
+    }
+    expect(permanent, 'a heavy could not be taken off the recovery ladder by slams').toBe(true)
+    // The control on the loop itself: slams actually connected. Without it a `permanent` that
+    // somehow became true for another reason would read as this route working.
+    expect(slams).toBeGreaterThanOrEqual(
+      C.enemies.heavy.recoveryHealthFractions.length + 1,
+    )
+  })
+
+  it('cannot be dented at all by gusts, however many land', () => {
+    // The negative counterpart of the test above, and the sentence that makes "beatable" mean
+    // something. Two hundred seconds of gusting on every cooldown leaves a heavy at full health
+    // and standing where it started.
+    let encounter = startEncounter(heavyAt(-3), C)
+    let deflects = 0
+    for (let frame = 0; frame < 60 * 200; frame++) {
+      const step = stepEncounter(
+        encounter, { ...defaults, gustPressed: canGust(encounter) }, 1 / 60, C, DEPS,
+      )
+      encounter = step.encounter
+      deflects += step.deflectedThisFrame.length
+    }
+    expect(encounter.enemies[0]!.health.current).toBe(C.enemies.heavy.maxHealth)
+    expect(encounter.enemies[0]!.downs).toBe(0)
+    // The control that makes the two lines above a statement about armour rather than about a
+    // gust that never fired: hundreds of gusts did land on it.
+    expect(deflects).toBeGreaterThan(100)
+  })
+})
+
+describe('a net that lands on the player', () => {
+  /**
+   * The netter's release, narrowed to the projectile arm of `EnemyAttack`.
+   *
+   * The throw is asserted against `NET.tangleSeconds` and `NET.damage` rather than against
+   * literals, so the fixture is the single source of both. The narrowing throw is not ceremony:
+   * a netter whose `attack.kind` had been changed to `melee` would be a netter that cannot throw
+   * anything at all, and this is the clearest place to say so.
+   */
+  const NET = (() => {
+    const attack = C.enemies.nets.attack
+    if (attack.kind !== 'projectile') throw new Error('a net thrower has to be a ranged attacker')
+    return attack
+  })()
+  const ARROW = (() => {
+    const attack = C.enemies.archer.attack
+    if (attack.kind !== 'projectile') throw new Error('an archer has to be a ranged attacker')
+    return attack
+  })()
+
+  /**
+   * A netter standing close enough to throw immediately, already at the end of its wind-up.
+   *
+   * `stanceTime` past `windUpSeconds` so the release happens on the first frame, which is the
+   * same shortcut the archer tests take. The player stands 4 units away so the net has a
+   * fraction of a second of flight rather than none — an assertion on the frame of the throw
+   * would say nothing about the payload arriving.
+   */
+  const netterAt = (z: number): EnemySpawn[] => [
+    { id: 'net-1', position: new Vector3(0, 0, z), kind: 'nets' },
+  ]
+  const readyToThrow = (spawns: EnemySpawn[]): Encounter => {
+    const base = startEncounter(spawns, C)
+    return {
+      ...base,
+      enemies: base.enemies.map((e) => ({
+        ...e, stance: 'wind-up' as const, stanceTime: C.enemies.nets.windUpSeconds + 1,
+      })),
+    }
+  }
+
+  /** Throw one net and fly it until something reports a refusal, or the window runs out. */
+  function throwOne(over: Partial<EncounterInput> = {}) {
+    let encounter = readyToThrow(netterAt(-4))
+    let tangle = 0
+    let damage = 0
+    let arrows = 0
+    const before = encounter.playerHealth.current
+    for (let frame = 0; frame < 120; frame++) {
+      const step = stepEncounter(encounter, { ...defaults, ...over }, 1 / 60, C, DEPS)
+      encounter = step.encounter
+      tangle = Math.max(tangle, step.tangleSeconds)
+      arrows += step.firedThisFrame.length
+      damage = before - encounter.playerHealth.current
+    }
+    return { encounter, tangle, damage, arrows }
+  }
+
+  it('reports the netter config\'s own refusal, not some other kind\'s', () => {
+    // Read against the fixture's 3 rather than the shipped 2, so a payload sourced from the
+    // wrong kind's config — or from a default — is visible rather than plausible.
+    const { tangle, arrows } = throwOne()
+    expect(arrows).toBeGreaterThan(0)
+    expect(tangle).toBe(NET.tangleSeconds)
+    expect(tangle).toBe(3)
+  })
+
+  it('also takes a little health, so the hit registers as a hit', () => {
+    // Not zero on purpose: the hurt flash, the direction wedge and the Focus drain all key off
+    // damage, and a mechanic that cost no health would land silently on all three.
+    const { damage } = throwOne()
+    expect(damage).toBeCloseTo(NET.damage, 6)
+  })
+
+  it('reports no refusal on the frames before the net arrives', () => {
+    // The positive control's mirror: without this, a `tangleSeconds` wired to the netter's config
+    // rather than to the projectile's arrival would satisfy the test above while grounding the
+    // player the instant a netter decided to throw.
+    const first = stepEncounter(
+      readyToThrow(netterAt(-4)), defaults, 1 / 60, C, DEPS,
+    )
+    expect(first.firedThisFrame.length).toBe(1)
+    expect(first.tangleSeconds).toBe(0)
+  })
+
+  it('reports nothing at all from an archer, whose arrows carry no refusal', () => {
+    // The other negative control, and the one that says this is a property of the net rather than
+    // of every projectile. Same fixture shape, same flight, an arrow instead of a net.
+    //
+    // Stopped as soon as the first shot has landed rather than run for a fixed window, because
+    // this fixture reloads: at the archer's 0.6 wind-up and 0.9 recovery a two-second run lands
+    // two arrows, and an assertion on the total damage would then be comparing against twice the
+    // per-arrow figure for a reason that has nothing to do with what is under test.
+    let encounter = readyToThrow([{ id: 'bow-1', position: new Vector3(0, 0, -4), kind: 'archer' }])
+    let tangle = 0
+    let damage = 0
+    const before = encounter.playerHealth.current
+    for (let frame = 0; frame < 120 && damage === 0; frame++) {
+      const step = stepEncounter(encounter, defaults, 1 / 60, C, DEPS)
+      encounter = step.encounter
+      tangle = Math.max(tangle, step.tangleSeconds)
+      damage = before - encounter.playerHealth.current
+    }
+    // The arrow really did connect, so the zero below is about the payload and not about a shot
+    // that missed.
+    expect(damage).toBeCloseTo(ARROW.damage, 6)
+    expect(tangle).toBe(0)
+  })
+
+  it('is discarded whole by a Slipstream, along with its damage', () => {
+    // A dodge has to answer a net as completely as it answers an arrow, or the one attack in the
+    // game that takes the air layer away would be the one attack that cannot be dodged.
+    const { tangle, damage } = throwOne({ playerInvulnerable: true })
+    expect(tangle).toBe(0)
+    expect(damage).toBe(0)
+  })
+
+  it('is refused by a Slipstream even if the net is retuned to do no damage', () => {
+    // The coupling this guards is subtle and lives in two files. `damageAvoided` requires
+    // `damageToPlayer > 0`, so a `tangleSeconds` gated on that flag would let a zero-damage net
+    // straight through an invulnerable window — a dodge silently stopping working because
+    // somebody retuned a damage figure in `config.ts`. The gate reads `playerInvulnerable`
+    // directly for exactly this reason, and this is what holds it there.
+    const harmless: CombatConfig = {
+      ...C,
+      enemies: {
+        ...C.enemies,
+        nets: { ...C.enemies.nets, attack: { ...NET, damage: 0 } },
+      },
+    }
+    let encounter = readyToThrow(netterAt(-4))
+    let tangle = 0
+    let landed = 0
+    for (let frame = 0; frame < 120; frame++) {
+      const dodging = stepEncounter(
+        encounter, { ...defaults, playerInvulnerable: true }, 1 / 60, harmless, DEPS,
+      )
+      encounter = dodging.encounter
+      tangle = Math.max(tangle, dodging.tangleSeconds)
+    }
+    expect(tangle).toBe(0)
+    // And the control, on the identical harmless config with the dodge off: the net does still
+    // arrive, so the zero above is the dodge working rather than the net failing to connect.
+    let vulnerable = readyToThrow(netterAt(-4))
+    for (let frame = 0; frame < 120; frame++) {
+      const step = stepEncounter(vulnerable, defaults, 1 / 60, harmless, DEPS)
+      vulnerable = step.encounter
+      landed = Math.max(landed, step.tangleSeconds)
+    }
+    expect(landed).toBe(NET.tangleSeconds)
+  })
+
+  it('costs one refusal for two nets landing together, not two', () => {
+    // Two netters equidistant from the player throw on the same cycle and their nets arrive on
+    // the same frame. Reported as a sum this would be six seconds on the ground from one
+    // exchange, which is long enough over open sky to be a death sentence and is not what either
+    // netter threatened. `stepEncounter` takes the maximum; `applyTangle` covers the frames
+    // either side.
+    let encounter = readyToThrow([
+      { id: 'net-1', position: new Vector3(-3, 0, -3), kind: 'nets' },
+      { id: 'net-2', position: new Vector3(3, 0, -3), kind: 'nets' },
+    ])
+    let worst = 0
+    for (let frame = 0; frame < 120; frame++) {
+      const step = stepEncounter(encounter, defaults, 1 / 60, C, DEPS)
+      encounter = step.encounter
+      worst = Math.max(worst, step.tangleSeconds)
+    }
+    expect(worst).toBe(NET.tangleSeconds)
+  })
+
+  it('does not report a refusal for a net that lands on the terrain instead', () => {
+    // A net is only a net once it catches somebody. Aimed at a player who then leaves, so the
+    // projectile flies past and ends on the ground.
+    let encounter = readyToThrow(netterAt(-4))
+    // One frame with the player in place, so the throw is aimed at them...
+    let step = stepEncounter(encounter, defaults, 1 / 60, C, DEPS)
+    encounter = step.encounter
+    expect(step.firedThisFrame.length).toBe(1)
+    // ...then the player is somewhere else entirely for the rest of the flight.
+    let tangle = 0
+    const gone = { ...defaults, playerPosition: new Vector3(400, 0, 400) }
+    for (let frame = 0; frame < 240; frame++) {
+      step = stepEncounter(encounter, gone, 1 / 60, C, DEPS)
+      encounter = step.encounter
+      tangle = Math.max(tangle, step.tangleSeconds)
+    }
+    expect(tangle).toBe(0)
+    // And the net is gone rather than still in the air, so this is "it landed elsewhere" rather
+    // than "the flight window was too short".
+    expect(encounter.projectiles).toEqual([])
+  })
+})
+
+/**
+ * The two behaviours that only exist because the Air Wall and the net throwers landed in the
+ * same game.
+ *
+ * Neither branch could have written these: the wall was built against an archipelago with no
+ * nets in it, and the netters were built against one with no wall. Both interactions fall out
+ * of code neither side changed, which is exactly the kind of behaviour that is nobody's
+ * feature and therefore nobody's test until a merge makes it real.
+ */
+describe('the Air Wall against a net', () => {
+  const NET = (() => {
+    const attack = C.enemies.nets.attack
+    if (attack.kind !== 'projectile') throw new Error('a net thrower has to be a ranged attacker')
+    return attack
+  })()
+
+  /** A netter at the end of its wind-up, four units north, so the throw lands within a beat. */
+  const readyNetter = (): Encounter => {
+    const base = startEncounter([{ id: 'net-1', position: new Vector3(0, 0, -4), kind: 'nets' }], C)
+    return {
+      ...base,
+      enemies: base.enemies.map((e) => ({
+        ...e, stance: 'wind-up' as const, stanceTime: C.enemies.nets.windUpSeconds + 1,
+      })),
+    }
+  }
+
+  /** Fly the throw out, reporting the worst refusal and whether the net was ever turned. */
+  function throwAt(over: Partial<EncounterInput>) {
+    let encounter = readyNetter()
+    let tangle = 0
+    let redirected = 0
+    for (let frame = 0; frame < 120; frame++) {
+      const step = stepEncounter(encounter, { ...defaults, ...over }, 1 / 60, C, DEPS)
+      encounter = step.encounter
+      tangle = Math.max(tangle, step.tangleSeconds)
+      redirected += step.redirectedThisFrame.length
+    }
+    return { tangle, redirected }
+  }
+
+  it('turns a net around, and a turned net grounds nobody', () => {
+    // What this actually pins is that **the wall is indifferent to what kind of projectile it
+    // catches**. Nothing in `deflect` or in the loop that offers arrows to it asks whether the
+    // thing arriving is an arrow or a net, and that is the whole reason the Air Wall answers a
+    // mechanic built two branches away from it without a line of code connecting the two.
+    // Verified by mutation: gating the deflection on `arrow.tangleSeconds === 0`, which is the
+    // shape a plausible "only arrows can be walled" change would take, reddens this test alone.
+    //
+    // It is deliberately *not* a test of the `!p.deflected` guard in `stepProjectile`, which an
+    // earlier version of this comment claimed. A turned net travels away from the player and
+    // never re-enters `hitRadius`, so the guard is not what saves them here — geometry is. The
+    // guard has its own test, in `projectile.test.ts`, and dropping it reddens that one.
+    const { tangle, redirected } = throwAt({ airWallHeld: true, playerAim: NORTH })
+    expect(redirected).toBeGreaterThan(0)
+    expect(tangle).toBe(0)
+  })
+
+  it('is the only reason that net missed, which is what makes the test mean anything', () => {
+    // The control. Without it, "no refusal" would pass just as well for a netter that never
+    // threw, a net that expired early, or a fixture aimed somewhere the net could not reach.
+    const { tangle, redirected } = throwAt({})
+    expect(redirected).toBe(0)
+    expect(tangle).toBe(NET.tangleSeconds)
+  })
+})
+
+describe('the bending keys resolve on the active element', () => {
+  /** One frame of the fight, with whatever input the case needs. */
+  const frame = (over: Partial<EncounterInput>, from = near()) =>
+    stepEncounter(from, { ...defaults, ...over }, 1 / 60, C, DEPS)
+
+  it('gusts on air and grips on water, from the same key', () => {
+    // The core claim of the element system, and both halves are needed. Air's press damages the
+    // soldier and does not hold it; water's press holds it and does no damage. Either assertion
+    // alone would pass for an implementation that ignored the element and always did one of them.
+    const air = frame({ element: 'air', gustPressed: true })
+    const water = frame({ element: 'water', gustPressed: true })
+    const airSoldier = air.encounter.enemies[0]
+    const waterSoldier = water.encounter.enemies[0]
+
+    expect(air.hitThisFrame).toEqual(['a'])
+    expect(air.grippedThisFrame).toEqual([])
+    expect(airSoldier?.health.current).toBeLessThan(C.enemies.spear.maxHealth)
+    expect(airSoldier?.stance).not.toBe('held')
+
+    expect(water.grippedThisFrame).toEqual(['a'])
+    expect(water.hitThisFrame).toEqual([])
+    expect(waterSoldier?.health.current).toBe(C.enemies.spear.maxHealth)
+    expect(waterSoldier?.stance).toBe('held')
+  })
+
+  it('vortexes on air and freezes on water, from the same release', () => {
+    // The heavy key, same shape. The vortex lifts and does no damage; the freeze holds and applies
+    // no impulse at all — so `verticalVelocity` is the discriminator, and it is asserted in both
+    // directions rather than only for the move that produces it.
+    const charged = { ...near(), vortexHeldSeconds: C.vortex.maxChargeSeconds }
+    const air = frame({ element: 'air', vortexReleased: true }, charged)
+    const water = frame({ element: 'water', vortexReleased: true }, charged)
+
+    expect(air.vortexFired).not.toBeNull()
+    expect(air.frozenThisFrame).toEqual([])
+    expect(air.encounter.enemies[0]?.verticalVelocity).toBeGreaterThan(0)
+
+    expect(water.frozenThisFrame).toEqual(['a'])
+    expect(water.vortexFired).toBeNull()
+    expect(water.encounter.enemies[0]?.verticalVelocity).toBe(0)
+    expect(water.encounter.enemies[0]?.stance).toBe('held')
+  })
+
+  it('banks no vortex charge while water is selected', () => {
+    // Without the element gate on the charge accumulator, a player could hold R under water,
+    // switch to air and release into a full-strength vortex they never held air for. Paired with
+    // the air run, so "no charge accumulated" is not passing because charging is broken outright.
+    let underWater = near()
+    let underAir = near()
+    for (let i = 0; i < 60; i++) {
+      underWater = frame({ element: 'water', vortexHeld: true }, underWater).encounter
+      underAir = frame({ element: 'air', vortexHeld: true }, underAir).encounter
+    }
+    expect(underWater.vortexHeldSeconds).toBe(0)
+    expect(underAir.vortexHeldSeconds).toBeGreaterThan(0)
+  })
+
+  it('ticks both light-verb cooldowns whatever element is selected', () => {
+    // Switching away must not park a cooldown. Otherwise a player could hide a gust's recovery
+    // inside water and come back to a gust that never recovered — and the same in reverse.
+    const gusted = frame({ element: 'air', gustPressed: true }).encounter
+    expect(gusted.gustCooldown).toBeGreaterThan(0)
+    let waiting = gusted
+    for (let i = 0; i < 60; i++) {
+      waiting = frame({ element: 'water' }, waiting).encounter
+    }
+    expect(waiting.gustCooldown).toBe(0)
+
+    const gripped = frame({ element: 'water', gustPressed: true }).encounter
+    expect(gripped.waterGripCooldown).toBeGreaterThan(0)
+    let waitingToo = gripped
+    for (let i = 0; i < 90; i++) {
+      waitingToo = frame({ element: 'air' }, waitingToo).encounter
+    }
+    expect(waitingToo.waterGripCooldown).toBe(0)
+  })
+
+  it('keeps the two cooldowns independent, so an element switch launders neither', () => {
+    // A single shared "light verb cooldown" would let the player gust, switch, and grip
+    // immediately at the gust's shorter recovery — or worse, grip and then gust at once. Two
+    // fields, and this pins that gusting leaves the grip's own timer untouched.
+    const gusted = frame({ element: 'air', gustPressed: true }).encounter
+    expect(gusted.waterGripCooldown).toBe(0)
+    const gripped = frame({ element: 'water', gustPressed: true }).encounter
+    expect(gripped.gustCooldown).toBe(0)
+  })
+})
+
+describe('the Water Grip', () => {
+  const W = C.water
+  const frame = (over: Partial<EncounterInput>, from = near()) =>
+    stepEncounter(from, { ...defaults, ...over }, 1 / 60, C, DEPS)
+  const grip = (over: Partial<EncounterInput> = {}, from = near()) =>
+    frame({ element: 'water', gustPressed: true, ...over }, from)
+
+  it('pulls the target toward the caster', () => {
+    // The direction is the move. Asserted as a distance closing over several frames rather than as
+    // an impulse sign, because the pull is delivered as decaying knockback and what matters is
+    // that the body actually travels.
+    const start = horizontalDistance(ORIGIN, near().enemies[0]!.position)
+    let encounter = grip().encounter
+    for (let i = 0; i < 20; i++) encounter = frame({ element: 'water' }, encounter).encounter
+    expect(horizontalDistance(ORIGIN, encounter.enemies[0]!.position)).toBeLessThan(start)
+  })
+
+  it('does no damage at all', () => {
+    // Water is the control element, and there is no damage parameter to set. This is the assertion
+    // that would catch one appearing.
+    expect(grip().encounter.enemies[0]?.health.current).toBe(C.enemies.spear.maxHealth)
+  })
+
+  it('spends breath and refuses below the cost', () => {
+    // The contract `stepSlipstream` uses for a dodge, and both halves. The refusal costs nothing:
+    // no breath, no cooldown, no hold — a press the game declines must not be a press the player
+    // is charged for.
+    const paid = grip({ breathAvailable: W.gripBreathCost })
+    expect(paid.breathSpent).toBe(W.gripBreathCost)
+    expect(paid.gripFired).toBe(true)
+
+    const refused = grip({ breathAvailable: W.gripBreathCost - 1 })
+    expect(refused.breathSpent).toBe(0)
+    expect(refused.gripFired).toBe(false)
+    expect(refused.grippedThisFrame).toEqual([])
+    expect(refused.encounter.waterGripCooldown).toBe(0)
+    expect(refused.encounter.enemies[0]?.stance).not.toBe('held')
+  })
+
+  it('spends no Focus', () => {
+    // Water's light verb is free of the meter in both directions: it neither pays nor charges. A
+    // control move that earned Focus would be a Focus engine, and the freeze spends the same bar.
+    const step = grip()
+    expect(step.focusSpent).toBe(0)
+    expect(step.grippedThisFrame).toEqual(['a'])
+  })
+
+  it('reports the fire even when it catches nobody', () => {
+    // The effect and the voice fire on the attempt, the way the gust cone is drawn from the press:
+    // a move that is silent when it misses reads as a move that did not come out. The empty catch
+    // list is what distinguishes this from a connect.
+    const empty = startEncounter([], C)
+    const step = grip({}, empty)
+    expect(step.gripFired).toBe(true)
+    expect(step.grippedThisFrame).toEqual([])
+    expect(step.breathSpent).toBe(W.gripBreathCost)
+  })
+
+  it('does not drag a downed body, and does not report one as a connect', () => {
+    // `isTargetable` is the gate, the same one every other resolver asks.
+    //
+    // **The assertion that matters here is the knockback, and finding that out is what mutation
+    // testing is for.** The first version of this test checked only `grippedThisFrame` and the
+    // stance, and it survived removing the `isTargetable` gate from the resolver's map — because
+    // `holdEnemy` refuses a downed soldier on its own, so the stance stayed 'downed' and the report
+    // list is filtered separately. What the gate actually protects is the *pull*: without it,
+    // `hitEnemy(enemy, 0, impulse)` still lands, so a corpse in the cone gets yanked across the
+    // island. That is the "a body being dragged around the island" this file's other resolvers all
+    // guard against, and it is now the thing being asserted.
+    const body = downedSoldier(1)
+    const before = body.enemies[0]!.position.clone()
+    const step = grip({}, body)
+    const after = step.encounter.enemies[0]!
+
+    expect(step.grippedThisFrame).toEqual([])
+    expect(after.stance).toBe('downed')
+    expect(after.knockback.lengthSq()).toBe(0)
+    expect(after.position.x).toBeCloseTo(before.x, 6)
+    expect(after.position.z).toBeCloseTo(before.z, 6)
+
+    // The positive control on the identical arrangement, differing only in the soldier being alive:
+    // a live one *is* dragged, so the assertions above are about the body's state rather than about
+    // the grip failing to reach it.
+    const live = grip()
+    expect(live.grippedThisFrame).toEqual(['a'])
+    expect(live.encounter.enemies[0]!.knockback.lengthSq()).toBeGreaterThan(0)
+  })
+})
+
+describe('the Ice Lock', () => {
+  const W = C.water
+  const freeze = (over: Partial<EncounterInput> = {}, from = near()) =>
+    stepEncounter(from, {
+      ...defaults, element: 'water', vortexReleased: true, ...over,
+    }, 1 / 60, C, DEPS)
+
+  it('freezes the rank in front and does no damage', () => {
+    const step = freeze()
+    expect(step.frozenThisFrame).toEqual(['a'])
+    expect(step.encounter.enemies[0]?.stance).toBe('held')
+    expect(step.encounter.enemies[0]?.health.current).toBe(C.enemies.spear.maxHealth)
+  })
+
+  it('spends Focus, and reports the bill rather than applying it', () => {
+    // The fight has no meter of its own — `stepEncounter` reports `focusSpent` and `main.ts` hands
+    // it to `stepFocus`, the same division of labour `stepEnemy` keeps for `damageToPlayer`.
+    const step = freeze()
+    expect(step.focusSpent).toBe(W.freezeFocusCost)
+    expect(step.breathSpent).toBe(W.freezeBreathCost)
+  })
+
+  it('refuses below the Focus cost, and charges nothing for the refusal', () => {
+    // Both sides of the boundary, one unit apart, so a `>` where a `>=` belongs is caught. And the
+    // refusal is total: no Focus, no breath, and nobody frozen.
+    const paid = freeze({ focusAvailable: W.freezeFocusCost })
+    expect(paid.freezeFired).toBe(true)
+    expect(paid.frozenThisFrame).toEqual(['a'])
+
+    const refused = freeze({ focusAvailable: W.freezeFocusCost - 1 })
+    expect(refused.freezeFired).toBe(false)
+    expect(refused.focusSpent).toBe(0)
+    expect(refused.breathSpent).toBe(0)
+    expect(refused.frozenThisFrame).toEqual([])
+    expect(refused.encounter.enemies[0]?.stance).not.toBe('held')
+  })
+
+  it('refuses below the breath cost even with a full Focus bar', () => {
+    const refused = freeze({ focusAvailable: 100, breathAvailable: W.freezeBreathCost - 1 })
+    expect(refused.freezeFired).toBe(false)
+    expect(refused.focusSpent).toBe(0)
+  })
+
+  it('has no cooldown, so two back-to-back releases both fire', () => {
+    // Focus is the price and there is deliberately no second gate: a hidden timer would refuse the
+    // move for a reason the player cannot see, since the HUD draws the Focus bar and does not draw
+    // a cooldown. Two freezes from a full bar are affordable and are meant to be.
+    const first = freeze()
+    const second = freeze({}, first.encounter)
+    expect(first.freezeFired).toBe(true)
+    expect(second.freezeFired).toBe(true)
+    expect(first.focusSpent + second.focusSpent).toBe(W.freezeFocusCost * 2)
+  })
+
+  it('holds longer than a grip, measured through the fight rather than off the config', () => {
+    // The relationship that makes the freeze the heavy verb, exercised end to end: both moves are
+    // thrown at a fresh soldier and the fight is run until each hold lapses. Reading the two config
+    // numbers would assert the config against itself; running the fight asserts that the durations
+    // actually reach the soldier.
+    const gripped = stepEncounter(near(), {
+      ...defaults, element: 'water', gustPressed: true,
+    }, 1 / 60, C, DEPS).encounter
+    const frozen = freeze().encounter
+
+    const heldFor = (from: Encounter): number => {
+      let encounter = from
+      let seconds = 0
+      for (let i = 0; i < 600; i++) {
+        if (encounter.enemies[0]?.stance !== 'held') break
+        encounter = stepEncounter(encounter, defaults, 1 / 60, C, DEPS).encounter
+        seconds += 1 / 60
+      }
+      return seconds
+    }
+
+    const gripSeconds = heldFor(gripped)
+    const freezeSeconds = heldFor(frozen)
+    expect(gripSeconds).toBeGreaterThan(0)
+    expect(freezeSeconds).toBeGreaterThan(gripSeconds)
+    // And each lands within a frame of the duration the config asked for, so neither is being
+    // silently truncated or extended by the step order.
+    expect(Math.abs(gripSeconds - W.gripHoldSeconds)).toBeLessThan(2 / 60)
+    expect(Math.abs(freezeSeconds - W.freezeHoldSeconds)).toBeLessThan(2 / 60)
+  })
+
+  it('leaves a frozen soldier hittable by the staff, and it stays frozen', () => {
+    // The reason `isTargetable` was not changed. A locked target is locked so it can be worked on:
+    // the staff has to connect, has to do its damage, and must not free the soldier.
+    const frozen = freeze().encounter
+    const swung = stepEncounter(frozen, {
+      ...defaults, staffSwing: { index: 1, finisher: false },
+    }, 1 / 60, C, DEPS)
+    expect(swung.staffHitThisFrame).toEqual(['a'])
+    expect(swung.encounter.enemies[0]?.health.current).toBeLessThan(C.enemies.spear.maxHealth)
+    expect(swung.encounter.enemies[0]?.stance).toBe('held')
+  })
+
+  it('cannot be thrown while air is selected', () => {
+    // The mirror of the gust gate: releasing the heavy key under air fires a vortex or nothing, and
+    // never a freeze. Paired with the water run so this is about the element rather than about the
+    // release edge being dropped.
+    const air = stepEncounter(near(), {
+      ...defaults, element: 'air', vortexReleased: true,
+    }, 1 / 60, C, DEPS)
+    expect(air.freezeFired).toBe(false)
+    expect(air.focusSpent).toBe(0)
+    expect(freeze().freezeFired).toBe(true)
+  })
+})
+
+describe('switching element on the same frame as a release', () => {
+  it('cannot fire a vortex and an Ice Lock from one press', () => {
+    // **This case was a real bug and the fix is the element gate on the release branch.** The
+    // charge accumulator is zeroed every frame water is selected, but that `else` is guarded on
+    // `!vortexReleased` — so on the single frame where the player switches to water *and* lets go
+    // of R, a charge built under air is still standing when the release resolves. Ungated, that
+    // frame produced a full-strength vortex *and* a freeze, and charged Focus for the freeze: two
+    // heavy moves for one press.
+    //
+    // Reproduced by handing the fight a pre-loaded charge and a water release, which is exactly
+    // the state that frame is in.
+    const charged = { ...near(), vortexHeldSeconds: C.vortex.maxChargeSeconds }
+    const step = stepEncounter(charged, {
+      ...defaults, element: 'water', vortexReleased: true,
+    }, 1 / 60, C, DEPS)
+
+    expect(step.vortexFired).toBeNull()
+    // The freeze is what the player asked for, and it does happen — so this is not passing because
+    // the whole release was swallowed.
+    expect(step.freezeFired).toBe(true)
+    expect(step.focusSpent).toBe(C.water.freezeFocusCost)
+    // No lift, which is the observable signature of the vortex that must not have fired.
+    expect(step.encounter.enemies[0]?.verticalVelocity).toBe(0)
+  })
+
+  it('discards the stale charge rather than parking it for a later air release', () => {
+    // The charge is cleared on any release, whichever element is selected. Left standing, the
+    // player could switch back to air, tap R, and get the vortex they had already spent.
+    const charged = { ...near(), vortexHeldSeconds: C.vortex.maxChargeSeconds }
+    const released = stepEncounter(charged, {
+      ...defaults, element: 'water', vortexReleased: true,
+    }, 1 / 60, C, DEPS).encounter
+    expect(released.vortexHeldSeconds).toBe(0)
+
+    const later = stepEncounter(released, {
+      ...defaults, element: 'air', vortexReleased: true,
+    }, 1 / 60, C, DEPS)
+    expect(later.vortexFired).toBeNull()
   })
 })

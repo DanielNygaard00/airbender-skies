@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Vector3 } from 'three'
+import { Vector3, type Mesh } from 'three'
 import { buildWorld } from './world'
 import { ARCHIPELAGO } from './levels/archipelago'
 import type { Level } from './level'
@@ -57,6 +57,25 @@ describe('buildWorld', () => {
   it('rejects an invalid level rather than building a broken world', () => {
     const broken: Level = { ...ARCHIPELAGO, spawn: { islandId: 'nope', offset: new Vector3() } }
     expect(() => buildWorld(broken)).toThrow(/unknown island "nope"/)
+  })
+
+  it('keeps the prop scatter clear of payloads as well as shrines', () => {
+    // The only observable consequence of `buildWorld` passing payload offsets into
+    // `buildProps`: the props are merged into one mesh per island, so individual placements
+    // cannot be read back, but a level whose payload is ignored scatters differently from one
+    // whose payload is respected. Measured on the shipped archipelago: with the payload offset
+    // left out, the nearest prop lands 6.06 units from where the bundle sits, inside the
+    // 8-unit clearance, so this comparison is not a theoretical difference — that prop is
+    // rejected and re-drawn elsewhere. props.test.ts pins the clearance rule itself; this pins
+    // the one line that feeds payloads into it.
+    const withPayloads = buildWorld(ARCHIPELAGO)
+    const without = buildWorld({ ...ARCHIPELAGO, payloads: undefined })
+    // Home is the first island, so its prop mesh is the first child past the island meshes.
+    const props = (world: ReturnType<typeof buildWorld>) => Array.from(
+      (world.group.children[ARCHIPELAGO.islands.length] as Mesh)
+        .geometry.attributes.position!.array,
+    )
+    expect(props(withPayloads)).not.toEqual(props(without))
   })
 
   it('is deterministic, so the same level always builds the same geometry', () => {

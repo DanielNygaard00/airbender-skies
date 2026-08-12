@@ -86,9 +86,48 @@ export interface HudModel {
   stall: number
   /** 0 to 1: how black the full-screen overlay is. */
   fade: number
+  /**
+   * A net has the wings shut, so a `Space` press will not open them.
+   *
+   * A boolean rather than the remaining seconds, and that is a deliberate refusal to draw a
+   * countdown. A shrinking bar would invite the player to stare at the HUD and wait, which is
+   * the opposite of what the two seconds are for — they are meant to be spent moving, on foot,
+   * getting out from under whatever is shooting. What the player needs to know is only "not
+   * yet", and the tell disappearing is "now".
+   *
+   * Read straight off `PlayerState.tangled`, so this needs no extra argument to `hudModelFor`
+   * and cannot disagree with the gate in `controller.ts` that actually refuses the deploy.
+   */
+  tangled: boolean
 }
 
 /**
+ * **The payload deliberately adds nothing to this model, and that is a decision rather than an
+ * omission.** Carrying something degrades flight three ways (`src/player/payload.ts`), so a
+ * "CARRYING" label or a fourth bar is the obvious thing to reach for. Three reasons not to.
+ *
+ * The state is already on screen, continuously and in world space: the bundle is parented to
+ * the avatar and the follow camera sits behind and above it, so unlike breath or Focus — which
+ * have no representation anywhere but here — a carried payload is visible on every frame it is
+ * carried, and a HUD element would restate what the player is already looking at.
+ *
+ * The consequences are already on screen too, in the elements that exist. The faster drain is
+ * the breath bar emptying faster, and the guide's own Breath note names the payload as a cause
+ * (`reference.ts`). The lost lift shows up in the altitude and airspeed readouts and, at the
+ * limit, in the stall colour this file already mixes. A payload row would tell the player a
+ * fact; the bars tell them the size of it.
+ *
+ * And this HUD's culture is to stay quiet: `showBreath`, `showHealth` and `showFocus` all hide
+ * a bar that has nothing to say. A permanent element for a binary state that is visible in the
+ * world would be the one thing here that is on screen without earning it.
+ *
+ * What the payload does need is *why*, and that is the guide's job rather than the HUD's — a
+ * dimming row on `B` for the interaction, plus the two written notes. The trade being accepted
+ * is real and worth stating: a player who never opens the guide learns the degradation by
+ * feel, and the only thing pointing at its cause is the bundle they can see. If that proves
+ * too subtle in play, the cheap answer is a one-shot line rather than a permanent element —
+ * the fields to add would be a `payload: boolean` here and a rule beside `showBreath`.
+ *
  * Health and Focus are both optional so the HUD still works anywhere those systems
  * are not running.
  */
@@ -128,6 +167,11 @@ export function hudModelFor(
     hurtFlash: fraction(hurtFlash),
     stall: fraction(stall),
     fade: fraction(fade),
+    // `> 0` rather than a finiteness-guarded comparison, matching `isTangled`. A NaN fails this
+    // and reads as free, which is the same direction the gate fails in — so the tell and the
+    // gate cannot end up disagreeing about a corrupt value, which is the failure that would
+    // actually confuse a player.
+    tangled: state.tangled > 0,
   }
 }
 
@@ -177,6 +221,15 @@ export const STYLE = `
   box-shadow: inset 0 0 220px 60px rgba(198,40,40,.75); }
 .hud-fade { position: fixed; inset: 0; background: #000; pointer-events: none;
   opacity: 0; }
+/* The net's state tell. Above the readouts rather than below the bars, because it is a
+   statement about what the player currently cannot do and belongs where the eye goes when
+   something has gone wrong, not in the meter stack. Cool grey-blue to match the net's own
+   colour in enemy-mesh.ts and the throw lane it was thrown down, and deliberately not the
+   health bar's warm orange -- being grounded is not damage. */
+.hud-tangled { display: inline-block; margin-bottom: 8px; padding: 2px 8px;
+  border-radius: 4px; font-size: 12px; letter-spacing: .04em;
+  background: rgba(159,182,196,.22); color: #d6e6f0; opacity: 0;
+  transition: opacity .15s; }
 .hud-hint { margin-top: 8px; font-size: 12px; opacity: .45; }
 /* The pause card (src/ui/pause-overlay.ts) repeats this same "H — guide" hint, and its
    backdrop is translucent rather than opaque, so without this rule the front door shows
@@ -203,6 +256,7 @@ export function createHud(parent: HTMLElement) {
   const root = document.createElement('div')
   root.className = 'hud'
   root.innerHTML = `
+    <div class="hud-tangled">Wings tangled</div>
     <div class="hud-readouts">
       <span data-altitude></span>
       <span data-airspeed></span>
@@ -234,6 +288,7 @@ export function createHud(parent: HTMLElement) {
   const vignette = root.querySelector('.hud-vignette') as HTMLElement
   const hurt = root.querySelector('.hud-hurt') as HTMLElement
   const fade = root.querySelector('.hud-fade') as HTMLElement
+  const tangled = root.querySelector('.hud-tangled') as HTMLElement
 
   return {
     update(model: HudModel): void {
@@ -260,6 +315,9 @@ export function createHud(parent: HTMLElement) {
       vignette.classList.toggle('is-on', model.avatarActive)
       hurt.style.opacity = String(model.hurtFlash)
       fade.style.opacity = String(model.fade)
+      // Opacity rather than `display`, so the badge fading in does not shift the readouts
+      // beneath it every time a net lands.
+      tangled.style.opacity = model.tangled ? '1' : '0'
     },
     dispose(): void {
       root.remove()

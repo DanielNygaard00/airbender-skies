@@ -21,8 +21,9 @@ const C: FocusConfig = {
   dodgeGain: 8,
   staffConnectGain: 3,
   // Unused by anything this file tests (traversalRatePerSecond, fellOutOfWorld);
-  // present only because FocusConfig now requires it.
+  // present only because FocusConfig now requires them.
   accidentDownGain: 4,
+  redirectGain: 7,
 }
 
 const FLIGHT: FlightConfig = { ...DEFAULT_FLIGHT_CONFIG, stallSpeed: 10 }
@@ -32,9 +33,9 @@ const p = (over: Partial<PlayerState> = {}): PlayerState => ({
   forward: new Vector3(0, 0, 1), breath: 100, maxBreath: 100,
   grounded: true, lastGroundIslandId: null, airJumpsUsed: 0, chargeTime: 0,
   coyoteTime: 0, jumpBuffer: 0,
-  scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+  scooterActive: false, scooterCharge: 0, wallRideNormal: null, dashesUsed: 0, dashRecovery: 0,
   slipstreamElapsed: null, slipstreamCooldown: 0,
-  staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, ...over,
+  staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, tangled: 0, ...over,
 })
 
 const gliding = (speed: number) =>

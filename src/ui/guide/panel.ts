@@ -2,7 +2,10 @@ import type { PlayerMode } from '../../core/types'
 import type { Settings } from '../../core/settings'
 import type { WindKind } from '../../world/wind'
 import { ACTIONS, type ActionContext } from './actions'
-import { COMBOS, METERS, WIND_LEGEND, SCREEN_MARKS, type Combo, type MeterNote } from './reference'
+import {
+  COMBOS, ELEMENT_LEGEND, METERS, WIND_LEGEND, SCREEN_MARKS, type Combo, type MeterNote,
+} from './reference'
+import type { Element } from '../../elements/element'
 import { patchForRow, settingsRows, type SettingsRow } from './settings-rows'
 
 /**
@@ -28,6 +31,10 @@ export interface GuideModel {
   meters: readonly MeterNote[]
   /** The two rings around the crosshair. Separate from `meters`: markers, not bars. */
   screenMarks: readonly MeterNote[]
+  /** What each element is for. Its own section: this is a stance, not a meter or a marker. */
+  elements: Record<Element, string>
+  /** Which element is selected, so the section can mark it. */
+  currentElement: Element
   wind: Record<WindKind, string>
 }
 
@@ -49,6 +56,8 @@ export function guideModelFor(ctx: ActionContext): GuideModel {
     combos: COMBOS,
     meters: METERS,
     screenMarks: SCREEN_MARKS,
+    elements: ELEMENT_LEGEND,
+    currentElement: ctx.element,
     wind: WIND_LEGEND,
   }
 }
@@ -257,6 +266,14 @@ export function createGuide(
         </div>
         ${notesHtml('Chains worth trying', model.combos.map((c) => ({
           name: c.name, detail: `${c.keys.join(' → ')} — ${c.detail}`,
+        })))}
+        ${notesHtml('The elements', Object.entries(model.elements).map(([element, detail]) => ({
+          // The selected one is named as such in the entry's own title rather than by a class,
+          // because this section is prose and the columns above already carry the strike-through
+          // that marks what is and is not usable. A reader wants to know which of these they are
+          // currently in, and the word is unambiguous where a highlight would need a legend.
+          name: element === model.currentElement ? `${element} — selected` : element,
+          detail,
         })))}
         ${notesHtml('The meters', model.meters)}
         ${notesHtml('Around the crosshair', model.screenMarks)}

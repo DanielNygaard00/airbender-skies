@@ -1,5 +1,5 @@
 import { Vector3 } from 'three'
-import { isTargetable, type Enemy } from './enemy'
+import { deflects, isTargetable, type Enemy, type EnemyConfig, type EnemyKind } from './enemy'
 import { inCone } from './cone'
 
 /**
@@ -74,7 +74,7 @@ export function gustTargets(
 
 /**
  * Everyone a gust would catch who is worth aiming at — on their feet, or pushing back up
- * onto them.
+ * onto them, and not wearing armour that turns the whole gust away.
  *
  * `gustTargets` deliberately does not filter by state at all — `stepEncounter` applies that
  * filter itself so that "connected" means a live soldier took the hit rather than a body
@@ -82,6 +82,18 @@ export function gustTargets(
  * `isTargetable` stepEncounter's own resolvers ask: a preview that lights up for a corpse
  * promises something a gust cannot deliver, and one that stays dark for a soldier mid-push-up
  * promises less than a gust actually does.
+ *
+ * **The armour filter is that same argument applied to a second population, and it is the
+ * heavy armoured soldier's first and best tell.** A preview warming on a soldier the gust
+ * cannot touch is the identical defect as one warming on a corpse: it promises something the
+ * move cannot deliver. Filtered, the tell teaches the immunity *before* the player spends the
+ * move — the reticle and the cone stay cold on a heavy and light on the spear standing beside
+ * it — which is a stronger piece of feedback than the clang that plays if they throw it
+ * anyway, because it costs the player nothing to learn from.
+ *
+ * `kinds` is the whole per-kind Record rather than a single `EnemyConfig`, because a cone can
+ * hold several kinds at once and each one answers for itself. `CombatConfig.enemies` is
+ * exactly this shape, so `main.ts` passes what it already holds.
  *
  * A separate name rather than a boolean parameter, because `gustTargets(o, f, e, c, true)`
  * at a call site says nothing about what the flag means.
@@ -96,8 +108,10 @@ export function liveGustTargets(
   forward: Vector3,
   enemies: readonly Enemy[],
   c: GustConfig,
+  kinds: Record<EnemyKind, EnemyConfig>,
 ): Enemy[] {
-  return gustTargets(origin, forward, enemies, c).filter(isTargetable)
+  return gustTargets(origin, forward, enemies, c)
+    .filter((enemy) => isTargetable(enemy) && !deflects(kinds[enemy.kind], 'gust'))
 }
 
 /**
@@ -121,8 +135,11 @@ export function anyLiveGustTarget(
   forward: Vector3,
   enemies: readonly Enemy[],
   c: GustConfig,
+  kinds: Record<EnemyKind, EnemyConfig>,
 ): boolean {
   return enemies.some(
-    (enemy) => isTargetable(enemy) && inGust(origin, forward, enemy.position, c),
+    (enemy) => isTargetable(enemy)
+      && !deflects(kinds[enemy.kind], 'gust')
+      && inGust(origin, forward, enemy.position, c),
   )
 }

@@ -4,6 +4,7 @@ import { canDash } from '../../player/dash'
 import { canAirJump } from '../../player/jump'
 import { canBend } from '../../player/breath'
 import { staffBusy, staffOf } from '../../player/staff'
+import { isElementAvailable, type Element } from '../../elements/element'
 
 /**
  * Every action the player can perform, and whether they can perform it now.
@@ -37,6 +38,35 @@ export interface ActionContext {
   vortexReady: boolean
   /** A slipstream is off cooldown and not already running. The caller asks `canSlipstream`. */
   slipstreamReady: boolean
+  /**
+   * An Air Wall can be raised: off cooldown, not already up, and paid for. The caller asks
+   * `canAirWall`, which is the same predicate `stepAirWall` gates the raise on.
+   */
+  airWallReady: boolean
+   /**
+   * Which element is selected.
+   *
+   * F and R resolve to a different move per element, so four of the rows below are struck through
+   * whenever the other element is selected. That is a *binding* fact — which key does what —
+   * rather than a game rule this module would be restating, and the catalogue is exactly where
+   * binding facts live. It also makes the panel answer the question a player opening it mid-fight
+   * actually has, which is what their two bending keys do right now.
+   */
+  element: Element
+  /** A Water Grip is off cooldown and affordable. The caller asks `canGrip`. */
+  gripReady: boolean
+  /** An Ice Lock is affordable in both Focus and breath. The caller asks `canIceLock`. */
+  iceLockReady: boolean
+   /**
+   * A press of the carry key would do something: either a payload is in reach, or one is
+   * being carried and the player is standing on ground.
+   *
+   * Passed in for the same reason `gustReady` is. The rule needs the level's payload list,
+   * which is world state and has no business in a UI module, and the caller already asks
+   * `carryIntent` to resolve the press itself — so this row follows the same answer the
+   * interaction acts on rather than a second opinion about it.
+   */
+  carryReady: boolean
 }
 
 export interface GameAction {
@@ -60,6 +90,15 @@ const standing = (ctx: ActionContext): boolean => onGround(ctx) && ctx.player.gr
 const airborne = (ctx: ActionContext): boolean => onGround(ctx) && !ctx.player.grounded
 /** Gliding with breath left: both thrust and hover spend it, and neither works empty. */
 const hasBreath = (ctx: ActionContext): boolean => inGlider(ctx) && canBend(ctx.player, ctx.flight)
+/**
+ * Whether a given element is the one the bending keys currently resolve to.
+ *
+ * Asks `isElementAvailable` as well, so an element that a future act structure has not unlocked
+ * is struck through even if something managed to select it — the panel must not offer a move the
+ * fight would refuse, and that predicate is the one authority on availability.
+ */
+const bending = (element: Element) => (ctx: ActionContext): boolean =>
+  ctx.element === element && isElementAvailable(element)
 
 export const ACTIONS: readonly GameAction[] = [
   {
@@ -105,6 +144,27 @@ export const ACTIONS: readonly GameAction[] = [
       'the ground — a jump, a fall off a ledge, or stepping off — stows it and loses the charge.',
   },
   {
+    // No key of its own, so it is listed under the key that summons the thing it is a property
+    // of. `Z` therefore has two rows, which is the same shape `Space` and `Ctrl` already use for
+    // moves that differ by how they are pressed rather than by which key.
+    //
+    // `available` is the entry gate restated, and it is restated rather than imported because
+    // the third condition cannot be answered here: whether a near-vertical wall is within
+    // lateral reach is a raycast, and a UI module has no terrain. So the panel dims this row
+    // when the scooter is down or the charge is short — the two halves it can honestly check —
+    // and the wall itself is left to the world. Named here so the next reader knows the
+    // omission is deliberate: see `stepWallRide` in src/player/wall-ride.ts for the full gate.
+    key: 'Z', press: 'while riding, into a wall', name: 'Wall ride', mode: 'ground',
+    available: (ctx) => onGround(ctx) && ctx.player.scooterActive
+      && ctx.player.scooterCharge >= ctx.ground.wallRideMinCharge,
+    detail: 'Drive a charged scooter square into a near-vertical face at speed and it carries '
+      + 'you up the wall instead of stopping you. The squarer you hit it the higher you go; a '
+      + 'glancing approach just skims. It spends the charge as you climb, so a shortcut up a '
+      + 'wall costs the speed you built to reach it — and the ride ends when the charge runs '
+      + 'out, when the wall does, when the climb dies, or when you step off. Your second jump '
+      + 'is still in hand up there, and it pays more the faster you are rising.',
+  },
+  {
     key: 'Shift', press: 'hold', name: 'Sprint', mode: 'ground', available: onGround,
     detail: 'Hold to run instead of walk, nearly doubling your base speed. Independent of ' +
       'the scooter, and it stacks with riding one — sprinting on a scooter is faster than ' +
@@ -123,9 +183,34 @@ export const ACTIONS: readonly GameAction[] = [
       && canDash({ used: ctx.player.dashesUsed, recovery: ctx.player.dashRecovery }, ctx.ground),
   },
   {
-    key: 'F', name: 'Gust', mode: 'both', available: (ctx) => ctx.gustReady,
+    key: 'F', press: 'airbending', name: 'Gust', mode: 'both',
+    available: (ctx) => bending('air')(ctx) && ctx.gustReady,
     detail: 'A wide sweep of air, thrown where you are looking. Knocks enemies back and '
-      + 'interrupts a strike; barely hurts them.',
+      + 'interrupts a strike; barely hurts them. F is whichever element you have selected — '
+      + 'switch to water and this key grips instead.',
+  },
+  {
+    key: 'F', press: 'waterbending', name: 'Water Grip', mode: 'both',
+    available: (ctx) => bending('water')(ctx) && ctx.gripReady,
+    detail: 'Pull, then hold. A narrow reach straight ahead — much tighter than a gust, and it '
+      + 'does not reach nearly as far above or below you — that yanks whoever it catches toward '
+      + 'you and locks them there for a moment. No damage at all: it drags a spear out of its own '
+      + 'reach and into yours, and a held soldier simply cannot act. The cooldown is a shade '
+      + 'shorter than the hold, so you can keep one soldier pinned indefinitely if you spend '
+      + 'nothing else on it — that buys time, not progress.',
+  },
+  {
+    key: 'G', press: 'hold', name: 'Air Wall', mode: 'both',
+    available: (ctx) => ctx.airWallReady,
+    detail: 'A short-lived barrier of air, held in front of you, that turns arrows around '
+      + 'instead of swallowing them — and a turned arrow hurts whoever it hits. It only covers '
+      + 'the way you are looking, and only stops things in flight: a spear thrust goes '
+      + 'straight through it. Unlike everything else you aim, looking up and down matters '
+      + 'here, because the wall is a mirror and the angle you hold it at is where the arrow '
+      + 'goes. Level with the shooter, aim a little high or the arrow comes back into the '
+      + 'ground; from the glider, look down the line the shot came up. It spends breath, it '
+      + 'lasts under a second, and the gap before the next one is as long as the gap between '
+      + 'dodges, so it answers a shot you saw coming rather than every shot.',
   },
   {
     key: 'E', name: 'Avatar State', mode: 'both', available: (ctx) => ctx.avatarStateReady,
@@ -133,12 +218,23 @@ export const ACTIONS: readonly GameAction[] = [
       'a gust that downs a soldier outright, and every wind feature turning to your side.',
   },
   {
-    key: 'R', press: 'hold, then release', name: 'Vortex', mode: 'both',
-    available: (ctx) => ctx.vortexReady,
+    key: 'R', press: 'airbending: hold, then release', name: 'Vortex', mode: 'both',
+    available: (ctx) => bending('air')(ctx) && ctx.vortexReady,
     detail: 'Hold to gather a charge, release to pull everyone near you inward and lift '
       + 'them off their feet. It does no damage at all — a lifted soldier simply cannot '
       + 'act, which is the opening. Charging longer widens the reach and throws them higher. '
       + 'Releasing early cancels for free.',
+  },
+  {
+    key: 'R', press: 'waterbending: press, then release', name: 'Ice Lock', mode: 'both',
+    available: (ctx) => bending('water')(ctx) && ctx.iceLockReady,
+    detail: 'Freezes the rank in front of you where it stands — wider than the grip and '
+      + 'shorter, and it holds them far longer. No pull, no damage, and they stay frozen even if '
+      + 'you hit them, which is the whole point: a locked target is locked so you can work on '
+      + 'it. This is the one move that spends Focus, and it spends about a third of a full bar '
+      + '— rather more than a spear hit takes off you. Two are affordable from a full meter, '
+      + 'and either one costs you the Avatar State. There is no cooldown; the meter is the '
+      + 'price. Unlike the Vortex it does not charge, so how long you hold makes no difference.',
   },
   {
     key: 'C', name: 'Slipstream', mode: 'both',
@@ -148,6 +244,36 @@ export const ACTIONS: readonly GameAction[] = [
       + 'Timed right it also builds Focus. On foot it goes wherever you are moving or '
       + 'looking; in the glider, bank left or right to dodge sideways, since thrust and '
       + 'flare are not directions. It spends breath, so it cannot be chained forever.',
+  },
+  {
+    key: 'V', press: 'hold, flick, release', name: 'Element radial', mode: 'both',
+    available: always,
+    detail: 'Hold to open the radial, flick the mouse toward an element, let go. Air is straight '
+      + 'up and water is straight down. It never pauses or slows the game and it never takes the '
+      + 'mouse off you — the same flick that picks also nudges your view a little, which is the '
+      + 'price of nothing being taken away. A flick too small to mean anything keeps what you '
+      + 'had, so you can change your mind by just letting go.',
+  },
+  {
+    key: '1 / 2', name: 'Select element directly', mode: 'both', available: always,
+    detail: '1 is air, 2 is water. The same switch without the gesture, and the faster way to do '
+      + 'it once you know which one you want. Switching costs nothing at all — no cooldown, no '
+      + 'windup — so it belongs inside a combo: vortex a group, switch, freeze the front rank.',
+  },
+  {
+    // 'both' rather than 'ground', even though the press only ever works with feet on the
+    // ground. The row has to be readable from the glider column too: that is where the
+    // player is when they wonder why the wing feels heavy and go looking for the rule.
+    key: 'B', name: 'Pick up or set down a payload', mode: 'both',
+    available: (ctx) => ctx.carryReady,
+    detail: 'Stand next to a bundle and press B to lift it; press B again, on the ground, to '
+      + 'set it down. Carrying it on the glider costs you three things at once: the wing '
+      + 'makes less lift, so you sink faster and cannot climb as high on a bar of breath; '
+      + 'the weight shift turns you at half the rate, so you have to slow down to fit inside '
+      + 'a thermal; and both thrust and hover drink breath half again as fast. Thrusting the '
+      + 'whole way somewhere will just about get you there with nothing left over, so ride the '
+      + 'air instead. Set it down on the island it is meant for and you are done with it. Go '
+      + 'down or fall out of the world and it goes back where you found it.',
   },
   {
     key: 'Ctrl', press: 'hold', name: 'Tuck', mode: 'glider', available: inGlider,

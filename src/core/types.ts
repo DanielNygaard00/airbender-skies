@@ -24,16 +24,67 @@ export interface InputState {
   scooterPressed: boolean
   /** Q, edge-triggered: an air blast dash. */
   dashPressed: boolean
-  /** F, edge-triggered: a gust of air. */
+  /**
+   * F, edge-triggered: the active element's light verb.
+   *
+   * Named for the air move it started as rather than renamed to `lightPressed`, deliberately.
+   * A rename would reach `InputState`, `EncounterInput`, `main.ts` and every fixture in
+   * `encounter.test.ts` — a large diff across three modules a parallel branch is already
+   * editing, in exchange for a better name. What the key does is decided by
+   * `EncounterInput.element`; this field only says the key went down.
+   */
   gustPressed: boolean
+  /**
+   * G, edge-triggered: pick up the payload in reach, or set down the one being carried.
+   *
+   * One edge for both directions rather than two keys, because the two are never both
+   * available: `carryIntent` in `src/player/payload.ts` decides which one a press means,
+   * and a player who is carrying something cannot pick anything else up.
+   */
+  carryPressed: boolean
   /** E, edge-triggered: enter the Avatar State when it is armed. */
   avatarStatePressed: boolean
-  /** R held: charging a vortex. */
+  /** R held: charging the active element's heavy verb. Only air actually charges. */
   vortexHeld: boolean
-  /** R, edge-triggered on key-up: release the vortex. */
+  /**
+   * R, edge-triggered on key-up: fire the active element's heavy verb.
+   *
+   * Air reads the charge this release ends; water ignores it and freezes. One gesture, two
+   * moves, which is what keeps the element radial from needing a key per element per move.
+   */
   vortexReleased: boolean
+  /** V held: the element radial is open. */
+  radialHeld: boolean
+  /** V, edge-triggered on key-up: commit the wedge the radial is pointing at. */
+  radialReleased: boolean
+  /**
+   * Pointer movement since the last sample, in pixels.
+   *
+   * Reported alongside the look direction rather than instead of it: the same movement turns
+   * the camera *and* steers the radial, because the owner's ruling is that holding the radial
+   * open must not cost the player a frame of control. Only the element system reads it, and only
+   * while `radialHeld`, but it is reported unconditionally — a delta that appeared only while a
+   * key was held would be a second thing for the tracker to get wrong.
+   */
+  pointerDelta: { x: number; y: number }
+  /**
+   * A number-row element bind, 1-based, or null. 1 is air and 2 is water.
+   *
+   * The alternative to the radial rather than a shortcut into it: it selects directly and never
+   * opens anything, which is why it can be pressed mid-combo with no gesture at all.
+   */
+  elementIndex: number | null
   /** C, edge-triggered: a slipstream dodge. */
   slipstreamPressed: boolean
+  /**
+   * G held: raise or hold an Air Wall.
+   *
+   * A held key with no release edge, unlike the Vortex's pair. The Vortex needs the edge
+   * because releasing it is what *fires* the move and the charge in between is accumulated
+   * state; a wall simply stands while the key is down, so the absence of a key-up event — which
+   * is what a window blur produces — correctly drops it rather than freezing it.
+   */
+  airWallHeld: boolean
   /** Left mouse button, edge-triggered, only while the canvas holds the pointer lock. */
   staffPressed: boolean
 }
@@ -60,6 +111,14 @@ export interface PlayerState {
   scooterActive: boolean
   /** The scooter's hidden speed accumulator, 0 to 1. */
   scooterCharge: number
+  /**
+   * The outward normal of the wall currently being ridden, or null when not riding.
+   *
+   * The normal rather than a boolean, because every consumer needs it: the ride's own
+   * probe aims along it to ask whether the wall is still there, and the avatar's lean
+   * needs the side the wall is on. Non-null *is* the ride — see `WallRideStep.normal`.
+   */
+  wallRideNormal: Vector3 | null
   /** Dashes spent in the current chain. */
   dashesUsed: number
   /** Seconds of dash recovery still owed. */
@@ -76,6 +135,14 @@ export interface PlayerState {
   staffRecovery: number
   /** Seconds since the last swing ended, mid-combo. See `StaffState.sinceSwing`. */
   staffSinceSwing: number
+  /**
+   * Seconds of glider refusal still owed after a net landed. 0 when free to fly.
+   *
+   * A number rather than a boolean so the countdown *is* the state: a flag would need a second
+   * field to say how long is left, and the two could disagree. See `src/player/tangle.ts` for
+   * the arithmetic and `controller.ts`'s deploy gate for what reads it.
+   */
+  tangled: number
 }
 
 export interface TerrainHit {
@@ -169,6 +236,31 @@ export interface FlightConfig {
   /** Each shrine adds this fraction of baseMaxBreath to the maximum. */
   shrineBreathBonusFraction: number
   /**
+   * Lift the wing keeps while carrying a payload.
+   *
+   * The model has no mass, so weight can only be expressed as lift taken away: lift is
+   * `liftCoeff · v² · sin(2·aoa)`, and scaling `liftCoeff` is the same thing as carrying
+   * more than the wing was sized for. See `loadedFlight` in `src/player/payload.ts` for
+   * what this buys and what it deliberately does not touch.
+   */
+  payloadLiftFactor: number
+  /**
+   * Weight-shift turn rate kept while carrying a payload.
+   *
+   * Applied to `weightShiftTurnRate` and to nothing else, because that is the input a hang
+   * glider actually rolls with — `baseTurnRate` and `bankTurnRate` only govern how quickly
+   * the nose chases the mouse. See `loadedFlight`.
+   */
+  payloadTurnFactor: number
+  /**
+   * Multiplier on both breath costs while carrying a payload.
+   *
+   * One multiplier for thrust and hover together, so their tuned relationship to each other
+   * survives: `hoverBreathPerSecond` is deliberately about 1.7 times `breathDrainPerSecond`,
+   * and scaling only one of them would rewrite that as a side effect.
+   */
+  payloadBreathMultiplier: number
+  /**
    * Breath needed to start bending, as opposed to zero.
    *
    * Without a floor, an empty bar oscillates: regeneration adds a fraction, the drain takes
@@ -243,6 +335,28 @@ export interface GroundConfig {
   scooterChargeLoss: number
   /** Charge lost outright on contact — a tier, not a trickle. */
   scooterTierDrop: number
+  /**
+   * How near vertical a face has to be before the scooter will ride up it.
+   *
+   * Compared against `Math.abs(normal.y)`, so it bounds the tilt in both directions. The
+   * lateral sibling of `CollisionConfig.wallNormalY`, and it lives here rather than beside
+   * it because it is a property of the move, not of collision: the two answer different
+   * questions about the same face, and a face can be a wall to bounce off without being a
+   * wall to ride.
+   */
+  wallRideNormalY: number
+  /** Closing speed on a wall needed to start a ride, m/s. */
+  wallRideEntrySpeed: number
+  /** Accumulator that has to be in hand before a ride will start, 0 to 1. */
+  wallRideMinCharge: number
+  /** Accumulator spent per second of riding. */
+  wallRideChargeDrain: number
+  /** Fraction of the closing speed that becomes climb on the frame a ride starts. */
+  wallRideRedirect: number
+  /** How fast a ride loses its climb, m/s². Stands in for gravity while riding. */
+  wallRideClimbDecay: number
+  /** Climb speed below which the ride lets go, m/s. */
+  wallRideHoldSpeed: number
   /** Dashes available before a recovery is owed. */
   maxDashChain: number
   /** Speed added by one dash. */

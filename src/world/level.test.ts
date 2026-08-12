@@ -42,6 +42,42 @@ describe('validateLevel', () => {
     })).toThrow(/unknown island "ghost"/)
   })
 
+  it('accepts a level with no payloads at all', () => {
+    // The field is optional, so the common case has to keep validating — this is the guard
+    // against a `level.payloads.length` that would throw on every level but the archipelago.
+    expect(() => validateLevel({ ...base(), payloads: undefined })).not.toThrow()
+  })
+
+  it('rejects a payload on an unknown island', () => {
+    expect(() => validateLevel({
+      ...base(),
+      payloads: [{ islandId: 'ghost', offset: new Vector3(), destinationIslandId: 'a' }],
+    })).toThrow(/payload references unknown island "ghost"/)
+  })
+
+  it('rejects a payload with an unknown destination', () => {
+    // The stricter of the two, and the reason both are checked: a bad source island means the
+    // payload never appears, but a bad destination means it appears, gets carried, and can
+    // never be delivered.
+    expect(() => validateLevel({
+      ...base(),
+      payloads: [{ islandId: 'a', offset: new Vector3(), destinationIslandId: 'nowhere' }],
+    })).toThrow(/destination island "nowhere"/)
+  })
+
+  it('rejects a payload already sitting on its destination', () => {
+    expect(() => validateLevel({
+      ...base(),
+      payloads: [{ islandId: 'a', offset: new Vector3(), destinationIslandId: 'a' }],
+    })).toThrow(/already at its destination/)
+  })
+
+  it('accepts the shipped archipelago payload', () => {
+    // The level is validated at startup by main.ts, so this is the test that would catch a
+    // payload added to ARCHIPELAGO with a typo in either island id.
+    expect(() => validateLevel(ARCHIPELAGO)).not.toThrow()
+  })
+
   it('rejects a non-positive radius', () => {
     const l = base()
     l.islands[0]!.radius = 0

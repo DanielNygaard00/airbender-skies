@@ -44,6 +44,16 @@ export interface FocusConfig {
   crashDrain: number
   /** Focus for a dodge that beat an incoming hit. */
   dodgeGain: number
+  /**
+   * Focus for one projectile an Air Wall turned around.
+   *
+   * Section 4.5 lists "redirected projectiles" beside consecutive hits, clean traversal and
+   * damage avoided at close range, so this is a named source in the design document rather
+   * than an invented one. It pays for the redirect itself and not for what the arrow then
+   * does: a returned arrow that finds a soldier already pays through `downs` if it puts one
+   * down, and `redirectHitsThisFrame` deliberately feeds no grant of its own.
+   */
+  redirectGain: number
   /** Focus per enemy a staff swing connected with. */
   staffConnectGain: number
   /**
@@ -74,12 +84,32 @@ export interface FocusEvents {
   staffConnects: number
   /** Enemies removed by environmental accident — today, by leaving the world. */
   accidents: number
+  /** Projectiles an Air Wall turned around this frame. */
+  redirects: number
 }
 
 export interface FocusInput {
   /** Focus per second from traversal. Negative while idling. */
   ratePerSecond: number
   events: FocusEvents
+  /**
+   * Focus an elemental heavy move spent this frame. Zero on almost every frame.
+   *
+   * Section 4.5 gives Focus exactly one sink — "spends on elemental heavy moves" — and this is
+   * it. On `FocusInput` rather than in `FocusEvents` for one reason, and it is the important
+   * one: everything in `FocusEvents` is multiplied by the chain ramp, and a spend must not be.
+   * A price that fell as the player played better would make the move cheapest exactly when
+   * they could most afford it, which is the opposite of a cost. So it is applied unramped,
+   * beside the two drains.
+   *
+   * It does **not** break the chain. Taking a hit and falling out of the world both do, because
+   * both are failures; spending the meter on a move is the meter working as designed, and
+   * zeroing `chainTime` for it would make using the element you were given a punishment.
+   *
+   * The amount comes from the fight (`EncounterStep.focusSpent`), so this module stays ignorant
+   * of what a freeze costs or that water exists.
+   */
+  spent: number
   /** The Avatar State is running: the meter holds still. */
   frozen: boolean
   /** The Avatar State just ended: the meter empties. */
@@ -89,7 +119,7 @@ export interface FocusInput {
 export function noFocusEvents(): FocusEvents {
   return {
     gustConnects: 0, downs: 0, slamStrength: 0, playerHit: false, fellOutOfWorld: false,
-    damageAvoided: false, staffConnects: 0, accidents: 0,
+    damageAvoided: false, staffConnects: 0, accidents: 0, redirects: 0,
   }
 }
 
@@ -117,6 +147,11 @@ export function chainRamp(focus: Focus, c: FocusConfig): number {
  * The order is load-bearing. Breaks apply before gains, and the ramp is measured after
  * the break — so an enemy downed on the same frame the player takes a spear pays the
  * base rate, because the chain really did end that frame.
+ *
+ * A spend lands with the breaks, unramped, and without breaking the chain. It goes before the
+ * gains for the same reason they do: a freeze thrown on a frame that also downs a soldier should
+ * cost its full price and be paid back at whatever the ramp is worth, not have the price
+ * discounted by the same multiplier.
  */
 export function stepFocus(
   focus: Focus,
@@ -134,6 +169,10 @@ export function stepFocus(
   let value = focus.value
   if (events.playerHit) value -= c.damageDrain
   if (events.fellOutOfWorld) value -= c.crashDrain
+  // Guarded rather than trusted: a negative spend would be a Focus gain smuggled in through the
+  // one field that bypasses the ramp, and the fight computes this from a config value that a
+  // retune could get wrong.
+  if (input.spent > 0) value -= input.spent
 
   const chainTime = broke ? 0 : focus.chainTime + dt
   const ramp = chainRamp({ ...focus, chainTime: broke ? 0 : focus.chainTime }, c)
@@ -146,6 +185,7 @@ export function stepFocus(
     + events.slamStrength * c.slamGainAtFullImpact
     + events.staffConnects * c.staffConnectGain
     + events.accidents * c.accidentDownGain
+    + events.redirects * c.redirectGain
     + (events.damageAvoided ? c.dodgeGain : 0)) * ramp
 
   return { value: MathUtils.clamp(value, 0, focus.max), max: focus.max, chainTime }

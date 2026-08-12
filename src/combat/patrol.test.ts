@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import { shouldRestorePatrol, type PatrolConfig } from './patrol'
-import { spawnEnemy, type Enemy, type EnemyConfig } from './enemy'
+import { spawnEnemy, UNARMOURED, type Enemy, type EnemyConfig } from './enemy'
 import type { EnemySpawn } from './encounter'
 import { DEFAULT_COMBAT_CONFIG, DEFAULT_PATROL_CONFIG } from './config'
 
@@ -13,6 +13,7 @@ const ENEMY_CONFIG: EnemyConfig = {
   recoverSeconds: 0.7, attack: { kind: 'melee', damage: 1 }, knockbackDamping: 2.6,
   gravity: 20, snapDistance: 1.2,
   downedSeconds: 18, risingSeconds: 1.2, recoveryHealthFractions: [0.6, 0.3],
+  armour: UNARMOURED,
 }
 
 // Spread far wider apart than respawnRange, so the two spawn points can actually

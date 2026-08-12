@@ -8,7 +8,10 @@ import type { PlayerState } from '../core/types'
 const p = (over: Partial<PlayerState> = {}): PlayerState => ({
   mode: 'ground', position: new Vector3(), velocity: new Vector3(),
   forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
-  grounded: true, lastGroundIslandId: null, airJumpsUsed: 0, chargeTime: 0, coyoteTime: 0, jumpBuffer: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0, slipstreamElapsed: null, slipstreamCooldown: 0, staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, ...over,
+  grounded: true, lastGroundIslandId: null, airJumpsUsed: 0, chargeTime: 0, coyoteTime: 0,
+  jumpBuffer: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+  slipstreamElapsed: null, slipstreamCooldown: 0, staffChain: 0, staffElapsed: null,
+  staffRecovery: 0, staffSinceSwing: 0, tangled: 0, wallRideNormal: null, ...over,
 })
 
 describe('formatAltitude', () => {
@@ -211,5 +214,33 @@ describe('the Avatar State vignette rule', () => {
     // main.ts has no tests of its own. The property name comes from the shared constant on
     // both sides, so what is left to assert is that the rule still reads it at all.
     expect(STYLE).toContain(`.hud-vignette.is-on { opacity: var(${VIGNETTE_SCALE_PROPERTY}, 1); }`)
+  })
+})
+
+describe('the wings-tangled tell', () => {
+  it('is off while the player is free to fly', () => {
+    expect(hudModelFor(p({ tangled: 0 })).tangled).toBe(false)
+  })
+
+  it('is on with any refusal left at all', () => {
+    // The same `> 0` question `isTangled` asks, so the tell and the gate that actually refuses the
+    // deploy cannot disagree about a fraction of a frame.
+    expect(hudModelFor(p({ tangled: 0.001 })).tangled).toBe(true)
+    expect(hudModelFor(p({ tangled: 2 })).tangled).toBe(true)
+  })
+
+  it('reads free rather than refused for a corrupt countdown', () => {
+    // The direction matters, and it matters that it matches `isTangled`: a NaN fails both `> 0`
+    // tests, so the badge and the gate fail the same way. A tell that said "grounded" while the
+    // wings actually opened would be worse than either behaviour on its own.
+    expect(hudModelFor(p({ tangled: Number.NaN })).tangled).toBe(false)
+  })
+
+  it('has a rule to draw itself with', () => {
+    // The badge is inserted into the HUD's markup unconditionally and shown by opacity, so a
+    // missing rule would leave permanent text reading "Wings tangled" over the game. `main.ts` has
+    // no tests and this stylesheet is a template string, so the pairing is checked here.
+    expect(STYLE).toContain('.hud-tangled')
+    expect(STYLE).toContain('opacity: 0')
   })
 })

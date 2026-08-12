@@ -9,7 +9,7 @@ import { applyDamage, isDowned, type Health, type HealthConfig } from './health'
  * and it punishes standing still. That is the whole behaviour — it is not built to
  * be a fair duel, it is built to make holding one spot expensive.
  */
-export type Stance = 'advance' | 'wind-up' | 'recover' | 'downed' | 'rising'
+export type Stance = 'advance' | 'wind-up' | 'recover' | 'downed' | 'rising' | 'held'
 
 /**
  * Which soldier this is.
@@ -17,8 +17,14 @@ export type Stance = 'advance' | 'wind-up' | 'recover' | 'downed' | 'rising'
  * Identity, not behaviour — the behaviour lives in `EnemyAttack` below. Kept separate
  * because the view layer and the per-kind config lookup both need to know *which* type
  * they are looking at, and two types could one day share an attack shape.
+ *
+ * `heavy` and `nets` are section 4.4's third and fourth rows. Neither needed a new state
+ * machine, which is the argument for them being kinds rather than something larger: a
+ * heavy soldier advances, winds up and swings exactly like a spear, and a netter is a
+ * ranged attacker with the archer's beats. What is new about each of them lives in data —
+ * `armour` for the heavy, the projectile's `tangleSeconds` for the netter.
  */
-export type EnemyKind = 'spear' | 'archer'
+export type EnemyKind = 'spear' | 'archer' | 'heavy' | 'nets'
 
 /**
  * What a release produces.
@@ -30,7 +36,104 @@ export type EnemyKind = 'spear' | 'archer'
  */
 export type EnemyAttack =
   | { kind: 'melee'; damage: number }
-  | { kind: 'projectile'; damage: number; speed: number }
+  | {
+      kind: 'projectile'
+      damage: number
+      speed: number
+      /**
+       * Seconds the glider is refused after this projectile connects. Zero for an arrow.
+       *
+       * A required field on the existing `projectile` variant rather than a third `net`
+       * variant, and the choice is deliberate. A net *is* a projectile in every way this
+       * module cares about: it is loosed at the end of a wind-up, it flies in a straight
+       * line, it is measured in 3D, and it ends on the player or the ground. The only
+       * thing that differs is what it does on arrival, so the payload is what gains a
+       * field. A `net` variant would instead have forced `stepEnemy`'s `ranged` test,
+       * `stepEncounter`'s spawn branch and `off-screen.ts`'s melee gate each to grow a
+       * second case for a type that behaves identically in all three.
+       *
+       * Required rather than optional so a future ranged kind has to state its answer.
+       * Zero is the "does nothing" value and the archer says so out loud.
+       */
+      tangleSeconds: number
+    }
+
+/**
+ * Which of the player's moves a blow came from.
+ *
+ * Exists only so `armour` below can answer per source. Deliberately not a property of the
+ * blow itself: `hitEnemy` takes a damage figure and an impulse and has no idea what threw
+ * them, which is what lets the four resolvers in `stepEncounter` share one code path.
+ */
+export type BendingSource = 'gust' | 'vortex' | 'wave' | 'staff'
+
+/**
+ * How much of a blow actually lands, as fractions of what was thrown.
+ *
+ * Two numbers rather than one, because damage and displacement are separate currencies in
+ * this fight and the heavy armoured soldier is the type that proves it: section 4.4 gives
+ * it "knockback economy" to pressure, which only means anything if a move can be allowed
+ * to hurt without moving it, or to move it without hurting it.
+ */
+export interface Armour {
+  /** 1 takes the whole blow; 0 takes none of it. */
+  damage: number
+  /** Same scale, applied to the impulse — horizontal push and vertical lift alike. */
+  knockback: number
+}
+
+/**
+ * What each of the player's moves gets through with.
+ *
+ * A full Record rather than a partial one, for the same reason `CombatConfig.enemies` is a
+ * Record over `EnemyKind`: a move nobody thought about is a typecheck error where the
+ * config is written, not an `undefined` at the moment a blow lands.
+ */
+export type ArmourTable = Record<BendingSource, Armour>
+
+/** Whole force through, from every direction. What everyone but the heavy wears. */
+export const UNARMOURED: ArmourTable = {
+  gust: { damage: 1, knockback: 1 },
+  vortex: { damage: 1, knockback: 1 },
+  wave: { damage: 1, knockback: 1 },
+  staff: { damage: 1, knockback: 1 },
+}
+
+/**
+ * A blow after this soldier's armour has had it.
+ *
+ * Applied here rather than inside `hitEnemy`, and that split is load-bearing rather than
+ * stylistic. `hitEnemy` means "take this blow, whatever it turned out to be": it advances
+ * the recovery ladder off the damage it is handed, so it has to be handed the *final*
+ * figure. Folding the armour into it instead would have given it a fourth parameter that
+ * twenty existing call sites do not pass, and a defaulted fourth parameter is exactly how
+ * a resolver ends up silently ignoring armour.
+ *
+ * The impulse is scaled rather than zeroed component-wise, so a fraction between 0 and 1
+ * means "shoved less far" rather than "shoved sideways but not up".
+ */
+export function throughArmour(
+  damage: number, impulse: Vector3, a: Armour,
+): { damage: number; impulse: Vector3 } {
+  return {
+    damage: damage * a.damage,
+    impulse: impulse.clone().multiplyScalar(a.knockback),
+  }
+}
+
+/**
+ * Whether this kind's armour turns a given move away completely.
+ *
+ * Read off the config rather than off an outcome, and that matters: the vortex carries no
+ * damage at all by design, so "the damage came out at zero" would report every vortex on
+ * every soldier as deflected. A deflect is a property of the pairing — this armour against
+ * that move — and the pairing is what the feedback layer needs to know about, because a
+ * move that does nothing with no sound and no burst reads as a bug rather than as armour.
+ */
+export function deflects(c: EnemyConfig, source: BendingSource): boolean {
+  const a = c.armour[source]
+  return a.damage === 0 && a.knockback === 0
+}
 
 /**
  * Just the ground height, and nothing else.
@@ -63,6 +166,22 @@ export interface Enemy {
    * ladder always costs real damage.
    */
   downs: number
+  /**
+   * Seconds of hold left, or 0.
+   *
+   * Set by `holdEnemy`, which the water kit's two moves both go through — a grip holds
+   * briefly, a freeze holds for much longer, and the two write this one field rather than
+   * carrying separate timers, so "gripped" and "frozen" cannot disagree about whether a soldier
+   * can act. Section 4.6 lists *frozen* among the legitimate downed conditions alongside
+   * disarmed and buried to the waist, so a held soldier is on-theme non-lethality rather than
+   * an exception to it.
+   *
+   * Remaining time rather than elapsed time, so the expiry test needs no config lookup and the
+   * countdown can be decremented once at the top of `stepEnemy` for every branch below. Kept
+   * apart from `stanceTime` because that field is reset by every stance change, and a hit
+   * landing on a frozen soldier must not refill the ice.
+   */
+  heldSeconds: number
   /** Decaying horizontal push from a gust, a slam or a vortex. Horizontal only. */
   knockback: Vector3
   /** Ballistic vertical speed. Gravity acts on this; the ground snap ends it. */
@@ -99,6 +218,18 @@ export interface EnemyConfig extends HealthConfig {
    * projectile's damage is not split between the enemy and the arrow it fires.
    */
   attack: EnemyAttack
+  /**
+   * What each of the player's moves gets through with, against this kind.
+   *
+   * Config rather than a branch in `stepEncounter`, because section 4.4's "immune to
+   * gusts" is a statement about one enemy type and not about the gust. Written as a branch
+   * it would have been a `kind === 'heavy'` test inside the gust resolver, which is the
+   * shape that makes the next armoured type a second branch in the same place.
+   *
+   * Everyone who is not wearing plate takes `UNARMOURED`, which is all ones, so this field
+   * is a no-op for three of the four kinds and the fight does not have to know that.
+   */
+  armour: ArmourTable
   /** How fast knockback bleeds away, per second. */
   knockbackDamping: number
   /** Matches the world's own gravity in DEFAULT_GROUND_CONFIG. */
@@ -147,6 +278,7 @@ export function spawnEnemy(
     stanceTime: 0,
     health: { current: c.maxHealth, max: c.maxHealth, sinceHit: c.outOfCombatSeconds },
     downs: 0,
+    heldSeconds: 0,
     knockback: new Vector3(),
     verticalVelocity: 0,
     grounded: true,
@@ -177,8 +309,15 @@ export interface EnemyStep {
   firedProjectile: { origin: Vector3; direction: Vector3 } | null
 }
 
-/** Chest height, so an arrow leaves the archer rather than the ground it stands on. */
-const SHOT_HEIGHT = 1.1
+/**
+ * Chest height, so an arrow leaves the archer rather than the ground it stands on.
+ *
+ * Exported since the Air Wall arrived, so that `air-wall.test.ts` can build the archer's own
+ * shot rather than restating 1.1 beside it. That matters there and not elsewhere: those tests
+ * reason about the *height* a mirrored arrow comes home at, and a second copy of this number
+ * would let the reasoning and the game drift apart without a failure.
+ */
+export const SHOT_HEIGHT = 1.1
 
 /**
  * The horizontal heading from `from` to `to`, or null when there is no horizontal
@@ -221,9 +360,63 @@ export function nextRecoveryFraction(enemy: Enemy, c: EnemyConfig): number | nul
   return fraction !== undefined && fraction > 0 ? fraction : null
 }
 
-/** Worth aiming at: on its feet, or pushing back up onto them. */
+/**
+ * Worth aiming at: on its feet, or pushing back up onto them.
+ *
+ * **Deliberately unchanged by the water kit, and a held soldier is targetable.** Every resolver
+ * in `stepEncounter` asks this and asks it identically, and adding "unless it is frozen" here
+ * would change the gate for all of them at once — a frozen soldier would stop taking staff
+ * damage, which is backwards: locking a target in place exists so that it *can* be hit.
+ * "Frozen" is asked separately, through `isHeld` below, by the one thing that needs the
+ * distinction.
+ */
 export function isTargetable(enemy: Enemy): boolean {
   return !isDowned(enemy.health) || enemy.stance === 'rising'
+}
+
+/**
+ * Held or frozen: alive, still there, and unable to act.
+ *
+ * A predicate of its own rather than a special case inside `isTargetable`, per the rule above.
+ * Reads the stance rather than the timer, because the stance is what `stepEnemy` acts on and
+ * two authorities on one condition is how they drift apart.
+ */
+export function isHeld(enemy: Enemy): boolean {
+  return enemy.stance === 'held'
+}
+
+/**
+ * Lock a soldier in place for a spell.
+ *
+ * Takes the longer of the hold already running and the new one rather than adding them, so a
+ * grip landing on an already-frozen target cannot shorten the freeze and a freeze landing on a
+ * gripped one cannot be stacked into something longer than either move earns. `Math.max` is
+ * also what makes the two water moves one kit instead of two: whichever verb reaches a soldier
+ * second, the result is the stronger of the two conditions and never a third one.
+ *
+ * A downed soldier is returned untouched. The recovery ladder in `stepEnemy` owns a body on the
+ * ground, and holding one would mean two systems counting down over the same soldier — with
+ * the hold outliving the rise, so a soldier could push itself back up and be frozen on the spot
+ * by ice thrown while it was already down.
+ *
+ * The physics are deliberately left alone: no knockback is cleared and no vertical velocity is
+ * zeroed. The grip's own pull *is* a knockback impulse, so clearing it here would cancel the
+ * pull the same frame it was applied — the whole "yank them in, then lock them" beat. A target
+ * still sliding from an earlier gust therefore keeps sliding to a stop over
+ * `knockback / knockbackDamping` while frozen, which is roughly 0.4 seconds at the shipped
+ * damping, and reads as freezing someone mid-tumble rather than as a bug.
+ */
+export function holdEnemy(enemy: Enemy, seconds: number): Enemy {
+  if (isDowned(enemy.health) || !(seconds > 0)) return enemy
+  return {
+    ...enemy,
+    heldSeconds: Math.max(enemy.heldSeconds, seconds),
+    stance: 'held',
+    // Reset, because a hold interrupts: a wind-up in progress is cancelled, exactly as
+    // `hitEnemy` cancels one. This is what makes the water kit control rather than damage —
+    // it buys the interruption a gust buys, and then keeps it.
+    stanceTime: 0,
+  }
 }
 
 /**
@@ -292,13 +485,27 @@ function fall(
  * it was blown to.
  */
 export function stepEnemy(
-  enemy: Enemy,
+  incoming: Enemy,
   playerPosition: Vector3,
   ground: GroundHeightQuery,
   worldFloorY: number,
   dt: number,
   c: EnemyConfig,
 ): EnemyStep {
+  /**
+   * The hold counted down once, at the top, before any branch runs.
+   *
+   * Every return below spreads `...enemy`, so decrementing here is what makes it impossible
+   * for one of the eight exits to forget the countdown — which is exactly the bug a per-branch
+   * decrement would eventually acquire, and it would present as a soldier frozen forever on one
+   * code path only. The parameter is shadowed rather than mutated because an `Enemy` is treated
+   * as immutable everywhere else in this module, and the clone is skipped entirely when nothing
+   * is held, so the ordinary frame allocates nothing extra.
+   */
+  const enemy: Enemy = incoming.heldSeconds > 0
+    ? { ...incoming, heldSeconds: Math.max(0, incoming.heldSeconds - dt) }
+    : incoming
+
   // Already downed and below the floor: parked. Downing a body does not stop it falling,
   // and the downed branch below keeps integrating, so without this a corpse in empty air
   // accelerates without bound — measured at 36km down and still gaining 1.2km/s a minute
@@ -406,6 +613,37 @@ export function stepEnemy(
     }
   }
 
+  // Held or frozen: inert, and it still falls and settles. The water kit's entire payoff, and
+  // the same shape the airborne branch below gives a lifted enemy — one branch each, because
+  // the two conditions have different exits.
+  //
+  // Above the airborne test on purpose: a held soldier is held whether its feet are on the
+  // ground or not, so freezing a target a Vortex has just lifted must not fall through to the
+  // airborne branch and quietly resume the ordinary stance clock while the ice is on.
+  //
+  // Gated on the stance rather than on `heldSeconds`, matching `isHeld`, so there is one
+  // authority on the condition. That also means a soldier whose hold was interrupted by going
+  // down keeps a stale non-zero `heldSeconds` while it lies there and cannot be re-held by it:
+  // the downed branch above returns first, and a rise leaves the stance on 'advance'.
+  if (enemy.stance === 'held') {
+    const expired = enemy.heldSeconds <= 0
+    return {
+      enemy: {
+        ...enemy, ...moved,
+        // Into 'recover' rather than straight to 'advance', so breaking out of ice costs the
+        // same beat a hit costs. Released into 'advance' instead, a soldier frozen at spear
+        // reach would thrust on the very frame the hold ended, which turns the end of a freeze
+        // into an unavoidable hit and makes the move a liability at exactly the range it is
+        // meant to be used.
+        stance: expired ? 'recover' : 'held',
+        stanceTime: expired ? 0 : enemy.stanceTime + dt,
+      },
+      damageToPlayer: 0,
+      fellOutOfWorld: false,
+      firedProjectile: null,
+    }
+  }
+
   // Airborne: inert. This is what makes a Vortex setup rather than damage — the payoff
   // for lifting a group is that the group stops acting. A wind-up in progress is
   // dropped, consistent with hitEnemy already treating a hit as an interruption.
@@ -439,12 +677,24 @@ export function stepEnemy(
   // `enemy.test.ts`'s 'still thrusts at a player almost directly overhead' pins that as
   // intended behaviour rather than an oversight.
   //
-  // What climbing escapes is the *archer*, and that is the whole reason this is the one
-  // place the two types genuinely diverge: an arrow does reach up, so both of its ranges are
+  // What climbing escapes is the *ranged* soldier, and that is the whole reason this is the
+  // one place the types genuinely diverge: an arrow does reach up, so both of its ranges are
   // measured in 3D and altitude buys real distance from it. Measured horizontally an archer
   // would read a hovering player as being at distance 0 too — permanently in range, and
   // unable to be escaped by climbing, which is backwards for the type whose entire job is to
   // pressure altitude.
+  //
+  // The net thrower is on the 3D side of that line too, and by its own argument rather than by
+  // inheritance. Section 4.4 gives it *flight itself* to pressure, so a netter that could not
+  // reach a player in the air would be pressuring nothing at all — the only target worth
+  // grounding is one that is currently off the ground. It pays for that reach with a much
+  // shorter strikeRange than the archer's, so climbing still buys distance from it, just less
+  // of it per metre than from a spear.
+  //
+  // The heavy armoured soldier is on the *horizontal* side, with the spear, and that is a
+  // warning rather than a reassurance: it swings at a player hovering directly overhead, at
+  // any altitude, exactly as a spear does. Its answer to a hovering player is not reach, it
+  // is that a hovering player cannot hurt it either.
   const ranged = c.attack.kind === 'projectile'
   const horizontalGap = horizontalDistance(moved.position, playerPosition)
   const distance = ranged ? moved.position.distanceTo(playerPosition) : horizontalGap
@@ -530,7 +780,15 @@ export function hitEnemy(enemy: Enemy, damage: number, impulse: Vector3): Enemy 
     // the snap, and two places deciding it is how they drift apart.
     // Being hit interrupts: a wind-up in progress is cancelled, which is how a
     // gust "interrupts, staggers, opens gaps" rather than merely chipping health.
-    stance: isDowned(health) ? 'downed' : 'recover',
+    //
+    // A hit on a held soldier leaves it held, and that is the point of the water kit: a locked
+    // target is locked so it can be hit, and freeing it by hitting it would make the freeze
+    // useless for anything except walking away. `heldSeconds` is untouched here, so hitting a
+    // frozen soldier neither shortens nor extends the ice — only `holdEnemy` writes it.
+    stance: isDowned(health) ? 'downed' : (enemy.stance === 'held' ? 'held' : 'recover'),
+    // Cleared on a crossing: the recovery ladder owns a body on the ground, and a hold that
+    // outlived a knockdown would re-freeze the soldier the moment it stood back up.
+    heldSeconds: isDowned(health) ? 0 : enemy.heldSeconds,
     stanceTime: 0,
   }
 }

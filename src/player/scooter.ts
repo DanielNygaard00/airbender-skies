@@ -33,6 +33,23 @@ export interface ScooterInput {
   moving: boolean
   /** Something was clipped this frame: drop a tier. */
   clipped: boolean
+  /**
+   * Riding a wall this frame, which changes two things here.
+   *
+   * A wall counts as support, so the "leaving the ground stows it" rule below does not
+   * fire for a rider who is off the floor because he is on a cliff. And the accumulator is
+   * left entirely alone, because `stepWallRide` is draining it: without this the two
+   * systems would write one number in the same frame with opposite signs, and the ride's
+   * documented cost would silently be its drain minus `scooterChargeGain`.
+   *
+   * Reported by the caller rather than worked out here, and it is deliberately the ride
+   * that was running when the frame *began*. This function has to run first — the ride
+   * cannot be resolved until the scooter has said whether it is still up — so the one
+   * frame of lag is structural. It shows up in exactly one place: on the frame a ride
+   * ends, the scooter survives one extra frame and is then stowed by the ordinary airborne
+   * rule, which is the same outcome one frame later.
+   */
+  wallRiding: boolean
 }
 
 /**
@@ -51,11 +68,17 @@ export function stepScooter(
 ): ScooterState {
   const active = input.toggle ? !state.active : state.active
   // Leaving the ground stows it: the scooter is a ground move, and keeping it
-  // alive through a jump would blur the layer boundary the doc draws.
-  if (!active || !grounded) return { active: active && grounded, charge: 0 }
+  // alive through a jump would blur the layer boundary the doc draws. A wall is
+  // support too, though — the doc's own Air Scooter row says the ball can ride up a
+  // vertical face — so the test is whether anything is holding him up, not whether it
+  // happens to be underfoot.
+  const supported = grounded || input.wallRiding
+  if (!active || !supported) return { active: active && supported, charge: 0 }
 
   let charge = state.charge
-  if (input.clipped) {
+  if (input.wallRiding) {
+    // The wall owns the accumulator this frame. See `ScooterInput.wallRiding`.
+  } else if (input.clipped) {
     charge -= c.scooterTierDrop
   } else if (!input.moving) {
     // Parked, so nothing accumulates, but nothing is lost either.

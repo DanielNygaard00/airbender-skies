@@ -13,9 +13,9 @@ const p = (over: Partial<PlayerState> = {}): PlayerState => ({
   mode: 'ground', position: new Vector3(), velocity: new Vector3(),
   forward: new Vector3(0, 0, 1), breath: 100, maxBreath: 100,
   grounded: true, lastGroundIslandId: null, airJumpsUsed: 0, chargeTime: 0, coyoteTime: 0, jumpBuffer: 0,
-  scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+  scooterActive: false, scooterCharge: 0, wallRideNormal: null, dashesUsed: 0, dashRecovery: 0,
   slipstreamElapsed: null, slipstreamCooldown: 0,
-  staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, ...over,
+  staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, tangled: 0, ...over,
 })
 
 const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({
@@ -27,6 +27,13 @@ const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({
   avatarStateReady: false,
   vortexReady: true,
   slipstreamReady: true,
+  airWallReady: true,
+  // Air by default, so every row that predates the element system keeps being asked in the stance
+  // it was written for. The water rows are asked with `element: 'water'` explicitly.
+  element: 'air',
+  gripReady: true,
+  iceLockReady: true,
+  carryReady: true,
   ...over,
 })
 
@@ -228,6 +235,68 @@ describe('actions owned by other systems', () => {
     })).toBe(false)
   })
 
+  it('follows the Air Wall readiness it is handed', () => {
+    // Every other flag held true in the false case, for the reason the Vortex row above does
+    // it: a row that read the wrong flag is caught rather than passing. This row is the most
+    // likely to go wrong that way, because `canAirWall` and `canSlipstream` have the same three
+    // clauses in the same order and it would be an easy copy to make.
+    expect(can('Air Wall', { airWallReady: true })).toBe(true)
+    expect(can('Air Wall', {
+      airWallReady: false,
+      gustReady: true,
+      vortexReady: true,
+      slipstreamReady: true,
+      avatarStateReady: true,
+    })).toBe(false)
+  })
+
+  it('follows the carry readiness it is handed', () => {
+    // Every other flag held true in the false case, the same guard the Vortex and Slipstream
+    // rows get: a row wired to `ctx.gustReady` by a copy-paste would pass otherwise.
+    expect(can('Pick up or set down a payload', { carryReady: true })).toBe(true)
+    expect(can('Pick up or set down a payload', {
+      carryReady: false, gustReady: true, vortexReady: true, slipstreamReady: true,
+      avatarStateReady: true,
+    })).toBe(false)
+  })
+
+  it('offers the wall ride only with the scooter up and a tier of charge in hand', () => {
+    // The two halves of the entry gate a UI module can honestly check. The third — a
+    // near-vertical wall within lateral reach — is a raycast and cannot be answered here, so the
+    // row can be lit with no wall in front of the player. That is a deliberate, documented
+    // over-report rather than a drift: dimming it would need terrain in the guide.
+    expect(can('Wall ride')).toBe(false)
+    expect(can('Wall ride', { player: p({ scooterActive: true, scooterCharge: 1 }) })).toBe(true)
+    // Charge is a real part of the gate here, not decoration: a rider on a fresh scooter has
+    // not yet earned a ride.
+    expect(can('Wall ride', {
+      player: p({ scooterActive: true, scooterCharge: 0 }),
+    })).toBe(false)
+    expect(can('Wall ride', {
+      player: p({
+        scooterActive: true, scooterCharge: DEFAULT_GROUND_CONFIG.wallRideMinCharge - 0.001,
+      }),
+    })).toBe(false)
+    expect(can('Wall ride', {
+      player: p({ scooterActive: true, scooterCharge: DEFAULT_GROUND_CONFIG.wallRideMinCharge }),
+    })).toBe(true)
+  })
+
+  it('never offers the wall ride in the glider', () => {
+    // The scooter does not exist up there, so neither does this. Guarded because the predicate
+    // reads `scooterActive`, which a glider state can technically still carry.
+    expect(can('Wall ride', {
+      player: p({ mode: 'glider', grounded: false, scooterActive: true, scooterCharge: 1 }),
+    })).toBe(false)
+  })
+
+  it('shows the carry row in both columns', () => {
+    // 'both' rather than 'ground', even though only a grounded press does anything. The row
+    // has to be readable from the glider column, because that is where a player is standing
+    // when they wonder why the wing feels heavy.
+    expect(action('Pick up or set down a payload').mode).toBe('both')
+  })
+
   it('always offers this guide', () => {
     expect(can('This guide')).toBe(true)
     expect(can('This guide', { player: p({ mode: 'glider', grounded: false }) })).toBe(true)
@@ -259,3 +328,63 @@ function readmeKeys(): string[] {
   }
   return [...new Set(keys)].sort()
 }
+
+describe('the bending keys follow the selected element', () => {
+  it('offers the air moves on air and strikes through the water ones', () => {
+    // The question a player opening the panel mid-fight actually has: what do my two bending keys
+    // do right now. Asserted as all four rows at once, because an implementation where every row
+    // was always available would pass each half individually — and that is exactly the bug, since
+    // the panel would then list four moves for two keys with no indication which is live.
+    const air = { element: 'air' as const }
+    expect(can('Gust', air)).toBe(true)
+    expect(can('Vortex', air)).toBe(true)
+    expect(can('Water Grip', air)).toBe(false)
+    expect(can('Ice Lock', air)).toBe(false)
+  })
+
+  it('offers the water moves on water and strikes through the air ones', () => {
+    const water = { element: 'water' as const }
+    expect(can('Water Grip', water)).toBe(true)
+    expect(can('Ice Lock', water)).toBe(true)
+    expect(can('Gust', water)).toBe(false)
+    expect(can('Vortex', water)).toBe(false)
+  })
+
+  it('follows the grip readiness it is handed, on water', () => {
+    // Every other flag is held true in the false case, so a row that read the wrong one — the
+    // gust's cooldown copied onto the grip entry, say — is caught rather than passing.
+    expect(can('Water Grip', { element: 'water', gripReady: true })).toBe(true)
+    expect(can('Water Grip', {
+      element: 'water', gripReady: false, gustReady: true, vortexReady: true,
+      iceLockReady: true, slipstreamReady: true, avatarStateReady: true,
+    })).toBe(false)
+  })
+
+  it('follows the Ice Lock readiness it is handed, on water', () => {
+    expect(can('Ice Lock', { element: 'water', iceLockReady: true })).toBe(true)
+    expect(can('Ice Lock', {
+      element: 'water', iceLockReady: false, gripReady: true, gustReady: true,
+      vortexReady: true, slipstreamReady: true, avatarStateReady: true,
+    })).toBe(false)
+  })
+
+  it('strikes through a water move even when it is affordable, if air is selected', () => {
+    // The element gate and the resource gate are independent, and the element has to win. A row
+    // that only checked affordability would tell an airbending player that a freeze is ready.
+    expect(can('Ice Lock', { element: 'air', iceLockReady: true })).toBe(false)
+    expect(can('Water Grip', { element: 'air', gripReady: true })).toBe(false)
+  })
+
+  it('always offers the radial and the direct binds', () => {
+    // Switching is free, so these two can never be unavailable — there is no cooldown, no cost and
+    // no posture requirement. Checked in both stances, since every other row varies by one or the
+    // other.
+    for (const element of ['air', 'water'] as const) {
+      expect(can('Element radial', { element })).toBe(true)
+      expect(can('Select element directly', { element })).toBe(true)
+      expect(can('Element radial', {
+        element, player: p({ mode: 'glider', grounded: false }),
+      })).toBe(true)
+    }
+  })
+})

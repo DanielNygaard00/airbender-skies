@@ -3,6 +3,7 @@ import type { GroundConfig, InputState, PlayerState, TerrainQuery } from '../cor
 import { stepJump } from './jump'
 import { stepScooter, scooterSpeedMultiplier, scooterTurnAuthority } from './scooter'
 import { stepDash } from './dash'
+import { stepWallRide } from './wall-ride'
 import { raycastDown } from '../world/terrain-query'
 import { resolveMovement, type CollisionConfig } from '../world/collision'
 import { stillAir, type WindSample } from '../world/wind'
@@ -82,9 +83,16 @@ export function groundStep(
   // The scooter is the connective tissue of ground movement: it doubles speed and
   // halves steering, and its accumulator rewards holding a clean line.
   const moving = Math.abs(input.forward) > 0.01 || Math.abs(input.strafe) > 0.01
+  // The ride that was running when the frame began. It keeps the scooter alive over a wall
+  // the way the ground keeps it alive underfoot, and it is also what tells `stepWallRide`
+  // below whether this frame is an entry or a continuation.
+  const wasWallRiding = state.wallRideNormal !== null
   const scooter = stepScooter(
     { active: state.scooterActive, charge: state.scooterCharge },
-    { toggle: input.scooterPressed, turn: input.strafe, moving, clipped: false },
+    {
+      toggle: input.scooterPressed, turn: input.strafe, moving, clipped: false,
+      wallRiding: wasWallRiding,
+    },
     state.grounded,
     dt,
     c,
@@ -147,7 +155,27 @@ export function groundStep(
     ? jump.jumpVelocityY
     : state.velocity.y - c.gravity * dt + (airborne ? wind.accel.y * dt : 0)
 
-  const velocity = new Vector3(horizontal.x, velocityY, horizontal.z)
+  const candidate = new Vector3(horizontal.x, velocityY, horizontal.z)
+
+  // Last, after everything else has settled the frame's velocity, because the ride's entry
+  // probe is aimed along the line of travel and the line of travel is not known until the
+  // ease, the dash and the wind have all run. `stepWallRide` corrects the gravity it
+  // inherits rather than pre-empting it — see its own doc comment for why that is exact.
+  //
+  // Fed `scooter.active` and `scooter.charge`, this frame's values rather than last
+  // frame's, so a scooter toggled off this frame ends the ride on the same frame the player
+  // asked it to. That is the "or the player releases" exit: `Z` stows the ball, and the
+  // ball is what was climbing.
+  const wallRide = stepWallRide(
+    state.wallRideNormal,
+    { scooterActive: scooter.active, charge: scooter.charge, jumped: jump.jumped },
+    state.position,
+    candidate,
+    dt,
+    terrain,
+    c,
+  )
+  const velocity = wallRide.velocity ?? candidate
   const target = state.position.clone().addScaledVector(velocity, dt)
   // Before the ground snap, not after. The snap adjusts only y, and only for a player who
   // was already grounded or is descending onto a surface, so a horizontal deflection
@@ -200,7 +228,13 @@ export function groundStep(
     // outright rather than merely one frame of it.
     jumpBuffer: jump.jumped ? 0 : Math.max(0, jump.jumpBuffer - dt),
     scooterActive: scooter.active,
-    scooterCharge: scooter.charge,
+    // Clamped at zero rather than allowed to go negative, for the same reason the
+    // slipstream's breath deduction is: the accumulator is read as a fraction by the speed
+    // multiplier, the turn authority and the Focus rate, and a negative one would make all
+    // three lie. The ride reads the clamped value next frame and ends on it, so the drain's
+    // last frame is allowed to overshoot and cost nothing.
+    scooterCharge: Math.max(0, scooter.charge - wallRide.chargeSpent),
+    wallRideNormal: wallRide.normal,
     dashesUsed: dash.state.used,
     dashRecovery: dash.state.recovery,
   }

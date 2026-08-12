@@ -325,7 +325,12 @@ describe('the vertical extents against the real archipelago', () => {
       expect(r.inFootprint, `${r.move} has no stance at all against ${r.soldier}`)
         .toBeGreaterThan(0)
     }
-  })
+    // Same reasoning as the Pressure Wave sweep further down, and the same multiplier: this
+    // walks every stance against every soldier, so the patrol growing from five to seven grew
+    // it too. Measured at 3.9 s in a full-suite run -- 78% of the 5 s default -- which is close
+    // enough that it would have been the next thing to fail in CI once the wave sweep was
+    // fixed. Raised now rather than after watching that happen.
+  }, 30_000)
 
   it('records how many stances each band costs against each archer', () => {
     // What the reach-preserving equality above deliberately does not say. A move can keep its
@@ -525,7 +530,10 @@ describe('the vertical extents against the real archipelago', () => {
     // short to hold a target it has just launched would fight its own effect — so this is a
     // recording problem, not a balance one.
     const vortex = swept().filter((r) => r.move.startsWith('vortex'))
-    expect(vortex.length).toBe(2 * 5)
+    // Two charges against every soldier in the shipped patrol. Read off `HOME_PATROL` rather
+    // than written as a literal: this said `2 * 5` and went red the day the patrol grew from
+    // five soldiers to seven, which is a roster count masquerading as a claim about the vortex.
+    expect(vortex.length).toBe(2 * HOME_PATROL.length)
     for (const r of vortex) {
       expect(r.stillHit, `the vortex dropped stances against ${r.soldier}`).toBe(r.inFootprint)
     }
@@ -733,6 +741,27 @@ describe('the vertical extents against the real archipelago', () => {
 })
 
 describe('the Pressure Wave against real landing positions', () => {
+  /**
+   * Given a generous explicit timeout rather than left on the 5-second default, because this
+   * test's cost is inherent and it went over the line in CI.
+   *
+   * The sweep raycasts a `DISC_STEP` grid over the wave's whole footprint once per soldier, and
+   * the comment below explains why 0.05 m is not negotiable: at 0.25 m the reported worst gap
+   * was 4.1404 m, which is not the terrain's worst gap but the worst of 797 samples, and a
+   * coverage pin that hung off it sat *below its own lower bound* at any finer grid. Coarsening
+   * the grid to fit a timeout would reintroduce exactly the defect that comment records.
+   *
+   * So the cost stays and the limit moves. What pushed it over was `HOME_PATROL` growing from
+   * five soldiers to seven when the heavy and the net thrower landed: the sweep is per soldier,
+   * so the patrol's size is a direct multiplier. Measured in isolation on this machine at
+   * 3.9 s against the 5 s default -- already 78% of the budget before any contention -- and it
+   * fails locally too when run alongside the other real-geometry files, because the workers
+   * starve each other. It failed in CI on hardware slower than this machine.
+   *
+   * 30 seconds rather than something tighter: the point of the number is to stop being a
+   * tripwire on machine speed, and a limit set just above today's measurement is the same
+   * tripwire one enemy kind later. It is still short enough to catch a genuine hang.
+   */
   it('measures the gap from every aimed landing to each soldier', () => {
     // The value the design names as most likely wrong, and the measurement built to decide
     // it. `pressureWave.verticalReach` is 4.0 and `minRadius` is also 4, so the weakest
@@ -932,5 +961,5 @@ describe('the Pressure Wave against real landing positions', () => {
     expect(mostBearing).toBeLessThan(-30.0)
     expect(coverageFloor).toBeGreaterThan(0.9928)
     expect(coverageFloor).toBeLessThan(0.9929)
-  })
+  }, 30_000)
 })

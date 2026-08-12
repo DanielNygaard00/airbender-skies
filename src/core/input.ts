@@ -13,6 +13,39 @@ export function lookDirectionFrom(yaw: number, pitch: number): Vector3 {
   return new Vector3(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp).normalize()
 }
 
+/**
+ * The element radial's own edges and deltas, bundled.
+ *
+ * An object rather than four more positional parameters on `toInputState`. That list is already
+ * eleven long and `input.test.ts` carries a test whose whole purpose is catching an off-by-one
+ * in it; adding a boolean, a boolean, a pair and a nullable number to the end of it would be
+ * four more chances to make exactly that mistake. Bundled, a caller that mixes two fields up
+ * gets a type error instead.
+ */
+export interface RadialEdges {
+  radialReleased: boolean
+  pointerDelta: { x: number; y: number }
+  elementIndex: number | null
+}
+
+/** What the radial contributes when nothing has happened. Shared so callers need not spell it. */
+export const NO_RADIAL_EDGES: RadialEdges = {
+  radialReleased: false,
+  pointerDelta: { x: 0, y: 0 },
+  elementIndex: null,
+}
+
+/**
+ * How many element binds the number row offers.
+ *
+ * Digit1 through Digit4, which is the full set the design document names — air, water, earth,
+ * fire. Bound now rather than when earth and fire arrive, because `stepElements` already ignores
+ * an index past the end of `ELEMENT_ORDER`: pressing 3 today does nothing, and on the day earth
+ * is appended it starts working with no change here. The alternative — widening this alongside
+ * the union — is a second place to remember.
+ */
+const ELEMENT_BIND_COUNT = 4
+
 /** Map held key codes to intent. Movement code never sees key codes. */
 export function toInputState(
   held: ReadonlySet<string>,
@@ -26,9 +59,18 @@ export function toInputState(
   vortexReleased = false,
   slipstreamPressed = false,
   staffPressed = false,
+  radial: RadialEdges = NO_RADIAL_EDGES,
+  carryPressed = false,
 ): InputState {
   const axis = (pos: string, neg: string) => (held.has(pos) ? 1 : 0) - (held.has(neg) ? 1 : 0)
   return {
+    // Read off the held set rather than tracked as an edge, the way `actionHeld` and
+    // `vortexHeld` are: "the radial is open" is a state, not an event, and reading the set means
+    // the blur handler's `held.clear()` closes the radial for free.
+    radialHeld: held.has('KeyV'),
+    radialReleased: radial.radialReleased,
+    pointerDelta: radial.pointerDelta,
+    elementIndex: radial.elementIndex,
     lookDirection: lookDirection.clone().normalize(),
     forward: axis('KeyW', 'KeyS'),
     strafe: axis('KeyD', 'KeyA'),
@@ -45,6 +87,14 @@ export function toInputState(
     vortexReleased,
     slipstreamPressed,
     staffPressed,
+    // G, and it needs no entry in the tracker's edge bookkeeping below: this is the second
+    // purely-held intent after `sprint` and `tuck`, so the held-key set is the whole
+    // implementation. Chosen because it is free and sits under the index finger next to the
+    // gust on F -- the two moves the player throws air with are neighbours, which is worth more
+    // than any other free key's arrangement. Every alternative was taken: mouse, WASD, Z, Shift,
+    // Q, F, E, R, C, Ctrl, Space, H and Escape all mean something already.
+    airWallHeld: held.has('KeyG'),
+    carryPressed,
   }
 }
 
@@ -111,6 +161,19 @@ export class InputTracker {
   private vortexReleased = false
   private slipstreamPressed = false
   private staffPressed = false
+  private radialReleased = false
+  /**
+   * Pointer movement accumulated since the last sample.
+   *
+   * Separate from `yaw`/`pitch` rather than derived from them: those are absolute angles that
+   * `clampPitch` bounds, so a player already looking straight up produces no further pitch change
+   * and a radial driven off them would go dead in exactly that posture. Raw pixels have no such
+   * ceiling.
+   */
+  private pointerX = 0
+  private pointerY = 0
+  private elementIndex: number | null = null
+  private carryPressed = false
   private readonly listeners: (() => void)[] = []
 
   constructor(target: EventTarget, canvas: HTMLCanvasElement) {
@@ -150,11 +213,37 @@ export class InputTracker {
       if (!e.repeat && e.code === 'KeyF') this.gustPressed = true
       if (!e.repeat && e.code === 'KeyE') this.avatarStatePressed = true
       if (!e.repeat && e.code === 'KeyC') this.slipstreamPressed = true
+      /**
+       * The element binds, from the number row.
+       *
+       * `e.code` rather than `e.key`, like every other binding here, which matters more for
+       * digits than for letters: on a French AZERTY layout the unshifted top row produces
+       * `&`, `é`, `"`, `'` as `e.key` while `e.code` stays `Digit1`..`Digit4`. Reading `key`
+       * would leave the binds unreachable on that layout without a shift.
+       *
+       * Not guarded on `e.repeat`, and deliberately: re-selecting the element already selected
+       * is idempotent — `stepElements` writes the same value — so an auto-repeat cannot do
+       * anything a single press did not. The scooter needs that guard because it toggles.
+       */
+      const digit = e.code.startsWith('Digit') ? Number(e.code.slice(5)) : NaN
+      if (Number.isInteger(digit) && digit >= 1 && digit <= ELEMENT_BIND_COUNT) {
+        this.elementIndex = digit
+      }
+      // Edge-triggered like the rest, and for a sharper reason than most: held down, a
+      // repeating key would set the payload down and lift it again on alternate frames.
+      //
+      // B rather than G, which this was first written against. G went to the Air Wall, which
+      // is a combat verb pressed under pressure and wants the key next to the gust on F;
+      // carrying a bundle happens once a trip from a standing start, so it was the one to
+      // move. V was already the element radial. `input.test.ts` pins the binding, and pins
+      // that it is not G, because that is the one wrong answer it could drift back to.
+      if (!e.repeat && e.code === 'KeyB') this.carryPressed = true
     })
     on<KeyboardEvent>('keyup', (e) => {
       this.held.delete(e.code)
       if (e.code === 'Space') this.actionReleased = true
       if (e.code === 'KeyR') this.vortexReleased = true
+      if (e.code === 'KeyV') this.radialReleased = true
     })
     // Held keys would otherwise stick when the window loses focus.
     on('blur', () => this.held.clear())
@@ -164,6 +253,16 @@ export class InputTracker {
       const { yaw, pitch } = lookDelta(e.movementX, e.movementY, this.sensitivity, this.invertY)
       this.yaw += yaw
       this.pitch = clampPitch(this.pitch + pitch)
+      // Accumulated in addition to the look above, never instead of it. Diverting the movement
+      // into the radial while its key was held would be the obvious implementation and is
+      // forbidden: the owner's ruling is that opening the radial must not cost a frame of
+      // control, and taking the camera away for as long as a key is down is exactly that.
+      //
+      // Raw pixels, unscaled by sensitivity. The radial's dead zone is a wrist movement, and a
+      // player who has turned their sensitivity down to aim has not asked for a radial that
+      // needs a bigger flick — scaling here would couple the two settings for no reason.
+      this.pointerX += e.movementX
+      this.pointerY += e.movementY
     })
 
     // The rejection is caught and dropped rather than voided. Chrome refuses a re-lock
@@ -206,7 +305,21 @@ export class InputTracker {
       this.vortexReleased,
       this.slipstreamPressed,
       this.staffPressed,
+      {
+        radialReleased: this.radialReleased,
+        // A fresh object each sample rather than a reused scratch: `stepElements` folds this
+        // into accumulated state and nothing holds onto it, but a shared mutable pair handed to
+        // a pure function is the sort of aliasing this codebase already had to fix once, in
+        // `toInputState`'s own `lookDirection.clone()`.
+        pointerDelta: { x: this.pointerX, y: this.pointerY },
+        elementIndex: this.elementIndex,
+      },
+      this.carryPressed,
     )
+    this.pointerX = 0
+    this.pointerY = 0
+    this.radialReleased = false
+    this.elementIndex = null
     this.actionPressed = false
     this.actionReleased = false
     this.scooterPressed = false
@@ -216,6 +329,7 @@ export class InputTracker {
     this.vortexReleased = false
     this.slipstreamPressed = false
     this.staffPressed = false
+    this.carryPressed = false
     return state
   }
 
