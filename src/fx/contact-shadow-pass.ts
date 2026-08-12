@@ -231,13 +231,24 @@ export function createContactShadowPass(width: number, height: number): ContactS
   const quadCamera = new OrthographicCamera()
 
   const previousClearColour = new Color()
+  /**
+   * Scratch for `excludedFromDepth`, which clears and refills it rather than allocating a
+   * fresh array on every frame.
+   *
+   * Kept separate from `hidden` below because the two hold different sets and both have to
+   * be accurate at the same time: this one is every flagged node in the scene, and
+   * `hidden` is the subset that this pass actually turned off. Compacting one into the
+   * other in place would leave `hidden` briefly holding nodes it had not hidden, which is
+   * the one thing its own name promises it never does.
+   */
+  const excluded: Object3D[] = []
   /** Nodes this pass hid, so exactly those can be shown again. */
   const hidden: Object3D[] = []
 
   return {
     render(renderer, scene, camera) {
       hidden.length = 0
-      for (const node of excludedFromDepth(scene)) {
+      for (const node of excludedFromDepth(scene, excluded)) {
         // Only the ones that were actually visible. Some flagged nodes are hidden by
         // design — `aim-tell.ts`'s preview is built invisible and shown only when a
         // target is in the cone — and forcing them visible afterwards would leave them

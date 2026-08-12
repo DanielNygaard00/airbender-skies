@@ -28,8 +28,35 @@ describe('sunDirectionInView', () => {
     // as (0, 0, -1) whichever way that is in the world.
     const result = sunDirectionInView(new Vector3(1, 0, 0), cameraLookingAlongX(), new Vector3())
     expect(result.x).toBeCloseTo(0)
+    // This line pins a value rather than covering anything, and saying so is the point.
+    // The fixture camera maps world Y onto view Y and this input has y = 0, so no
+    // transform of it can move the Y component off zero: the identity mutant,
+    // `matrixWorld` for `matrixWorldInverse`, `applyMatrix4` for `transformDirection`, a
+    // dropped renormalisation and even `negate()` all leave it at exactly 0. The X and Z
+    // assertions around it are real guards. The test below is where Y becomes able to fail.
     expect(result.y).toBeCloseTo(0)
     expect(result.z).toBeCloseTo(-1)
+  })
+
+  it('maps a direction tilted out of the camera\'s own plane onto view Y and view -Z', () => {
+    // The input the rest of this block was missing: a non-zero Y that is aligned to no
+    // camera axis, so all three components carry signal. World (1, 1, 0) normalised is 45
+    // degrees above the camera's forward, and this camera's rotation is a quarter turn
+    // about Y — which leaves the Y component alone and swings the world +X part onto view
+    // -Z. So the answer is (0, 1/sqrt(2), -1/sqrt(2)), and it was checked against three.js
+    // rather than derived on paper.
+    //
+    // What the Y assertion catches here, and could not in the test above: a sign flip
+    // anywhere in the transform, and any component swap that touches Y. The wrong-matrix
+    // mutant (`matrixWorld` in place of `matrixWorldInverse`) is a quarter turn the other
+    // way about that same Y axis, so it still leaves Y alone and surfaces in Z instead —
+    // asserted here too, with the sign that tells the two apart.
+    const result = sunDirectionInView(
+      new Vector3(1, 1, 0).normalize(), cameraLookingAlongX(), new Vector3(),
+    )
+    expect(result.x).toBeCloseTo(0)
+    expect(result.y).toBeCloseTo(Math.SQRT1_2)
+    expect(result.z).toBeCloseTo(-Math.SQRT1_2)
   })
 
   it('maps world up onto view up, and world +Z onto view +X', () => {
@@ -96,7 +123,7 @@ describe('excludedFromDepth', () => {
     const plain = new Mesh()
     root.add(flagged, plain)
 
-    expect(excludedFromDepth(root)).toEqual([flagged])
+    expect(excludedFromDepth(root, [])).toEqual([flagged])
   })
 
   it('finds a flagged node nested two levels down', () => {
@@ -107,7 +134,7 @@ describe('excludedFromDepth', () => {
     middle.add(deep)
     root.add(middle)
 
-    expect(excludedFromDepth(root)).toEqual([deep])
+    expect(excludedFromDepth(root, [])).toEqual([deep])
   })
 
   it('collects a flagged Group even though a Group is not a mesh', () => {
@@ -128,13 +155,37 @@ describe('excludedFromDepth', () => {
     group.add(new Points())
     root.add(group)
 
-    expect(excludedFromDepth(root)).toEqual([group])
+    expect(excludedFromDepth(root, [])).toEqual([group])
   })
 
   it('includes the root itself when the root is flagged', () => {
     const root = new Mesh()
     root.userData.excludeFromShadows = true
-    expect(excludedFromDepth(root)).toEqual([root])
+    expect(excludedFromDepth(root, [])).toEqual([root])
+  })
+
+  it('fills the array it is given rather than allocating, and hands the same one back', () => {
+    // Asserted by identity, the same way `sunDirectionInView` is above. The pass calls this
+    // once per frame for the whole session against a scratch array it keeps alive, so a
+    // return-a-new-array implementation would put a per-frame allocation back.
+    const root = new Mesh()
+    root.userData.excludeFromShadows = true
+    const target: Object3D[] = []
+
+    expect(excludedFromDepth(root, target)).toBe(target)
+    expect(target).toEqual([root])
+  })
+
+  it('clears the array first, so a stale entry from the previous frame does not survive', () => {
+    // The failure this guards is specific to the out-parameter: reusing one array across
+    // frames means an effect that has since been removed from the scene would stay in the
+    // list and be forced back to `visible = true` every frame, putting a deleted gust or
+    // arrow permanently on screen.
+    const stale = new Mesh()
+    const root = new Mesh()
+    root.userData.excludeFromShadows = true
+
+    expect(excludedFromDepth(root, [stale])).toEqual([root])
   })
 })
 

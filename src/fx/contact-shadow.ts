@@ -124,11 +124,22 @@ export function depthTargetSize(
  * renders under an override material and writes depth from its sprites, and
  * `src/world/wind-tell.ts` sets the flag on the `Group` above one. Collecting any
  * flagged node and hiding it covers such a child through visibility inheritance.
+ *
+ * **Writes into a caller-supplied array, which it clears first, and returns that same
+ * array.** This runs once per frame for the whole session, and the rest of the
+ * presentation layer — `sunDirectionInView` immediately above, which has a test pinning
+ * exactly this — holds to the same no-allocation habit. Returning the target as well as
+ * filling it keeps the call readable at the one site that uses it.
+ *
+ * **The traversal itself has to happen every frame, and that is not the part worth
+ * optimising away.** Collecting once at startup would be wrong rather than merely stale:
+ * arrow views and attack effects are added to and removed from the scene graph while the
+ * game runs, so the set of flagged nodes is different from one frame to the next.
  */
-export function excludedFromDepth(root: Object3D): Object3D[] {
-  const excluded: Object3D[] = []
+export function excludedFromDepth(root: Object3D, target: Object3D[]): Object3D[] {
+  target.length = 0
   root.traverse((node) => {
-    if (node.userData.excludeFromShadows) excluded.push(node)
+    if (node.userData.excludeFromShadows) target.push(node)
   })
-  return excluded
+  return target
 }

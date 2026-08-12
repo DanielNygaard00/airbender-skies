@@ -2809,6 +2809,16 @@ cycle; it is the only method that has ever worked here. (The count read "fifteen
 until the aim-and-hit-direction cycle added four; the count read "nineteen for nineteen" until
 the off-screen enemy indicators cycle added two, both recorded at the end of this section.)
 
+**That unanimity no longer holds, and the exception is the twenty-second entry.** The contact
+shadows cycle's final review found an inert assertion by reading it and enumerating what every
+expressible mutant would do to the component it asserted — the method this paragraph says has
+never worked here. It is one against twenty-one, so the advice above still stands as the default;
+but it is no longer true that reasoning about coverage has never found anything. What made the
+difference is worth naming: the reasoning was not "does this look covered?" but "list the
+mutants, and say what each one puts in this component" — a concrete enumeration with an answer
+per mutant, which is closer in kind to making the forbidden change than to reading for a feeling
+of thoroughness. See the twenty-second entry at the end of the contact shadows section.
+
 Second, and new: **a test's name can be what hides the gap.** The eleventh sat behind
 `'names a reason for every combination with any pausing cause'`, which sounds exactly like
 the test that pins the reasons and in fact pinned only that each reason was non-null — and
@@ -3301,6 +3311,43 @@ been a soft halo along every edge. This was corrected during implementation to s
 hidden, `window.innerWidth` and the canvas dimensions all read 0 — precisely the input
 `depthTargetSize` clamps to 1×1, since a zero-dimension render target throws in WebGL rather than
 degrading.
+
+**The twenty-second assertion that could not fail, and its shape is new to the register: inert
+because the fixture's own *input* had a zero in the component being asserted.** In
+`contact-shadow.test.ts`, "maps the camera's own heading onto view -Z" asserted all three
+components of `sunDirectionInView(new Vector3(1, 0, 0), cameraLookingAlongX(), …)`. The fixture
+camera is a quarter turn about Y, so it maps world Y onto view Y, and the input's `y` is 0 —
+which means no transform of that input can put anything but 0 in `result.y`. Every mutant this
+function has: the identity (`return target.copy(worldDirection)`), `matrixWorld` in place of
+`matrixWorldInverse`, `applyMatrix4` in place of `transformDirection`, a dropped
+renormalisation, and a bare `negate()` — all of them leave that line green.
+
+What makes this one worth recording separately from the twenty-one before it is how it hid. The
+`x` and `z` assertions **bracketing it on the two adjacent lines** are real guards against those
+same mutants, so the block reads as thoroughly covered, and the line sits directly beneath a
+fixture docstring promising that "a non-default basis is what makes the assertions below able to
+fail" — true of the neighbours, false of this one. The register's previous entries were inert
+because the *claim* was weak (bare comparisons, tautologies) or because the *fixture* was
+symmetric; here the fixture is asymmetric and the claim is exact, and the assertion is still
+dead, purely because the input carried no signal in the axis being read.
+
+Fixed by adding an input with a non-zero Y aligned to no camera axis — world `(1, 1, 0)`
+normalised, 45 degrees above the camera's forward — and asserting all three components against
+`(0, 1/√2, −1/√2)`. That expectation was computed with three.js itself rather than taken on
+trust. The new Y assertion catches a sign flip anywhere in the transform and any component swap
+touching Y; the wrong-matrix mutant turns out to be a quarter turn the other way about that same
+Y axis, so it still leaves Y alone and surfaces in Z, which is asserted alongside. The original
+`y ≈ 0` line is kept with a comment saying plainly that it pins a value and covers nothing —
+the same treatment the twentieth entry's `Infinity` fixture got.
+
+**A near-miss of the same family in the file, recorded rather than changed.** `expect(depthTargetSize(1, 1))`
+sits beside `expect(depthTargetSize(0, 0))` in "never returns a zero dimension", and it is
+strictly implied by its neighbour: no implementation that returns `{1, 1}` for `(0, 0)` and
+matches the canvas exactly at 1280×720 can fail at `(1, 1)`. That is redundant rather than
+inert — it *could* fail in principle, just never independently of the two assertions around it —
+so it is left in place as a boundary-value note. Worth knowing that the distinction exists,
+because "redundant" and "cannot fail" have different fixes and the register is only about the
+second.
 
 **What was seen in the running game.** Verified by controller with `CONTACT_STRENGTH` A/B'd
 between 0.55 and 0.0 at identical framing. The console is clean — no shader compile error and no
