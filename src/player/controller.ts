@@ -108,6 +108,12 @@ export function isFinitePlayer(s: PlayerState): boolean {
   const nums = [
     ...s.position.toArray(), ...s.velocity.toArray(), ...s.forward.toArray(),
     s.breath, s.maxBreath, s.airJumpsUsed, s.chargeTime, s.coyoteTime, s.jumpBuffer,
+    // Included when there is a ride, because a NaN normal is a real failure rather than a
+    // theoretical one: `stepWallRide` aims the next frame's probe along it, and a NaN
+    // direction makes `raycast` report no hit from anywhere — so the ride would drop
+    // silently and the player would simply fall off a wall for no visible reason. The
+    // spread is empty when not riding, so the guard costs nothing on the common path.
+    ...(s.wallRideNormal ? s.wallRideNormal.toArray() : []),
   ]
   return nums.every(Number.isFinite)
 }
@@ -143,7 +149,8 @@ export function respawn(state: PlayerState, deps: ControllerDeps): PlayerState {
     maxBreath,
     airJumpsUsed: 0,
     chargeTime: 0, coyoteTime: 0, jumpBuffer: 0,
-    scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+    scooterActive: false, scooterCharge: 0, wallRideNormal: null,
+    dashesUsed: 0, dashRecovery: 0,
     slipstreamElapsed: null, slipstreamCooldown: 0,
     ...idleStaffFields(),
   }
@@ -172,7 +179,8 @@ export function safeRespawn(state: PlayerState, deps: ControllerDeps): PlayerSta
     lastGroundIslandId: null,
     airJumpsUsed: 0,
     chargeTime: 0, coyoteTime: 0, jumpBuffer: 0,
-    scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+    scooterActive: false, scooterCharge: 0, wallRideNormal: null,
+    dashesUsed: 0, dashRecovery: 0,
     slipstreamElapsed: null, slipstreamCooldown: 0,
     ...idleStaffFields(),
   }
@@ -262,6 +270,15 @@ export function controllerStep(
         // supposed to degrade safely in this codebase, so the line is cheaper than the proof.
         coyoteTime: 0,
         jumpBuffer: 0,
+        // Dropped for the same reason, and it is the same class of bug: nothing in glider
+        // mode steps the ride either, so a normal carried across this line would be a live
+        // wall ride for the whole of a flight and the avatar would fly leaning at a cliff it
+        // left a minute ago. Unlike the two counters above, this one cannot currently be
+        // reached — the gate requires the air jump to be spent, and a wall ride is entered
+        // from the ground with the air jump full — but the deploy is the only entrance to
+        // glider mode and clearing it here closes every path through it, which is cheaper
+        // than re-deriving the reachability argument the next time the gate changes.
+        wallRideNormal: null,
       }
     } else {
       // Sampled with state.forward, which on foot is the flattened camera direction --
@@ -348,7 +365,8 @@ export function controllerStep(
         lastGroundIslandId: hit.islandId,
         airJumpsUsed: 0,
         chargeTime: 0, coyoteTime: 0, jumpBuffer: 0,
-        scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+        scooterActive: false, scooterCharge: 0, wallRideNormal: null,
+        dashesUsed: 0, dashRecovery: 0,
       }
     }
   }

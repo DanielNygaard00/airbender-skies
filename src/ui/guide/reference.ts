@@ -38,6 +38,23 @@ export const COMBOS: readonly Combo[] = [
       'never expires, so you can hold the third one for when you need it.',
   },
   {
+    name: 'Ride a wall on the scooter',
+    keys: ['Z', 'Shift', 'W'],
+    detail: 'Build a charge on the scooter, then drive it square into a near-vertical face at ' +
+      'speed and it carries you up instead of stopping you. The squarer you hit it the higher ' +
+      'you go — a glancing approach just skims along the rock. It spends the charge while you ' +
+      'climb, so a shortcut up a wall costs the speed you built to reach it, and you come off ' +
+      'the top on foot with nothing in the bank.',
+  },
+  {
+    name: 'Kick off a wall while you are still climbing',
+    keys: ['Z', 'Space'],
+    detail: 'You reach a wall on your feet, so your second jump is untouched when you get ' +
+      'there. Spend it partway up rather than at the top: the double jump is a downward air ' +
+      'push and it gains more the faster you are already rising, so kicking off early beats ' +
+      'waiting for the ride to run out.',
+  },
+  {
     name: 'Ride the air rather than fight it',
     keys: ['W', 'A', 'D'],
     detail: 'Thrust costs breath; a thermal does not. Steering into a mote cloud and ' +

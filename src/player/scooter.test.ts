@@ -7,7 +7,7 @@ import { DEFAULT_GROUND_CONFIG as C } from '../core/config'
 
 const on = (charge = 0): ScooterState => ({ active: true, charge })
 const move = (over: Partial<ScooterInput> = {}): ScooterInput => ({
-  toggle: false, turn: 0, moving: true, clipped: false, ...over,
+  toggle: false, turn: 0, moving: true, clipped: false, wallRiding: false, ...over,
 })
 
 /** Ride a clean line for `seconds` and report the accumulator. */
@@ -38,6 +38,30 @@ describe('toggling the scooter', () => {
   it('loses the accumulator when stowed', () => {
     expect(stepScooter(on(0.8), move({ toggle: true }), true, 1 / 60, C).charge).toBe(0)
   })
+
+  it('stays up over a wall, because a wall is support too', () => {
+    // The Air Scooter row in the design doc says the ball can ride up a vertical face, so
+    // "leaving the ground" cannot mean "off the floor" — otherwise the ride would stow the
+    // very thing it is a property of on its first airborne frame.
+    const kept = stepScooter(on(0.8), move({ wallRiding: true }), false, 1 / 60, C)
+    expect(kept.active).toBe(true)
+    expect(kept.charge).toBe(0.8)
+  })
+
+  it('is still stowed by leaving the ground with no wall to be on', () => {
+    // The other half, so the clause above cannot have switched the rule off: without a wall,
+    // airborne still stows it and still costs the accumulator.
+    const gone = stepScooter(on(0.8), move({ wallRiding: false }), false, 1 / 60, C)
+    expect(gone.active).toBe(false)
+    expect(gone.charge).toBe(0)
+  })
+
+  it('is still stowed by a toggle while riding a wall', () => {
+    // The player's own release. `Z` stows the ball wherever he is, and the ball is what was
+    // climbing, so the ride goes with it.
+    expect(stepScooter(on(0.8), move({ toggle: true, wallRiding: true }), false, 1 / 60, C).active)
+      .toBe(false)
+  })
 })
 
 describe('the speed accumulator', () => {
@@ -60,6 +84,32 @@ describe('the speed accumulator', () => {
     const charged = ride(3)
     const clipped = stepScooter(charged, move({ clipped: true }), true, 1 / 60, C)
     expect(charged.charge - clipped.charge).toBeCloseTo(C.scooterTierDrop, 6)
+  })
+
+  it('is left entirely alone while a wall ride owns it', () => {
+    // Not "drained a bit less" — untouched. `stepWallRide` is the only thing spending the
+    // accumulator during a ride, and if this branch also built it on a clean line the ride's
+    // documented cost would silently be its drain minus `scooterChargeGain`.
+    const charged = ride(3)
+    const onWall = stepScooter(charged, move({ wallRiding: true }), false, 1 / 60, C)
+    expect(onWall.charge).toBe(charged.charge)
+  })
+
+  it('does not even bleed from a hard turn while riding a wall', () => {
+    // Both of the ordinary accumulator rules are off, not just the gain. A rider carving along
+    // a face is already paying the wall's drain, and charging him twice for one manoeuvre would
+    // make the ride's cost a function of how much he happened to be steering.
+    const charged = ride(3)
+    const turning = stepScooter(charged, move({ turn: 1, wallRiding: true }), false, 1 / 60, C)
+    expect(turning.charge).toBe(charged.charge)
+  })
+
+  it('does not drop a tier for a clip taken while riding a wall', () => {
+    // A rider pressed against rock is in contact with it by definition. Letting `clipped` fire
+    // there would take a tier off every frame of every ride.
+    const charged = ride(3)
+    const clipped = stepScooter(charged, move({ clipped: true, wallRiding: true }), false, 1 / 60, C)
+    expect(clipped.charge).toBe(charged.charge)
   })
 
   it('never goes below empty or above full', () => {

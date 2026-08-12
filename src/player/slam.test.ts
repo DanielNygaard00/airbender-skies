@@ -28,7 +28,7 @@ const p = (over: Partial<PlayerState> = {}): PlayerState => ({
   forward: new Vector3(0, 0, 1), breath: 100, maxBreath: 100,
   grounded: false, lastGroundIslandId: null, airJumpsUsed: 1, chargeTime: 0,
   coyoteTime: 0, jumpBuffer: 0,
-  scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+  scooterActive: false, scooterCharge: 0, wallRideNormal: null, dashesUsed: 0, dashRecovery: 0,
   slipstreamElapsed: null, slipstreamCooldown: 0,
   staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, ...over,
 })

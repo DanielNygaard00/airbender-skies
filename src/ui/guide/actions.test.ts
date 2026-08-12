@@ -13,7 +13,7 @@ const p = (over: Partial<PlayerState> = {}): PlayerState => ({
   mode: 'ground', position: new Vector3(), velocity: new Vector3(),
   forward: new Vector3(0, 0, 1), breath: 100, maxBreath: 100,
   grounded: true, lastGroundIslandId: null, airJumpsUsed: 0, chargeTime: 0, coyoteTime: 0, jumpBuffer: 0,
-  scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,
+  scooterActive: false, scooterCharge: 0, wallRideNormal: null, dashesUsed: 0, dashRecovery: 0,
   slipstreamElapsed: null, slipstreamCooldown: 0,
   staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, ...over,
 })
@@ -225,6 +225,36 @@ describe('actions owned by other systems', () => {
     expect(can('Slipstream', { slipstreamReady: true })).toBe(true)
     expect(can('Slipstream', {
       slipstreamReady: false, gustReady: true, vortexReady: true, avatarStateReady: true,
+    })).toBe(false)
+  })
+
+  it('offers the wall ride only with the scooter up and a tier of charge in hand', () => {
+    // The two halves of the entry gate a UI module can honestly check. The third — a
+    // near-vertical wall within lateral reach — is a raycast and cannot be answered here, so the
+    // row can be lit with no wall in front of the player. That is a deliberate, documented
+    // over-report rather than a drift: dimming it would need terrain in the guide.
+    expect(can('Wall ride')).toBe(false)
+    expect(can('Wall ride', { player: p({ scooterActive: true, scooterCharge: 1 }) })).toBe(true)
+    // Charge is a real part of the gate here, not decoration: a rider on a fresh scooter has
+    // not yet earned a ride.
+    expect(can('Wall ride', {
+      player: p({ scooterActive: true, scooterCharge: 0 }),
+    })).toBe(false)
+    expect(can('Wall ride', {
+      player: p({
+        scooterActive: true, scooterCharge: DEFAULT_GROUND_CONFIG.wallRideMinCharge - 0.001,
+      }),
+    })).toBe(false)
+    expect(can('Wall ride', {
+      player: p({ scooterActive: true, scooterCharge: DEFAULT_GROUND_CONFIG.wallRideMinCharge }),
+    })).toBe(true)
+  })
+
+  it('never offers the wall ride in the glider', () => {
+    // The scooter does not exist up there, so neither does this. Guarded because the predicate
+    // reads `scooterActive`, which a glider state can technically still carry.
+    expect(can('Wall ride', {
+      player: p({ mode: 'glider', grounded: false, scooterActive: true, scooterCharge: 1 }),
     })).toBe(false)
   })
 

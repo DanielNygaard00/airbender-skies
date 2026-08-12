@@ -105,6 +105,27 @@ export const ACTIONS: readonly GameAction[] = [
       'the ground — a jump, a fall off a ledge, or stepping off — stows it and loses the charge.',
   },
   {
+    // No key of its own, so it is listed under the key that summons the thing it is a property
+    // of. `Z` therefore has two rows, which is the same shape `Space` and `Ctrl` already use for
+    // moves that differ by how they are pressed rather than by which key.
+    //
+    // `available` is the entry gate restated, and it is restated rather than imported because
+    // the third condition cannot be answered here: whether a near-vertical wall is within
+    // lateral reach is a raycast, and a UI module has no terrain. So the panel dims this row
+    // when the scooter is down or the charge is short — the two halves it can honestly check —
+    // and the wall itself is left to the world. Named here so the next reader knows the
+    // omission is deliberate: see `stepWallRide` in src/player/wall-ride.ts for the full gate.
+    key: 'Z', press: 'while riding, into a wall', name: 'Wall ride', mode: 'ground',
+    available: (ctx) => onGround(ctx) && ctx.player.scooterActive
+      && ctx.player.scooterCharge >= ctx.ground.wallRideMinCharge,
+    detail: 'Drive a charged scooter square into a near-vertical face at speed and it carries '
+      + 'you up the wall instead of stopping you. The squarer you hit it the higher you go; a '
+      + 'glancing approach just skims. It spends the charge as you climb, so a shortcut up a '
+      + 'wall costs the speed you built to reach it — and the ride ends when the charge runs '
+      + 'out, when the wall does, when the climb dies, or when you step off. Your second jump '
+      + 'is still in hand up there, and it pays more the faster you are rising.',
+  },
+  {
     key: 'Shift', press: 'hold', name: 'Sprint', mode: 'ground', available: onGround,
     detail: 'Hold to run instead of walk, nearly doubling your base speed. Independent of ' +
       'the scooter, and it stacks with riding one — sprinting on a scooter is faster than ' +

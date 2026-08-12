@@ -62,7 +62,7 @@ const falling = (position: Vector3, islandId: string): PlayerState => ({
   mode: 'ground', position, velocity: new Vector3(0, DESCENT, 0),
   forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
   grounded: false, lastGroundIslandId: islandId, airJumpsUsed: G.maxAirJumps, chargeTime: 0,
-  coyoteTime: 0, jumpBuffer: 0, scooterActive: false, scooterCharge: 0,
+  coyoteTime: 0, jumpBuffer: 0, scooterActive: false, scooterCharge: 0, wallRideNormal: null,
   dashesUsed: 0, dashRecovery: 0, slipstreamElapsed: null, slipstreamCooldown: 0,
   staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0,
 })

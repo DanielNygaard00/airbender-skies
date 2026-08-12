@@ -60,6 +60,14 @@ export interface PlayerState {
   scooterActive: boolean
   /** The scooter's hidden speed accumulator, 0 to 1. */
   scooterCharge: number
+  /**
+   * The outward normal of the wall currently being ridden, or null when not riding.
+   *
+   * The normal rather than a boolean, because every consumer needs it: the ride's own
+   * probe aims along it to ask whether the wall is still there, and the avatar's lean
+   * needs the side the wall is on. Non-null *is* the ride — see `WallRideStep.normal`.
+   */
+  wallRideNormal: Vector3 | null
   /** Dashes spent in the current chain. */
   dashesUsed: number
   /** Seconds of dash recovery still owed. */
@@ -243,6 +251,28 @@ export interface GroundConfig {
   scooterChargeLoss: number
   /** Charge lost outright on contact — a tier, not a trickle. */
   scooterTierDrop: number
+  /**
+   * How near vertical a face has to be before the scooter will ride up it.
+   *
+   * Compared against `Math.abs(normal.y)`, so it bounds the tilt in both directions. The
+   * lateral sibling of `CollisionConfig.wallNormalY`, and it lives here rather than beside
+   * it because it is a property of the move, not of collision: the two answer different
+   * questions about the same face, and a face can be a wall to bounce off without being a
+   * wall to ride.
+   */
+  wallRideNormalY: number
+  /** Closing speed on a wall needed to start a ride, m/s. */
+  wallRideEntrySpeed: number
+  /** Accumulator that has to be in hand before a ride will start, 0 to 1. */
+  wallRideMinCharge: number
+  /** Accumulator spent per second of riding. */
+  wallRideChargeDrain: number
+  /** Fraction of the closing speed that becomes climb on the frame a ride starts. */
+  wallRideRedirect: number
+  /** How fast a ride loses its climb, m/s². Stands in for gravity while riding. */
+  wallRideClimbDecay: number
+  /** Climb speed below which the ride lets go, m/s. */
+  wallRideHoldSpeed: number
   /** Dashes available before a recovery is owed. */
   maxDashChain: number
   /** Speed added by one dash. */
