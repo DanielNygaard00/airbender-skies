@@ -108,6 +108,49 @@ export function createCombatAudio() {
       burst(COMBAT_LEVELS.down * 0.5, 0.35, 900, 120)
     },
 
+    /**
+     * A Water Grip: a filter sweep running *upward*, which is the opposite of the gust's.
+     *
+     * `burst` ramps its lowpass from `fromHz` to `toHz`, so passing a higher second value opens
+     * the filter instead of closing it — no new synthesis primitive is needed, and the two moves
+     * on the same key become audibly different by reversing one argument pair. Opening reads as
+     * something being drawn toward the listener, the same way the drawn arc closes inward.
+     *
+     * Longer than the gust's 0.35, because the move is a drag rather than a shove and the pull
+     * has a duration a player can see the soldier travel across.
+     */
+    grip(): void {
+      burst(COMBAT_LEVELS.grip, 0.45, 260, 2200)
+    },
+
+    /**
+     * An Ice Lock: a hard crack, then the ring of it.
+     *
+     * Built like `down()` — a thud plus a burst — rather than like a swing, because this is an
+     * arrival and not a movement. The thud is pitched well above the down's 120 so the two are
+     * not confused, and the burst's filter sweeps *down* from a bright start, which is what a
+     * crack decaying into a hiss is. The second detuned thud is borrowed from `hurt()` for its
+     * beating, which is the closest this synthesis kit gets to a sound that is unpleasant on
+     * purpose — appropriate for the most expensive press in the game.
+     */
+    freeze(): void {
+      thud(COMBAT_LEVELS.freeze, 0.35, 320)
+      thud(COMBAT_LEVELS.freeze * 0.7, 0.35, 320, 28)
+      burst(COMBAT_LEVELS.freeze * 0.6, 0.5, 5200, 400)
+    },
+
+    /**
+     * The element switch: one very short, very quiet tick.
+     *
+     * Short enough that it cannot overlap itself even on consecutive frames of flicking, so a
+     * player mashing the number row gets a stutter of ticks rather than a growing tone — the
+     * coherent-summing problem `bowReleaseLevel` exists to solve, avoided here by the duration
+     * rather than by a level cap, since a switch has no count to scale by.
+     */
+    elementSwitch(): void {
+      burst(COMBAT_LEVELS.elementSwitch, 0.05, 3200, 1400)
+    },
+
     /** Two detuned sines, so it beats. Unpleasant on purpose. */
     hurt(): void {
       thud(COMBAT_LEVELS.hurt, 0.22, 220)

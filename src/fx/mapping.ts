@@ -70,6 +70,35 @@ export const COMBAT_LEVELS = {
   hurt: 0.4,
   /** An archer loosing. Louder than a staff swing, since it is a warning; below hurt. */
   bowRelease: 0.24,
+  /**
+   * A Water Grip: the water leaving and the soldier arriving.
+   *
+   * Just under the gust's 0.22, because the two are the same key and the player should be able to
+   * hear which element fired without the louder one being the tell. The difference the ear
+   * actually uses is timbre rather than level — the grip's voice sweeps its filter *upward* where
+   * the gust's falls, matching the inward-versus-outward direction the two effects are drawn
+   * with, so the pair reads consistently in both channels.
+   */
+  grip: 0.2,
+  /**
+   * An Ice Lock: the loudest voice in the fight, and the only one above `hurt`.
+   *
+   * Deliberately at the top of the list. It is the one move in the game that spends Focus, and a
+   * third of the bar is a bigger commitment than any single hit either side of the fight takes —
+   * so the mix has to say so, or the most expensive press the player can make is also one of the
+   * quietest. It is still under the 0.5 ceiling every voice here is held to.
+   */
+  freeze: 0.42,
+  /**
+   * The element switch: the quietest voice in the game, by a wide margin.
+   *
+   * Under half the softest thing in the fight, because switching is free and happens mid-combo —
+   * possibly several times in an exchange. A confirmation that carried any weight would be the
+   * most-heard sound in the game and would make a free action feel like a move. It exists at all
+   * because the switch is otherwise silent and the radial is not being looked at, which is the
+   * whole design: the click is what tells a player who flicked without looking that it took.
+   */
+  elementSwitch: 0.07,
 } as const
 
 export function swingLevel(finisher: boolean): number {
