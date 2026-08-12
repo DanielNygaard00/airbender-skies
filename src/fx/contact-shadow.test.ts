@@ -211,10 +211,15 @@ describe('the tuning constants', () => {
   })
 
   it('uses an integer step count, because it becomes a GLSL loop bound', () => {
-    // `CONTACT_STEPS` is injected as a `#define` and used as `i <= CONTACT_STEPS`.
-    // GLSL ES 1.0 requires a constant loop bound, and a non-integer would emit
-    // `#define CONTACT_STEPS 8.5` and fail the shader compile at runtime — where this
+    // `CONTACT_STEPS` is injected as a `#define` and used as `i <= CONTACT_STEPS`, where
+    // `i` is an `int`. A non-integer would emit `#define CONTACT_STEPS 8.5` and make that
+    // an int-to-float comparison, which fails the shader compile at runtime — where this
     // suite cannot see it.
+    //
+    // The guard is real; only its old stated reason was wrong. It used to cite GLSL ES
+    // 1.0's constant-loop-bound rule, but three.js 0.185 compiles every
+    // non-`RawShaderMaterial` as GLSL ES 3.00 unconditionally, and GLSL ES 3.00 has no
+    // such rule. It does reject the mixed comparison just as firmly.
     expect(Number.isInteger(CONTACT_STEPS)).toBe(true)
     expect(CONTACT_STEPS).toBeGreaterThan(0)
   })

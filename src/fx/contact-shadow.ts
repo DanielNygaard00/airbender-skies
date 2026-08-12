@@ -13,12 +13,34 @@ export const CONTACT_RANGE = 0.6
 /**
  * Samples along the ray.
  *
- * Injected into the shader as a `#define` and used as a loop bound, which GLSL ES 1.0
- * requires to be constant — so this must stay an integer literal.
+ * Injected into the shader as a `#define` and used as the bound of `for (int i = 1; i <=
+ * CONTACT_STEPS; i++)`, so it must stay an integer literal — but not for the reason this
+ * comment used to give. It said GLSL ES 1.0 requires a constant loop bound; three.js
+ * 0.185 compiles every non-`RawShaderMaterial` as GLSL ES 3.00 unconditionally
+ * (`WebGLProgram` sets `#version 300 es` and applies the `varying`/`texture2D`/
+ * `gl_FragColor` shims), and GLSL ES 3.00 has no such requirement.
+ *
+ * The constraint is real regardless, just a different one: a non-integer would emit
+ * `#define CONTACT_STEPS 8.5` and make `i <= CONTACT_STEPS` an int-to-float comparison,
+ * which GLSL ES 3.00 rejects as firmly as GLSL ES 1.0 would. The failure is a shader
+ * compile error at runtime, where the test suite cannot see it.
  */
 export const CONTACT_STEPS = 8
 
-/** How dark a fully occluded pixel goes. 1 would be black. */
+/**
+ * How dark a fully occluded pixel goes. 1 would be black.
+ *
+ * **This is a gamma-space multiplier, and would need retuning if the pass ever moved into
+ * the colour chain.** The composite shader includes no `<colorspace_fragment>` chunk, so
+ * nothing converts its output and the multiply lands on the sRGB-encoded values already in
+ * the canvas rather than on linear ones. That is a defensible reading of "multiply over the
+ * finished frame" — it is the frame as displayed — and 0.55 is the value that looked right
+ * on screen under exactly that arrangement. But the number is tied to the arrangement: a
+ * future refactor that puts this pass inside the colour chain, where the same multiply
+ * would apply to linear values, changes what 0.55 does to a pixel and the constant would
+ * have to be re-tuned rather than carried across. See the note above `FRAGMENT_SHADER` in
+ * `contact-shadow-pass.ts` for why no chunk runs.
+ */
 export const CONTACT_STRENGTH = 0.55
 
 /**

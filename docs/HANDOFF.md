@@ -3179,7 +3179,7 @@ this cycle: delete those two and what is left is the original call.
 fails silently instead of loudly.**
 
 1. `MultiplyBlending` requires `material.premultipliedAlpha = true`. Without it three.js logs an
-   error at `WebGLState.js:686` and applies no blend at all — the pass would draw nothing rather
+   error at `WebGLState.js:687` and applies no blend at all — the pass would draw nothing rather
    than crash. With it, the blend three.js applies is `blendFuncSeparate(DST_COLOR,
    ONE_MINUS_SRC_ALPHA, ZERO, ONE)`, which only behaves like a multiply if the fragment's alpha
    is exactly 1.0; anything lower adds unmultiplied destination colour back in.
@@ -3280,8 +3280,8 @@ argument rather than by measurement, because nothing in this cycle has been play
 | Constant | Value | Argument |
 | --- | --- | --- |
 | `CONTACT_RANGE` | 0.6 | About a third of the 1.8-unit character — a *contact* distance, not an ambient-occlusion radius. |
-| `CONTACT_STEPS` | 8 | A `#define` loop bound; GLSL ES 1.0 requires it to stay an integer literal. |
-| `CONTACT_STRENGTH` | 0.55 | How dark a fully occluded pixel goes; 1.0 would be black. The value seen on screen in this cycle's verification. |
+| `CONTACT_STEPS` | 8 | A `#define` loop bound. It has to stay an integer literal so `i <= CONTACT_STEPS` stays an int-to-int comparison, which GLSL ES 3.00 requires. |
+| `CONTACT_STRENGTH` | 0.55 | How dark a fully occluded pixel goes; 1.0 would be black. The value seen on screen in this cycle's verification — and a *gamma-space* multiplier, see below. |
 | `CONTACT_BIAS` | 0.02 | What is left for reconstruction noise and non-planar surfaces to absorb, once `selfOcclusion` (above) has taken the predictable part of the planar case. |
 | `CONTACT_THICKNESS` | 0.5 | Above this a hit is something far behind rather than a nearby occluder; without it every silhouette would trail a dark smear into the distance. |
 | `CONTACT_FADE_START` | 40 | Where the effect starts fading, in world units. |
@@ -3306,6 +3306,71 @@ own comment claims full resolution — and the symptom would not have been an er
 been a soft halo along every edge. This was corrected during implementation to size from
 `renderer.getDrawingBufferSize`, read *after* `setSize`, exactly the way `renderer.ts`'s own
 `resize` function now does it.
+
+**The false comments the final review caught, in the one file whose only automated gate is the
+typecheck.** `contact-shadow-pass.ts` holds the GLSL and the render-target plumbing, none of which
+any test can reach, so its comments are the only description of what it does — and this project
+treats a false comment as a defect. Seven were wrong or overstated, and none of them changed a
+single line of behaviour.
+
+1. **"GLSL ES 1.0" was wrong at four sites** — `contact-shadow.ts`'s `CONTACT_STEPS` comment, the
+   `defines` comment in the pass, the integer-steps test, and this document's constants table.
+   three.js 0.185 compiles *every* non-`RawShaderMaterial` as GLSL ES 3.00 unconditionally:
+   `WebGLProgram` sets `#version 300 es` and prepends the `varying` / `texture2D` /
+   `gl_FragColor` shims. GLSL ES 3.00 does not require a constant loop bound, so the stated
+   reason for keeping `CONTACT_STEPS` an integer literal was not a reason at all. **The
+   conclusion survives for a different reason and the test is still a real guard:** a
+   `#define CONTACT_STEPS 8.5` would make `i <= CONTACT_STEPS` an int-to-float comparison, which
+   GLSL ES 3.00 rejects as firmly as GLSL ES 1.0 would have. Only the rationale was rewritten.
+2. **`toneMapped: false` is half a mechanism and mostly inert.** `WebGLPrograms` turns it into
+   `toneMapping: NoToneMapping` and `WebGLProgram` gates `tonemapping_pars_fragment` on
+   `toneMapping !== NoToneMapping`, so that half really is suppressed. But
+   `colorspace_pars_fragment` is prepended to every non-raw fragment shader unconditionally and
+   `toneMapped` has no bearing on it — and since this shader includes neither
+   `<tonemapping_fragment>` nor `<colorspace_fragment>`, both prefixes are unused declarations
+   either way. The flag is kept as a statement of intent, described as one.
+3. **The consequence of (2), which was documented nowhere: `CONTACT_STRENGTH` is a gamma-space
+   multiplier.** With no colour-space chunk running, the multiply lands on the sRGB-encoded
+   values already in the canvas rather than on linear ones. That is a defensible reading of
+   "multiply over the finished frame" — it is the frame as displayed — and 0.55 is the value that
+   looked right under exactly that arrangement. It is also tied to it: move this pass inside the
+   colour chain and the same multiply applies to linear values, so the constant would need
+   re-tuning rather than carrying across. Now recorded beside the constant itself.
+4. **Both sky early-outs are optimisations, not correctness fixes, and the comments claimed
+   otherwise.** The top one said that without it "the horizon darkens and the effect reads as
+   fog". It cannot. With the target correctly cleared to white a sky pixel unpacks to depth 1.0,
+   which reconstructs to a view Z of −2200, so `cameraDistance` is 2200, `smoothstep(40, 70,
+   2200)` is 1, `fade` is 0, and `shade` is exactly 1.0 whatever the march found. The same goes
+   for the `continue` further down: a sky sample's `difference` comes out around −2190, far below
+   `uBias`, so the hit test could never fire on it. Both stay — they save up to eight texture
+   fetches and a full march per sky pixel, which is most of the frame whenever the camera looks
+   up — reworded to say they skip work the distance fade would zero anyway.
+5. **`renderer.clear()` before the depth render is redundant.** `autoClear` is still true and
+   `scene.background` has just been nulled, so `WebGLBackground` performs an identical clear one
+   line later inside `renderer.render`. Kept as belt-and-braces, and the comment now says that is
+   why: the blocking defect on this branch was something else silently taking over this exact
+   clear, and an explicit one fails visibly if that recurs.
+6. **`dispose()` is unreachable and its body was over-general.** Nothing calls it —
+   `createRenderer` builds the pass and never exposes it. The method is kept, because every view
+   module here has one, but the `quadScene.traverse` with an `isMesh` narrowing has been replaced
+   by disposing the single geometry through a local. The scene holds exactly one quad, built ten
+   lines above; the traversal was written for a scene that might hold anything.
+7. **The construction-time `getDrawingBufferSize` read in `renderer.ts` is always superseded** by
+   the unconditional `resize()` a few lines below, which calls `setSize` and re-reads. Kept,
+   because `createContactShadowPass` needs *some* size to build its render target with and a
+   plausible one beats a zero, and noted as provisional.
+
+Also corrected: this document cited `WebGLState.js:686` for the `MultiplyBlending` error. 686 is
+the `case` label; the `error(...)` call is 687. The quoted blend function and the
+alpha-must-be-1.0 reasoning were both right and are unchanged.
+
+**One divergence between the design document and the shader, left as it stands.** The design
+document says "Occlusion accumulates across the steps". The shader does not accumulate: it takes
+the *first* hit along the ray, sets `occlusion = 1 − (i − 1) / CONTACT_STEPS` so that a nearer hit
+is darker, and `break`s. The implementation's own comment describes that correctly. The design
+document is left as the historical record of what was planned, the same way it keeps the original
+`excludeFromShadows` claim; this note is the pointer for anyone who reads the two side by side and
+wonders which is authoritative. The shader is.
 
 **A guard that earned its place immediately.** While the browser pane used to verify this was
 hidden, `window.innerWidth` and the canvas dimensions all read 0 — precisely the input

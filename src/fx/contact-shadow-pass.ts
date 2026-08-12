@@ -33,10 +33,23 @@ const VERTEX_SHADER = /* glsl */ `
  * *negative* ahead of the camera, which makes a larger value the nearer one — the
  * comparison below reads backwards until that lands.
  *
- * There are deliberately no tone-mapping or colour-space includes. This shader outputs
- * a multiplier, not a colour, and `toneMapped: false` on the material keeps the
- * renderer from injecting the declarations that would go with them. `src/core/sky.ts`
- * documents the other half of that trap.
+ * There are deliberately no tone-mapping or colour-space includes, because this shader
+ * outputs a multiplier rather than a colour. `toneMapped: false` on the material states
+ * that intent, but it is worth being accurate about what it actually does, because the
+ * obvious reading is only half right. `WebGLPrograms` turns it into
+ * `toneMapping: NoToneMapping`, and `WebGLProgram` gates `tonemapping_pars_fragment` on
+ * `toneMapping !== NoToneMapping` — so that half of the prefix really is suppressed.
+ * `colorspace_pars_fragment` is a different matter: it is prepended to every
+ * non-`RawShaderMaterial` fragment shader unconditionally, and `toneMapped` has no
+ * bearing on it. Since this shader includes neither `<tonemapping_fragment>` nor
+ * `<colorspace_fragment>`, both prefixes are unused declarations either way and the flag
+ * is inert in practice. It stays as a statement of intent, not as a mechanism.
+ *
+ * The consequence of no colour-space chunk running is the part that matters and is
+ * documented nowhere else: the multiply lands on sRGB-encoded values rather than linear
+ * ones. See `CONTACT_STRENGTH` in `contact-shadow.ts` for what that costs.
+ *
+ * `src/core/sky.ts` documents the other half of that trap.
  */
 const FRAGMENT_SHADER = /* glsl */ `
   #include <packing>
@@ -79,8 +92,17 @@ const FRAGMENT_SHADER = /* glsl */ `
 
   void main() {
     float depth = readDepth(vUv);
-    // The sky, and anywhere else nothing was drawn. Leaving early keeps it at full
-    // brightness; without this the horizon darkens and the effect reads as fog.
+    // The sky, and anywhere else nothing was drawn. This is an optimisation and nothing
+    // more, which is worth stating because the comment here used to claim the horizon
+    // would darken without it. It would not. With the target correctly cleared to white a
+    // sky pixel unpacks to depth 1.0, which reconstructs to a view Z of -2200 — the far
+    // plane — so 'cameraDistance' is 2200, 'smoothstep(40, 70, 2200)' is 1, 'fade' is 0,
+    // and 'shade' comes out at exactly 1.0 no matter what the march found. Deleting this
+    // branch could not darken a single sky pixel.
+    //
+    // It stays because of what it costs to reach that answer the long way: up to eight
+    // texture fetches and a full march per pixel, over what is most of the frame whenever
+    // the camera looks up. Skipping work the distance fade would zero anyway.
     if (depth >= SKY_DEPTH) {
       gl_FragColor = vec4(1.0);
       return;
@@ -105,6 +127,10 @@ const FRAGMENT_SHADER = /* glsl */ `
       if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
 
       float sampleDepth = readDepth(uv);
+      // Same as the early-out at the top: a skip, not a correction. A sky sample sits at
+      // the far plane, so its 'difference' below comes out around -2190 against a surface
+      // ten units out — nowhere near the 'uBias' lower bound, so the hit test could never
+      // fire on it. This only spares the arithmetic.
       if (sampleDepth >= SKY_DEPTH) continue;
 
       float sampleViewZ = perspectiveDepthToViewZ(sampleDepth, uNear, uFar);
@@ -189,7 +215,10 @@ export function createContactShadowPass(width: number, height: number): ContactS
     uniforms,
     vertexShader: VERTEX_SHADER,
     fragmentShader: FRAGMENT_SHADER,
-    // A constant loop bound, which GLSL ES 1.0 requires.
+    // Emitted as `#define CONTACT_STEPS 8`. It has to stay an integer so that
+    // `i <= CONTACT_STEPS` in the loop below stays an int-to-int comparison; three.js
+    // compiles this as GLSL ES 3.00, which rejects the int-to-float form. See
+    // `CONTACT_STEPS` in `contact-shadow.ts`.
     defines: { CONTACT_STEPS },
     blending: MultiplyBlending,
     // Required by MultiplyBlending. Without it three.js logs an error and applies no
@@ -203,7 +232,8 @@ export function createContactShadowPass(width: number, height: number): ContactS
     fog: false,
   })
 
-  const quad = new Mesh(new PlaneGeometry(2, 2), quadMaterial)
+  const quadGeometry = new PlaneGeometry(2, 2)
+  const quad = new Mesh(quadGeometry, quadMaterial)
   /*
    * The shader ignores every camera matrix; `renderer.render` does not.
    *
@@ -286,6 +316,13 @@ export function createContactShadowPass(width: number, height: number): ContactS
       // the far plane — while black would be depth 0.0, geometry against the near
       // plane, and every pixel would find an occluder.
       renderer.setClearColor(0xffffff, 1)
+      // Strictly redundant, and kept anyway. `autoClear` is still true at this point and
+      // `scene.background` was nulled one line above, so `WebGLBackground` performs an
+      // identical clear a moment later from inside `renderer.render`. It stays as
+      // belt-and-braces because the blocking defect on this branch was precisely that
+      // something else silently took over this clear — an explicit clear here fails
+      // visibly if that ever happens again, rather than leaving the depth target holding
+      // whatever the other path decided.
       renderer.clear()
       renderer.render(scene, camera)
 
@@ -323,14 +360,24 @@ export function createContactShadowPass(width: number, height: number): ContactS
       depthTarget.setSize(size.width, size.height)
     },
 
+    /**
+     * Release everything this pass owns.
+     *
+     * **Nothing calls this today.** `createRenderer` builds the pass and never exposes it,
+     * so there is no path from the game to this method. It is kept because every view
+     * module in this codebase has one and a pass that could not be disposed of would be the
+     * odd one out the moment anything does need to tear the renderer down.
+     *
+     * The body disposes the one geometry through the local that holds it, rather than
+     * traversing `quadScene` looking for meshes. The traversal was written for a scene that
+     * might hold anything; this one holds exactly one quad, built ten lines up, and naming
+     * it directly is both shorter and honest about that.
+     */
     dispose() {
       depthTarget.dispose()
       depthMaterial.dispose()
       quadMaterial.dispose()
-      quadScene.traverse((node) => {
-        const mesh = node as Mesh
-        if (mesh.isMesh) mesh.geometry.dispose()
-      })
+      quadGeometry.dispose()
     },
   }
 }

@@ -130,6 +130,13 @@ export function createRenderer(canvas: HTMLCanvasElement) {
    * if the resolution it is handed is the canvas's real one. The mismatch would not
    * throw or warn — every sample would land a fraction of a pixel off from where it
    * should, which reads as a soft halo along every edge in the finished frame.
+   *
+   * The size read on this line is provisional and is always superseded. `resize()` below
+   * runs unconditionally a few lines down, calls `setSize` and re-reads the drawing buffer,
+   * so the depth target is resized before a single frame is drawn. This read exists only
+   * because `createContactShadowPass` needs some size to construct its render target with,
+   * and a plausible one beats a zero — which is also why the pixel-ratio reasoning above
+   * still has to hold here, even though the value never survives to be used.
    */
   renderer.getDrawingBufferSize(drawingBufferSize)
   const contactShadows = createContactShadowPass(drawingBufferSize.x, drawingBufferSize.y)
