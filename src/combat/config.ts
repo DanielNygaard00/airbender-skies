@@ -215,6 +215,59 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     openerKnockback: 4,
     finisherKnockback: 18,
   },
+  /**
+   * Water: pull, hold, freeze. The control element's two moves.
+   *
+   * Every number's argument lives on the field it belongs to in `src/combat/water.ts`, because
+   * that is where the next person to retune one will be reading. What is worth stating in one
+   * place is the shape the numbers add up to: **water does no damage at all and buys time.** A
+   * grip removes one soldier from one exchange for 1.2 seconds and drags it into staff reach; a
+   * freeze removes a rank for 3.2 seconds and costs a third of the Focus bar. Neither number
+   * moves a soldier down the recovery ladder, so a player who only bends water never wins — the
+   * element makes the fight winnable with the staff and the traversal kit, which is what
+   * "control element" has to mean in a game whose damage comes from somewhere else.
+   *
+   * Every value here is an argued guess. None of it has been played.
+   */
+  water: {
+    // Two thirds of the gust's 12: water is drawn and directed rather than swept outward, and
+    // it holds rather than shoves, so it works closer in.
+    grip: { range: 10, halfAngle: Math.PI / 6 },        // 60 degrees swept, against the gust's 120
+    // Shorter still, and much wider: this is "the front rank", so it takes in a group at
+    // conversational distance rather than reaching across a courtyard.
+    freeze: { range: 8, halfAngle: Math.PI / 2.5 },     // 144 degrees swept
+    // Second shortest of the six bands in this file, and the long argument for that is on the
+    // field itself: a control move that reaches high wins from altitude with no counterplay.
+    verticalReach: 3.0,
+    // Against knockbackDamping 2.6 this drags a soldier 4.6 m: out of its own strikeRange of
+    // 3.2 and into the staff finisher's 4.2.
+    pullSpeed: 12,
+    /**
+     * Past a spear's whole exchange, which is windUpSeconds 0.55 plus recoverSeconds 0.7 — 1.25.
+     *
+     * It was 1.2 first, on the assumption that "a bit over a second" cleared that sum. It does
+     * not: 1.2 is under 1.25, so a gripped spear was released a hair *before* it would have
+     * finished the thrust the grip interrupted, which is a hold that costs the soldier nothing.
+     * `water.test.ts` asserts against the sum rather than the literal, which is what caught it.
+     */
+    gripHoldSeconds: 1.4,
+    // Just under gripHoldSeconds, so one target can be chain-held at the cost of the entire
+    // light-verb budget. Deliberate; water.test.ts pins the inequality.
+    gripCooldownSeconds: 1.1,
+    // Well under the Slipstream's 28: the grip's real price is its cooldown, and breath is a
+    // rate limit on mashing rather than the gate.
+    gripBreathCost: 12,
+    // Roughly two more spear exchanges than a grip, and well under the downed timer's 18 and
+    // the Avatar State's 8.
+    freezeHoldSeconds: 3.2,
+    // Just above damageDrain's 30, so spending a freeze costs a shade more than taking a spear
+    // hit; against maxFocus 100 that is two freezes from a full bar, and it destroys the
+    // Avatar State's arm pip. The one Focus sink section 4.5 asks for.
+    freezeFocusCost: 35,
+    // Above the grip's, because it is the committed move; low against the Focus price, because
+    // two meters gating one press is one more refusal to diagnose.
+    freezeBreathCost: 18,
+  },
 }
 
 /**

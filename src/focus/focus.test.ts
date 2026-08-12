@@ -31,11 +31,13 @@ const focusAt = (value: number, chainTime = 0): Focus => ({ value, max: C.maxFoc
 const input = (over: Partial<{
   ratePerSecond: number
   events: Partial<FocusEvents>
+  spent: number
   frozen: boolean
   reset: boolean
 }> = {}) => ({
   ratePerSecond: over.ratePerSecond ?? 0,
   events: { ...noFocusEvents(), ...over.events },
+  spent: over.spent ?? 0,
   frozen: over.frozen ?? false,
   reset: over.reset ?? false,
 })
@@ -227,7 +229,10 @@ describe('focus from a dodge', () => {
 describe('focus from the staff', () => {
   const withEvents = (over: Partial<FocusEvents>) => stepFocus(
     emptyFocus(C),
-    { ratePerSecond: 0, events: { ...noFocusEvents(), ...over }, frozen: false, reset: false },
+    {
+      ratePerSecond: 0, events: { ...noFocusEvents(), ...over }, spent: 0,
+      frozen: false, reset: false,
+    },
     1 / 60, C,
   )
 
@@ -278,5 +283,80 @@ describe('a removal by accident pays less than a knockdown', () => {
   it('pays nothing when nothing was lost', () => {
     const next = stepFocus(focusAt(0, 0), input({ events: { accidents: 0 } }), 1 / 60, C)
     expect(next.value).toBeCloseTo(0, 5)
+  })
+})
+
+describe('spending Focus on an elemental heavy move', () => {
+  it('takes the amount off the meter', () => {
+    // The literal, not `toBe(50 - spend)` computed from the same variable the production code
+    // reads — a tautology there would pass for a spend of any size, including zero.
+    expect(stepFocus(focusAt(50), input({ spent: 20 }), 1 / 60, C).value).toBeCloseTo(30, 5)
+  })
+
+  it('spends nothing when nothing was spent', () => {
+    // The positive control for the assertion above: the meter is otherwise untouched on a frame
+    // with no events, so a drop here would be something other than the spend.
+    expect(stepFocus(focusAt(50), input(), 1 / 60, C).value).toBeCloseTo(50, 5)
+  })
+
+  it('is not scaled by the chain ramp, unlike every gain', () => {
+    // The reason `spent` is on `FocusInput` and not in `FocusEvents`. A price that fell as the
+    // player played better would make the move cheapest exactly when they could most afford it,
+    // which is the opposite of a cost.
+    //
+    // Asserted as the two runs agreeing, plus a control proving the ramp is actually live in this
+    // fixture — otherwise "the ramp did not apply" would pass against a ramp that never applies.
+    const cold = stepFocus(focusAt(80, 0), input({ spent: 20 }), 1 / 60, C)
+    const hot = stepFocus(focusAt(80, C.chainRampSeconds * 2), input({ spent: 20 }), 1 / 60, C)
+    expect(hot.value).toBeCloseTo(cold.value, 5)
+
+    const coldGain = stepFocus(focusAt(0, 0), input({ events: { downs: 1 } }), 1 / 60, C)
+    const hotGain = stepFocus(
+      focusAt(0, C.chainRampSeconds * 2), input({ events: { downs: 1 } }), 1 / 60, C,
+    )
+    expect(hotGain.value).toBeGreaterThan(coldGain.value * 1.5)
+  })
+
+  it('does not break the chain', () => {
+    // Taking a hit and falling out of the world both break it, because both are failures. Spending
+    // the meter on a move is the meter working as designed, and zeroing `chainTime` for it would
+    // make using the element you were given a punishment. Compared against the hit, which does.
+    const built = focusAt(80, 5)
+    const spent = stepFocus(built, input({ spent: 20 }), 1 / 60, C)
+    const hit = stepFocus(built, input({ events: { playerHit: true } }), 1 / 60, C)
+    expect(spent.chainTime).toBeGreaterThan(built.chainTime)
+    expect(hit.chainTime).toBe(0)
+  })
+
+  it('never takes the meter below zero', () => {
+    // Clamped by the same `MathUtils.clamp` every other path goes through. A negative meter would
+    // draw a bar scaled past its own frame and would make the next affordability check nonsense.
+    expect(stepFocus(focusAt(10), input({ spent: 90 }), 1 / 60, C).value).toBe(0)
+  })
+
+  it('ignores a negative spend rather than treating it as a gain', () => {
+    // `spent` is the one field that bypasses the chain ramp, so a negative value would be an
+    // unramped Focus gain smuggled in through it. The fight computes this from a config value that
+    // a retune could get wrong.
+    expect(stepFocus(focusAt(50), input({ spent: -40 }), 1 / 60, C).value).toBeCloseTo(50, 5)
+  })
+
+  it('costs nothing while the Avatar State holds the meter still', () => {
+    // `frozen` returns early, so a freeze thrown during the Avatar State is free. Correct rather
+    // than a leak: section 4.5 makes all elements available during the state, and the meter is
+    // deliberately not moving in either direction for its duration.
+    expect(stepFocus(focusAt(50), input({ spent: 20, frozen: true }), 1 / 60, C).value).toBe(50)
+  })
+
+  it('applies before gains, so a spend is not discounted by the same frame\'s kill', () => {
+    // The order in `stepFocus` is: drains and the spend, then the ramp, then the gains. A freeze
+    // thrown on the frame a soldier goes down should cost its full price and be paid back at
+    // whatever the ramp is worth — not have the price netted against the reward first. Measured as
+    // the two effects being independent and additive.
+    const base = focusAt(60, 0)
+    const both = stepFocus(base, input({ spent: 20, events: { downs: 1 } }), 1 / 60, C)
+    const onlySpend = stepFocus(base, input({ spent: 20 }), 1 / 60, C)
+    const onlyDown = stepFocus(base, input({ events: { downs: 1 } }), 1 / 60, C)
+    expect(both.value).toBeCloseTo(onlySpend.value + (onlyDown.value - base.value), 5)
   })
 })
