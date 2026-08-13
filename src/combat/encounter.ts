@@ -14,6 +14,9 @@ import {
   addPillar, canRaisePillar, canStoneThrow, pillarShoveImpulse, pillarShoveTargets, pillarSite,
   spawnPillar, stepPillars, stoneImpulse, stoneThrowTargets, type EarthConfig, type Pillar,
 } from './earth'
+import {
+  canFireBurst, fireBurstImpulse, fireBurstTargets, type FireConfig,
+} from './fire'
 import type { Element } from '../elements/element'
 import { gustImpulse, gustTargets, type GustConfig } from './gust'
 import {
@@ -95,6 +98,21 @@ export interface Encounter {
    * layer keys a mesh off it and this project's tests cannot tolerate unrepeatable values.
    */
   nextPillarId: number
+  /**
+   * Seconds until the next Fire Burst is available.
+   *
+   * The third light-verb cooldown, its own field for the reason above: at 1.2 seconds it is the
+   * longest of the three, so any sharing would let an element switch convert it into the gust's
+   * 0.45. It is decremented every frame whatever element is selected, alongside the other two.
+   *
+   * Fire's *charges* are deliberately not here. A cooldown is fight state — it is the recovery of
+   * one move inside one fight — but the charges are a resource the player carries between fights,
+   * refilled by a landing that the fight cannot see and spent by a movement move the fight has no
+   * part in. They live beside Focus in `main.ts`, and the fight reads them through
+   * `EncounterInput.fireCharges` and bills them through `EncounterStep.chargesSpent`, which is the
+   * same contract Focus and breath already have here.
+   */
+  fireBurstCooldown: number
 }
 
 export interface CombatConfig {
@@ -115,6 +133,7 @@ export interface CombatConfig {
   airWall: AirWallConfig
   water: WaterConfig
   earth: EarthConfig
+  fire: FireConfig
 }
 
 export interface EnemySpawn {
@@ -159,6 +178,7 @@ export function startEncounter(spawns: readonly EnemySpawn[], c: CombatConfig): 
     stoneThrowCooldown: 0,
     pillars: [],
     nextPillarId: 0,
+    fireBurstCooldown: 0,
   }
 }
 
@@ -187,8 +207,17 @@ export interface EncounterInput {
    * Which element is selected, and therefore which move each bending key resolves to.
    *
    * F is the light verb and R is the heavy one, and the element decides what those are: air
-   * gives Gust and Vortex, water gives Water Grip and Ice Lock. So this field is what makes the
-   * two keys mean four moves, and it is the single place a new element plugs into the fight.
+   * gives Gust and Vortex, water gives Water Grip and Ice Lock, fire gives Fire Burst and — on
+   * the player's side rather than here — the Fire Thrust. So this field is what makes the
+   * two keys mean six moves, and it is the single place a new element plugs into the fight.
+   *
+   * Fire's heavy verb is the one that does not resolve in this function, and the omission is
+   * deliberate: a thrust adds velocity to the glider and touches nobody in the fight, so putting
+   * it here would mean handing `EncounterInput` the player's posture and `EncounterStep` a
+   * velocity impulse — the fight steering the wing. `main.ts` resolves it through `canFireThrust`
+   * and `fireThrustImpulse`, which own the rule, and it does so *after* deducting `chargesSpent`
+   * below, so a burst and a thrust pressed on the same frame with one charge left cannot both
+   * fire. See the module comment on `src/combat/fire.ts`.
    *
    * On the input rather than on `Encounter`, because the selection is not fight state: it
    * survives a respawn and it survives leaving the fight entirely, the way the direction the
@@ -220,6 +249,14 @@ export interface EncounterInput {
   focusAvailable: number
   /** Breath the player has right now, for the same reason. */
   breathAvailable: number
+  /**
+   * Fire charges the player holds right now, so the burst can refuse itself.
+   *
+   * Passed in for the reason `focusAvailable` is: the resource lives outside the fight, and having
+   * `main.ts` pre-filter the press would put the rule in the one module with no tests. The fight
+   * decides and reports the bill as `chargesSpent`.
+   */
+  fireCharges: number
 }
 
 /** One hit aimed at the player this frame, and where it came from. */
@@ -379,6 +416,34 @@ export interface EncounterStep {
    * next pillar, which is the same self-funding loop `stoneHitThisFrame` refuses.
    */
   blockedThisFrame: PillarBlock[]
+   /**
+   * Live soldiers a Fire Burst connected with this frame.
+   *
+   * Its own list rather than folded into `hitThisFrame`, and unlike the water lists the reason is
+   * not that it pays a different Focus grant — it pays **none**. `hitThisFrame` feeds
+   * `gustConnectGain`, so folding a burst into it would hand the damage element a per-hit Focus
+   * income that funds the Ice Lock and the Avatar State, and fire is already the element that pays
+   * best through `firstDownsThisFrame` because it is the element that puts soldiers down. The list
+   * exists for the impact bursts and the voice, which is what `redirectHitsThisFrame` is for too.
+   */
+  burstHitThisFrame: string[]
+  /**
+   * Whether the burst fired at all, even catching nobody.
+   *
+   * The same contract `gripFired` has, and it is what `main.ts` draws the cone and plays the voice
+   * from: a burst can be refused for want of a charge or for a cooldown, and neither refusal is
+   * something the wiring layer can see without restating `canFireBurst`.
+   */
+  burstFired: boolean
+  /**
+   * Fire charges this frame's moves spent. Zero on almost every frame, and never more than one.
+   *
+   * Reported rather than applied, exactly as `focusSpent` and `breathSpent` are: the charges belong
+   * to the player and the fight only reads them. A count rather than a boolean so the field says
+   * the same thing the other two bills do, and so a future fire move that spent two would need no
+   * new field.
+   */
+  chargesSpent: number
   /**
    * Focus this frame's moves spent. Zero on almost every frame.
    *
@@ -542,6 +607,18 @@ export function canStone(encounter: Encounter, breath: number, c: EarthConfig): 
 }
 
 /**
+ * Whether a Fire Burst can fire: off cooldown, and with a charge to spend.
+ *
+ * A thin wrapper over `canFireBurst`, which owns the rule, so the fight and the action guide ask
+ * the same question through the same shape the other three `can*` predicates here have. The guide
+ * reaches this one rather than `canFireBurst` directly for exactly that symmetry — otherwise one
+ * row in the panel would be reading a cooldown off an `Encounter` by hand.
+ */
+export function canBurst(encounter: Encounter, charges: number, c: FireConfig): boolean {
+  return canFireBurst(encounter.fireBurstCooldown, charges, c)
+}
+
+/**
  * Advance the whole fight one frame.
  *
  * Order matters: the gust resolves, then the vortex, then the staff, then the wave,
@@ -591,6 +668,7 @@ export function stepEncounter(
    */
   let pillars = stepPillars(encounter.pillars, dt)
   let nextPillarId = encounter.nextPillarId
+  let fireBurstCooldown = Math.max(0, encounter.fireBurstCooldown - dt)
 
   let hitThisFrame: string[] = []
   /**
@@ -605,18 +683,21 @@ export function stepEncounter(
   const deflectedThisFrame: string[] = []
   let grippedThisFrame: string[] = []
   let frozenThisFrame: string[] = []
+  let burstHitThisFrame: string[] = []
   let gripFired = false
   let freezeFired = false
   let stoneHitThisFrame: string[] = []
   let stoneFired = false
   let pillarRaised: Pillar | null = null
+  let burstFired = false
   let focusSpent = 0
   let breathSpent = 0
+  let chargesSpent = 0
 
-  // The light bending key, dispatched on the active element. Air gusts; water grips. Both
-  // cooldowns tick every frame regardless of which element is selected, above — switching away
-  // must not park a cooldown, or a player could hide a gust's recovery inside water and come
-  // back to a gust that never recovered.
+  // The light bending key, dispatched on the active element. Air gusts; water grips; fire bursts.
+  // All three cooldowns tick every frame regardless of which element is selected, above —
+  // switching away must not park a cooldown, or a player could hide a gust's recovery inside water
+  // and come back to a gust that never recovered.
   if (input.gustPressed && input.element === 'air' && canGust(encounter)) {
     const caught = new Set(
       gustTargets(input.playerPosition, input.playerForward, enemies, c.gust)
@@ -718,6 +799,43 @@ export function stepEncounter(
     stoneThrowCooldown = c.earth.stoneCooldownSeconds
     breathSpent += c.earth.stoneBreathCost
     stoneFired = true
+  }
+
+  /**
+   * Fire Burst: the same key again, resolved here because fire is selected.
+   *
+   * Straight through `resolveBlow`, unlike the two water moves, and that is the whole point of
+   * fire being the damage element: it is an ordinary blow with a damage figure and an impulse, so
+   * it wants the shared resolver that already applies `isTargetable`, consults the armour table and
+   * splits connects from deflects. Water needed its own arithmetic only because a hold is not a blow.
+   *
+   * `canBurst(encounter, ...)` rather than the locally decremented `fireBurstCooldown`, for the
+   * reason the gust, the grip and the vortex all read their pre-step predicates: reading the
+   * decremented copy would let a burst fire on the frame the cooldown expired, one frame before the
+   * action guide would admit it could.
+   */
+  if (input.gustPressed && input.element === 'fire'
+    && canBurst(encounter, input.fireCharges, c.fire)) {
+    const caught = new Set(
+      fireBurstTargets(input.playerPosition, input.playerForward, enemies, c.fire)
+        .map((enemy) => enemy.id),
+    )
+    const blow = resolveBlow(
+      enemies, caught, 'burst', c,
+      () => c.fire.burstDamage,
+      (enemy) => fireBurstImpulse(input.playerPosition, enemy.position, c.fire),
+    )
+    enemies = blow.enemies
+    burstHitThisFrame = blow.connected
+    deflectedThisFrame.push(...blow.deflected)
+    // Spent whether or not anything was standing there, and whether or not the armour of whoever
+    // was turned it away — the rule the gust's cooldown already follows, and it matters more here
+    // because the charge is a scarce resource: a burst thrown at empty sky has to cost one, or the
+    // three charges would be three *connects* rather than three presses, and aiming would stop
+    // being part of the move.
+    fireBurstCooldown = c.fire.burstCooldownSeconds
+    chargesSpent += 1
+    burstFired = true
   }
 
   let vortexCooldown = Math.max(0, encounter.vortexCooldown - dt)
@@ -898,6 +1016,13 @@ export function stepEncounter(
     // A refused raise costs nothing at all: no Focus, no breath, no pillar. The same shape the
     // Ice Lock's refusal has.
   }
+  // **There is deliberately no fire branch on the heavy key.** Fire's heavy verb is the Fire
+  // Thrust, which adds velocity to the glider and does nothing to anyone in this fight, so it is
+  // resolved by the caller — see `EncounterInput.element` for the whole argument and
+  // `canFireThrust` in `src/combat/fire.ts` for the rule. What this function still does for a
+  // release under fire is the one thing it must: `vortexHeldSeconds` is cleared unconditionally
+  // below, so a charge built under air is discarded rather than parked, exactly as it is for water.
+  // Nothing here can fire a vortex under fire either, because that branch is gated on air.
 
   let staffHitThisFrame: string[] = []
 
@@ -1127,6 +1252,7 @@ export function stepEncounter(
     encounter: {
       enemies, projectiles, nextProjectileId, playerHealth, gustCooldown, vortexHeldSeconds,
       vortexCooldown, airWall, waterGripCooldown, stoneThrowCooldown, pillars, nextPillarId,
+      fireBurstCooldown,
     },
     downedThisFrame,
     firstDownsThisFrame,
@@ -1142,14 +1268,17 @@ export function stepEncounter(
     vortexFired,
     grippedThisFrame,
     frozenThisFrame,
+    burstHitThisFrame,
     gripFired,
     freezeFired,
     stoneHitThisFrame,
     stoneFired,
     pillarRaised,
     blockedThisFrame,
+    burstFired,
     focusSpent,
     breathSpent,
+    chargesSpent,
     firedThisFrame,
     redirectedThisFrame,
     redirectHitsThisFrame,

@@ -69,6 +69,17 @@ export interface ActionContext {
    * `canRaisePillar` for the same argument from the other side.
    */
   pillarReady: boolean
+  /** A Fire Burst is off cooldown and has a charge to spend. The caller asks `canBurst`. */
+  burstReady: boolean
+  /**
+   * A Fire Thrust would do something: a charge in hand, and the wings out.
+   *
+   * The caller asks `canFireThrust`, which is the same predicate `main.ts` resolves the press with
+   * — so the row dims exactly when the key would be refused, including on the ground, where fire is
+   * ruled not to move the player at all. That posture half is why this cannot be derived from
+   * `player.mode` here as well: the panel must not hold a second opinion about the rule.
+   */
+  fireThrustReady: boolean
    /**
    * A press of the carry key would do something: either a payload is in reach, or one is
    * being carried and the player is standing on ground.
@@ -223,6 +234,16 @@ export const ACTIONS: readonly GameAction[] = [
       + 'gust\'s — and it spends breath. Throw it at something worth the wait.',
   },
   {
+    key: 'F', press: 'firebending', name: 'Fire Burst', mode: 'both',
+    available: (ctx) => bending('fire')(ctx) && ctx.burstReady,
+    detail: 'The only move you have that really hurts one soldier. A very narrow blast straight '
+      + 'ahead — the tightest reach in the game, and the one that extends least above and below you, '
+      + 'so you have to be close and roughly level with what you are burning. Two of them put a '
+      + 'spearman down the first time and one puts a net thrower down; a heavy in plate shrugs off '
+      + 'half of it and is not what fire is for. It spends one of your three charges whether or not '
+      + 'it connects, so aim it, and the charges only come back when you touch the ground.',
+  },
+  {
     key: 'G', press: 'hold', name: 'Air Wall', mode: 'both',
     available: (ctx) => ctx.airWallReady,
     detail: 'A short-lived barrier of air, held in front of you, that turns arrows around '
@@ -273,6 +294,19 @@ export const ACTIONS: readonly GameAction[] = [
       + 'It does not stop anyone walking: a spearman comes straight round it.',
   },
   {
+    // 'glider' rather than 'both', and it is the only bending row in the catalogue that is not
+    // 'both'. That is the rule rather than a formatting choice: fire does not move the player on the
+    // ground at all, so a row in the ground column would be offering something that is refused
+    // there. The other three heavy verbs work in either posture and are listed accordingly.
+    key: 'R', press: 'firebending: press, then release', name: 'Fire Thrust', mode: 'glider',
+    available: (ctx) => bending('fire')(ctx) && ctx.fireThrustReady,
+    detail: 'One shove up and forward, for one charge. This is what fire is for when the breath bar '
+      + 'is empty and the ground is coming up: it is worth about one push of air, enough to pull a '
+      + 'stalled wing back into flying, and it never touches your breath in either direction. It '
+      + 'does nothing at all on foot — fire moves you in the air or not at all. Three charges is '
+      + 'every fire move you have until you land, so a thrust is a burst you did not throw.',
+  },
+  {
     key: 'C', name: 'Slipstream', mode: 'both',
     available: (ctx) => ctx.slipstreamReady,
     detail: 'A dash that cannot be hit for the first instant of it. The window is shorter '
@@ -284,18 +318,23 @@ export const ACTIONS: readonly GameAction[] = [
   {
     key: 'V', press: 'hold, flick, release', name: 'Element radial', mode: 'both',
     available: always,
+    // Air is the only direction named. Every other element's flick moves when the count changes
+    // -- water was straight down at two elements, at 120 degrees at three, and is straight right
+    // at four -- so the copy names the fact that survives an append instead: air is up, and the
+    // rest sit clockwise from it in the order the ring draws them. See `ELEMENT_ORDER`.
     detail: 'Hold to open the radial, flick the mouse toward an element, let go. Air is straight '
-      + 'up, water is down and to the right, earth is down and to the left. It never pauses or '
-      + 'slows the game and it never takes the mouse off you — the same flick that picks also '
-      + 'nudges your view a little, which is the price of nothing being taken away. A flick too '
-      + 'small to mean anything keeps what you had, so you can change your mind by just letting go.',
+      + 'up and the others sit clockwise from it, in the order the ring shows them. It never '
+      + 'pauses or slows the game and it never takes the mouse off you — the same flick that '
+      + 'picks also nudges your view a little, which is the price of nothing being taken away. A '
+      + 'flick too small to mean anything keeps what you had, so you can change your mind by just '
+      + 'letting go.',
   },
   {
-    key: '1 / 2 / 3', name: 'Select element directly', mode: 'both', available: always,
-    detail: '1 is air, 2 is water, 3 is earth. The same switch without the gesture, and the faster '
-      + 'way to do it once you know which one you want. Switching costs nothing at all — no '
-      + 'cooldown, no windup — so it belongs inside a combo: vortex a group, switch, freeze the '
-      + 'front rank, switch again and break the one the freeze cannot hurt.',
+    key: '1 / 2 / 3 / 4', name: 'Select element directly', mode: 'both', available: always,
+    detail: '1 is air, 2 is water, 3 is earth, 4 is fire. The same switch without the gesture, '
+      + 'and the faster way to do it once you know which one you want. Switching costs nothing at '
+      + 'all — no cooldown, no windup — so it belongs inside a combo: vortex a group, switch and '
+      + 'freeze the front rank, then switch again and break the one the freeze cannot hurt.',
   },
   {
     // 'both' rather than 'ground', even though the press only ever works with feet on the

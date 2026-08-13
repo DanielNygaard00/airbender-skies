@@ -6,6 +6,9 @@
  * feeds none. The
  * effects layer wants the opposite: one union, with a down overriding a connect for the same
  * enemy. That rule lived as a loop and a comment in `main.ts`, which has no tests, and the
+ * differently tuned Focus grant — or, in `redirectHits`' and `fireHits`' case, deliberately feeds
+ * none. The effects layer wants the opposite: one union, with a down overriding a connect for the
+ * same enemy. That rule lived as a loop and a comment in `main.ts`, which has no tests, and the
  * staff was added to the fight without being added to the loop.
  */
 export interface ImpactLists {
@@ -23,6 +26,16 @@ export interface ImpactLists {
    * land.
    */
   stoneHits: readonly string[]
+   /**
+   * Enemies a Fire Burst connected with.
+   *
+   * The second list here that pays no Focus of its own, and for a different reason from
+   * `redirectHits`: fire deliberately earns none, so that the damage element does not also become
+   * the income that funds the Ice Lock and the Avatar State. It earns a burst on exactly the same
+   * terms as everything else, because it is the biggest aimed hit in the game and the player has to
+   * see it land.
+   */
+  fireHits: readonly string[]
   /**
    * Enemies a redirected arrow struck.
    *
@@ -74,6 +87,8 @@ export function impactTargets(lists: ImpactLists): ImpactTargets {
   const hits = [...new Set([
     ...lists.hits, ...lists.slamHits, ...lists.staffHits, ...lists.stoneHits,
     ...lists.redirectHits,
+    ...lists.hits, ...lists.slamHits, ...lists.staffHits, ...lists.redirectHits,
+    ...lists.fireHits,
   ])].filter((id) => !down.has(id))
   const hit = new Set(hits)
   // A returned arrow counts as a hit, which is what keeps it out of `deflects` below. That

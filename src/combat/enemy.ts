@@ -66,7 +66,7 @@ export type EnemyAttack =
  * them, which is what lets the four resolvers in `stepEncounter` share one code path.
  */
 export type BendingSource =
-  | 'gust' | 'vortex' | 'wave' | 'staff' | 'grip' | 'freeze' | 'stone' | 'pillar'
+  | 'gust' | 'vortex' | 'wave' | 'staff' | 'grip' | 'freeze' | 'stone' | 'pillar' | 'burst'
 
 /**
  * How much of a blow actually lands, as fractions of what was thrown.
@@ -104,12 +104,16 @@ export const UNARMOURED: ArmourTable = {
   // was the actual defect here. A kind that should resist a pull now has somewhere to say so.
   grip: { damage: 1, knockback: 1 },
   freeze: { damage: 1, knockback: 1 },
-  // Earth's two. Unlike water's, the `stone` row here is not moot for anyone: it is the only
+  // Earth's two. Unlike water's, the `stone` row here is not moot for anyone: it is a
   // borrowed-element move that carries real damage, so on an unarmoured soldier this row is what
   // says a thrown rock lands in full. `pillar` carries no damage, only the shove a rising column
   // gives a body standing on it, so its damage fraction is moot in the same way the vortex's is.
   stone: { damage: 1, knockback: 1 },
   pillar: { damage: 1, knockback: 1 },
+  // Fire's one source, and both fractions are live rather than moot: the Fire Burst carries the
+  // largest aimed damage figure in the game and a small outward shove, so a kind that should
+  // resist either has a real number to say so with. Everyone not wearing plate takes all of it.
+  burst: { damage: 1, knockback: 1 },
 }
 
 /**

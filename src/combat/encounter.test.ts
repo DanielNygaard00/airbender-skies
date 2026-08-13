@@ -79,6 +79,11 @@ const C: CombatConfig = {
         // branch the shipped config never takes and which therefore needs a fixture to exercise.
         stone: { damage: 0.5, knockback: 0.5 },
         pillar: { damage: 0, knockback: 0 },
+        // Deliberately unlike the shipped heavy's 0.5 and 0, and unlike the two rows above in shape:
+        // a quarter of the damage still gets through and so does a quarter of the shove, so a test
+        // here that read the real config would be visible in either number. The shipped row is
+        // asserted against `DEFAULT_COMBAT_CONFIG` in the 'fire against plate' block below.
+        burst: { damage: 0.25, knockback: 0.25 },
       },
     },
     /**
@@ -193,6 +198,31 @@ const C: CombatConfig = {
     raiseFocusCost: 30,
     raiseBreathCost: 18,
   },
+  /**
+   * Fire, with round numbers unlike the shipped ones on every axis a test here could read by
+   * accident: a burst reaching 6 rather than 7, at a 45-degree half-angle rather than 15, doing 0.6
+   * damage rather than 1.0, from two charges rather than three.
+   *
+   * The damage figure is the one worth pointing at. At 0.6 against this fixture's spear health of 1.5
+   * a burst does *not* down one in two presses, which is what the shipped 1.0 does — so an assertion
+   * about how many bursts a soldier takes cannot pass here by coincidence, and the claims about the
+   * recovery ladder are made against `DEFAULT_COMBAT_CONFIG` in `fire.test.ts` where they belong.
+   *
+   * Two charges rather than three, because the interesting boundary is "the last one", and a fixture
+   * that needed three presses to reach it would make every exhaustion test a frame longer for nothing.
+   * The wide half-angle is deliberate too: several tests below put two soldiers in one cone, which the
+   * shipped 15 degrees is specifically designed to make impossible.
+   */
+  fire: {
+    burst: { range: 6, halfAngle: Math.PI / 4 },
+    verticalReach: 2.5,
+    burstDamage: 0.6,
+    burstKnockback: 5,
+    burstCooldownSeconds: 1,
+    maxCharges: 2,
+    thrustUpSpeed: 8,
+    thrustForwardSpeed: 4,
+  },
 }
 
 const ORIGIN = new Vector3(0, 0, 0)
@@ -218,10 +248,11 @@ const DEPS = { ground: flatGround, worldFloorY: -50, spawns: [], patrol: { respa
  * The two meters are generous rather than zero, so a test that fires a water move without saying
  * anything about resources is not silently refused for want of Focus — the affordability rule has
  * its own tests, and a fixture that made every other water test depend on it would hide failures
- * behind a refusal.
+ * behind a refusal. `fireCharges` is a full hand for the same reason.
  */
 const defaults: EncounterInput = {
   playerPosition: ORIGIN, playerForward: NORTH, element: 'air', gustPressed: false, slam: null,
+  fireCharges: C.fire.maxCharges,
   vortexHeld: false, vortexReleased: false, playerInvulnerable: false, staffSwing: null,
   // Aim starts equal to `playerForward`, which is what the game hands over on foot: there
   // `player.forward` IS the flattened look direction. Tests that need an elevation override it.
@@ -2357,7 +2388,28 @@ describe('the bending keys resolve on the active element', () => {
     expect(underAir.vortexHeldSeconds).toBeGreaterThan(0)
   })
 
-  it('ticks both light-verb cooldowns whatever element is selected', () => {
+  it('bursts on fire, from the same key again', () => {
+    // The third element on the light key, and the discriminator is damage: air's press hurts a little
+    // and shoves hard, water's holds and hurts not at all, fire's hurts more than either and holds
+    // nobody. Asserted against the other two on the same arrangement, because any one of the three
+    // alone would pass for an implementation that ignored the element.
+    const air = frame({ element: 'air', gustPressed: true })
+    const water = frame({ element: 'water', gustPressed: true })
+    const fire = frame({ element: 'fire', gustPressed: true })
+
+    expect(fire.burstHitThisFrame).toEqual(['a'])
+    expect(fire.hitThisFrame).toEqual([])
+    expect(fire.grippedThisFrame).toEqual([])
+    expect(fire.encounter.enemies[0]?.stance).not.toBe('held')
+
+    const hurt = (step: typeof fire) =>
+      C.enemies.spear.maxHealth - (step.encounter.enemies[0]?.health.current ?? 0)
+    expect(hurt(fire)).toBeCloseTo(C.fire.burstDamage, 5)
+    expect(hurt(fire)).toBeGreaterThan(hurt(air))
+    expect(hurt(water)).toBe(0)
+  })
+
+  it('ticks all three light-verb cooldowns whatever element is selected', () => {
     // Switching away must not park a cooldown. Otherwise a player could hide a gust's recovery
     // inside water and come back to a gust that never recovered — and the same in reverse.
     const gusted = frame({ element: 'air', gustPressed: true }).encounter
@@ -2375,16 +2427,31 @@ describe('the bending keys resolve on the active element', () => {
       waitingToo = frame({ element: 'air' }, waitingToo).encounter
     }
     expect(waitingToo.waterGripCooldown).toBe(0)
+
+    // Fire's, ticked while *air* is held. This is the cooldown a switch is most worth laundering,
+    // because at 1 second in this fixture it is the longest of the three.
+    const burned = frame({ element: 'fire', gustPressed: true }).encounter
+    expect(burned.fireBurstCooldown).toBeGreaterThan(0)
+    let waitingAgain = burned
+    for (let i = 0; i < 90; i++) {
+      waitingAgain = frame({ element: 'air' }, waitingAgain).encounter
+    }
+    expect(waitingAgain.fireBurstCooldown).toBe(0)
   })
 
-  it('keeps the two cooldowns independent, so an element switch launders neither', () => {
+  it('keeps the three cooldowns independent, so an element switch launders none of them', () => {
     // A single shared "light verb cooldown" would let the player gust, switch, and grip
-    // immediately at the gust's shorter recovery — or worse, grip and then gust at once. Two
-    // fields, and this pins that gusting leaves the grip's own timer untouched.
+    // immediately at the gust's shorter recovery — or worse, grip and then gust at once. Three
+    // fields, and this pins that each move leaves the other two timers untouched.
     const gusted = frame({ element: 'air', gustPressed: true }).encounter
     expect(gusted.waterGripCooldown).toBe(0)
+    expect(gusted.fireBurstCooldown).toBe(0)
     const gripped = frame({ element: 'water', gustPressed: true }).encounter
     expect(gripped.gustCooldown).toBe(0)
+    expect(gripped.fireBurstCooldown).toBe(0)
+    const burned = frame({ element: 'fire', gustPressed: true }).encounter
+    expect(burned.gustCooldown).toBe(0)
+    expect(burned.waterGripCooldown).toBe(0)
   })
 })
 
@@ -2764,6 +2831,14 @@ describe('water against plate', () => {
     // The control on the same frame: one kind's armour, not a grip that stopped working.
     expect(first.grippedThisFrame).toContain('leather')
     expect(find(first.encounter, 'leather').stance).toBe('held')
+  })
+
+  it('leaves fire\'s own row alone, since a burst is neither of water\'s moves', () => {
+    // The row-by-row independence of the table, which is what makes a per-move armour decision a
+    // decision at all. Asserted here rather than in fire's own block because this is the file that
+    // owns the shipped heavy's rows.
+    expect(deflects(SHIPPED.enemies.heavy, 'burst')).toBe(false)
+    expect(HEAVY.burst).toEqual({ damage: 0.5, knockback: 0 })
   })
 
   it('reports a freeze a kind turns away outright, and leaves it unheld', () => {
@@ -3421,4 +3496,286 @@ describe('earth against plate', () => {
     expect(plate!.health.current).toBe(0)
     expect(plate!.stance).toBe('downed')
   })
+})
+
+describe('the Fire Burst', () => {
+  const F = C.fire
+  const frame = (over: Partial<EncounterInput>, from = near()) =>
+    stepEncounter(from, { ...defaults, ...over }, 1 / 60, C, DEPS)
+  const burn = (over: Partial<EncounterInput> = {}, from = near()) =>
+    frame({ element: 'fire', gustPressed: true, ...over }, from)
+
+  it('spends exactly one charge and reports the bill rather than applying it', () => {
+    // The fight has no resource of its own — it reports `chargesSpent` and `main.ts` deducts, the
+    // same division of labour `focusSpent` and `breathSpent` already keep. One, never two, because
+    // both fire verbs cost one and a burst that billed for two would empty a hand in a press and a
+    // half with nothing in the config saying so.
+    const step = burn()
+    expect(step.chargesSpent).toBe(1)
+    expect(step.burstFired).toBe(true)
+    // And nothing else is billed: fire is outside the Focus and breath economies in both directions.
+    expect(step.focusSpent).toBe(0)
+    expect(step.breathSpent).toBe(0)
+  })
+
+  it('refuses with an empty hand, and charges nothing for the refusal', () => {
+    // Both sides of the boundary, one charge apart, so a `>` where a `>=` belongs is caught. The
+    // refusal is total: no charge, no cooldown, no damage, and nobody reported.
+    const paid = burn({ fireCharges: 1 })
+    expect(paid.burstFired).toBe(true)
+    expect(paid.burstHitThisFrame).toEqual(['a'])
+
+    const refused = burn({ fireCharges: 0 })
+    expect(refused.burstFired).toBe(false)
+    expect(refused.chargesSpent).toBe(0)
+    expect(refused.burstHitThisFrame).toEqual([])
+    expect(refused.encounter.fireBurstCooldown).toBe(0)
+    expect(refused.encounter.enemies[0]?.health.current).toBe(C.enemies.spear.maxHealth)
+  })
+
+  it('refuses a second press inside the cooldown, with charges still in hand', () => {
+    // The two gates are independent and this varies only the cooldown: the fixture's hand is full, so
+    // a burst that fired here would be a cooldown that is not being read. The first press is the
+    // positive control on the same arrangement.
+    const first = burn()
+    expect(first.burstFired).toBe(true)
+    const second = burn({}, first.encounter)
+    expect(second.burstFired).toBe(false)
+    expect(second.chargesSpent).toBe(0)
+    // The soldier took exactly one burst's worth of damage across the two presses.
+    expect(second.encounter.enemies[0]?.health.current)
+      .toBeCloseTo(C.enemies.spear.maxHealth - F.burstDamage, 5)
+  })
+
+  it('reports the fire even when it catches nobody, and still spends the charge', () => {
+    // The effect and the voice fire on the attempt, the way the gust cone is drawn from the press. And
+    // the charge goes anyway, which is the rule that makes aiming part of the move: three charges are
+    // three presses, not three connects.
+    const empty = startEncounter([], C)
+    const step = burn({}, empty)
+    expect(step.burstFired).toBe(true)
+    expect(step.burstHitThisFrame).toEqual([])
+    expect(step.chargesSpent).toBe(1)
+  })
+
+  it('does not burn a downed body, and does not report one as a connect', () => {
+    // `isTargetable` is the gate, the same one every other resolver asks. Two assertions beyond the
+    // report list, because the report list alone is filtered separately and survives the gate being
+    // removed: the *damage* and the *shove* are what the gate actually protects, and a corpse being
+    // shoved across the island is the failure the other resolvers all guard against.
+    const body = downedSoldier(1)
+    const step = burn({}, body)
+    const after = step.encounter.enemies[0]!
+
+    expect(step.burstHitThisFrame).toEqual([])
+    expect(after.stance).toBe('downed')
+    expect(after.health.current).toBe(0)
+    expect(after.knockback.lengthSq()).toBe(0)
+
+    // The positive control on the identical arrangement, differing only in the soldier being alive: a
+    // live one is hurt and shoved, so the assertions above are about the body's state rather than
+    // about the burst failing to reach it.
+    const live = burn()
+    expect(live.burstHitThisFrame).toEqual(['a'])
+    expect(live.encounter.enemies[0]!.knockback.lengthSq()).toBeGreaterThan(0)
+    expect(live.encounter.enemies[0]!.health.current).toBeLessThan(C.enemies.spear.maxHealth)
+  })
+
+  it('cannot be thrown while another element is selected', () => {
+    // The mirror of the gust and grip gates. Paired with the fire run so this is about the element
+    // rather than about the press edge being dropped.
+    expect(frame({ element: 'air', gustPressed: true }).burstFired).toBe(false)
+    expect(frame({ element: 'water', gustPressed: true }).burstFired).toBe(false)
+    expect(frame({ element: 'air', gustPressed: true }).chargesSpent).toBe(0)
+    expect(burn().burstFired).toBe(true)
+  })
+
+  it('puts a soldier down without removing it, and leaves nothing burning', () => {
+    // Section 4.6, for the one element that does real damage. Two claims: the body stays in the world
+    // as a downed soldier rather than disappearing, and there is no lingering damage afterwards — no
+    // burning state, no damage over time. The second is measured over five seconds of doing nothing,
+    // which is long enough for any per-second effect to show and short of the 18-second down timer.
+    let encounter = burn({}, almostDown(0)).encounter
+    expect(isDowned(encounter.enemies[0]!.health)).toBe(true)
+    expect(encounter.enemies.length).toBe(1)
+    expect(encounter.enemies[0]!.stance).toBe('downed')
+    expect(encounter.enemies[0]!.downs).toBe(1)
+    // No hold either: fire holds nobody, so a burst must not write the field water's kit owns.
+    expect(encounter.enemies[0]!.heldSeconds).toBe(0)
+
+    const atDown = encounter.enemies[0]!.health.current
+    for (let i = 0; i < 300; i++) {
+      encounter = stepEncounter(encounter, { ...defaults, element: 'fire' }, 1 / 60, C, DEPS)
+        .encounter
+    }
+    expect(encounter.enemies[0]!.health.current).toBe(atDown)
+    expect(encounter.enemies.length).toBe(1)
+  })
+
+  it('interrupts a wind-up, which every blow in this fight does', () => {
+    // Not a fire-specific rule — `hitEnemy` interrupts whatever the damage — but the one property that
+    // makes a damage move usable defensively, and it costs one assertion to pin that fire is inside
+    // that contract rather than beside it.
+    let encounter = near()
+    for (let i = 0; i < 60; i++) {
+      encounter = stepEncounter(encounter, defaults, 1 / 60, C, DEPS).encounter
+      if (encounter.enemies[0]?.stance === 'wind-up') break
+    }
+    expect(encounter.enemies[0]?.stance).toBe('wind-up')
+    expect(burn({}, encounter).encounter.enemies[0]?.stance).toBe('recover')
+  })
+})
+
+describe('the heavy key under fire', () => {
+  /**
+   * Fire's heavy verb is the Fire Thrust, and it is resolved by the caller rather than by the fight.
+   *
+   * What these pin is the fight's half of that: a release under fire resolves *nothing* here, and in
+   * particular it cannot leak into either of the other two elements' heavy moves. The thrust's own
+   * rules are tested in `fire.test.ts`, where they live.
+   */
+  const release = (over: Partial<EncounterInput> = {}, from = near()) =>
+    stepEncounter(from, {
+      ...defaults, element: 'fire', vortexReleased: true, ...over,
+    }, 1 / 60, C, DEPS)
+
+  it('fires neither a vortex nor a freeze, and bills nothing', () => {
+    const charged = { ...near(), vortexHeldSeconds: C.vortex.maxChargeSeconds }
+    const step = release({}, charged)
+    expect(step.vortexFired).toBeNull()
+    expect(step.freezeFired).toBe(false)
+    expect(step.frozenThisFrame).toEqual([])
+    expect(step.focusSpent).toBe(0)
+    expect(step.chargesSpent).toBe(0)
+    // No lift and no hold, which are the observable signatures of the two moves that must not have
+    // fired. The pair matters: `vortexFired` alone would stay null for a vortex that resolved but
+    // forgot to report.
+    expect(step.encounter.enemies[0]?.verticalVelocity).toBe(0)
+    expect(step.encounter.enemies[0]?.stance).not.toBe('held')
+  })
+
+  it('discards a charge built under air rather than parking it', () => {
+    // The same one-frame hole the water release was found to have: a charge standing when the element
+    // changes must be spent by the release, or the player could switch back to air, tap R, and get the
+    // vortex they had already let go of.
+    const charged = { ...near(), vortexHeldSeconds: C.vortex.maxChargeSeconds }
+    const released = release({}, charged).encounter
+    expect(released.vortexHeldSeconds).toBe(0)
+    const later = stepEncounter(released, {
+      ...defaults, element: 'air', vortexReleased: true,
+    }, 1 / 60, C, DEPS)
+    expect(later.vortexFired).toBeNull()
+  })
+
+  it('banks no charge while fire is selected', () => {
+    // Holding R under fire must accumulate nothing, or a player could charge under fire, switch to air
+    // and release a full-strength vortex they never held air for. Paired with the air run, so "no
+    // charge" is not passing because charging is broken outright.
+    let underFire = near()
+    let underAir = near()
+    for (let i = 0; i < 60; i++) {
+      underFire = stepEncounter(
+        underFire, { ...defaults, element: 'fire', vortexHeld: true }, 1 / 60, C, DEPS,
+      ).encounter
+      underAir = stepEncounter(
+        underAir, { ...defaults, element: 'air', vortexHeld: true }, 1 / 60, C, DEPS,
+      ).encounter
+    }
+    expect(underFire.vortexHeldSeconds).toBe(0)
+    expect(underAir.vortexHeldSeconds).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * Fire against plate.
+ *
+ * The row that decides whether fire quietly becomes the armour-breaker section 4.4 promises to earth.
+ * The shipped values are asserted against `DEFAULT_COMBAT_CONFIG` rather than this file's `C`, whose
+ * heavy is deliberately unlike the real one on every row — the same rule the water block above
+ * follows, and for the same reason: a claim about what the *game* does has to name the game's config.
+ *
+ * **Position is not used as evidence anywhere here.** Neither soldier is held, so both advance under
+ * their own aggro, and a position assertion would be measuring the walk rather than the shove. The
+ * knockback vector is what the armour row actually scales, so that is what is asserted.
+ */
+describe('fire against plate', () => {
+  const SHIPPED = DEFAULT_COMBAT_CONFIG
+  const HEAVY_ARMOUR = SHIPPED.enemies.heavy.armour
+  /**
+   * A heavy and a spear, each squarely inside the shipped burst's very narrow cone, thrown at
+   * separately rather than together.
+   *
+   * The burst's whole design is that it cannot hold two soldiers at once — 30 degrees swept — so
+   * unlike the water block's side-by-side pair this has to be two runs at two arrangements. The spear
+   * is still the positive control on every assertion: "nothing happened to the heavy" passes for a
+   * burst aimed at empty sky, a cone that caught nobody, an `element` that never reached the resolver
+   * and a fight that threw nothing, and each of those shows up as the spear being untouched too.
+   */
+  const alone = (kind: 'heavy' | 'spear'): EnemySpawn[] =>
+    [{ id: kind, position: new Vector3(0, 0, -4), kind }]
+  const burnAt = (kind: 'heavy' | 'spear', config = SHIPPED) => stepEncounter(
+    startEncounter(alone(kind), config),
+    { ...defaults, element: 'fire', gustPressed: true, fireCharges: config.fire.maxCharges },
+    1 / 60, config, DEPS,
+  )
+
+  it('writes the decision down in the shipped config', () => {
+    // Pinned as values rather than left to the prose in `config.ts`: half the damage, none of the
+    // shove. And not a full deflect, which is what keeps the move landing at all — 0 and 0 would make
+    // `deflects` true and skip the burst whole, which reads as "fire does not work on plate".
+    expect(HEAVY_ARMOUR.burst).toEqual({ damage: 0.5, knockback: 0 })
+    expect(deflects(SHIPPED.enemies.heavy, 'burst')).toBe(false)
+  })
+
+  it('hurts a heavy for half, where the spear beside it takes all of it', () => {
+    const plate = burnAt('heavy')
+    const leather = burnAt('spear')
+    const hurt = (step: typeof plate, kind: 'heavy' | 'spear') => {
+      const found = step.encounter.enemies.find((e) => e.id === kind)!
+      return SHIPPED.enemies[kind].maxHealth - found.health.current
+    }
+    expect(plate.burstHitThisFrame).toEqual(['heavy'])
+    expect(leather.burstHitThisFrame).toEqual(['spear'])
+    expect(hurt(leather, 'spear')).toBeCloseTo(SHIPPED.fire.burstDamage, 5)
+    expect(hurt(plate, 'heavy'))
+      .toBeCloseTo(SHIPPED.fire.burstDamage * HEAVY_ARMOUR.burst.damage, 5)
+    expect(hurt(plate, 'heavy')).toBeLessThan(hurt(leather, 'spear'))
+  })
+
+  it('does not move a heavy at all, and does move the spear', () => {
+    // The knockback row, and the knockback vector rather than the position: an unheld soldier walks
+    // under its own aggro, so position would be measuring the advance. This type is displaced by
+    // nothing except an earned Pressure Wave, which is what "knockback economy" means.
+    const plate = burnAt('heavy').encounter.enemies[0]!
+    const leather = burnAt('spear').encounter.enemies[0]!
+    expect(plate.knockback.lengthSq()).toBe(0)
+    expect(leather.knockback.lengthSq()).toBeGreaterThan(0)
+  })
+
+  it('takes a whole hand of charges without finishing a rung', () => {
+    // Why this row does not make fire the answer to plate, measured through the fight rather than off
+    // the config. Every charge the player holds, spent on one heavy with the cooldown waited out, and
+    // it is still standing well above its first rung — where two committed dives would have taken it
+    // down. The charges run out first, every time, which is the shape that makes fire the wrong tool
+    // rather than a slow one.
+    let encounter = startEncounter(alone('heavy'), SHIPPED)
+    let charges = SHIPPED.fire.maxCharges
+    let spent = 0
+    for (let frame = 0; frame < 600 && charges > 0; frame++) {
+      const step = stepEncounter(
+        encounter,
+        { ...defaults, element: 'fire', gustPressed: true, fireCharges: charges },
+        1 / 60, SHIPPED, DEPS,
+      )
+      encounter = step.encounter
+      charges -= step.chargesSpent
+      spent += step.chargesSpent
+    }
+    expect(spent).toBe(SHIPPED.fire.maxCharges)
+    const heavy = encounter.enemies[0]!
+    expect(isDowned(heavy.health)).toBe(false)
+    expect(heavy.health.current).toBeGreaterThan(SHIPPED.enemies.heavy.maxHealth * 0.5)
+    // An explicit timeout because this runs the real config's soldier for up to 600 frames, and the
+    // default per-test budget is 5 s. Measured at a few milliseconds.
+  }, 20_000)
 })

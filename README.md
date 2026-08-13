@@ -18,11 +18,11 @@ back down to a walking stick.
 | `Shift` | Sprint — stacks with the air scooter, so sprinting while riding is faster than riding alone | Hover — hold position in mid-air |
 | `Q` | Air blast dash — three in a chain, then a short recovery | — |
 | `G` | Air Wall — hold to raise a short-lived barrier that turns arrows around instead of swallowing them | Air Wall |
-| `F` | Your element's quick move. Airbending: Gust — a wide sweep of air that knocks enemies back. Waterbending: Water Grip — a narrow reach that yanks whoever it catches toward you and holds them there. Earthbending: Stone Throw — a thrown rock down a narrow line, slow, and the only thing that breaks armour | As on the ground |
+| `F` | Your element's quick move. Airbending: Gust — a wide sweep of air that knocks enemies back. Waterbending: Water Grip — a narrow reach that yanks whoever it catches toward you and holds them there. Earthbending: Stone Throw — a thrown rock down a narrow line, slow, and the only thing that breaks armour. Firebending: Fire Burst — a very narrow blast that really hurts one soldier, for one of three charges | As on the ground |
 | `E` | Avatar State — once the pip under your Focus bar is full | Avatar State |
-| `R` | Your element's committed move, pressed and released. Airbending: Vortex — hold to charge, release to pull nearby enemies inward and lift them off their feet. Waterbending: Ice Lock — freezes the rank in front of you and spends about a third of your Focus. Earthbending: Stone Pillar — raises a column of rock a few paces ahead that stops arrows for a few seconds, and spends rather less Focus | As on the ground |
-| `V` | Element radial — hold, flick the mouse at an element, release. Air is up, water is down and to the right, earth is down and to the left | Element radial |
-| `1` / `2` / `3` | Select air, water or earth directly, without the radial | Select air, water or earth |
+| `R` | Your element's committed move, pressed and released. Airbending: Vortex — hold to charge, release to pull nearby enemies inward and lift them off their feet. Waterbending: Ice Lock — freezes the rank in front of you and spends about a third of your Focus. Earthbending: Stone Pillar — raises a column of rock a few paces ahead that stops arrows for a few seconds, and spends rather less Focus. Firebending: nothing, on the ground | As on the ground, and firebending adds the Fire Thrust — one shove up and forward for a charge, when the breath is gone |
+| `V` | Element radial — hold, flick the mouse at an element, release. Air is straight up and the rest sit clockwise from it | Element radial |
+| `1` / `2` / `3` / `4` | Select air, water, earth or fire directly, without the radial | Select an element |
 | `C` | Slipstream — a short dash, briefly unhittable | Slipstream |
 | `B` | Pick up a payload you are standing next to, or set down the one you are carrying | Set it down, once you are back on the ground |
 | `Ctrl` | Hold through a landing to slam | Tuck — fold the wings for a fast dive, and hold it through the landing to slam |
@@ -81,6 +81,12 @@ you can reel in a spear. An Ice Lock holds one exactly as long as it holds anyon
 legs does not care what the chest is wearing. Neither hurts it, because water never hurts anything.
 What a freeze buys you is the few seconds it takes to line up the answer that does — a dive, or a
 switch to earth and a rock in its chest while it cannot move.
+
+Fire hurts it and still is not the answer. Plate takes half a burst's damage and none of its shove,
+so burning a heavy down means eight bursts a step down the ladder — against three charges a landing,
+which is walking away and coming back three times for one step. It is a real answer rather than
+nothing, deliberately, in the same spirit as the staff: the tool for armour is the dive, and if the
+game ever gets earthbending it will be that.
 
 **A net thrower** sits between the spears and the archers, and it pressures flight itself. It
 winds up longer than anything else in the patrol and paints the lane it is about to throw down,
@@ -144,6 +150,14 @@ keypress will do.
 
 Air is the one you always have, and the widest and fastest: it moves people. **Water is control, and
 it does no damage whatsoever.** It pulls, it holds, and it freezes, and what it buys you is time and
+rather than before one. Charge a Vortex and pull a group into a heap, flick to water and freeze them
+where they landed, then flick to fire and burn the one you most want gone. A small badge above the
+meters says which element you are holding, so you never have to open anything to know what a
+keypress will do.
+
+Air is the one you always have, and the one everything else is built on top of. **Water is control,
+and it
+does no damage whatsoever.** It pulls, it holds, and it freezes, and what it buys you is time and
 position — a Water Grip drags a spearman out of his own reach and into yours and locks him there,
 which is what makes the staff safe to commit to. An Ice Lock freezes the whole rank in front of
 you, and they stay frozen even while you hit them: a locked target is locked so that you can work
@@ -176,10 +190,33 @@ stops one arrow has already broken even. A full bar is two freezes, or three pil
 with room left over, and any of them costs you the Avatar State. That trade is the whole point of
 the price.
 
+**Fire is damage, and it is the only element that has any worth the name.** A Fire Burst is the
+narrowest thing you can aim — narrower than a grip, and with even less height to it, so you have to
+be close and roughly level with what you are burning — and it hurts one soldier more than anything
+else in the kit. Two put a spearman down the first time and one puts a net thrower down outright,
+which is the pairing: the soldier that takes the air away against the element that answers being
+grounded. A heavy in plate shrugs off half of it and is emphatically not what fire is for.
+
+What fire costs is not a meter. You hold **three charges**, shown as three orange pips above the
+bars, and both fire moves spend one — including a burst that misses, so aim it. Nothing refills them
+except **touching the ground**: not time, not hovering, not standing still in the air. So a fight
+you take entirely in the air is three fire moves long, and then fire is gone until you land.
+
+The second of those moves is the reason the charges are worth hoarding. Firebending's committed
+move is not an attack at all: in the glider, `R` gives you one shove up and forward, worth about one
+push of air, and it never touches your breath in either direction. It is the answer to being low
+and out of breath over open water — and because it comes out of the same three charges the burst
+does, every burst you throw is an escape you no longer have. On the ground it does nothing
+whatsoever: fire moves you in the air or not at all.
+
 A small reticle sits where your next attack will go, rather than in the middle of the screen,
 and warms when something is inside your quick move's reach — the gust's wide sweep, the grip's much
 narrower one, or the stone's narrower still, depending on which element you are holding. When you
 take a hit, a wedge appears
+and warms when something is inside your quick move's reach — the gust's, the grip's much
+narrower one, or fire's narrower still, depending on which element you are holding. It also goes
+cold when the move cannot come out, so an empty hand of fire charges reads as a cold marker rather
+than a press that does nothing. When you take a hit, a wedge appears
 around it pointing at where the hit came from, and fades. A dodge shows one too, so slipping an
 attack still tells you where it was thrown from.
 
@@ -202,6 +239,19 @@ So climbing above a fight buys you less than it used to: get high enough and you
 reaching, and how high that is depends on the move — a couple of metres for the staff, a good deal
 more for the Vortex. Your reach is still a flat shape with a ceiling and a floor rather than a
 sphere, though:
+Vortex, both water moves, the Fire Burst, the Pressure Wave and the Air Wall — sweeps a band around
+your own footing rather than an endless column, so a soldier far enough below or above you is out of
+range even when it is squarely in front. Each move gets its own band, and they are not the same: a
+swing with a staff barely reaches past your own height, a fire burst only a little further, water a
+little further again, a gust of air a good deal further than that, and the Vortex furthest of all,
+because getting people off their feet is the whole point of it. The two borrowed elements sit at the
+bottom of that list on purpose, and for opposite-sounding reasons that come to the same thing:
+taking a soldier's turn away entirely is harsher than shoving it, and really hurting one is harsher
+still, so both are paid for by standing close. Fire is the shortest of the two because it is the one
+that does damage. So climbing above
+a fight buys you less than it used to: get high enough and your own attacks stop reaching, and how
+high that is depends on the move — a couple of metres for the staff, a good deal more for the
+Vortex. Your reach is still a flat shape with a ceiling and a floor rather than a sphere, though:
 distance is measured across the ground and height is a separate limit, so backing away from a
 soldier costs you reach in a different currency from climbing above it. The archers and the net
 thrower, by contrast, measure a single straight-line distance — so climbing does buy real distance
@@ -231,7 +281,10 @@ From a standing start, a clean glide fills the bar in around half a minute.
 
 Focus is spent as well as earned. The Ice Lock takes about a third of the bar every time, so
 freezing a rank and saving for the Avatar State are one budget rather than two, and the bar is the
-only place that choice is visible.
+only place that choice is visible. Fire is outside that budget in both directions: it spends no
+Focus, and a burst that connects earns none either. What it does earn is the down it causes, which
+is the biggest single grant in the game — so fire pays best by being the element that actually
+finishes soldiers rather than by being paid per hit.
 
 Hold Focus at maximum and a thin pip fills beneath the bar. Once it is full, `E` spends the whole
 meter on the Avatar State: eight seconds of free breath, a gust that downs a soldier outright, and

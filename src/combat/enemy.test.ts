@@ -823,6 +823,9 @@ describe('armour, as a per-source fraction of a blow', () => {
       // above is deliberately 0.25 against the real 0.35.
       stone: { damage: 0.5, knockback: 0.5 },
       pillar: { damage: 1, knockback: 0.5 },
+      // Unlike the shipped heavy's 0.5, so a test here that read the real config instead of this
+      // fixture is visible — the same convention every other row in this table follows.
+      burst: { damage: 0.25, knockback: 0 },
     },
   }
 

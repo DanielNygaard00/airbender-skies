@@ -38,6 +38,8 @@ const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({
   iceLockReady: true,
   stoneReady: true,
   pillarReady: true,
+  burstReady: true,
+  fireThrustReady: true,
   carryReady: true,
   ...over,
 })
@@ -86,7 +88,9 @@ describe('guideModelFor', () => {
   it('carries the reference sections through', () => {
     const model = guideModelFor(ctx())
     expect(model.combos.length).toBeGreaterThan(0)
-    expect(model.meters.length).toBe(3)
+    // Four: the three bars, plus fire's pip row. `reference.test.ts` is where the names are pinned;
+    // this only checks the panel carries the whole list through rather than a slice of it.
+    expect(model.meters.length).toBe(4)
     expect(Object.keys(model.wind).length).toBe(5)
   })
 

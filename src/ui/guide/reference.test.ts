@@ -26,10 +26,13 @@ describe('COMBOS', () => {
 })
 
 describe('METERS', () => {
-  it('explains all three bars on the HUD', () => {
+  it('explains all three bars on the HUD, and the pip row beside them', () => {
     // The HUD draws three unlabelled bars; leaving one unexplained is the gap this
-    // section exists to close.
-    expect(METERS.map((m) => m.name)).toEqual(['Breath', 'Focus', 'Health'])
+    // section exists to close. Fire's charges join the list as the fourth entry and the only one
+    // that is not a bar, because they are drawn in the same bottom-left stack and answer the same
+    // question the bars do — how much of something is left. Asserted as the whole list in order, so
+    // a new HUD element cannot be added to the screen without being described here.
+    expect(METERS.map((m) => m.name)).toEqual(['Breath', 'Focus', 'Fire charges', 'Health'])
   })
 
   it('gives every meter a detail', () => {
@@ -84,7 +87,7 @@ describe('ELEMENT_LEGEND', () => {
     }
   })
 
-  it('names the radial direction and the number bind for each element', () => {
+  it('names each element\'s own number bind, derived from the order rather than transcribed', () => {
     // The legend is the only place the layout is written down in prose, and the layout is what the
     // whole design leans on — fixed slots so a flick direction means the same thing every session.
     // A legend that described the elements without saying where they are would leave the player
@@ -102,24 +105,64 @@ describe('ELEMENT_LEGEND', () => {
     // swapping water and earth leaves both sentences untouched and both of them wrong, since the
     // wedge geometry is numbered straight off that array. Asserting the index beside the phrase is
     // what makes this block a statement about the radial and not about the paragraph.
-    const claims = [
-      { element: 'air' as const, index: 0, phrase: /straight up/i, bind: /1/ },
-      { element: 'water' as const, index: 1, phrase: /down and to the right/i, bind: /2/ },
-      { element: 'earth' as const, index: 2, phrase: /down and to the left/i, bind: /3/ },
-    ]
-    // Every element is claimed, so a fourth one cannot arrive undescribed by this block either.
-    expect(claims.map((c) => c.element)).toEqual([...ELEMENT_ORDER])
-    for (const { element, index, phrase, bind } of claims) {
-      expect(ELEMENT_ORDER.indexOf(element), `${element}'s wedge`).toBe(index)
-      expect(ELEMENT_LEGEND[element], `${element}'s direction`).toMatch(phrase)
-      expect(ELEMENT_LEGEND[element], `${element}'s number bind`).toMatch(bind)
+    // **Derived from `ELEMENT_ORDER` rather than transcribed, and the transcription is what broke.**
+    // This block used to list an absolute direction per element -- "down and to the right" for
+    // water, "down and to the left" for earth. Both were true at three elements and both went wrong
+    // at four, silently, because a legend's prose cannot fail a typecheck. Every slot except air
+    // moves when the count changes, so the only durable facts are air's own direction, each
+    // element's position clockwise from it, and its digit.
+    const ORDINALS = ['', 'one', 'two', 'three', 'four', 'five']
+    for (const [index, element] of ELEMENT_ORDER.entries()) {
+      const legend = ELEMENT_LEGEND[element]
+      // The digit, computed from the position rather than written down.
+      expect(legend, `${element}'s number bind`).toMatch(new RegExp(`\\b${index + 1}\\b`))
+      if (element === 'air') {
+        // Air is the one slot that never moves, so it is the one entry allowed to name a direction.
+        expect(legend, "air's direction").toMatch(/straight up/i)
+      } else {
+        // Everything else says how far round it is, in words, which stays true at any count.
+        expect(legend, `${element}'s position`)
+          .toMatch(new RegExp(`${ORDINALS[index]} steps? clockwise`, 'i'))
+      }
     }
-    // Nothing may claim straight down any more, in any entry. The bare direction is the one a
-    // reader carrying the old two-element layout in their head would reach for, and
-    // `element.test.ts` pins that it is a sector boundary rather than an element's own direction.
+    // And no entry may name a bare vertical direction other than air's own. A reader carrying an
+    // older layout in their head reaches for "straight down", and `element.test.ts` pins that
+    // whether straight down is an element's centre or a boundary is a fact about the element count.
     for (const element of ELEMENT_ORDER) {
-      expect(ELEMENT_LEGEND[element], element).not.toMatch(/straight down/i)
+      if (element === 'air') continue
+      expect(ELEMENT_LEGEND[element], element).not.toMatch(/straight down|straight up/i)
     }
+    // whole design leans on — fixed slots, so a flick means the same thing every session. A legend
+    // that described the elements without saying where they are would leave the player hunting for
+    // them mid-fight, which is when the radial is used.
+    //
+    // **The digit is computed from `ELEMENT_ORDER`, and that is what makes this test able to fail
+    // for the right reason.** It used to assert "straight down" and "2" for water as literals, and
+    // appending fire silently made the direction wrong while the digit stayed right by luck. Read
+    // this way, an element whose prose claims a slot it no longer occupies reddens here — which is
+    // exactly the mistake the next append will make, since the last element in the array is the one
+    // whose digit changes.
+    ELEMENT_ORDER.forEach((element, index) => {
+      expect(ELEMENT_LEGEND[element], element).toContain(String(index + 1))
+    })
+    // Air is the one element allowed to name an absolute direction, because slot 0 is the only slot
+    // that does not move when the count changes. Every other entry says "clockwise from air"
+    // instead — see the note on ELEMENT_LEGEND.
+    expect(ELEMENT_LEGEND.air).toMatch(/straight up/i)
+    for (const element of ELEMENT_ORDER) {
+      if (element === 'air') continue
+      expect(ELEMENT_LEGEND[element], element).toMatch(/clockwise/i)
+      expect(ELEMENT_LEGEND[element], element).not.toMatch(/straight (up|down|left|right)/i)
+    }
+  })
+
+  it('says fire is rationed and how it comes back, which is the rule nothing else teaches', () => {
+    // The two facts a player cannot discover by pressing the key. That fire hurts is obvious the first
+    // time a burst lands; that it is three charges and that *landing* is the only thing that refills
+    // them is invisible until the pips run out mid-flight, which is the worst possible moment to be
+    // learning it. The guide is the only place either is written down.
+    expect(ELEMENT_LEGEND.fire).toMatch(/three charges/i)
+    expect(ELEMENT_LEGEND.fire).toMatch(/ground/i)
   })
 
   it('says water does no damage, which is the one thing a player must not guess wrong', () => {

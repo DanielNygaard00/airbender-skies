@@ -219,6 +219,39 @@ export function createCombatAudio() {
     },
 
     /**
+     * A Fire Burst: an ignition, then the crack of it.
+     *
+     * A burst plus a thud rather than the reverse, because the order is the sound: the noise comes
+     * first and sweeps *down* hard and fast from a bright start, which is a body of air catching, and
+     * the low thud under it is the blast arriving. The Ice Lock is built from the same two
+     * primitives in the opposite order and at four times the duration, which is what keeps the
+     * game's two most expensive presses from sounding like each other.
+     *
+     * Shorter than every other voice on this list at 0.09 and 0.14 seconds. A burst is instantaneous
+     * where a gust is a sweep and a grip is a drag, and the duration is doing the same work here that
+     * `LIFETIME` does in `fire-burst.ts` — the ear separates the three moves on the light key by
+     * length before it separates them by anything else.
+     */
+    fireBurst(): void {
+      burst(COMBAT_LEVELS.fireBurst, 0.09, 7000, 500)
+      thud(COMBAT_LEVELS.fireBurst * 0.8, 0.14, 260)
+    },
+
+    /**
+     * A Fire Thrust: a roar that opens rather than closes.
+     *
+     * The filter sweeps *upward*, like the grip's and unlike the burst's, and here it is describing
+     * something the player feels rather than something they see: the glider accelerating away from
+     * the plume. Longer than the burst at 0.3 seconds, because a shove has a duration where a blast
+     * does not, and because it has to be heard through the wind — see `COMBAT_LEVELS.fireThrust`.
+     *
+     * No thud at all, which is the deliberate difference from the burst. Nothing was struck.
+     */
+    fireThrust(): void {
+      burst(COMBAT_LEVELS.fireThrust, 0.3, 300, 2600)
+    },
+
+    /**
      * The element switch: one very short, very quiet tick.
      *
      * Short enough that it cannot overlap itself even on consecutive frames of flicking, so a

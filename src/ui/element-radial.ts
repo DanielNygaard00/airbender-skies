@@ -34,10 +34,13 @@ import type { Element, RadialModel } from '../elements/element'
  * wind kind to be documented.
  *
  * The colours are the ones the world already uses for each element's effects, not new ones: air
- * takes the gust cone's cyan and water takes the grip's deeper blue-green, so the badge and the
- * thing the key does are the same colour. Gold is deliberately not among them — the Focus bar, the
- * arm pip, the Avatar State vignette and the hot reticle all mean "charged" or "this will land",
- * and an element badge in gold would join a conversation it is not part of.
+ * takes the gust cone's cyan, water takes the grip's deeper blue-green and fire takes the burst
+ * cone's orange-red, so the badge and the thing the key does are the same colour. Gold is
+ * deliberately not among them — the Focus bar, the arm pip, the Avatar State vignette and the hot
+ * reticle all mean "charged" or "this will land", and an element badge in gold would join a
+ * conversation it is not part of. That constraint is what fire's colour is picked *away* from: an
+ * amber or yellow flame would read as the Focus family, so the tint is pushed toward red, where
+ * nothing else in the HUD lives except the hurt flash, which is full-screen rather than a swatch.
  */
 const LOOKS: Record<Element, { label: string; colour: string }> = {
   air: { label: 'Air', colour: '#7fe4ff' },
@@ -46,6 +49,7 @@ const LOOKS: Record<Element, { label: string; colour: string }> = {
   // light rather than a realistic rock grey, for the reason recorded there: a grey-brown effect
   // over grey-brown ground is one nobody sees, and the same colour has to work as a badge.
   earth: { label: 'Earth', colour: '#d9a066' },
+  fire: { label: 'Fire', colour: '#ff5a2d' },
 }
 
 /**

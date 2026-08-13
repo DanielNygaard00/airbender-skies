@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { detectSlam, applyBounce } from './slam'
+import { detectSlam, applyBounce, touchedDown } from './slam'
 import { willRespawn } from './controller'
 import type { PressureWaveConfig } from '../combat/pressure-wave'
 import type { PlayerState } from '../core/types'
@@ -109,6 +109,53 @@ describe('detectSlam', () => {
 
   it('caps strength at one for an enormous impact', () => {
     expect(detectSlam(falling(300), landed(), true, false, C)?.strength).toBe(1)
+  })
+})
+
+describe('touchedDown', () => {
+  /**
+   * The shared touchdown edge, extracted from `detectSlam` when fire's charges needed the same
+   * question answered. Two consumers now read it, so it gets its own tests: the slam's own guards
+   * above exercise it only in combination with the commit key and the impact floor, and neither of
+   * those is fire's rule.
+   */
+  it('reports an arrival, and nothing else', () => {
+    // All four combinations of the pair, because the whole content of the function is which one is
+    // true: airborne-then-grounded and no other. Staying grounded is the case that matters most —
+    // that is a player walking around, and a refill on every grounded frame would make fire's charges
+    // the second Breath bar the design exists to avoid.
+    expect(touchedDown(falling(30), landed())).toBe(true)
+    expect(touchedDown(landed(), landed())).toBe(false)
+    expect(touchedDown(falling(30), falling(35))).toBe(false)
+    expect(touchedDown(landed(), falling(5))).toBe(false)
+  })
+
+  it('does not care how fast the arrival was, or whether the key was held', () => {
+    // The difference from `detectSlam`, stated as a test: a slam needs the commit key and a real fall
+    // speed, and an arrival is an arrival. A landing from a hover refills fire; it is not a slam.
+    expect(touchedDown(p({ grounded: false, velocity: new Vector3() }), landed())).toBe(true)
+    expect(detectSlam(p({ grounded: false, velocity: new Vector3() }), landed(), true, false, C))
+      .toBeNull()
+  })
+
+  it('is the predicate the slam reads, rather than a copy of it', () => {
+    // Held to the other consumer across the cases where the two must agree: wherever `touchedDown` is
+    // false, no slam can be reported however committed the fall. That is what stops the two drifting
+    // into different notions of contact — the failure this extraction exists to prevent, since a
+    // second copy would be invisible until one of them started counting a frame the other did not.
+    const cases: [PlayerState, PlayerState][] = [
+      [landed(), landed()],
+      [falling(60), falling(60)],
+      [landed(), falling(60)],
+      [p({ grounded: true, velocity: new Vector3(0, -80, 0) }), landed()],
+    ]
+    for (const [before, after] of cases) {
+      expect(touchedDown(before, after)).toBe(false)
+      expect(detectSlam(before, after, true, false, C)).toBeNull()
+    }
+    // And the positive control: the one arrangement where both are true.
+    expect(touchedDown(falling(60), landed())).toBe(true)
+    expect(detectSlam(falling(60), landed(), true, false, C)).not.toBeNull()
   })
 })
 

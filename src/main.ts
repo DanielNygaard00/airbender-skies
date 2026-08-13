@@ -28,7 +28,7 @@ import { traversalRatePerSecond, fellOutOfWorld } from './focus/sources'
 import { restingAvatarState, stepAvatarState, armFraction } from './focus/avatar-state'
 import { boostedCombatConfig, surgeWind, refillBreath } from './focus/effects'
 import { waveRadius } from './combat/pressure-wave'
-import { detectSlam, applyBounce } from './player/slam'
+import { detectSlam, applyBounce, touchedDown } from './player/slam'
 import { createShockwave } from './fx/shockwave'
 import { createEffectPool } from './fx/effect-pool'
 import { createGustCone } from './fx/gust-cone'
@@ -76,11 +76,17 @@ import { bearingFromCamera, markFor, stepHitMarks, type HitMark } from './fx/hit
 import { createGuide, guideModelFor } from './ui/guide/panel'
 import { pauseReason, pauseOverlayModel } from './core/pause'
 import { createPauseOverlay } from './ui/pause-overlay'
-import { canGust, canGrip, canStone, canVortex } from './combat/encounter'
+import { canBurst, canGust, canGrip, canStone, canVortex } from './combat/encounter'
 import { canIceLock, anyLiveWaterGripTarget } from './combat/water'
 import { anyLiveStoneThrowTarget, canRaisePillar, stoneShape, type Pillar } from './combat/earth'
 import { createEarthReach } from './fx/earth-reach'
 import { createPillarView, type PillarView } from './fx/pillar-view'
+import {
+  anyLiveFireBurstTarget, burstShape, canFireThrust, fireThrustImpulse, fullCharges, spendCharges,
+  stepFireCharges,
+} from './combat/fire'
+import { createFireBurst } from './fx/fire-burst'
+import { createFireThrust } from './fx/fire-thrust'
 import {
   DEFAULT_ELEMENT_CONFIG, radialModel, restingElements, stepElements,
   type Element, type ElementState,
@@ -198,7 +204,7 @@ interface LightVerbPreview {
  */
 const LIGHT_VERB_PREVIEWS: Record<
   Element,
-  (c: CombatConfig, fight: Encounter, p: PlayerState) => LightVerbPreview
+  (c: CombatConfig, fight: Encounter, p: PlayerState, charges: number) => LightVerbPreview
 > = {
   air: (c, fight, p) => ({
     hot: anyLiveGustTarget(p.position, p.forward, fight.enemies, c.gust, c.enemies),
@@ -214,6 +220,22 @@ const LIGHT_VERB_PREVIEWS: Record<
     hot: anyLiveStoneThrowTarget(p.position, p.forward, fight.enemies, c.earth),
     ready: canStone(fight, p.breath, c.earth),
     shape: stoneShape(c.earth),
+  }),
+  // Fire's entry, and the Record earning its keep at the merge: it failed to compile here the
+  // moment fire joined the union, which is exactly the fallback-free behaviour the comment above
+  // argues for. Without it the burst would have inherited air's preview and promised a
+  // 120-degree reach for the narrowest cone in the game.
+  //
+  // `ready` comes from `canBurst`, which needs the charge count as well as the cooldown -- and
+  // charges live in `main.ts` beside the player rather than on `PlayerState`. So the map takes a
+  // fourth argument that only this entry reads. A parameter rather than a module binding, because
+  // a preview reading mutable state from its own scope is a preview that can disagree with the
+  // frame it is describing, and the other three entries ignoring it is the honest shape: only
+  // fire's readiness turns on a resource that is not part of the player's own state.
+  fire: (c, fight, p, charges) => ({
+    hot: anyLiveFireBurstTarget(p.position, p.forward, fight.enemies, c.fire),
+    ready: canBurst(fight, charges, c.fire),
+    shape: burstShape(c.fire),
   }),
 }
 
@@ -284,6 +306,24 @@ function start(): void {
    * the player noticed. Air is where the game starts and where it restarts.
    */
   let elements: ElementState = restingElements()
+  /**
+   * Fire's charges, and the one piece of state in this file that is a resource rather than a system.
+   *
+   * Here rather than on `PlayerState` or on `Encounter`, and both refusals have the same source. The
+   * comment on `Encounter` says movement is a pure function of a struct a dozen tests build fixtures
+   * for and that combat has no business widening it; the comment on `EncounterInput.element` says a
+   * fight is something happening in the world rather than a property of the character. Fire's
+   * charges are spent by a move on each side of that line — a burst inside `stepEncounter`, a thrust
+   * on the player's velocity — and refilled by a landing neither of them owns, so they belong to
+   * neither struct. Focus sits here for the same reason and is read the same way: passed in, billed
+   * back.
+   *
+   * Not saved, like Focus, and for a reason closer to the element selection's: a save that restored
+   * two charges would be restoring the state of a flight that ended, and the refill condition — touch
+   * the ground — is satisfied by definition the moment the game loads a player standing on an island.
+   * So a fresh session starts full, which is also what a fresh landing gives.
+   */
+  let fireCharges = fullCharges(DEFAULT_COMBAT_CONFIG.fire)
   let avatarState = restingAvatarState()
   let avatarActive = false
   /** The beat between going down and standing back up, or null while playing. */
@@ -593,6 +633,12 @@ function start(): void {
       // there is ground to raise from, which this row deliberately does not track; see the field.
       stoneReady: canStone(encounter, player.breath, DEFAULT_COMBAT_CONFIG.earth),
       pillarReady: canRaisePillar(focus.value, player.breath, DEFAULT_COMBAT_CONFIG.earth),
+      // The same two predicates the burst and the thrust are actually resolved with, for the reason
+      // the water pair above are asked rather than restated. `canFireThrust` carries the posture
+      // rule as well as the charge one, so the row dims on the ground — which is where a panel that
+      // only checked the charges would be telling the player fire can move them.
+      burstReady: canBurst(encounter, fireCharges, DEFAULT_COMBAT_CONFIG.fire),
+      fireThrustReady: canFireThrust(fireCharges, player.mode),
       // The same call `update` resolves the press with, so the row cannot dim on a frame the
       // key would have worked — or offer itself on one where it would not.
       carryReady: carryIntent(player, payloads, carriedId) !== null,
@@ -750,6 +796,20 @@ function start(): void {
    * this function also does not reset — so re-picking it after every knockdown would be busywork
    * that punishes nothing. It also means the badge the player glances at is still true when the
    * black lifts, rather than having silently reverted to air behind it.
+   *
+   * **Fire's charges come back full, and they are the third case rather than a copy of either.**
+   * They are not wiped like Focus, because they were not earned: the only thing that earns a charge
+   * is touching the ground, and `safeRespawn` is putting the player down on solid ground at the last
+   * island they stood on. So a full hand is what the refill rule already says should happen, and
+   * writing it here rather than leaving it to `update`'s landing edge is not a duplicate of that
+   * rule — it is the one path the edge cannot see, because this branch returns before `update` ever
+   * diffs a step.
+   *
+   * The alternative was leaving them as the beat found them, and it is worse in the one situation
+   * that matters: going down to a net thrower with an empty hand would put the player back on their
+   * feet unable to answer the thing that put them there, and the down beat already costs the walk
+   * back and the whole Focus meter. It would also be inconsistent — the same knockdown while gliding
+   * would refill, since a respawn arrives grounded, and standing on the ground would not.
    */
   function recover(): void {
     player = safeRespawn(player, deps)
@@ -765,6 +825,10 @@ function start(): void {
     syncPayloadMeshes()
     encounter = { ...encounter, playerHealth: fullHealth(DEFAULT_COMBAT_CONFIG.player) }
     focus = emptyFocus(DEFAULT_FOCUS_CONFIG)
+    // Through the same function the landing edge uses, with `landed` true, rather than assigning
+    // `maxCharges` here: one authority on what "full" means, so a respawn and a touchdown cannot
+    // come to different answers.
+    fireCharges = stepFireCharges(fireCharges, true, DEFAULT_COMBAT_CONFIG.fire)
     avatarState = restingAvatarState()
     avatarActive = false
     // Every mark is a record of a hit on the life that just ended, and the player is being put
@@ -816,6 +880,26 @@ function start(): void {
    */
   function freeze(seconds: number): void {
     hitstop = triggerHitstop(hitstop, seconds * motion.hitstop)
+  }
+
+  /**
+   * Fire's pips, as the HUD wants them.
+   *
+   * A helper rather than the literal at each of the three `hudModelFor` calls, for the same reason
+   * `freeze` above is one: three copies is three places the `active` flag can be left out, and a pip
+   * row that never appeared while fire was selected would look exactly like a HUD that does not draw
+   * charges at all.
+   *
+   * `DEFAULT_COMBAT_CONFIG.fire` and not the Avatar-State-boosted `fightConfig`: that config is not
+   * in scope at two of the three call sites, and `boostedCombatConfig` does not touch fire at
+   * all — see the note where the burst is drawn.
+   */
+  function fireReadout() {
+    return {
+      charges: fireCharges,
+      max: DEFAULT_COMBAT_CONFIG.fire.maxCharges,
+      active: elements.active === 'fire',
+    }
   }
 
   function update(dt: number): void {
@@ -914,7 +998,12 @@ function start(): void {
         // already flashed on the frame before the beat, and a stall warning behind a
         // black screen is noise. Passed explicitly rather than left to default, because
         // the fade has to land in the third slot of three trailing optional numbers.
-      }, 0, 0, fadeOpacity(down, DEFAULT_DOWN_CONFIG)))
+        //
+        // The fire readout is passed here as well, even though the blackout paints over it: the pips
+        // are behind the fade like every other HUD element, and passing nothing would make the row
+        // vanish and then reappear as the black lifts — a flicker on the one frame the player is
+        // looking for what changed. `recover()` has already refilled by the time the fade is up.
+      }, 0, 0, fadeOpacity(down, DEFAULT_DOWN_CONFIG), fireReadout()))
       return
     }
 
@@ -1013,6 +1102,24 @@ function start(): void {
       beforeStep, player, state.tuck, willRespawn(beforeStep, ARCHIPELAGO.worldFloorY),
       DEFAULT_COMBAT_CONFIG.pressureWave,
     )
+
+    /**
+     * Whether the player arrived on the ground this step, which is fire's entire refill condition.
+     *
+     * Read across the step exactly as the slam is, and through `touchedDown` — the same predicate
+     * `detectSlam` uses — so there is one notion of touching down rather than two that can drift.
+     *
+     * Deliberately *not* guarded on `willRespawn` the way the slam is. That guard exists because a
+     * respawn lands the player from an arbitrarily fast fall and dying must not be the hardest slam
+     * in the game; for fire the opposite is true, because a respawn genuinely is being set down on
+     * solid ground and `recover()` refills for the same reason on the down-beat path. So a fall out
+     * of the world hands the charges back, and that is the intended answer rather than a leak: the
+     * fall has already cost the trip back and, through `crashDrain`, half the Focus bar.
+     *
+     * The refill itself is applied at the end of this function rather than here, after the thrust has
+     * had its chance to spend — see the note there.
+     */
+    const landed = touchedDown(beforeStep, player)
 
     // A dash fired iff the chain advanced this frame. Read across the step, the same way
     // the slam is, so no movement code has to report anything. The origin is where the
@@ -1181,9 +1288,69 @@ function start(): void {
     // cannot diverge if a future boost ever touches a range or a half angle — the same reason
     // chargeTell reads it. Today's Avatar State does not: `boostedCombatConfig`
     // (`src/focus/effects.ts`) only scales damage, knockback and cooldown.
-    const preview = LIGHT_VERB_PREVIEWS[elements.active](fightConfig, encounter, player)
+    const preview = LIGHT_VERB_PREVIEWS[elements.active](
+      fightConfig, encounter, player, fireCharges,
+    )
     aimHot = preview.hot
     aimTell.update(player.position, player.forward, aimHot, preview.ready, preview.shape)
+    // The gust branch also passes `fightConfig.enemies`, because a heavy's armour turns that move
+    // away entirely: the tell stays cold on the heavy and warm on the spear beside it, which is
+    // the armour's first and cheapest tell — the player learns the immunity without spending the
+    // move. The water branch has no equivalent argument to pass, because nothing in the armour
+    // model covers a Water Grip yet. See the note in `water.ts` on what that leaves open.
+    // Fire is the third branch, added as a case rather than as a rewrite. The water cycle's own
+    // design note says these three per-element ternaries "will want to become a small lookup at the
+    // third element", and that is still true — it is deliberately not done here, because earth is
+    // being built on a parallel branch against these same three expressions and a restructure would
+    // turn three additive merges into three conflicts. The lookup is owed once both elements have
+    // landed, and this comment is the reminder.
+    //
+    // The fire branch passes no `enemies` config, like the water one, because nothing in the armour
+    // model turns a burst away *entirely* — the heavy's row is 0.5 damage, so a burst on plate is a
+    // real hit at half strength and the tell should stay warm for it. The gust's branch passes the
+    // configs precisely because that move is refused outright by plate and the cold reticle is what
+    // teaches the immunity for free. If a kind is ever given `burst: 0 and 0`, this branch has to
+    // learn about it or the tell will promise a hit that clangs.
+    aimHot = elements.active === 'water'
+      ? anyLiveWaterGripTarget(
+        player.position, player.forward, encounter.enemies, fightConfig.water,
+      )
+      : elements.active === 'fire'
+        ? anyLiveFireBurstTarget(
+          player.position, player.forward, encounter.enemies, fightConfig.fire,
+        )
+        : anyLiveGustTarget(
+          player.position, player.forward, encounter.enemies, fightConfig.gust,
+          fightConfig.enemies,
+        )
+
+    // fightConfig, not the unboosted default, so the preview and the fired cone
+    // (`createGustCone` below, also fed `fightConfig.gust`) read one source and cannot
+    // diverge if a future boost ever does touch the gust's range or half angle — the same
+    // reason chargeTell reads it. Today's Avatar State does not: `boostedCombatConfig`
+    // (`src/focus/effects.ts`) only scales damage, knockback and cooldown.
+    // The shape and the readiness of whichever light verb F would throw, so the preview is the
+    // reach the player has. `gripShape` is the same function `inWaterGrip` builds its test from,
+    // so the previewed cone and the cone that bites cannot diverge — the same relationship the
+    // gust half of this call has always had.
+    const water = elements.active === 'water'
+    const fire = elements.active === 'fire'
+    aimTell.update(
+      player.position,
+      player.forward,
+      aimHot,
+      // `canBurst` reads the charges as well as the cooldown, so the preview goes cold with an empty
+      // hand — which is the whole readability job of a resource that only a landing refills. Asked
+      // through the same predicate the fight refuses the press with, like the other two.
+      water
+        ? canGrip(encounter, player.breath, fightConfig.water)
+        : fire
+          ? canBurst(encounter, fireCharges, fightConfig.fire)
+          : canGust(encounter),
+      // `burstShape` is the same function `inFireBurst` builds its test from, so the previewed cone
+      // and the cone that bites cannot diverge — the relationship both other branches already have.
+      water ? gripShape(fightConfig.water) : fire ? burstShape(fightConfig.fire) : fightConfig.gust,
+    )
 
     // Asked against the pre-step encounter, so the visual agrees with what stepEncounter
     // will actually do on this same frame rather than a frame late. Gated on the element as well,
@@ -1235,6 +1402,10 @@ function start(): void {
       // thrust or a dodge spent on this frame is already deducted and cannot be double-spent.
       focusAvailable: focus.value,
       breathAvailable: player.breath,
+      // The live count, pre-step in exactly the sense the two meters above are: nothing has spent a
+      // charge yet this frame, because the only other spender is the thrust below and it deliberately
+      // runs after this call. See the note there.
+      fireCharges,
     }, dt, fightConfig, {
       ground: world.terrain, worldFloorY: ARCHIPELAGO.worldFloorY,
       // The same ground-adjusted array startEncounter was built from, never raw
@@ -1308,6 +1479,92 @@ function start(): void {
     // right burst kind and not a borrowed one — it means "this did nothing to anybody", which is
     // exactly what an arrow stopping on a rock is.
     for (const block of fight.blockedThisFrame) effects.add(createImpact(block.at, 'deflect'))
+
+    /**
+     * Fire's charge bill, paid the frame the burst fired, and paid *before* the thrust is offered.
+     *
+     * The ordering is the whole reason this block sits here rather than beside the breath deduction
+     * above. F and R are different keys and can be pressed on the same frame, and both verbs spend
+     * from the same three charges — so with one charge left, a frame that pressed both would fire a
+     * burst and a thrust for one charge unless the burst's bill is settled first. Deducting here
+     * means the fight gets the last charge and the thrust below is refused, which is the right
+     * precedence for the frame the player asked for both: the burst is the press that has already
+     * happened by the time this line runs.
+     *
+     * Deducted from what the fight reported rather than by re-asking whether a burst went out, for
+     * the reason the Air Wall's breath is: `stepEncounter` already made that decision against
+     * `canBurst`, and a second decision in this file — which has no tests — is a second decision that
+     * can disagree.
+     */
+    if (fight.chargesSpent > 0) fireCharges = spendCharges(fireCharges, fight.chargesSpent)
+
+    // The burst's cone, drawn from the fight's own report rather than from the press, exactly as the
+    // two water reaches above are: a burst can be refused for want of a charge or for its cooldown,
+    // and asking the fight what fired is what keeps a declined press from drawing a flame and playing
+    // a voice for a move that never happened.
+    //
+    // `fightConfig.fire` rather than the unboosted default, for the defensive reason the vortex and
+    // the water reaches read it: `boostedCombatConfig` does not touch fire at all today — the Avatar
+    // State scales the gust's damage, knockback and cooldown and nothing else — so this is the very
+    // same object. Reading it here is what makes the drawn cone follow on its own if a future boost
+    // ever does reach fire's reach or its half angle.
+    if (fight.burstFired) {
+      effects.add(createFireBurst(player.position, player.forward, fightConfig.fire))
+      combatAudio.fireBurst()
+    }
+
+    /**
+     * The Fire Thrust: fire's heavy verb, and the one bending move in the game that `stepEncounter`
+     * does not resolve.
+     *
+     * It is here because it is a movement move. The fight owns enemies, arrows and the player's
+     * health pool and reports everything else for the caller to apply — `airWallBreathSpent`,
+     * `tangleSeconds`, `focusSpent` — and a velocity impulse on the glider is further from its
+     * business than any of those. `canFireThrust` and `fireThrustImpulse` own the two rules, so what
+     * is left in this untested file is the assignment.
+     *
+     * `player.mode` is the post-step posture, which is what makes the ground refusal correct on the
+     * frame it matters most: a player who touches down this very frame is in ground mode by now, so
+     * the press is declined and the charges are refilled below rather than one being spent on a shove
+     * the ground would have eaten anyway.
+     *
+     * One frame late by construction, like the net's refusal a few lines down, and fine for the same
+     * reason: `controllerStep` has already integrated this frame, so the impulse lands on the next
+     * one. Sixteen milliseconds against a move whose window is "before the ground arrives", which the
+     * `LANDING_PROBE` of 2.5 m already makes generous. Resolving it before the fight instead would
+     * mean the thrust could take the last charge out from under a burst pressed on the same frame,
+     * and the whole ordering argument above would run the other way.
+     *
+     * `state.vortexReleased` is the same edge the fight reads for the other two heavy verbs, and the
+     * element test is the same value `stepEncounter` was handed as `input.element` on this frame, so
+     * one release can never resolve as two elements' heavy moves.
+     */
+    if (state.vortexReleased && elements.active === 'fire'
+      && canFireThrust(fireCharges, player.mode)) {
+      const impulse = fireThrustImpulse(player.forward, fightConfig.fire)
+      player = { ...player, velocity: player.velocity.clone().add(impulse) }
+      fireCharges = spendCharges(fireCharges)
+      // Drawn at the pre-impulse position, which is where the fire actually left the wing, and aimed
+      // from the impulse itself rather than from the heading — see `createFireThrust`.
+      effects.add(createFireThrust(player.position, impulse))
+      combatAudio.fireThrust()
+    }
+
+    /**
+     * The refill, last of fire's four touch points in this function and deliberately after the spend.
+     *
+     * A frame that both spent a charge and landed ends full, which is the rule read literally:
+     * touching down refills, and it does not matter what happened earlier in the same 16 ms. The
+     * alternative order would let a burst thrown on the landing frame be charged for, which is the
+     * same "a press the game declines must not be a press the player is charged for" instinct pointed
+     * the other way — here the press was *not* declined, so what is being said instead is that the
+     * landing is worth a full hand however the last one was spent.
+     *
+     * `stepFireCharges` takes no `dt`, and that is the design rather than an omission: a refill that
+     * could be expressed as a rate would be a second Breath bar, which is the one thing fire must not
+     * be. See its own comment.
+     */
+    fireCharges = stepFireCharges(fireCharges, landed, DEFAULT_COMBAT_CONFIG.fire)
     // A restored soldier reuses its id, so its interpolator still holds wherever the
     // body fell. Left alone the view would blend from there to the spawn point --
     // sliding across the map, or climbing up out of the void for one that fell off the
@@ -1398,6 +1655,9 @@ function start(): void {
       staffHits: fight.staffHitThisFrame,
       stoneHits: fight.stoneHitThisFrame,
       redirectHits: fight.redirectHitsThisFrame,
+      // Fire's connects earn a burst on the same terms as everything else, and pay no Focus below —
+      // the two are separate questions and `impactTargets` only answers the first.
+      fireHits: fight.burstHitThisFrame,
       downed: fight.downedThisFrame,
       deflected: fight.deflectedThisFrame,
     })
@@ -1574,7 +1834,9 @@ function start(): void {
       focus: focus.max > 0 ? focus.value / focus.max : 0,
       avatarCharge: armFraction(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
       avatarActive,
-    }, shownHurtFlash, stall))
+      // The fade is a literal 0 rather than omitted, because the fire readout has to land in the
+      // slot after it. Only the down beat's own call above draws a fade, and this is not that call.
+    }, shownHurtFlash, stall, 0, fireReadout()))
 
     playerPositionLerp.record(player.position)
     playerForwardLerp.record(player.forward)
@@ -1890,7 +2152,11 @@ function start(): void {
     focus: focus.max > 0 ? focus.value / focus.max : 0,
     avatarCharge: armFraction(avatarState, DEFAULT_AVATAR_STATE_CONFIG),
     avatarActive,
-  }, hurtFlash, stallSeverity(player, DEFAULT_FLIGHT_CONFIG)))
+    // Primed with a full hand, for the reason this whole block exists: the paused front-door card can
+    // be the first frame and never calls `update()`, so without the readout here the pip row would be
+    // blank on the one screen a new player looks at longest — and fire is selectable from that first
+    // frame. `0` for the fade, as above, so the readout lands in its own slot.
+  }, hurtFlash, stallSeverity(player, DEFAULT_FLIGHT_CONFIG), 0, fireReadout()))
   // Primed with the HUD, and for exactly the reason the HUD is: the paused branch of `frame()`
   // can be the very first frame and can hold indefinitely behind the front-door card, and it
   // never calls `update()`. Without this the badge's dot would have no colour and its label no

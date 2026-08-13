@@ -172,6 +172,37 @@ export const COMBAT_LEVELS = {
    * one competes with a fight going on around it.
    */
   pillarBlock: 0.09,
+   /**
+   * A Fire Burst: the loudest of the player's *damage* voices, and pinned between three neighbours.
+   *
+   * Above the gust's 0.22 and the staff finisher's 0.26, because those are a shove and a swing and
+   * this is the one move in the kit that hurts one soldier properly — the mix has to rank them the
+   * way the damage figures do.
+   *
+   * Below `down`'s 0.36, deliberately. A burst is frequently the press that produces a down, and the
+   * two voices land on the same frame when it does; the *event* has to be the louder of the pair, or
+   * the confirmation the player is listening for is buried under the thing that caused it.
+   *
+   * Below the Ice Lock's 0.42, which keeps its own claim: the freeze is the most expensive press in
+   * the game because it spends a third of the Focus bar, and fire's price is a charge that a landing
+   * gives back. Comfortably under `hurt`'s 0.47 by the 1.1 margin `mapping.test.ts` enforces against
+   * every voice in this record — 0.34 × 1.1 = 0.374 — so a hit taken stays the loudest thing in the
+   * fight, which is the rule a new voice is most likely to break by accident.
+   */
+  fireBurst: 0.34,
+  /**
+   * A Fire Thrust: the only voice here for a move that hits nobody.
+   *
+   * Louder than the grip's 0.2, and the reason is where it is heard rather than what it costs. Every
+   * other player voice in this record is heard on foot or at fighting range; this one plays in the
+   * glider, over `createWindAudio`, whose own level rises with airspeed and is at full strength by
+   * the 55 m/s reference. A confirmation that a scarce charge just went cannot be the thing the wind
+   * drowns out.
+   *
+   * Still below the burst's 0.34, because spending a charge to move is a smaller event than spending
+   * one to hurt someone, and well below `hurt`.
+   */
+  fireThrust: 0.28,
   /**
    * The element switch: the quietest voice in the game, by a wide margin.
    *

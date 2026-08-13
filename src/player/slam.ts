@@ -19,6 +19,30 @@ export interface Slam {
   strength: number
 }
 
+/**
+ * Whether the player arrived on the ground on this step: airborne before, grounded after.
+ *
+ * Extracted from `detectSlam` below when fire's charges needed the same edge, and shared rather
+ * than restated because a second notion of "touched down" is exactly the kind of duplicate that
+ * drifts silently — one of the two would eventually start counting a respawn, or a frame of
+ * ground-snap jitter, and nothing about the other would look wrong. `willRespawn` in
+ * `controller.ts` is exported for the same reason.
+ *
+ * It covers every route onto the ground deliberately, because all of them are arrivals: the glider
+ * landing branch, `groundStep`'s own snap, and a respawn — which `safeRespawn` hands back with
+ * `grounded: true` from whatever fall provoked it. `detectSlam` refuses the respawn case
+ * separately, with its own `respawned` guard and its own reason (dying would otherwise be the
+ * hardest slam in the game); fire's refill wants it, because a player put back on solid ground has
+ * touched down.
+ *
+ * Reads `grounded` and nothing else. That field is documented on `Enemy` and behaves the same way
+ * here: the snap decides it, and every consumer that re-derived it from a height comparison would
+ * drift from the snap.
+ */
+export function touchedDown(before: PlayerState, after: PlayerState): boolean {
+  return !before.grounded && after.grounded
+}
+
 export function detectSlam(
   before: PlayerState,
   after: PlayerState,
@@ -31,8 +55,9 @@ export function detectSlam(
   if (respawned) return null
   if (!tuckHeld) return null
   // Contact has to have happened on this frame, or walking around with the key held
-  // would slam continuously.
-  if (before.grounded || !after.grounded) return null
+  // would slam continuously. Through `touchedDown` rather than inline, so the fire charges'
+  // refill and this cannot disagree about when the player arrived.
+  if (!touchedDown(before, after)) return null
 
   // Read from `before`: landing zeroes the vertical velocity, so `after` no longer
   // knows how hard the contact was.

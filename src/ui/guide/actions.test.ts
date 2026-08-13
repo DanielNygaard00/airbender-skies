@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { ELEMENT_ORDER } from '../../elements/element'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { Vector3 } from 'three'
@@ -35,6 +36,8 @@ const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({
   iceLockReady: true,
   stoneReady: true,
   pillarReady: true,
+  burstReady: true,
+  fireThrustReady: true,
   carryReady: true,
   ...over,
 })
@@ -428,11 +431,71 @@ describe('the bending keys follow the selected element', () => {
     expect(can('Stone Pillar', { element: 'water', pillarReady: true })).toBe(false)
   })
 
+  it('offers the fire moves on fire and strikes through everything else', () => {
+    // The third element on the same two keys. All six rows at once, because an implementation where
+    // every row was always available would pass each half individually — and that is exactly the bug,
+    // since the panel would then list six moves for two keys with no indication which pair is live.
+    const fire = { element: 'fire' as const, player: p({ mode: 'glider', grounded: false }) }
+    expect(can('Fire Burst', fire)).toBe(true)
+    expect(can('Fire Thrust', fire)).toBe(true)
+    expect(can('Gust', fire)).toBe(false)
+    expect(can('Vortex', fire)).toBe(false)
+    expect(can('Water Grip', fire)).toBe(false)
+    expect(can('Ice Lock', fire)).toBe(false)
+  })
+
+  it('strikes through the fire moves whenever another element is selected', () => {
+    // The mirror, and the flags are held true in both cases so a row reading the wrong one is caught
+    // rather than passing.
+    for (const element of ['air', 'water'] as const) {
+      expect(can('Fire Burst', { element, burstReady: true })).toBe(false)
+      expect(can('Fire Thrust', {
+        element, fireThrustReady: true, player: p({ mode: 'glider', grounded: false }),
+      })).toBe(false)
+    }
+  })
+
+  it('follows the burst readiness it is handed, on fire', () => {
+    // Every other flag is held true in the false case, so a row that read the wrong one — the gust's
+    // cooldown copied onto the burst entry, say — is caught rather than passing.
+    expect(can('Fire Burst', { element: 'fire', burstReady: true })).toBe(true)
+    expect(can('Fire Burst', {
+      element: 'fire', burstReady: false, gustReady: true, vortexReady: true, gripReady: true,
+      iceLockReady: true, fireThrustReady: true, slipstreamReady: true, avatarStateReady: true,
+    })).toBe(false)
+  })
+
+  it('follows the thrust readiness it is handed, which is what dims it on the ground', () => {
+    // The row has to dim exactly when `canFireThrust` refuses, and the posture half of that rule is
+    // the owner's ruling that fire does not move the player on the ground. The panel is handed the
+    // answer rather than deriving it, so what is pinned here is that it uses the answer.
+    const airborne = p({ mode: 'glider', grounded: false })
+    expect(can('Fire Thrust', {
+      element: 'fire', fireThrustReady: true, player: airborne,
+    })).toBe(true)
+    expect(can('Fire Thrust', {
+      element: 'fire', fireThrustReady: false, player: airborne, burstReady: true,
+      gustReady: true, vortexReady: true, gripReady: true, iceLockReady: true,
+    })).toBe(false)
+  })
+
+  it('lists the thrust in the glider column only, unlike every other bending row', () => {
+    // The one asymmetry in the catalogue, and it is the rule rather than an oversight: fire does not
+    // move the player on the ground, so a row in the ground column would be offering something that
+    // is refused there. Its five siblings are 'both'.
+    expect(action('Fire Thrust').mode).toBe('glider')
+    for (const name of ['Gust', 'Vortex', 'Water Grip', 'Ice Lock', 'Fire Burst']) {
+      expect(action(name).mode, name).toBe('both')
+    }
+  })
+
   it('always offers the radial and the direct binds', () => {
     // Switching is free, so these two can never be unavailable — there is no cooldown, no cost and
     // no posture requirement. Checked in every stance, since every other row varies by one or the
     // other.
-    for (const element of ['air', 'water', 'earth'] as const) {
+    // Every element, derived from `ELEMENT_ORDER` rather than listed, so a fifth is covered the
+    // day it is appended instead of the day somebody remembers this loop.
+    for (const element of ELEMENT_ORDER) {
       expect(can('Element radial', { element })).toBe(true)
       expect(can('Select element directly', { element })).toBe(true)
       expect(can('Element radial', {

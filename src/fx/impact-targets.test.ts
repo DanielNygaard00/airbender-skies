@@ -3,8 +3,8 @@ import { impactTargets, type ImpactLists } from './impact-targets'
 import { impactShape } from './impact'
 
 const lists = (over: Partial<ImpactLists> = {}): ImpactLists => ({
-  hits: [], slamHits: [], staffHits: [], stoneHits: [], redirectHits: [], downed: [],
-  deflected: [], ...over,
+  hits: [], slamHits: [], staffHits: [], stoneHits: [], fireHits: [], redirectHits: [],
+  downed: [], deflected: [], ...over,
 })
 
 describe('the union of everything that connected', () => {
@@ -14,6 +14,13 @@ describe('the union of everything that connected', () => {
 
   it('sparks a slam connect', () => {
     expect(impactTargets(lists({ slamHits: ['a'] })).hits).toEqual(['a'])
+  })
+
+  it('sparks a Fire Burst connect', () => {
+    // The same regression the staff caused, guarded ahead of time for the element most likely to
+    // produce one: a burst is the biggest aimed hit in the game, and a list that never reached the
+    // union would leave it the one attack with no visible impact at all.
+    expect(impactTargets(lists({ fireHits: ['a'] })).hits).toEqual(['a'])
   })
 
   it('sparks a staff connect', () => {

@@ -244,3 +244,63 @@ describe('the wings-tangled tell', () => {
     expect(STYLE).toContain('opacity: 0')
   })
 })
+
+describe('fire\'s charge pips', () => {
+  const fire = (charges: number, max = 3, active = true) => ({ charges, max, active })
+
+  it('reports a count and a maximum, not a fraction', () => {
+    // The owner's ruling made structural: a fraction here would let a future edit draw a fourth bar
+    // with nothing objecting, and the whole argument for three discrete charges is that the player
+    // reads a number at a glance rather than watching a level.
+    const model = hudModelFor(p(), undefined, undefined, 0, 0, 0, fire(2))
+    expect(model.fireCharges).toBe(2)
+    expect(model.maxFireCharges).toBe(3)
+  })
+
+  it('shows the row while fire is held, even at a full hand', () => {
+    // What the player needs before they press anything: how many charges the two bending keys have to
+    // spend. The full-hand case is the one a "hide anything with nothing to say" rule would get wrong.
+    expect(hudModelFor(p(), undefined, undefined, 0, 0, 0, fire(3)).showFireCharges).toBe(true)
+  })
+
+  it('shows the row while another element is held, if a charge is missing', () => {
+    // The second clause, and it is the same shape `showBreath` uses. A player who spent two charges
+    // and flicked to air still needs to know fire is nearly out, because what gives them back is a
+    // landing rather than a wait — which is a decision about where to fly, not about which key to
+    // press.
+    const spent = hudModelFor(p(), undefined, undefined, 0, 0, 0, fire(1, 3, false))
+    expect(spent.showFireCharges).toBe(true)
+    const full = hudModelFor(p(), undefined, undefined, 0, 0, 0, fire(3, 3, false))
+    expect(full.showFireCharges).toBe(false)
+  })
+
+  it('draws nothing at all when no readout is passed', () => {
+    // The HUD has to stay usable by a caller with no element system, which is what every other
+    // optional argument here buys. Zero pips rather than three empty sockets.
+    const model = hudModelFor(p())
+    expect(model.showFireCharges).toBe(false)
+    expect(model.maxFireCharges).toBe(0)
+    expect(model.fireCharges).toBe(0)
+  })
+
+  it('floors a fractional or corrupt count instead of drawing a fraction of a pip', () => {
+    // The view loops over these to build DOM nodes. Nothing in the game can produce either — every
+    // gate in `fire.ts` refuses at zero and the count only ever moves by whole charges — but a
+    // negative or inverted pair would draw an empty row while the resource was live, which reads as a
+    // HUD that has stopped reporting rather than as a bug.
+    expect(hudModelFor(p(), undefined, undefined, 0, 0, 0, fire(1.7)).fireCharges).toBe(1)
+    expect(hudModelFor(p(), undefined, undefined, 0, 0, 0, fire(-2)).fireCharges).toBe(0)
+    expect(hudModelFor(p(), undefined, undefined, 0, 0, 0, fire(Number.NaN)).fireCharges).toBe(0)
+    // A count above the maximum is clamped to it rather than drawing a pip that does not exist.
+    expect(hudModelFor(p(), undefined, undefined, 0, 0, 0, fire(9)).fireCharges).toBe(3)
+  })
+
+  it('has rules to draw a spent pip differently from a held one', () => {
+    // The row is built from the model's own max and the state is carried by one class, so a missing
+    // rule would leave three identical dots that never change — a resource with a widget and no
+    // reading. `main.ts` and the view function have no tests, so the pairing is checked here, the
+    // same way the tangled tell's is.
+    expect(STYLE).toContain('.hud-fire-pip')
+    expect(STYLE).toContain('.hud-fire-pip.is-spent')
+  })
+})

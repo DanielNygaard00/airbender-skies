@@ -92,6 +92,26 @@ export const COMBOS: readonly Combo[] = [
       + 'one continuous action.',
   },
   {
+    // The other pair the borrowed elements make: water buys the time, fire spends it. Listed after
+    // the water combos because it only makes sense once the freeze does.
+    name: 'Lock them down, then burn one out of the group',
+    keys: ['2', 'R', '4', 'F'],
+    detail: 'Freeze the rank in front of you on water, switch to fire, and burn the one you most '
+      + 'want gone while none of them can answer. Water does no damage and fire does almost nothing '
+      + 'else, so neither element finishes a fight on its own — this is the sequence where that '
+      + 'stops mattering. You have three charges, so pick the soldier that is hurting you most: the '
+      + 'net thrower goes down to a single burst.',
+  },
+  {
+    name: 'Spend a charge to save the flight',
+    keys: ['3', 'R', 'Space'],
+    detail: 'Out of breath, low, and still over water: hold fire and press R for one shove up and '
+      + 'forward. It costs a charge and never touches your breath, and one is enough to pull a '
+      + 'stalled wing back into flying — but you only have three, they are the same three the burst '
+      + 'spends, and nothing gives them back until you are standing on something. Which is the point: '
+      + 'it buys you a landing, not a longer flight.',
+  },
+  {
     name: 'Ride a wall on the scooter',
     keys: ['Z', 'Shift', 'W'],
     detail: 'Build a charge on the scooter, then drive it square into a near-vertical face at ' +
@@ -167,6 +187,19 @@ export const METERS: readonly MeterNote[] = [
       'so the whole trade lives on this one bar and nowhere else.',
   },
   {
+    // Fourth, and the only entry here that is not a bar. It is in this list rather than in
+    // SCREEN_MARKS because it lives in the same bottom-left stack as the meters and answers the same
+    // question they do — how much of something have I got — where those two are directions around
+    // the crosshair.
+    name: 'Fire charges',
+    detail: 'Three orange pips above the bars, and they only show while you are holding fire or '
+      + 'have spent one. Not a meter, on purpose: it is a count, and a count is something you '
+      + 'read in a glance rather than watch. Both fire moves spend one pip, and nothing refills '
+      + 'them except touching the ground — not time, and not standing still in the air. So the '
+      + 'question fire asks is always the same one: is this worth a charge, given that I may need '
+      + 'the last one to get down safely?',
+  },
+  {
     name: 'Health',
     detail: 'The orange bar, and it only appears once you have lost some. Small on ' +
       'purpose, and it regenerates slowly once you are out of combat. You are never ' +
@@ -214,25 +247,39 @@ export const SCREEN_MARKS: readonly MeterNote[] = [
  * with two places to keep it true. What a player reading this section needs is the reason to
  * switch at all.
  *
+ * **Only air names an absolute direction, and that is a rule rather than an inconsistency.** Every
+ * other element's flick direction changes when the element count does — water was straight down at
+ * two elements, sits at 120 degrees at three, and will be straight right at four — so a legend that
+ * named one would go stale the day earth lands, silently and in the one place a player goes to look
+ * it up. What survives an append is the number bind and the position clockwise from air, because
+ * `ELEMENT_ORDER` is append-only and air is always slot 0. `reference.test.ts` derives each entry's
+ * expected digit from that array, so a legend left behind by a reorder reddens instead of lying.
+ *
  * The availability rule is expressible here and today has nothing to say, which is deliberate.
  * When acts exist and `isElementAvailable` starts refusing, an unavailable element is already
  * struck through in the radial and its rows are already struck through in the columns above; this
  * legend is where the sentence explaining *why* would go.
  */
 export const ELEMENT_LEGEND: Record<Element, string> = {
-  air: 'Always yours, and the widest and fastest of the three. It moves people — a gust clears '
-    + 'space and a Vortex gathers a group — and everything else in the kit is built on top of it. '
-    + 'Straight up on the radial, or 1.',
+  air: 'Always yours, and the element everything else is built on top of. Wide, fast, and it '
+    + 'moves people — a gust clears space and a Vortex gathers a group. It barely hurts anyone, '
+    + 'which is the trade. Straight up on the radial, or 1.',
   water: 'Control. It does no damage whatsoever: it pulls, it holds, and it freezes, and what it '
     + 'buys you is time and position for something else to work in. Its reach is narrow and it does '
     + 'not extend nearly as far above or below you as air does, so it is a close-quarters answer '
-    + 'rather than something to throw from a hover. Down and to the right on the radial, or 2.',
+    + 'rather than something to throw from a hover. One step clockwise from air, or 2.',
   earth: 'Damage, and the only cover. A thrown rock is the hardest single hit you have outside a '
     + 'dive, and the only thing that reliably breaks armour — the soldier in plate ignores a gust '
     + 'and shrugs off the staff, and earth is the answer to it. A raised pillar is the one solid '
     + 'object you can put between yourself and an archer. Both are slow and both commit you: the '
-    + 'throw has the longest cooldown of any quick move and the pillar spends Focus. Down and to '
-    + 'the left on the radial, or 3.',
+    + 'throw has the longest cooldown of any quick move and the pillar spends Focus. Two steps '
+    + 'clockwise from air, or 3.',
+  fire: 'The best aimed damage in the kit — one burst hurts one soldier more than anything else '
+    + 'you can point at them, though it will not break plate the way earth does. You get three '
+    + 'charges, both fire moves spend one, and they only come back when you touch the ground: fire '
+    + 'is a thing you spend, not a thing you hold. The narrowest reach in the game and the '
+    + 'shortest above and below you, so you have to be close and level with what you are burning. '
+    + 'Three steps clockwise from air, or 4.',
 }
 
 /**

@@ -38,49 +38,48 @@
 /**
  * The elements Aang can bend.
  *
- * Air is the baseline and is always available; water was the first borrowed element and earth
- * is the second. Fire joins this union, and every `Record<Element, ...>` in the codebase then
- * fails to compile until it is given a wedge label, a guide entry and a HUD colour — which is
- * the point of typing them as a Record rather than as a lookup with a fallback. See the
- * contract section of `docs/superpowers/specs/2026-08-11-water-element-design.md`.
+ * Air is the baseline and is always available; water was the first borrowed element, earth the
+ * second and fire the third. Appending to this union makes every `Record<Element, ...>` in the
+ * codebase fail to compile until the new element is given a wedge label, a guide entry and a HUD
+ * colour — which is the point of typing them as Records rather than as lookups with fallbacks.
+ * See the contract section of `docs/superpowers/specs/2026-08-11-water-element-design.md`, and the
+ * earth and fire notes dated 2026-08-12 for the two that followed it.
  */
-export type Element = 'air' | 'water' | 'earth'
+export type Element = 'air' | 'water' | 'earth' | 'fire'
 
 /**
  * The radial's order, clockwise from straight up.
  *
  * Air first because it is the baseline: the element you return to is the one under a straight
- * flick upward, which is the least deliberate direction the wrist can produce. Adding fire
+ * flick upward, which is the least deliberate direction the wrist can produce. Adding an element
  * means appending to this array — the wedge geometry below divides the circle by `length`, so
  * nothing else has to change, and the new element lands on the direction the wrist finds next.
  *
- * **Appending earth moved water, and that is worth stating because it is the one cost of the
- * "never reorder" rule.** With two entries the sectors were half-circles and water sat straight
- * down; with three they are 120 degrees each, so water is now down and to the right and earth
- * is down and to the left. Water's flick changed once, in exchange for never changing again —
- * the alternative was reordering to keep water where it was, which would move air, the one slot
- * that must never move. Anything that *described* the old directions had to be corrected in the
- * same change: `ELEMENT_LEGEND`, the guide's radial row and the README all name them, and
- * `reference.test.ts` pins each element's direction so a fourth element cannot silently make
- * three of those descriptions wrong the way appending earth made one wrong.
+ * **What appending costs, now that it has been done twice.** Every element except air changes
+ * direction when the count changes: water was straight down at two entries, sat at 120 degrees at
+ * three, and is straight right at four. That is why nothing in the guide or the README names an
+ * absolute direction for anything but air — the number bind and the position clockwise from air
+ * are the two facts that survive an append, so those are what the written copy uses.
+ * `reference.test.ts` derives each legend's expected digit from this array for the same reason: a
+ * legend that still claims an old slot reddens rather than quietly lying.
  *
- * The three-way split is also the geometry the dead zone was waiting for: with two elements
- * every direction that was not straight up or down sat within a hair of a sector boundary, and
- * with three the boundaries fall on diagonals nobody flicks along by accident.
+ * At four entries the sectors are 90 degrees and the boundaries fall on the diagonals, which is a
+ * real improvement on the two-element case that made `deadZonePixels` necessary (see
+ * `radialHighlight`): no direction sits a hair from a boundary any more. The dead zone stays
+ * regardless, because changing one's mind by letting go is worth having at any count.
  */
-export const ELEMENT_ORDER: readonly Element[] = ['air', 'water', 'earth']
+export const ELEMENT_ORDER: readonly Element[] = ['air', 'water', 'earth', 'fire']
 
 export interface ElementConfig {
   /**
    * Pointer travel needed before the radial reads a direction at all, in pixels.
    *
    * Below it the radial highlights nothing and a release keeps the element already selected.
-   * It mattered most with two wedges, where every direction that was not straight up or
-   * straight down sat within a hair of a sector boundary, so a radial that committed on the
-   * first pixel of movement would reassign the element on a twitch. Three wedges put the
-   * boundaries on diagonals and make that far less likely, and the dead zone stays for the
-   * independent reason it was worth having anyway: a player who opens the radial and changes
-   * their mind must be able to close it by letting go.
+   * It mattered most at two wedges, where every direction that was not straight up or straight
+   * down sat within a hair of a sector boundary, so a radial that committed on the first pixel of
+   * movement would reassign the element on a twitch. Wider sectors reduce that hazard without
+   * removing the reason for the zone: a player who opens the radial and changes their mind must be
+   * able to close it by letting go, at any element count.
    *
    * 24 pixels rather than a fraction of the viewport: this is a wrist movement, and a wrist
    * movement is measured in mouse counts, not in how large the monitor is. It is also well
@@ -163,6 +162,20 @@ export function restingElements(): ElementState {
  * cycle that adds the hazard surface, because the two share a world query — "is there water
  * within reach" — and building that query for a rule that only restricts the player, with no
  * rule that rewards them for standing near a source, is the wrong half to build first.
+ *
+ * **Section 5 puts fire in Act 3, one act later still, and fire ships unlocked for exactly the
+ * same reason water does.** There is no act structure to gate it with, and a fire that were
+ * refused would be an element the player has a key for, a wedge for, a badge colour for and three
+ * HUD pips for, that does nothing — which is worse than one arriving early. When acts do exist
+ * this function is where fire's Act 3 gate goes as well, and it needs no more code than water's:
+ * the radial dims its wedge, the guide strikes through its two rows, and `stepEncounter` refuses
+ * the burst, all off this one predicate.
+ *
+ * There is no equivalent of water's source requirement to weigh for fire. The strongest reading in
+ * that direction would be a heat or fuel source to draw from, and the archipelago has none at all —
+ * not even the six decorative waterfalls water could have argued over — so there is nothing to
+ * measure and nothing to reject. Firebending in the source material also needs no source, which is
+ * the one place the fiction makes the simpler rule the more faithful one.
  */
 export function isElementAvailable(_element: Element): boolean {
   return true
@@ -176,14 +189,11 @@ export function isElementAvailable(_element: Element): boolean {
  *
  * `Math.round` rather than `Math.floor` puts each element at the *centre* of its sector
  * rather than at its leading edge, so a flick straight up lands on air with the maximum
- * possible margin either side rather than sitting on a boundary. With three elements the
- * sectors are 120 degrees and the boundaries fall at 60, 180 and 300 degrees clockwise from
- * up: air owns straight up with 60 degrees of margin either side, water owns down-and-right
- * and earth down-and-left. Straight *down* is now the one direction that sits exactly on a
- * boundary, and it resolves to earth rather than water, because the angle lands on 1.5 sectors
- * and `Math.round` breaks a half upward. Deterministic rather than arbitrary, but not
- * *meaningful*, which is what the dead zone is for — and the reason no description of the
- * radial anywhere in the game claims either of the two lower elements is "straight down".
+ * possible margin either side rather than sitting on a boundary. A flick that lands exactly on a
+ * boundary resolves by `Math.round`'s own rule — `Math.round(-0.5)` is `-0` and `Math.round(0.5)`
+ * is 1, so a tie goes clockwise. Deterministic rather than arbitrary, but not *meaningful*, which
+ * is what the dead zone is for, and the reason no description of the radial anywhere in the game
+ * claims a particular element owns a particular diagonal.
  */
 export function radialHighlight(aim: Aim, c: ElementConfig): Element | null {
   const count = ELEMENT_ORDER.length
@@ -240,10 +250,10 @@ export function stepElements(
 
   if (input.directIndex !== null) {
     const picked = ELEMENT_ORDER[input.directIndex - 1]
-    // Silently ignores an index past the end, which is what pressing 3 does today. A key
+    // Silently ignores an index past the end, which is what pressing 4 does today. A key
     // bound to an element that does not exist yet must not throw and must not wrap around
-    // to air, because wrapping would make 3 a second air bind and then break the day earth
-    // arrives and 3 starts meaning something.
+    // to air, because wrapping would make 4 a second air bind and then break the day earth
+    // arrives and 4 starts meaning something.
     if (picked !== undefined && isElementAvailable(picked)) {
       active = picked
       named = true

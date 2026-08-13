@@ -168,6 +168,49 @@ describe('the combat voices', () => {
   })
 })
 
+describe('fire\'s two voices', () => {
+  it('makes the burst the loudest of the player\'s damage moves', () => {
+    // The mix has to rank the player's own moves the way the damage figures do, or the one move in
+    // the kit that really hurts somebody is also one of the quietest. Both rivals asserted, because
+    // the gust is the other move on the same key and the finisher is the other big hit.
+    expect(COMBAT_LEVELS.fireBurst).toBeGreaterThan(COMBAT_LEVELS.gust)
+    expect(COMBAT_LEVELS.fireBurst).toBeGreaterThan(COMBAT_LEVELS.finisher)
+  })
+
+  it('keeps the burst under the down it is trying to cause', () => {
+    // The two land on the same frame whenever a burst finishes a soldier, and the *event* has to be
+    // the louder of the pair — otherwise the confirmation the player is listening for is buried under
+    // the thing that caused it.
+    expect(COMBAT_LEVELS.fireBurst).toBeLessThan(COMBAT_LEVELS.down)
+  })
+
+  it('leaves the Ice Lock the loudest thing the player can do', () => {
+    // The freeze's own claim, which it keeps: it spends a third of the Focus bar where fire spends a
+    // charge a landing gives back. If fire ever wants to be louder than this, `hurt` has to move
+    // first — see the note on `hurt` in `mapping.ts`, and the derived margin test above, which is the
+    // constraint to argue with rather than route around.
+    expect(COMBAT_LEVELS.fireBurst).toBeLessThan(COMBAT_LEVELS.freeze)
+    expect(COMBAT_LEVELS.fireThrust).toBeLessThan(COMBAT_LEVELS.freeze)
+  })
+
+  it('makes the thrust audible over the wind it is heard in', () => {
+    // The only voice here for a move that hits nobody, and the only one heard in the glider rather
+    // than at fighting range — `createWindAudio` is at full strength by the speed reference. So it
+    // sits above the quietest player voice rather than at the bottom of the mix, and still below the
+    // burst, because spending a charge to move is a smaller event than spending one to hurt someone.
+    expect(COMBAT_LEVELS.fireThrust).toBeGreaterThan(COMBAT_LEVELS.grip)
+    expect(COMBAT_LEVELS.fireThrust).toBeLessThan(COMBAT_LEVELS.fireBurst)
+  })
+
+  it('leaves the element switch the quietest voice in the game', () => {
+    // Fire adds two voices and neither may undercut the switch, which is deliberately under half the
+    // softest thing in the fight because it is free and happens several times an exchange.
+    for (const level of [COMBAT_LEVELS.fireBurst, COMBAT_LEVELS.fireThrust]) {
+      expect(level).toBeGreaterThan(COMBAT_LEVELS.elementSwitch * 2)
+    }
+  })
+})
+
 describe('a blow bouncing off armour', () => {
   it('is exactly as loud as a blow that lands', () => {
     // Deliberately equal to `impact` rather than below it. The instinct is to make a move that did
