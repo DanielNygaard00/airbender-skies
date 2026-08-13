@@ -3062,15 +3062,21 @@ In the order I would take them:
    hoodoos clamping at 58 per cent of their shell with motes still buried past it. The archipelago
    now keeps seven of its eight features untouched and the eighth at 99.7 per cent of its reach.
 
-   What is left for hands, and it is smaller than it was. Dead air still has roughly half its
-   motes underground, and that half is *below the canyon floor* rather than beyond a wall: a
-   dead-air field is centred low on purpose so no live air is left under the wall bases, so its
-   lower half is under the crown by design. Fixing the tell for that means clamping inside the
-   animation rather than at construction, because rising kinds wrap their motes back to the bottom
-   — worth doing only if it reads badly in play. The other open question is the measurement itself:
-   the artist rule asks whether a feature can be seen from *at least one* approach, and the test
-   samples exactly one and asks what fraction of a volume is visible, which is a stricter and
-   different claim. Both are recorded on `OpenAir` in `wind-tell.ts` with the numbers.
+   **The dead air under the floor is fixed too, and the artist rule is now met.** That residue was
+   vertical rather than radial — a dead-air field is centred low on purpose so no live air is left
+   in the pockets along the wall bases, which put the bottom half of its band under the canyon
+   crown. Every mote now carries the lowest open height in its own column, and the animation
+   respects it: `wrap` returns a rising mote to *its* floor rather than to the bottom of the band,
+   which is what a construction-time clamp could never do, since a ridge lifts its motes at 4 units
+   a second and would have cycled them straight back under the ground within seconds. Measured after
+   thirty seconds of animation, motes in rock fell from 31-77 per cent per feature to at most 10, and
+   the worst visible fraction reached 0.628 — so `canyon-country.test.ts` now asserts the artist
+   rule's own 0.6 instead of a floor derived from how bad things happened to be.
+
+   What is left is the measurement rather than the level: the rule asks whether a feature can be
+   seen from *at least one* approach, and the test takes one approach and asks what fraction of a
+   volume is visible from it. That is the conservative direction, so it is a fair gate rather than a
+   generous one, and whether the region now reads well in motion is still a question for hands.
 
    **The reticle and the hit-direction indicator are the other thing that needs hands, and
    they need them more completely than most.** Neither has ever been seen in a running game:

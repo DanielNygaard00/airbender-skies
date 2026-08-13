@@ -148,7 +148,22 @@ export function openAirTest(
   islands: readonly IslandDef[],
 ): (x: number, y: number, z: number) => boolean {
   // Noise functions built once per island rather than per probe: `seededNoise2D` allocates a
-  // permutation table, and this is called dozens of times per wind feature at load.
-  const shells = islands.map((def) => ({ def, noise: seededNoise2D(def.noiseSeed) }))
-  return (x, y, z) => !shells.some(({ def, noise }) => insideIsland(x, y, z, def, noise))
+  // permutation table, and a wind tell calls this a few thousand times at load.
+  //
+  // Each island also gets the box it cannot possibly reach outside of, so the common answer — "no,
+  // this point is nowhere near that island" — costs six comparisons instead of three octaves of
+  // noise. Canyon Country has 31 islands and an open point has to be checked against all of them,
+  // so without this the per-mote probing below it would be doing 93 noise samples a call.
+  const shells = islands.map((def) => ({
+    def,
+    noise: seededNoise2D(def.noiseSeed),
+    reach: def.radius * (1 + ROUGHNESS),
+    top: def.position.y + def.height * (1 + ROUGHNESS),
+    bottom: def.position.y - def.height * MAX_DEPTH_MULTIPLIER,
+  }))
+  return (x, y, z) => !shells.some(({ def, noise, reach, top, bottom }) => {
+    if (y > top || y < bottom) return false
+    if (Math.abs(x - def.position.x) > reach || Math.abs(z - def.position.z) > reach) return false
+    return insideIsland(x, y, z, def, noise)
+  })
 }
