@@ -13,6 +13,7 @@ import { effectiveVolume, motionScales, type MotionScales, type Settings } from 
 import { loadGLTF } from './core/assets'
 import { buildWorld, type World } from './world/world'
 import { ARCHIPELAGO } from './world/levels/archipelago'
+import { selectLevel } from './world/levels'
 import { placeShrines } from './world/shrine'
 import { buildPayloadMesh, placePayloads } from './world/payload'
 import { carryIntent, carryPose, carryStep, loadedFlight, returnCarriedHome } from './player/payload'
@@ -163,9 +164,16 @@ function start(): void {
   validateFlightConfig(DEFAULT_FLIGHT_CONFIG)
   validateCollisionConfig(DEFAULT_COLLISION_CONFIG)
 
+  /**
+   * The region this session loads. One line, and `world/levels/index.ts` documents why it is
+   * one line rather than a region-selection screen: `?region=canyon-country` loads Canyon
+   * Country, anything else loads the archipelago.
+   */
+  const LEVEL = selectLevel(window.location.search)
+
   let world: World
   try {
-    world = buildWorld(ARCHIPELAGO)
+    world = buildWorld(LEVEL)
   } catch (error) {
     return showFallback(`The level failed to load: ${(error as Error).message}`)
   }
@@ -190,8 +198,8 @@ function start(): void {
    * `syncVisuals` would be two reads that a future edit could let disagree.
    */
   let motion: MotionScales = motionScales(settings)
-  let player = createPlayerState(ARCHIPELAGO, world.terrain, save, DEFAULT_FLIGHT_CONFIG)
-  let shrines = placeShrines(ARCHIPELAGO, world.terrain, save.collectedShrines)
+  let player = createPlayerState(LEVEL, world.terrain, save, DEFAULT_FLIGHT_CONFIG)
+  let shrines = placeShrines(LEVEL, world.terrain, save.collectedShrines)
   /**
    * The payloads, and which one is on the glider.
    *
@@ -203,7 +211,7 @@ function start(): void {
    * sitting is a route in progress rather than progress: a reload puts it back on the home
    * plateau, which is the same place a respawn puts it.
    */
-  let payloads = placePayloads(ARCHIPELAGO, world.terrain)
+  let payloads = placePayloads(LEVEL, world.terrain)
   let carriedId: string | null = null
 
   // Focus is a live meter and is deliberately not saved.
@@ -275,8 +283,8 @@ function start(): void {
   scene.add(shrineGroup)
 
   const waterfalls: { advance(dt: number): void }[] = []
-  for (const def of ARCHIPELAGO.waterfalls) {
-    const island = ARCHIPELAGO.islands.find((i) => i.id === def.islandId)
+  for (const def of LEVEL.waterfalls) {
+    const island = LEVEL.islands.find((i) => i.id === def.islandId)
     if (!island) continue
     const waterfall = createWaterfall(island, def, world.terrain)
     if (!waterfall) {
@@ -291,7 +299,7 @@ function start(): void {
   }
 
   // A wind feature the player cannot see is a bug, so each one is given its tell.
-  const windTells = (ARCHIPELAGO.winds ?? []).map((def) => {
+  const windTells = (LEVEL.winds ?? []).map((def) => {
     const tell = createWindTell(def)
     scene.add(tell.object)
     return tell
@@ -309,7 +317,15 @@ function start(): void {
   // its first step. Invisible only by luck — a 30 m correction exceeds the interpolator's
   // snap distance, so the view collapsed instead of sliding — and a spawn point over lower
   // terrain would have slid visibly up out of the ground.
-  const patrolSpawns = HOME_PATROL.map((spawn) => ({
+  //
+  // Gated on the region, because `HOME_PATROL` is home-island coordinates rather than a level
+  // feature: loaded in Canyon Country those same positions land in the narrows, which would put
+  // six soldiers in the middle of a region the design document says should open with an
+  // unpressured traversal sequence. A second encounter site needs its own spawn list and its own
+  // `PatrolConfig`, so the empty list is the honest answer until that exists — every consumer
+  // below iterates `encounter.enemies`, so none of them mind it being empty.
+  const patrol = LEVEL.id === ARCHIPELAGO.id ? HOME_PATROL : []
+  const patrolSpawns = patrol.map((spawn) => ({
     ...spawn,
     // Dropped onto the ground rather than trusting the authored y.
     position: spawn.position.clone().setY(
@@ -571,14 +587,14 @@ function start(): void {
   }
   applySettings()
 
-  const baseWindAt = windSampler(ARCHIPELAGO.winds ?? [])
+  const baseWindAt = windSampler(LEVEL.winds ?? [])
 
   const deps: ControllerDeps = {
     terrain: world.terrain,
     flight: DEFAULT_FLIGHT_CONFIG,
     ground: DEFAULT_GROUND_CONFIG,
-    worldFloorY: ARCHIPELAGO.worldFloorY,
-    spawnPointFor: spawnPointFor(ARCHIPELAGO, world.terrain),
+    worldFloorY: LEVEL.worldFloorY,
+    spawnPointFor: spawnPointFor(LEVEL, world.terrain),
     slipstream: DEFAULT_SLIPSTREAM_CONFIG,
     staff: DEFAULT_STAFF_CONFIG,
     collision: DEFAULT_COLLISION_CONFIG,
@@ -847,7 +863,7 @@ function start(): void {
 
     // Read before controllerStep: it resolves a fall internally and hands back an
     // already-respawned state, so there is nothing left to observe afterwards.
-    const crashed = fellOutOfWorld(player, ARCHIPELAGO.worldFloorY)
+    const crashed = fellOutOfWorld(player, LEVEL.worldFloorY)
 
     // Steps first, off last frame's Focus, so the effects apply from the frame the
     // player pressed rather than the one after. The cost is a frame of latency on
@@ -873,7 +889,7 @@ function start(): void {
     // on that frame via `safeRespawn`, so a swing reported here would resolve against
     // enemies in the fight for a player who, this same frame, is on the way out of the
     // world — landing a hit on the way to a respawn.
-    const staffSwing = willRespawn(player, ARCHIPELAGO.worldFloorY)
+    const staffSwing = willRespawn(player, LEVEL.worldFloorY)
       ? null
       : staffStep(player, state, dt, deps.staff)
     /**
@@ -892,7 +908,7 @@ function start(): void {
      * finite inputs, which is the pathological case that guard exists for rather than
      * something play produces. If it ever does fire, the payload rides the respawn.
      */
-    const respawning = willRespawn(player, ARCHIPELAGO.worldFloorY)
+    const respawning = willRespawn(player, LEVEL.worldFloorY)
     // The loaded flight model, or the ordinary one. Derived per step rather than stored,
     // because it depends on `carriedId`, which the interaction below can change at any time;
     // `boostedCombatConfig` is built the same way a few dozen lines down for the same reason.
@@ -916,7 +932,7 @@ function start(): void {
     // respawns grounded from whatever fall speed corrupted it, and that must not
     // read as a slam either. Do not collapse these into one flag.
     const slam = detectSlam(
-      beforeStep, player, state.tuck, willRespawn(beforeStep, ARCHIPELAGO.worldFloorY),
+      beforeStep, player, state.tuck, willRespawn(beforeStep, LEVEL.worldFloorY),
       DEFAULT_COMBAT_CONFIG.pressureWave,
     )
 
@@ -985,7 +1001,7 @@ function start(): void {
     // player is `grounded` by now, which is what `carryIntent` asks about. Nothing is written
     // to the save — see the declaration of `payloads` for why a bundle's whereabouts is not
     // progress.
-    const carry = carryStep(player, payloads, carriedId, state.carryPressed, ARCHIPELAGO)
+    const carry = carryStep(player, payloads, carriedId, state.carryPressed, LEVEL)
     if (carry.event !== null) {
       payloads = carry.payloads
       carriedId = carry.carriedId
@@ -1172,7 +1188,7 @@ function start(): void {
       focusAvailable: focus.value,
       breathAvailable: player.breath,
     }, dt, fightConfig, {
-      ground: world.terrain, worldFloorY: ARCHIPELAGO.worldFloorY,
+      ground: world.terrain, worldFloorY: LEVEL.worldFloorY,
       // The same ground-adjusted array startEncounter was built from, never raw
       // HOME_PATROL: a restored soldier has to stand where the original three did.
       spawns: patrolSpawns, patrol: DEFAULT_PATROL_CONFIG,
