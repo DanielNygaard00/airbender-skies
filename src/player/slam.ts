@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import type { PlayerState } from '../core/types'
 import { slamStrength, type PressureWaveConfig } from '../combat/pressure-wave'
+import { isUnlocked } from '../progress/acts'
 
 /**
  * Detecting a Pressure Wave without touching the movement code.
@@ -75,6 +76,29 @@ export function detectSlam(
 /**
  * The bounce out of a slam.
  *
+ * **This is what section 5 gates in Act 3, and the slam itself is not.** The table's Act 3
+ * movement column reads "Extended Breath, dive-shockwave", and the obvious reading is that the
+ * whole Pressure Wave is withheld until then. That reading loses to section 4.2, which lists
+ * the Pressure Wave under "Airbending — **always available**", and to section 5's own Act 1
+ * combat column, which grants the "Airbending core" that list defines. The two rows of the same
+ * table cannot both own the move, so the split follows section 4.3, which describes the aerial
+ * version in two clauses: "Diving attacks convert airspeed into a shockwave on impact, **then
+ * bounce Aang back into the air**." The shockwave is core. The bounce, and the "high-speed dive →
+ * Pressure Wave → re-deploy glider" chain it exists to open, is the flagship *aerial* combo, and
+ * that is the half Act 3 adds.
+ *
+ * It is also the half that can be gated without breaking anything, which is not a coincidence
+ * but is worth recording as a check rather than as a justification. Gating the whole wave would
+ * take the heavy armoured soldier's only reliable answer away in the game's only encounter for
+ * two acts — `DEFAULT_COMBAT_CONFIG.enemies.heavy`'s armour table gives the wave full effect and
+ * says so in as many words: "It is also the only reason the type is beatable at all in the
+ * current kit." Gating the bounce costs the player a re-deploy and costs the heavy nothing.
+ *
+ * The refusal returns the player untouched rather than a softened bounce, so a locked rebound is
+ * an ordinary hard landing — a state the player already knows — rather than a mystery. The slam
+ * still fires, the ring is still drawn and the damage still lands, because none of that is
+ * this function's business.
+ *
  * `airJumpsUsed: 0` here is belt-and-braces, not the reason the re-deploy stays
  * reachable: landing already zeroed it, in both `groundStep` and the glider-landing
  * branch of `controllerStep`. What actually keeps §4.3's combo alive is `grounded:
@@ -102,6 +126,10 @@ export function applyBounce(
   slam: Slam,
   c: PressureWaveConfig,
 ): PlayerState {
+  // Read off the state rather than taken as a parameter, which is the whole benefit of the act
+  // living on `PlayerState`: the call site in main.ts is unchanged, so there is no way to call
+  // this and forget the gate.
+  if (!isUnlocked('dive-rebound', player.act)) return player
   return {
     ...player,
     velocity: new Vector3(

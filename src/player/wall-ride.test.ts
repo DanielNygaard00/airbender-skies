@@ -53,8 +53,17 @@ function walledWorld(opts: { normalY?: number; wallTop?: number } = {}): Terrain
   }
 }
 
+/**
+ * A rider who is allowed to ride.
+ *
+ * `act: 2` by default rather than 1, because every test below except the gate's own is about the
+ * ride's arithmetic — the gravity give-back, the redirect, the hysteresis — and running those in
+ * an act where the move is locked would make all of them pass against a function that returns
+ * IDLE unconditionally. The lock is asserted deliberately, with the Act 2 case beside it as the
+ * positive control, in `describe('the act gate')`.
+ */
 const rider = (over: Partial<WallRideInput> = {}): WallRideInput => ({
-  scooterActive: true, charge: 1, jumped: false, ...over,
+  act: 2, scooterActive: true, charge: 1, jumped: false, ...over,
 })
 
 /**

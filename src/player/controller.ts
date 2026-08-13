@@ -182,6 +182,23 @@ export function safeRespawn(state: PlayerState, deps: ControllerDeps): PlayerSta
   console.warn('spawnPointFor returned a non-finite position; falling back to the origin.')
   return {
     mode: 'ground',
+    /**
+     * Carried across, not reset, and this is the one place in the codebase where keeping the act
+     * had to be said out loud rather than falling out of a spread.
+     *
+     * `respawn` above spreads `...state`, so the act survives the ordinary path — including the
+     * down-and-respawn beat, which is section 6's "setback, not a reload" and which `main.ts`'s
+     * `recover` implements by calling this function. This branch builds a fresh object instead,
+     * so it would silently send a player back to Act 1 for taking a corrupt position into a
+     * respawn. Progression is not transient state and is not part of what going down costs:
+     * section 6 prices that at the walk back and the Focus meter, and nothing else.
+     *
+     * `state.act` is safe to trust here even though the rest of `state` is not. It is a `1 | 2 | 3`
+     * that only `actFromShrineCount` ever produces, and what this branch is recovering from is a
+     * non-finite *position* handed back by an injected `spawnPointFor` — a fault in the level
+     * geometry, with no path to the act.
+     */
+    act: state.act,
     position: new Vector3(),
     velocity: new Vector3(),
     forward: new Vector3(0, 0, -1),

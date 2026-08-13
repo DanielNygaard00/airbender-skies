@@ -523,6 +523,7 @@ describe('a fall out of the world', () => {
     scooterActive: false, scooterCharge: 0, wallRideNormal: null, dashesUsed: 0, dashRecovery: 0,
     slipstreamElapsed: null, slipstreamCooldown: 0,
     staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, tangled: 0,
+  act: 3,
   })
 
   it('hands the charges back, because a respawn arrives on the ground', () => {

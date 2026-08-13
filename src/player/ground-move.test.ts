@@ -6,6 +6,7 @@ import { scooterTurnAuthority } from './scooter'
 import { detectSlam, applyBounce } from './slam'
 import { DEFAULT_GROUND_CONFIG as G, DEFAULT_COLLISION_CONFIG as COLLISION } from '../core/config'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
+import { UNLOCKED_IN } from '../progress/acts'
 import { stillAir, type WindSample } from '../world/wind'
 import type { InputState, PlayerState, TerrainQuery } from '../core/types'
 
@@ -85,6 +86,10 @@ const input = (over: Partial<InputState> = {}): InputState => ({
   ...over,
 })
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({
+  // Act 1, the act the game starts in, so everything in this file is asserted against the kit a
+  // new player actually has. The one block that needs more says so -- see `charging` in
+  // 'taking the scooter up a wall'.
+  act: 1,
   mode: 'ground', position: new Vector3(0, 0, 0), velocity: new Vector3(),
   forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
   grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0, coyoteTime: 0,
@@ -703,8 +708,12 @@ describe('a slam bounce out of the coyote window', () => {
 
   /** Dive onto flat ground with the commit key held, then bounce out of the slam. */
   const bounce = () => {
+    // `act` at the rebound's own unlocking act, read off the table rather than written as 3.
+    // Every assertion in this block is about how the bounce behaves, which only exists once it
+    // is unlocked -- the gate itself is tested in `acts.test.ts` and in the locked case below.
     let s = player({
       position: new Vector3(0, 30, 0), grounded: false, airJumpsUsed: G.maxAirJumps,
+      act: UNLOCKED_IN['dive-rebound'],
     })
     let before = s
     for (let f = 0; f < 600; f++) {
@@ -837,8 +846,16 @@ describe('the air scooter on the ground', () => {
  * claims about `groundStep`, so they are made against `groundStep`.
  */
 describe('taking the scooter up a wall', () => {
-  /** A charged rider already moving at the wall at x = 5, feet on the floor. */
+  /**
+   * A charged rider already moving at the wall at x = 5, feet on the floor.
+   *
+   * `act: 2` because that is the act wall-riding arrives in, and every assertion in this block
+   * is about the wiring of a ride that happens. At Act 1 `stepWallRide` returns IDLE before it
+   * probes anything, so the block would pass while measuring nothing. The gate is asserted where
+   * it is the subject, in `wall-ride.test.ts`, and the wiring of the refusal is asserted below.
+   */
   const charging = (charge = 1) => player({
+    act: 2,
     position: new Vector3(4.4, 0, 0),
     velocity: new Vector3(26, 0, 0),
     forward: new Vector3(1, 0, 0),

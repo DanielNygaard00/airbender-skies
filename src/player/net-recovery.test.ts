@@ -80,7 +80,7 @@ const input = (over: Partial<InputState> = {}): InputState => ({
 const OVER_OPEN_SKY = new Vector3(200, 0, -200)
 
 const glidingOverTheVoid = (over: Partial<PlayerState> = {}): PlayerState => ({
-  mode: 'glider',
+  act: 1, mode: 'glider',
   position: OVER_OPEN_SKY.clone(),
   // A realistic cruise: fast, and sinking gently.
   velocity: new Vector3(0, -4, -34),

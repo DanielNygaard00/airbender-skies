@@ -6,6 +6,7 @@ import {
   COMBOS, ELEMENT_LEGEND, METERS, WIND_LEGEND, SCREEN_MARKS, type Combo, type MeterNote,
 } from './reference'
 import type { Element } from '../../elements/element'
+import { isUnlocked, UNLOCKED_IN, type Act } from '../../progress/acts'
 import { patchForRow, settingsRows, type SettingsRow } from './settings-rows'
 
 /**
@@ -19,7 +20,25 @@ export interface GuideRow {
   press?: string
   name: string
   detail: string
+  /**
+   * Usable on this frame. False for a cooldown, the wrong posture, no breath, the other element.
+   *
+   * Forced false whenever `locked` is true, so a caller reading only this field can never offer a
+   * move the game would refuse. The two are not independent flags to be checked in pairs: `locked`
+   * is the stronger statement and this one already accounts for it.
+   */
   available: boolean
+  /**
+   * Not yet earned, as opposed to not usable right now.
+   *
+   * The distinction is the whole reason this field exists. "Struck through because the gust is
+   * still cooling down" and "struck through because you are in Act 1" are different facts, and a
+   * player who cannot tell them apart will wait out a cooldown that is not there. `rowHtml` gives
+   * this its own treatment rather than a second strike-through.
+   */
+  locked: boolean
+  /** The act this row arrives in, or null when nothing gates it. Read from `UNLOCKED_IN`. */
+  unlocksIn: Act | null
 }
 
 export interface GuideModel {
@@ -41,13 +60,23 @@ export interface GuideModel {
 export function guideModelFor(ctx: ActionContext): GuideModel {
   const rows = (mode: PlayerMode): GuideRow[] => ACTIONS
     .filter((action) => action.mode === mode || action.mode === 'both')
-    .map((action) => ({
-      key: action.key,
-      ...(action.press === undefined ? {} : { press: action.press }),
-      name: action.name,
-      detail: action.detail,
-      available: action.available(ctx),
-    }))
+    .map((action) => {
+      const locked = action.lock !== undefined && !isUnlocked(action.lock, ctx.player.act)
+      return {
+        key: action.key,
+        ...(action.press === undefined ? {} : { press: action.press }),
+        name: action.name,
+        detail: action.detail,
+        // `!locked &&` is what lets the predicates in `actions.ts` stay ignorant of the acts: the
+        // act rule is applied once, here, so no row has to remember to and none can forget. It
+        // also short-circuits, which matters for the rows whose predicates read a readiness flag
+        // computed from a system the player does not have yet — a locked row's `available` is
+        // never asked, so it cannot be answered wrongly.
+        locked,
+        available: !locked && action.available(ctx),
+        unlocksIn: action.lock === undefined ? null : UNLOCKED_IN[action.lock],
+      }
+    })
 
   return {
     ground: rows('ground'),
@@ -84,6 +113,16 @@ export const STYLE = `
 .guide-row { display: flex; gap: 10px; padding: 3px 0; align-items: baseline; }
 .guide-row.is-off { opacity: .38; }
 .guide-row.is-off .guide-name { text-decoration: line-through; }
+/* Locked, as opposed to unavailable. Deliberately NOT struck through — see rowHtml. Held a little
+   brighter than .is-off too, because a locked row is something to look forward to rather than
+   something to skip: the player is meant to read it and know what is coming. */
+.guide-row.is-locked { opacity: .55; }
+.guide-row.is-locked .guide-name { color: #cfd6e2; }
+/* The act badge. Its own colour, matching the note headings the panel already uses for the things
+   it wants read, and a box so it cannot be mistaken for part of the move's name. */
+.guide-lock { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: #ffe9a8; border: 1px solid rgba(255,233,168,.45); border-radius: 3px;
+  padding: 0 4px; white-space: nowrap; }
 .guide-key { flex: 0 0 132px; font-family: ui-monospace, monospace; font-size: 12px;
   color: #d9f4ff; }
 .guide-key .guide-press { opacity: .55; }
@@ -133,11 +172,33 @@ export function escape(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+/**
+ * One action row.
+ *
+ * **A locked row is drawn as locked, not as unavailable, and the difference is deliberate in three
+ * separate ways.** It carries `is-locked` instead of `is-off`, so it is dimmed but *not* struck
+ * through — a strike-through is the panel's established word for "not right now", and reusing it
+ * would make the two indistinguishable at a glance, which is the exact failure this is guarding
+ * against. It gains a visible badge naming the act it arrives in, so the answer to "why not" is on
+ * the row rather than in a legend. And the badge names an act rather than saying "locked", because
+ * "Act 3" tells the player where it is and "locked" only tells them where it is not.
+ *
+ * The two classes are mutually exclusive: `guideModelFor` forces `available` false when `locked`
+ * is true, and the ternary here takes the locked branch first, so a row is never both dimmed for
+ * a cooldown it does not have and badged for an act it does not have.
+ */
 export function rowHtml(row: GuideRow): string {
   const press = row.press === undefined ? '' : ` <span class="guide-press">${escape(row.press)}</span>`
-  return `<div class="guide-row${row.available ? '' : ' is-off'}">
+  const state = row.locked ? ' is-locked' : row.available ? '' : ' is-off'
+  // `unlocksIn` is a `1 | 2 | 3` from `UNLOCKED_IN`, so it reaches the markup as a number and
+  // never as text a save or a level could have influenced. Nothing here needs escaping that
+  // `escape` would not already cover, and no interpolation below lands inside an attribute.
+  const badge = row.locked && row.unlocksIn !== null
+    ? `<span class="guide-lock">Act ${row.unlocksIn}</span> `
+    : ''
+  return `<div class="guide-row${state}">
     <span class="guide-key">${escape(row.key)}${press}</span>
-    <span><span class="guide-name">${escape(row.name)}</span>
+    <span>${badge}<span class="guide-name">${escape(row.name)}</span>
     <span class="guide-detail">— ${escape(row.detail)}</span></span>
   </div>`
 }
@@ -259,7 +320,11 @@ export function createGuide(
         <p class="guide-sub">The game is paused and the mouse is yours, so the settings at
           the bottom can be dragged and clicked. H or Escape to close, arrow keys or
           Page Up / Page Down to scroll, Home / End to jump to the ends. Struck-through
-          actions are unavailable right now; the dimmed column is your other stance.</p>
+          actions are unavailable right now — cooling down, wrong stance, or the other
+          element. A row tagged with an act is one you have not reached yet, and it will
+          not be struck through: it is waiting rather than busy. Some of the chains further
+          down use a move from a later act; the rows are where the act is marked. The dimmed
+          column is your other stance.</p>
         <div class="guide-cols">
           ${columnHtml('ground', model.ground, model.current)}
           ${columnHtml('glider', model.glider, model.current)}

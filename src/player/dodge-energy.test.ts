@@ -118,6 +118,7 @@ function input(over: Partial<InputState> = {}): InputState {
 
 function glider(): PlayerState {
   return {
+    act: 1,
     mode: 'glider',
     position: new Vector3(0, 300, 0),
     velocity: new Vector3(0, 0, -30),

@@ -1,5 +1,6 @@
 import { Vector3 } from 'three'
 import type { GroundConfig, TerrainQuery } from '../core/types'
+import { isUnlocked, type Act } from '../progress/acts'
 
 /**
  * Wall-riding: taking the air scooter up a vertical face.
@@ -10,6 +11,11 @@ import type { GroundConfig, TerrainQuery } from '../core/types'
  * built to reach them". So everything here is gated on the scooter being up, and the
  * accumulator `scooter.ts` builds is what pays for the climb. There is no separate meter
  * and no cooldown, because the accumulator already is both.
+ *
+ * It is nevertheless the one thing section 5 unlocks separately from the move it belongs to —
+ * the scooter is Act 1 and the climb is Act 2 — so `WallRideInput.act` gates this function and
+ * nothing else about the scooter changes. See that field for why the split is expressible here
+ * without the ride becoming a move of its own after all.
  *
  * The shape of the move is a redirect rather than a new source of speed, which is the
  * third design pillar ("redirect, don't absorb") applied to terrain instead of to an
@@ -47,6 +53,21 @@ export function isRidableWall(normal: Vector3, c: GroundConfig): boolean {
 }
 
 export interface WallRideInput {
+  /**
+   * Which act the player is in.
+   *
+   * Section 5 puts wall-riding in Act 2 while the air scooter itself is Act 1, which is the one
+   * place the design document splits a move from the thing it is a property of. That split is
+   * exactly expressible here: the ball of air keeps working from the first frame of the game and
+   * only the climb is withheld, so an Act 1 player who drives a charged scooter at a cliff gets
+   * the skim `resolveMovement` already gives them rather than a refusal they cannot read.
+   *
+   * The act is asked for rather than a bare `unlocked` boolean, so that the name of the ability
+   * being gated stays in the module that owns the move. `UNLOCKED_IN` is the only place that
+   * decides wall-riding is Act 2, and `ground-move.ts` — which merely passes the act along — does
+   * not have to know.
+   */
+  act: Act
   /**
    * Riding the scooter, after `stepScooter` has had its say this frame. Wall-riding is a
    * property of the scooter, so this is a hard gate rather than a modifier.
@@ -111,6 +132,12 @@ export function stepWallRide(
   terrain: TerrainQuery,
   c: GroundConfig,
 ): WallRideStep {
+  // Ahead of every other gate, and ahead of the raycast in particular. A locked ride must not
+  // cost a terrain probe per frame for a move that cannot fire, and it must not be able to
+  // spend the accumulator either: returning IDLE reports `chargeSpent: 0`, so an Act 1 rider
+  // driving at a wall keeps the charge they built rather than paying for a climb they did not
+  // get.
+  if (!isUnlocked('wall-ride', input.act)) return IDLE
   if (!input.scooterActive || input.jumped) return IDLE
 
   const riding = normal !== null

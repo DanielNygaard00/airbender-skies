@@ -24,6 +24,11 @@ const C: PressureWaveConfig = {
 }
 
 const p = (over: Partial<PlayerState> = {}): PlayerState => ({
+  // Act 1, which is where `detectSlam` lives: section 4.2 puts the Pressure Wave in the
+  // always-available airbending core, so the slam must fire in the act the game starts in and
+  // every test in the first block below is asserting exactly that. The rebound is a different
+  // matter -- see `landedInActThree`.
+  act: 1,
   mode: 'ground', position: new Vector3(), velocity: new Vector3(),
   forward: new Vector3(0, 0, 1), breath: 100, maxBreath: 100,
   grounded: false, lastGroundIslandId: null, airJumpsUsed: 1, chargeTime: 0,
@@ -36,6 +41,14 @@ const p = (over: Partial<PlayerState> = {}): PlayerState => ({
 /** Falling at `speed`, then landed: velocity.y is zeroed by the landing. */
 const falling = (speed: number) => p({ grounded: false, velocity: new Vector3(3, -speed, 0) })
 const landed = () => p({ grounded: true, velocity: new Vector3(3, 0, 0) })
+/**
+ * Landed, in the act that has earned the rebound.
+ *
+ * `applyBounce` is gated to Act 3, so every test in the `applyBounce` block has to be in an act
+ * that has it -- at Act 1 the function returns its argument untouched and the entire block would
+ * pass while asserting nothing. The gate itself is asserted separately, with both sides.
+ */
+const landedInActThree = () => p({ grounded: true, velocity: new Vector3(3, 0, 0), act: 3 })
 
 describe('detectSlam', () => {
   it('reports a slam for a committed landing above the floor', () => {
@@ -161,17 +174,17 @@ describe('touchedDown', () => {
 
 describe('applyBounce', () => {
   it('throws the player back up in proportion to the impact', () => {
-    const bounced = applyBounce(landed(), { impactSpeed: 40, strength: 0.75 }, C)
+    const bounced = applyBounce(landedInActThree(), { impactSpeed: 40, strength: 0.75 }, C)
     // bounceFactor 0.5 of a 40 m/s impact.
     expect(bounced.velocity.y).toBeCloseTo(20)
   })
 
   it('leaves the ground, so the bounce is not swallowed by the ground snap', () => {
-    expect(applyBounce(landed(), { impactSpeed: 40, strength: 0.75 }, C).grounded).toBe(false)
+    expect(applyBounce(landedInActThree(), { impactSpeed: 40, strength: 0.75 }, C).grounded).toBe(false)
   })
 
   it('resets the air jump count to zero', () => {
-    const before = p({ grounded: true, airJumpsUsed: 1 })
+    const before = p({ act: 3, grounded: true, airJumpsUsed: 1 })
     expect(applyBounce(before, { impactSpeed: 40, strength: 0.75 }, C).airJumpsUsed).toBe(0)
   })
 
@@ -181,7 +194,7 @@ describe('applyBounce', () => {
     // is a free ground jump for the next six frames -- and a ground jump *replaces* the
     // bounce's velocity with a smaller one. `ground-move.test.ts` measures the height that
     // costs; this is the field it comes down to.
-    const inWindow = p({ grounded: true, velocity: new Vector3(3, 0, 0), coyoteTime: 0.1 })
+    const inWindow = p({ act: 3, grounded: true, velocity: new Vector3(3, 0, 0), coyoteTime: 0.1 })
     expect(applyBounce(inWindow, { impactSpeed: 40, strength: 0.75 }, C).coyoteTime).toBe(0)
   })
 
@@ -191,18 +204,18 @@ describe('applyBounce', () => {
     // countdown rather than freezing it. Nor can a buffered press eat a slam: it fires only
     // from a state that was already grounded, and detectSlam refuses a frame whose
     // predecessor was.
-    const buffered = p({ grounded: true, velocity: new Vector3(3, 0, 0), jumpBuffer: 0.07 })
+    const buffered = p({ act: 3, grounded: true, velocity: new Vector3(3, 0, 0), jumpBuffer: 0.07 })
     expect(applyBounce(buffered, { impactSpeed: 40, strength: 0.75 }, C).jumpBuffer).toBe(0.07)
   })
 
   it('keeps the horizontal momentum', () => {
     // The doc is explicit that landing never hard-stops the player.
-    const bounced = applyBounce(landed(), { impactSpeed: 40, strength: 0.75 }, C)
+    const bounced = applyBounce(landedInActThree(), { impactSpeed: 40, strength: 0.75 }, C)
     expect(bounced.velocity.x).toBeCloseTo(3)
   })
 
   it('does not alias the velocity it was handed', () => {
-    const before = landed()
+    const before = landedInActThree()
     applyBounce(before, { impactSpeed: 40, strength: 0.75 }, C)
     expect(before.velocity.y).toBeCloseTo(0)
   })

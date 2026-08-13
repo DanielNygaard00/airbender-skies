@@ -1,4 +1,5 @@
 import type { Vector3 } from 'three'
+import type { Act } from '../progress/acts'
 
 export type PlayerMode = 'ground' | 'glider'
 
@@ -97,6 +98,28 @@ export interface PlayerState {
   forward: Vector3
   breath: number
   maxBreath: number
+  /**
+   * Which of section 5's three acts the player is in. See `src/progress/acts.ts`.
+   *
+   * **On `PlayerState` deliberately, and the precedent is the field directly above.**
+   * `Focus`, `Encounter` and `ElementState` are all kept off this struct with the same
+   * argument — "movement is a pure function of a struct that a dozen tests build fixtures
+   * for" — and that argument does not reach the act, for the reason it does not reach
+   * `maxBreath`. Both are shrine-derived capability restored from the save and constant
+   * across a frame; a live meter and a fight are neither. The two are written together, by
+   * `collectStep`, because one shrine advances both.
+   *
+   * What it buys is that the two movement rules the acts gate need no new plumbing at all:
+   * `groundStep` reads it straight through to `stepWallRide`, and `applyBounce` reads it off
+   * the state it was already handed. Threading an act down through `controllerStep`'s
+   * config bundle instead would have put a progression value inside `ControllerDeps`, where
+   * everything else is a tuning table.
+   *
+   * It survives a respawn because `respawn` spreads the state it is given, which is what
+   * makes the down-and-respawn beat keep it — see `safeRespawn`'s fallback branch for the one
+   * path where that had to be said out loud.
+   */
+  act: Act
   grounded: boolean
   lastGroundIslandId: string | null
   /** Air jumps spent since last standing on ground. */

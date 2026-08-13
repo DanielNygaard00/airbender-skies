@@ -48,6 +48,7 @@ import { createEnemyView } from './combat/enemy-mesh'
 import { createArrowView, type ArrowView } from './fx/arrow'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
+import { actFromShrines } from './progress/acts'
 import { applyTangle } from './player/tangle'
 import { canSlipstream, isInvulnerable, dodgeHeading } from './player/slipstream'
 import {
@@ -279,8 +280,19 @@ function start(): void {
    * `syncVisuals` would be two reads that a future edit could let disagree.
    */
   let motion: MotionScales = motionScales(settings)
-  let player = createPlayerState(ARCHIPELAGO, world.terrain, save, DEFAULT_FLIGHT_CONFIG)
+  /**
+   * The shrines, placed before the player rather than after, and the order is load-bearing.
+   *
+   * `placeShrines` is what resolves the save's ids against the level: an id naming no island is
+   * discarded and a repeated one is collapsed by the `Set` inside it. The act is derived from the
+   * result, so a hand-edited save cannot claim Act 2 with four copies of `"home"` or four ids
+   * that name nothing. Deriving it from `save.collectedShrines.length` instead would take the
+   * unvalidated number, which is the whole reason this line moved above the next one.
+   */
   let shrines = placeShrines(ARCHIPELAGO, world.terrain, save.collectedShrines)
+  let player = createPlayerState(
+    ARCHIPELAGO, world.terrain, save, DEFAULT_FLIGHT_CONFIG, actFromShrines(shrines),
+  )
   /**
    * The payloads, and which one is on the glider.
    *
@@ -810,6 +822,14 @@ function start(): void {
    * feet unable to answer the thing that put them there, and the down beat already costs the walk
    * back and the whole Focus meter. It would also be inconsistent — the same knockdown while gliding
    * would refill, since a respawn arrives grounded, and standing on the ground would not.
+   * **The act survives too, and it survives without a line here, which is the point.** Section 6
+   * prices going down at the walk back and at the Focus meter, and at nothing else — so
+   * progression is not part of the cost. `player.act` rides through on `safeRespawn`'s spread of
+   * the state it is given, and `shrines` is not touched by this function at all, so the two cannot
+   * come apart across the beat. The one path that had to say it out loud is `safeRespawn`'s
+   * non-finite-position fallback, which rebuilds the player from scratch; see the comment on `act`
+   * there. `controller.test.ts` pins both halves, because "it happens to be spread" is exactly the
+   * kind of property a later refactor removes without noticing.
    */
   function recover(): void {
     player = safeRespawn(player, deps)
@@ -1022,7 +1042,12 @@ function start(): void {
       radialReleased: state.radialReleased,
       aimDelta: state.pointerDelta,
       directIndex: state.elementIndex,
-    }, DEFAULT_ELEMENT_CONFIG)
+      // Pre-step, which is the only act this frame can have: `collectStep` is the one thing that
+      // raises it and it runs a hundred lines below. So a player who touches the fourth shrine
+      // this frame gets water on the next one — one frame of latency on an unlock that took
+      // four islands to earn, and the alternative is resolving the selection after the fight has
+      // already read which element is active.
+    }, DEFAULT_ELEMENT_CONFIG, player.act)
     // Diffed rather than reported by `stepElements`, the same way the dash trail and the
     // slipstream streak are detected across their step: a pure function that also returned "and
     // this changed" would be a second thing to keep true.
@@ -1037,7 +1062,7 @@ function start(): void {
     // arming, which nobody can feel; the benefit is that no system here needs a value
     // that depends on itself.
     const asStep = stepAvatarState(
-      avatarState, focus, state.avatarStatePressed, dt, DEFAULT_AVATAR_STATE_CONFIG,
+      avatarState, focus, state.avatarStatePressed, dt, DEFAULT_AVATAR_STATE_CONFIG, player.act,
     )
     avatarState = asStep.state
     avatarActive = asStep.active
@@ -1169,6 +1194,10 @@ function start(): void {
 
     const collection = collectStep(player, shrines, DEFAULT_FLIGHT_CONFIG)
     if (collection.collected.length > 0) {
+      // `collection.player` carries the new act as well as the new breath ceiling — `collectStep`
+      // writes both from the one shrine count, so there is nothing to advance here. Nothing is
+      // written to the save for the act either: the shrine ids below *are* the act, which is the
+      // whole argument in `SaveData`'s doc comment for not storing it.
       player = collection.player
       shrines = collection.shrines
       for (const id of collection.collected) {
@@ -1828,7 +1857,7 @@ function start(): void {
     // frame; this widget is anchored in viewport fractions and its contents change only when the
     // simulation changes them, so drawing it beside the HUD — which is updated here for the same
     // reason — keeps it on the same clock as the element it is reporting.
-    elementRadial.update(radialModel(elements, DEFAULT_ELEMENT_CONFIG))
+    elementRadial.update(radialModel(elements, DEFAULT_ELEMENT_CONFIG, player.act))
     const shownHurtFlash = hurtFlash * motion.hurtFlash
     hud.update(hudModelFor(player, encounter.playerHealth, {
       focus: focus.max > 0 ? focus.value / focus.max : 0,
@@ -2162,7 +2191,7 @@ function start(): void {
   // never calls `update()`. Without this the badge's dot would have no colour and its label no
   // text until the player first clicked in — a blank widget in the HUD gutter on the one screen a
   // new player looks at longest.
-  elementRadial.update(radialModel(elements, DEFAULT_ELEMENT_CONFIG))
+  elementRadial.update(radialModel(elements, DEFAULT_ELEMENT_CONFIG, player.act))
 
   let last = performance.now()
   /** Whether the previous frame was running, so audio follows the edge and not the state. */
