@@ -65,7 +65,8 @@ export type EnemyAttack =
  * blow itself: `hitEnemy` takes a damage figure and an impulse and has no idea what threw
  * them, which is what lets the four resolvers in `stepEncounter` share one code path.
  */
-export type BendingSource = 'gust' | 'vortex' | 'wave' | 'staff' | 'grip' | 'freeze'
+export type BendingSource =
+  | 'gust' | 'vortex' | 'wave' | 'staff' | 'grip' | 'freeze' | 'stone' | 'pillar'
 
 /**
  * How much of a blow actually lands, as fractions of what was thrown.
@@ -103,6 +104,12 @@ export const UNARMOURED: ArmourTable = {
   // was the actual defect here. A kind that should resist a pull now has somewhere to say so.
   grip: { damage: 1, knockback: 1 },
   freeze: { damage: 1, knockback: 1 },
+  // Earth's two. Unlike water's, the `stone` row here is not moot for anyone: it is the only
+  // borrowed-element move that carries real damage, so on an unarmoured soldier this row is what
+  // says a thrown rock lands in full. `pillar` carries no damage, only the shove a rising column
+  // gives a body standing on it, so its damage fraction is moot in the same way the vortex's is.
+  stone: { damage: 1, knockback: 1 },
+  pillar: { damage: 1, knockback: 1 },
 }
 
 /**

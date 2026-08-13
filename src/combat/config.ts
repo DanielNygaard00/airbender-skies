@@ -116,11 +116,14 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
      * that phrase is the whole design: the player's cheap displacement move does nothing to
      * it, and the expensive one does everything.
      *
-     * The doc's other half — "must be broken with earth or the environment" — names a tool
-     * this game does not have. There is no earthbending, so the environment carries the whole
-     * load, and the environment in an archipelago means the rim. `heavy-environment.test.ts`
-     * measures that route at the real home island rather than asserting it here, because it
-     * is a property of these numbers *and* the terrain and cannot be read off either alone.
+     * The doc's other half — "must be broken with earth or the environment" — now names two
+     * tools the game has. Earth arrived after this type did, and the `stone` row below is where
+     * that sentence becomes true or false; before it, the environment carried the whole load, and
+     * the environment in an archipelago means the rim. `heavy-environment.test.ts` measures that
+     * route at the real home island rather than asserting it here, because it is a property of
+     * these numbers *and* the terrain and cannot be read off either alone. Both routes are
+     * deliberately kept: the rim is the free answer that needs a rim, and earth is the answer that
+     * works wherever the heavy is standing.
      *
      * Its armour is the only non-`UNARMOURED` table in the game, and each row is a decision:
      *
@@ -144,8 +147,12 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
      *   would have made `deflects` report every vortex on every soldier as turned away.
      * - **staff: 0.35 damage, 0.3 knockback.** A wooden staff against plate. Left as a real but
      *   deliberately bad answer rather than nothing: an opener does 0.245 and a finisher 0.42,
-     *   so a full three-swing combo is 0.91 against 4.0 health, and grinding one down with the
-     *   staff alone takes roughly eight combos per rung. That is meant to feel wrong.
+     *   so a full three-swing combo is 0.91 against 4.0 health. Grinding one down with the staff
+     *   alone is about four and a half combos for the first rung and roughly **eight for the
+     *   whole ladder** — 7.6 health across the three rungs, or twenty-five swings. (This used to
+     *   read "eight combos per rung", which was the whole-ladder figure wearing the wrong label;
+     *   the arithmetic below for the stone is set against the corrected numbers.) That is meant
+     *   to feel wrong.
      * - **grip: knockback 0, and the hold still lands.** The Water Grip is a pull, and a pull
      *   is displacement -- the currency this type exists to defend. So the water takes hold and
      *   the body does not move: plate resists being dragged, and the ice shell drawn around a
@@ -167,6 +174,35 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
      *   Recorded because it was raised as a balance problem and settled the other way: if it
      *   should be blocked after playing it, this row is now the one line that does it, which it
      *   was not before -- `BendingSource` had no entry for water at all.
+     * - **stone: full damage, 0.6 knockback. This is the row section 4.4's sentence stands on.**
+     *   The design document says this type "must be broken with earth or the environment", so
+     *   plate does not reduce a thrown rock at all: `damage` is 1, exactly as the `wave` row is 1,
+     *   because those are the two answers the document names and it would be incoherent for one
+     *   of them to be resisted and the other not.
+     *
+     *   The arithmetic, because "the only reliable armour-breaker" has to be true in numbers.
+     *   `stoneDamage` is 1.1 and comes through in full, against rungs of 4.0, 2.4 and 1.2: that
+     *   is **four stones for the first rung, three for the second and two for the third — nine
+     *   presses for a permanent down**, spread over about 16 seconds by the 1.8-second cooldown.
+     *   Set that against the two routes that already exist. The staff needs twenty-five swings
+     *   for the same ladder, at melee range, from a 2-damage swing. The Pressure Wave needs five
+     *   full-strength dives, each of which needs 30-plus metres a second of descent and therefore
+     *   real altitude to spend first. Earth is not the *fastest* of the three — a perfect dive is
+     *   fewer presses — it is the one that works from twelve units away with nothing set up
+     *   beforehand, which is what "reliable" has to mean for a move on a cooldown.
+     *
+     *   Knockback at 0.6 rather than 1, and reduced for the reason every reduced row here is
+     *   reduced: displacement is the currency this type defends. At `stoneKnockback` 10 that is
+     *   6 through the plate, about 2.3 m against `knockbackDamping` 2.6 — a stagger, and nowhere
+     *   near enough to walk a heavy to a rim. Deliberately so: environmental removals pay less
+     *   Focus by design, and a cheap repeatable move that produced them would make the stingy
+     *   line the easy one.
+     * - **pillar: 0.5 knockback, damage moot.** A column of rock coming up under a soldier's feet
+     *   shoves it off them, and plate is shoved less far than a spear is because it is heavier —
+     *   not immune, though, and the contrast with the `gust` row above is the whole argument. A
+     *   gust is air pushed at a body and plate is proof against it. This is the *ground moving*,
+     *   which is the same reason the `wave` row takes everything. `damage` is 1 and is moot,
+     *   exactly as on the vortex and grip rows, because a pillar carries no damage at all.
      *
      * Every number below is an argued guess. Nothing here has been played.
      */
@@ -221,6 +257,8 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
         staff: { damage: 0.35, knockback: 0.3 },
         grip: { damage: 1, knockback: 0 },
         freeze: { damage: 1, knockback: 1 },
+        stone: { damage: 1, knockback: 0.6 },
+        pillar: { damage: 1, knockback: 0.5 },
       },
     },
     /**
@@ -507,6 +545,87 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     // Above the grip's, because it is the committed move; low against the Focus price, because
     // two meters gating one press is one more refusal to diagnose.
     freezeBreathCost: 18,
+  },
+  /**
+   * Earth: raise, throw, wall. The armour-breaker and the only hard cover.
+   *
+   * Every number's argument lives on the field it belongs to in `src/combat/earth.ts`, because
+   * that is where the next person to retune one will be reading. What is worth stating in one
+   * place is the shape the numbers add up to, and it is the mirror image of water's.
+   *
+   * **Earth is the element that hurts, and it is priced so that hurting is slow.** A stone does
+   * 1.1 — more than twice a gust and just under a staff finisher — from twelve units away at a
+   * target that cannot answer, and it takes 1.8 seconds and 16 breath to do it again. Four of them
+   * put a heavy armoured soldier down a rung of the recovery ladder where the staff needs
+   * thirteen swings in its face; nine take one through the whole ladder. That is the arithmetic
+   * behind section 4.4's claim that this type "must be broken with earth or the environment", and
+   * it is spelled out on the heavy's `stone` armour row above rather than here.
+   *
+   * **The pillar is the only object either side of the fight can hide behind.** Six seconds of
+   * cover for 30 Focus, two standing at once, and it stops arrows and nets dead — in both
+   * directions, including one the player's own Air Wall turned round. It does nothing to a soldier
+   * except shove one standing where it comes up. What it deliberately does *not* do is stop
+   * anybody walking, which is a limit of the world system rather than a design choice and is
+   * recorded in full on `pillarBlocks` in `earth.ts`.
+   *
+   * So the three elements now divide cleanly: air moves people, water stops them acting, and
+   * earth hurts them and changes the shape of the ground. None of the three is a better version
+   * of another, which is the property the whole radial depends on.
+   *
+   * Every value here is an argued guess. None of it has been played.
+   */
+  earth: {
+    // The same reach as the gust and as a fully charged Vortex, so no light verb out-ranges
+    // another; the narrowest cone in the game, because a rock is one object thrown at one body.
+    stone: { range: 12, halfAngle: Math.PI / 9 },       // 40 degrees swept, against the gust's 120
+    // Middle of the six bands, with the Pressure Wave and the Air Wall: above water's 3.0 because
+    // a thrown mass is not a rope, below the gust's 5.0 because a gust fills a volume. The long
+    // argument — a damage move that reaches high wins from a hover — is on the field itself.
+    stoneVerticalReach: 4.0,
+    // Just under the staff finisher's 1.2, so the safe move never pays better than the dangerous
+    // one, and over twice the gust's 0.5. Against a spear's 1.5 it is deliberately not a one-shot.
+    stoneDamage: 1.1,
+    // Well under the gust's 26: displacement is air's currency. At knockbackDamping 2.6 this
+    // travels about 3.8 m, which is a stagger and not a route to the rim.
+    stoneKnockback: 10,
+    // Four times the gust's 0.45 and well past the grip's 1.1 — the longest cooldown on any light
+    // verb, and the whole of what "slow, committed" costs. See the field for why not a wind-up.
+    stoneCooldownSeconds: 1.8,
+    // Above the grip's 12 because this is the move that does damage; under the Slipstream's 28
+    // because nothing offensive should crowd the dodge out of the bar.
+    stoneBreathCost: 16,
+    // Past every melee reach in the game (the heavy's 3.6 is the longest), so cover lands between
+    // the player and what is closing rather than behind it.
+    raiseDistance: 6,
+    // How far the ground may be from the player's own feet. A jump's worth of clearance, not a
+    // glide's: manufacturing hard cover from a hover would answer the archer with no counterplay.
+    raiseVerticalReach: 3.0,
+    // With raiseDistance 6, this gives the player about 1.5 m of lateral freedom before the cover
+    // stops covering them against the archer at its 30-unit firing range. Cover has to be kept.
+    pillarRadius: 1.2,
+    // Over the character's 1.8 and over a standing jump, so it is a thing to stand behind. The
+    // margin is for an archer on higher ground, since a shot on flat ground always descends.
+    pillarHeight: 4.5,
+    // Three of the archer's 1.9-second shot cycles from one press. Far under the downed timer's
+    // 18, so cover can never outlast a knockdown; far over the Air Wall's 0.9, because these are
+    // opposite tools.
+    pillarSeconds: 6.0,
+    // Two bearings covered out of the patrol's three shooters, so the player has to choose which.
+    // A third press retires the oldest rather than being refused — see the field.
+    maxPillars: 2,
+    // Enough to put a body outside the rock's own footprint and no more: a large shove here would
+    // be a gust that cost Focus.
+    raiseShoveSpeed: 6,
+    // Under the Vortex's minimum lift of 5. At gravity 20 that is 0.4 s off the ground — enough to
+    // cancel a wind-up through stepEnemy's airborne branch, nowhere near enough to juggle.
+    raiseLiftSpeed: 4,
+    // Exactly damageDrain's 30: the cover is priced at precisely the hit it is bought to prevent.
+    // Below the Ice Lock's 35, because a freeze is the stronger effect; three pillars from a full
+    // bar, or one pillar and one freeze with 35 left, which is section 4.2's own worked example.
+    raiseFocusCost: 30,
+    // Exactly the Ice Lock's freezeBreathCost, and equal on purpose: the two heavy verbs are
+    // differentiated in Focus and in what they do, not twice over in a second meter.
+    raiseBreathCost: 18,
   },
 }
 

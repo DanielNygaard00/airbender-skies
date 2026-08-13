@@ -818,6 +818,11 @@ describe('armour, as a per-source fraction of a blow', () => {
       staff: { damage: 0.25, knockback: 0.5 },
       grip: { damage: 1, knockback: 0 },
       freeze: { damage: 1, knockback: 1 },
+      // Unlike the shipped plate, which takes a stone in full: halved here so these tests are
+      // about `throughArmour`'s arithmetic rather than about the tuning, exactly as the staff row
+      // above is deliberately 0.25 against the real 0.35.
+      stone: { damage: 0.5, knockback: 0.5 },
+      pillar: { damage: 1, knockback: 0.5 },
     },
   }
 

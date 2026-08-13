@@ -3,7 +3,8 @@ import { impactTargets, type ImpactLists } from './impact-targets'
 import { impactShape } from './impact'
 
 const lists = (over: Partial<ImpactLists> = {}): ImpactLists => ({
-  hits: [], slamHits: [], staffHits: [], redirectHits: [], downed: [], deflected: [], ...over,
+  hits: [], slamHits: [], staffHits: [], stoneHits: [], redirectHits: [], downed: [],
+  deflected: [], ...over,
 })
 
 describe('the union of everything that connected', () => {
@@ -21,6 +22,13 @@ describe('the union of everything that connected', () => {
     // hit spark -- and a staff swing that downed a soldier still sparked, through the
     // separate downed loop, which is what hid it.
     expect(impactTargets(lists({ staffHits: ['a'] })).hits).toEqual(['a'])
+  })
+
+  it('sparks a thrown stone', () => {
+    // The other list that pays no Focus, and the same hazard as `redirectHits` below: a list left
+    // out of the Focus grants is a list it is easy to leave out of the union as well, and this one
+    // is the hardest-hitting single press in the borrowed elements.
+    expect(impactTargets(lists({ stoneHits: ['a'] })).hits).toEqual(['a'])
   })
 
   it('sparks a soldier struck by a redirected arrow', () => {

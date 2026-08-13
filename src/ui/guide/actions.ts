@@ -46,17 +46,29 @@ export interface ActionContext {
    /**
    * Which element is selected.
    *
-   * F and R resolve to a different move per element, so four of the rows below are struck through
-   * whenever the other element is selected. That is a *binding* fact — which key does what —
-   * rather than a game rule this module would be restating, and the catalogue is exactly where
-   * binding facts live. It also makes the panel answer the question a player opening it mid-fight
-   * actually has, which is what their two bending keys do right now.
+   * F and R resolve to a different move per element, so four of the six rows on those two keys are
+   * struck through whenever a different element is selected. That is a *binding* fact — which key
+   * does what — rather than a game rule this module would be restating, and the catalogue is
+   * exactly where binding facts live. It also makes the panel answer the question a player opening
+   * it mid-fight actually has, which is what their two bending keys do right now.
    */
   element: Element
   /** A Water Grip is off cooldown and affordable. The caller asks `canGrip`. */
   gripReady: boolean
   /** An Ice Lock is affordable in both Focus and breath. The caller asks `canIceLock`. */
   iceLockReady: boolean
+  /** A Stone Throw is off cooldown and affordable. The caller asks `canStone`. */
+  stoneReady: boolean
+  /**
+   * A Stone Pillar is affordable in both Focus and breath. The caller asks `canRaisePillar`.
+   *
+   * Affordability only, and deliberately not whether there is ground to raise one from — the fight
+   * asks that separately, through `pillarSite`. A row that also tracked the terrain would flicker
+   * as the player looked around, because the ground six metres ahead comes and goes, and a
+   * readiness widget that reported terrain would be answering a question it was not asked. See
+   * `canRaisePillar` for the same argument from the other side.
+   */
+  pillarReady: boolean
    /**
    * A press of the carry key would do something: either a payload is in reach, or one is
    * being carried and the player is standing on ground.
@@ -187,7 +199,7 @@ export const ACTIONS: readonly GameAction[] = [
     available: (ctx) => bending('air')(ctx) && ctx.gustReady,
     detail: 'A wide sweep of air, thrown where you are looking. Knocks enemies back and '
       + 'interrupts a strike; barely hurts them. F is whichever element you have selected — '
-      + 'switch to water and this key grips instead.',
+      + 'switch to water and this key grips instead, or to earth and it throws a rock.',
   },
   {
     key: 'F', press: 'waterbending', name: 'Water Grip', mode: 'both',
@@ -198,6 +210,17 @@ export const ACTIONS: readonly GameAction[] = [
       + 'reach and into yours, and a held soldier simply cannot act. The cooldown is a shade '
       + 'shorter than the hold, so you can keep one soldier pinned indefinitely if you spend '
       + 'nothing else on it — that buys time, not progress.',
+  },
+  {
+    key: 'F', press: 'earthbending', name: 'Stone Throw', mode: 'both',
+    available: (ctx) => bending('earth')(ctx) && ctx.stoneReady,
+    detail: 'Hurls a rock down a narrow line ahead of you — the tightest aim of the three quick '
+      + 'moves, and the only one that really hurts. It hits harder than anything else you can '
+      + 'press outside a dive-slam, and armour does not reduce it at all, which makes it the '
+      + 'answer to the soldier in plate that ignores a gust and shrugs off the staff: four rocks '
+      + 'put that one down where the staff needs about thirteen swings inside its reach. The '
+      + 'trade is that it is slow — the longest cooldown of any quick move, several times a '
+      + 'gust\'s — and it spends breath. Throw it at something worth the wait.',
   },
   {
     key: 'G', press: 'hold', name: 'Air Wall', mode: 'both',
@@ -237,6 +260,19 @@ export const ACTIONS: readonly GameAction[] = [
       + 'price. Unlike the Vortex it does not charge, so how long you hold makes no difference.',
   },
   {
+    key: 'R', press: 'earthbending: press, then release', name: 'Stone Pillar', mode: 'both',
+    available: (ctx) => bending('earth')(ctx) && ctx.pillarReady,
+    detail: 'Raises a column of rock a few paces ahead of you, and it is the only hard cover in '
+      + 'the game: arrows and nets stop dead against it, from either side. It stands about six '
+      + 'seconds — three shots from an archer — and you have to stay behind it, because stepping '
+      + 'much more than a pace aside gives the shot its line back. Two can stand at once, so you '
+      + 'can shut down two directions and not three; a third press sinks the oldest. Anyone '
+      + 'standing where it comes up is knocked off their feet, which interrupts them. It spends '
+      + 'Focus — a little less than an Ice Lock, about what a spear hit costs you — and you need '
+      + 'ground near your own feet to raise it from, so it is not something to drop from a hover. '
+      + 'It does not stop anyone walking: a spearman comes straight round it.',
+  },
+  {
     key: 'C', name: 'Slipstream', mode: 'both',
     available: (ctx) => ctx.slipstreamReady,
     detail: 'A dash that cannot be hit for the first instant of it. The window is shorter '
@@ -249,16 +285,17 @@ export const ACTIONS: readonly GameAction[] = [
     key: 'V', press: 'hold, flick, release', name: 'Element radial', mode: 'both',
     available: always,
     detail: 'Hold to open the radial, flick the mouse toward an element, let go. Air is straight '
-      + 'up and water is straight down. It never pauses or slows the game and it never takes the '
-      + 'mouse off you — the same flick that picks also nudges your view a little, which is the '
-      + 'price of nothing being taken away. A flick too small to mean anything keeps what you '
-      + 'had, so you can change your mind by just letting go.',
+      + 'up, water is down and to the right, earth is down and to the left. It never pauses or '
+      + 'slows the game and it never takes the mouse off you — the same flick that picks also '
+      + 'nudges your view a little, which is the price of nothing being taken away. A flick too '
+      + 'small to mean anything keeps what you had, so you can change your mind by just letting go.',
   },
   {
-    key: '1 / 2', name: 'Select element directly', mode: 'both', available: always,
-    detail: '1 is air, 2 is water. The same switch without the gesture, and the faster way to do '
-      + 'it once you know which one you want. Switching costs nothing at all — no cooldown, no '
-      + 'windup — so it belongs inside a combo: vortex a group, switch, freeze the front rank.',
+    key: '1 / 2 / 3', name: 'Select element directly', mode: 'both', available: always,
+    detail: '1 is air, 2 is water, 3 is earth. The same switch without the gesture, and the faster '
+      + 'way to do it once you know which one you want. Switching costs nothing at all — no '
+      + 'cooldown, no windup — so it belongs inside a combo: vortex a group, switch, freeze the '
+      + 'front rank, switch again and break the one the freeze cannot hurt.',
   },
   {
     // 'both' rather than 'ground', even though the press only ever works with feet on the

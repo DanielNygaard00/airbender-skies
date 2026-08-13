@@ -301,7 +301,7 @@ describe('where a redirected arrow goes', () => {
       if (turned) redirected = true
       const flying: Projectile = turned ?? live
       last = flying.position.clone()
-      const step = stepProjectile(flying, origin, enemies, ground, DT, PC)
+      const step = stepProjectile(flying, origin, enemies, [], ground, DT, PC)
       damageToPlayer += step.damageToPlayer
       if (step.hitEnemyId !== null) hitEnemyId = step.hitEnemyId
       live = step.projectile

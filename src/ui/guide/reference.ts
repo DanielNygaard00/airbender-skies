@@ -64,6 +64,34 @@ export const COMBOS: readonly Combo[] = [
       + 'to spend.',
   },
   {
+    name: 'Break the one in armour',
+    keys: ['3', 'F'],
+    detail: 'The soldier in plate ignores a gust completely and shrugs off the staff, and a rock '
+      + 'does not care about either. On earth, F throws one: four of them put it down, where the '
+      + 'staff needs about thirteen swings in its face and it hits for two. Nothing else you '
+      + 'carry breaks armour on demand — a dive-slam also does it, but only if you have the height '
+      + 'to spend first. Throw from range and let it walk.',
+  },
+  {
+    name: 'Put a rock between you and the archers',
+    keys: ['3', 'R'],
+    detail: 'On earth, R raises a pillar a few paces ahead of you and it stops arrows and nets '
+      + 'dead for about six seconds — the only hard cover in the game. You have to stay behind it: '
+      + 'step much more than a pace or so aside and the shot has a clear line again. Two can stand '
+      + 'at once, so you can answer two directions and not three, and a third press sinks the '
+      + 'oldest. It costs Focus, about what taking a spear hit costs you, so cover that stops one '
+      + 'arrow has broken even.',
+  },
+  {
+    name: 'Freeze the rank, then break the one that matters',
+    keys: ['2', 'R', '3', 'F'],
+    detail: 'Water buys time and earth spends it. Freeze the front rank where it stands, switch '
+      + 'to earth, and throw rocks at the armoured one while nothing can answer — it is the one '
+      + 'enemy the freeze cannot hurt and the one earth can. A full Focus bar pays for one freeze '
+      + 'and one pillar with something left over, and switching costs nothing, so all of this is '
+      + 'one continuous action.',
+  },
+  {
     name: 'Ride a wall on the scooter',
     keys: ['Z', 'Shift', 'W'],
     detail: 'Build a charge on the scooter, then drive it square into a near-vertical face at ' +
@@ -132,9 +160,11 @@ export const METERS: readonly MeterNote[] = [
       'drains unless you are riding the scooter — walking costs it exactly as fast as ' +
       'standing still. A hit takes nearly a third. The longer you go unbroken the ' +
       'better everything pays. Hold it at full and the thin pip beneath it fills; once ' +
-      'that is full, E spends the lot on the Avatar State. It is also spent, about a third at ' +
-      'a time, by the Ice Lock — so freezing a rank and saving for the Avatar State are the ' +
-      'same budget, and the bar is the only place that trade is visible.',
+      'that is full, E spends the lot on the Avatar State. It is also what pays for both ' +
+      'committed elemental moves: an Ice Lock takes about a third of it and a Stone Pillar a ' +
+      'little less, about what a spear hit takes off you. A full bar is two freezes, or three ' +
+      'pillars, or one of each with room to spare — and any of them costs you the Avatar State, ' +
+      'so the whole trade lives on this one bar and nowhere else.',
   },
   {
     name: 'Health',
@@ -190,13 +220,19 @@ export const SCREEN_MARKS: readonly MeterNote[] = [
  * legend is where the sentence explaining *why* would go.
  */
 export const ELEMENT_LEGEND: Record<Element, string> = {
-  air: 'Always yours, and the only element with a damage move in it at all. Wide, fast, and it '
-    + 'moves people — a gust clears space and a Vortex gathers a group. Everything else in the '
-    + 'kit is built on top of it. Straight up on the radial, or 1.',
+  air: 'Always yours, and the widest and fastest of the three. It moves people — a gust clears '
+    + 'space and a Vortex gathers a group — and everything else in the kit is built on top of it. '
+    + 'Straight up on the radial, or 1.',
   water: 'Control. It does no damage whatsoever: it pulls, it holds, and it freezes, and what it '
-    + 'buys you is time and position for the staff to work in. Its reach is narrow and it does '
+    + 'buys you is time and position for something else to work in. Its reach is narrow and it does '
     + 'not extend nearly as far above or below you as air does, so it is a close-quarters answer '
-    + 'rather than something to throw from a hover. Straight down on the radial, or 2.',
+    + 'rather than something to throw from a hover. Down and to the right on the radial, or 2.',
+  earth: 'Damage, and the only cover. A thrown rock is the hardest single hit you have outside a '
+    + 'dive, and the only thing that reliably breaks armour — the soldier in plate ignores a gust '
+    + 'and shrugs off the staff, and earth is the answer to it. A raised pillar is the one solid '
+    + 'object you can put between yourself and an archer. Both are slow and both commit you: the '
+    + 'throw has the longest cooldown of any quick move and the pillar spends Focus. Down and to '
+    + 'the left on the radial, or 3.',
 }
 
 /**

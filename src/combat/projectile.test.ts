@@ -4,6 +4,7 @@ import {
   spawnProjectile, stepProjectile, type Projectile, type ProjectileConfig,
 } from './projectile'
 import { spawnEnemy, type Enemy } from './enemy'
+import { spawnPillar, type Pillar } from './earth'
 import { applyDamage } from './health'
 import { DEFAULT_COMBAT_CONFIG } from './config'
 
@@ -21,6 +22,15 @@ const DT = 1 / 60
  * The deflected half of the behaviour gets its own describe block with real enemies in it.
  */
 const NO_ENEMIES: Enemy[] = []
+/**
+ * No raised pillars, which is the state of the world in every one of these tests but the block
+ * suite at the bottom.
+ *
+ * Named rather than written as `[]` at thirty call sites, for the reason `NO_ENEMIES` is: the
+ * argument is a list of things that stop arrows, and an empty literal reads as "not applicable"
+ * where a name reads as "nothing there".
+ */
+const NO_PILLARS: Pillar[] = []
 
 /** An arrow at the origin heading north at 20 units a second. */
 const arrow = () => spawnProjectile('a1', new Vector3(0, 5, 0), NORTH, 0.4, 20, 0)
@@ -43,7 +53,7 @@ describe('flight', () => {
     // No gravity: a straight line is easier to read as a threat and needs no leading.
     let p = arrow()
     for (let i = 0; i < 30; i++) {
-      const step = stepProjectile(p, new Vector3(500, 500, 500), NO_ENEMIES, noGround, DT, C)
+      const step = stepProjectile(p, new Vector3(500, 500, 500), NO_ENEMIES, NO_PILLARS, noGround, DT, C)
       if (!step.projectile) throw new Error('the arrow should still be flying')
       p = step.projectile
     }
@@ -62,7 +72,7 @@ describe('ending', () => {
     let hits = 0
     let total = 0
     for (let i = 0; i < 20; i++) {
-      const step = stepProjectile(p, new Vector3(0, 5, -2), NO_ENEMIES, noGround, DT, C)
+      const step = stepProjectile(p, new Vector3(0, 5, -2), NO_ENEMIES, NO_PILLARS, noGround, DT, C)
       total += step.damageToPlayer
       if (step.damageToPlayer > 0) hits++
       if (!step.projectile) break
@@ -75,7 +85,7 @@ describe('ending', () => {
   it('is gone on the frame it hits', () => {
     let p = arrow()
     for (let i = 0; i < 20; i++) {
-      const step = stepProjectile(p, new Vector3(0, 5, -2), NO_ENEMIES, noGround, DT, C)
+      const step = stepProjectile(p, new Vector3(0, 5, -2), NO_ENEMIES, NO_PILLARS, noGround, DT, C)
       if (step.damageToPlayer > 0) {
         expect(step.projectile).toBe(null)
         return
@@ -91,7 +101,7 @@ describe('ending', () => {
     let p = arrow()
     let total = 0
     for (let i = 0; i < 40; i++) {
-      const step = stepProjectile(p, new Vector3(3, 5, -2), NO_ENEMIES, noGround, DT, C)
+      const step = stepProjectile(p, new Vector3(3, 5, -2), NO_ENEMIES, NO_PILLARS, noGround, DT, C)
       total += step.damageToPlayer
       if (!step.projectile) break
       p = step.projectile
@@ -104,7 +114,7 @@ describe('ending', () => {
     let p = spawnProjectile('a1', new Vector3(0, 5, 0), new Vector3(0, -1, 0), 0.4, 20, 0)
     let alive = 0
     for (let i = 0; i < 60; i++) {
-      const step = stepProjectile(p, new Vector3(500, 500, 500), NO_ENEMIES, flatGround, DT, C)
+      const step = stepProjectile(p, new Vector3(500, 500, 500), NO_ENEMIES, NO_PILLARS, flatGround, DT, C)
       if (!step.projectile) break
       p = step.projectile
       alive++
@@ -118,7 +128,7 @@ describe('ending', () => {
     // Over the void between islands, groundHeightAt returns null.
     let p = spawnProjectile('a1', new Vector3(0, 5, 0), new Vector3(0, -1, 0), 0.4, 20, 0)
     for (let i = 0; i < 60; i++) {
-      const step = stepProjectile(p, new Vector3(500, 500, 500), NO_ENEMIES, noGround, DT, C)
+      const step = stepProjectile(p, new Vector3(500, 500, 500), NO_ENEMIES, NO_PILLARS, noGround, DT, C)
       if (!step.projectile) throw new Error('ended over the void, with no ground to end on')
       p = step.projectile
     }
@@ -129,7 +139,7 @@ describe('ending', () => {
     let p = arrow()
     let frames = 0
     for (let i = 0; i < 1000; i++) {
-      const step = stepProjectile(p, new Vector3(500, 500, 500), NO_ENEMIES, noGround, DT, C)
+      const step = stepProjectile(p, new Vector3(500, 500, 500), NO_ENEMIES, NO_PILLARS, noGround, DT, C)
       frames++
       if (!step.projectile) break
       p = step.projectile
@@ -150,7 +160,7 @@ describe('ending', () => {
     // player at y=0 and at or below the ground at 0. Testing the player first reports
     // the hit; testing the ground first would report nothing and drop the arrow silently.
     const p = spawnProjectile('a1', new Vector3(0, 0.2, 0), new Vector3(0, -1, 0), 0.4, 20, 0)
-    const step = stepProjectile(p, new Vector3(0, 0, 0), NO_ENEMIES, flatGround, DT, C)
+    const step = stepProjectile(p, new Vector3(0, 0, 0), NO_ENEMIES, NO_PILLARS, flatGround, DT, C)
     expect(step.damageToPlayer).toBeCloseTo(0.4)
     expect(step.projectile).toBe(null)
   })
@@ -175,14 +185,14 @@ describe('who an arrow can hurt', () => {
     // Friendly fire is off, deliberately: the shipped patrol has both archers firing over
     // three spear soldiers, so a patrol of five would down itself while the player walked away.
     const step = stepProjectile(
-      arrow(), AWAY, [soldier(new Vector3(0, 5, -0.2))], noGround, DT, C,
+      arrow(), AWAY, [soldier(new Vector3(0, 5, -0.2))], NO_PILLARS, noGround, DT, C,
     )
     expect(step.hitEnemyId).toBe(null)
     // The control: the identical arrow and the identical soldier, with the arrow deflected,
     // does connect. Without it this would pass against a `stepProjectile` that never reports
     // an enemy hit at all.
     const turned = stepProjectile(
-      returned(), AWAY, [soldier(new Vector3(0, 5, -0.2))], noGround, DT, C,
+      returned(), AWAY, [soldier(new Vector3(0, 5, -0.2))], NO_PILLARS, noGround, DT, C,
     )
     expect(turned.hitEnemyId).toBe('s1')
   })
@@ -194,9 +204,9 @@ describe('who an arrow can hurt', () => {
     // Close enough that one step brings the arrow inside hitRadius, so both lines resolve on
     // the same single frame and the difference between them is only the flag.
     const at = new Vector3(0, 5, -1)
-    expect(stepProjectile(returned(), at, NO_ENEMIES, noGround, DT, C).damageToPlayer).toBe(0)
+    expect(stepProjectile(returned(), at, NO_ENEMIES, NO_PILLARS, noGround, DT, C).damageToPlayer).toBe(0)
     // The control: the same arrow, not deflected, does hurt the player standing there.
-    expect(stepProjectile(arrow(), at, NO_ENEMIES, noGround, DT, C).damageToPlayer)
+    expect(stepProjectile(arrow(), at, NO_ENEMIES, NO_PILLARS, noGround, DT, C).damageToPlayer)
       .toBeCloseTo(0.4)
   })
 
@@ -205,9 +215,9 @@ describe('who an arrow can hurt', () => {
     // body is not a hit, and one through a soldier mid-push-up is.
     const base = soldier(new Vector3(0, 5, -0.2))
     const down = { ...base, health: applyDamage(base.health, 99) }
-    expect(stepProjectile(returned(), AWAY, [down], noGround, DT, C).hitEnemyId).toBe(null)
+    expect(stepProjectile(returned(), AWAY, [down], NO_PILLARS, noGround, DT, C).hitEnemyId).toBe(null)
     expect(
-      stepProjectile(returned(), AWAY, [{ ...down, stance: 'rising' as const }], noGround, DT, C)
+      stepProjectile(returned(), AWAY, [{ ...down, stance: 'rising' as const }], NO_PILLARS, noGround, DT, C)
         .hitEnemyId,
     ).toBe('s1')
   })
@@ -223,11 +233,11 @@ describe('who an arrow can hurt', () => {
     const at = (y: number): Projectile => ({
       ...returned(), position: new Vector3(0, y, 0.4), velocity: new Vector3(0, 0, -20),
     })
-    expect(stepProjectile(at(0.05), AWAY, [soldier()], noGround, DT, C).hitEnemyId).toBe('s1')
-    expect(stepProjectile(at(1.1), AWAY, [soldier()], noGround, DT, C).hitEnemyId).toBe('s1')
+    expect(stepProjectile(at(0.05), AWAY, [soldier()], NO_PILLARS, noGround, DT, C).hitEnemyId).toBe('s1')
+    expect(stepProjectile(at(1.1), AWAY, [soldier()], NO_PILLARS, noGround, DT, C).hitEnemyId).toBe('s1')
     // And the control at the far end of the band: above the head is a miss, so the extent is
     // a real limit rather than an unbounded column.
-    expect(stepProjectile(at(2 * C.hitRadius + 0.2), AWAY, [soldier()], noGround, DT, C)
+    expect(stepProjectile(at(2 * C.hitRadius + 0.2), AWAY, [soldier()], NO_PILLARS, noGround, DT, C)
       .hitEnemyId).toBe(null)
   })
 
@@ -244,14 +254,144 @@ describe('who an arrow can hurt', () => {
     const skimming: Projectile = {
       ...returned(), position: new Vector3(0, 0.4, 0.4), velocity: new Vector3(0, 0, -20),
     }
-    const step = stepProjectile(skimming, AWAY, [soldier()], dip, DT, C)
+    const step = stepProjectile(skimming, AWAY, [soldier()], NO_PILLARS, dip, DT, C)
     expect(step.hitEnemyId).toBe('s1')
     expect(step.projectile).toBe(null)
     // The control that makes the ordering the only thing under test: the same arrow at the
     // same height with no soldier there is swallowed by that same ground, so this fixture
     // really does have the ground condition true.
-    const noSoldier = stepProjectile(skimming, AWAY, [], dip, DT, C)
+    const noSoldier = stepProjectile(skimming, AWAY, [], NO_PILLARS, dip, DT, C)
     expect(noSoldier.projectile).toBe(null)
     expect(noSoldier.hitEnemyId).toBe(null)
+  })
+})
+
+describe('a pillar in the way', () => {
+  const EARTH = DEFAULT_COMBAT_CONFIG.earth
+  /** Far enough away that the player is never what ends a flight in this block. */
+  const AWAY = new Vector3(500, 500, 500)
+  /** A rock four units in front of a player standing at the origin. */
+  const cover = () => spawnPillar('rock', new Vector3(0, 0, -4), EARTH)
+  /** An arrow at chest height closing on the origin from beyond the rock. */
+  const shot = (): Projectile => ({
+    ...spawnProjectile('a1', new Vector3(0, 1.1, -5.4), new Vector3(0, 0, 1), 1, 34, 0),
+  })
+
+  it('stops a shot short of the player, and reports which rock did it', () => {
+    const step = stepProjectile(shot(), new Vector3(0, 0, 0), NO_ENEMIES, [cover()], noGround, DT, C)
+    expect(step.projectile).toBe(null)
+    expect(step.blockedByPillarId).toBe('rock')
+    expect(step.damageToPlayer).toBe(0)
+    // The control that makes the block the only thing under test: with no rock there the same arrow
+    // carries on. Without it, "the arrow ended" would pass for an arrow that expired or hit the
+    // ground.
+    const clear = stepProjectile(
+      shot(), new Vector3(0, 0, 0), NO_ENEMIES, NO_PILLARS, noGround, DT, C,
+    )
+    expect(clear.projectile).not.toBe(null)
+    expect(clear.blockedByPillarId).toBe(null)
+  })
+
+  it('beats the player, on a frame where the arrow would reach both', () => {
+    // **The ordering that decides whether cover works at all.** A step long enough to cross the rock
+    // *and* arrive at the player has to end at the rock: it is between them, and cover that lost a
+    // race with the frame rate would fail exactly when the player was closest to it. A fast arrow and
+    // a long step put both conditions true on one frame, which is the only arrangement that
+    // separates the two orders.
+    const crossing: Projectile = {
+      ...shot(), position: new Vector3(0, 1.1, -5.4), velocity: new Vector3(0, 0, 300),
+    }
+    const player = new Vector3(0, 1.1, 0)
+    const blocked = stepProjectile(crossing, player, NO_ENEMIES, [cover()], noGround, DT, C)
+    expect(blocked.blockedByPillarId).toBe('rock')
+    expect(blocked.damageToPlayer).toBe(0)
+    // The same step with no rock does hit the player, so both conditions really were true.
+    const through = stepProjectile(crossing, player, NO_ENEMIES, NO_PILLARS, noGround, DT, C)
+    expect(through.damageToPlayer).toBe(1)
+  })
+
+  it('stops a returned arrow too, so cover is not one-way', () => {
+    // "Deflects rather than eating them" gives the player an arrow of their own, and a rock in its
+    // path stops it: cover that only obstructed the enemy would be a wall the player could shoot
+    // through, which is a promise no physical object makes.
+    const returned: Projectile = {
+      // Started just clear of the rock's near face on the *player's* side, so one step at the
+      // archer's own speed crosses it. Travelling toward −z, so the face it meets is the one at
+      // `-4 + radius`, which is the opposite side from the incoming shots above.
+      ...spawnProjectile('a2', new Vector3(0, 1.1, -2.7), new Vector3(0, 0, -1), 1, 34, 0),
+      deflected: true,
+    }
+    const soldier = spawnEnemy('s1', new Vector3(0, 0, -6), 'spear', DEFAULT_COMBAT_CONFIG.enemies.spear)
+    const step = stepProjectile(returned, AWAY, [soldier], [cover()], noGround, DT, C)
+    expect(step.blockedByPillarId).toBe('rock')
+    expect(step.hitEnemyId).toBe(null)
+    // The control: without the rock the same returned arrow is still travelling toward the soldier
+    // rather than having been stopped by something else.
+    const clear = stepProjectile(returned, AWAY, [soldier], NO_PILLARS, noGround, DT, C)
+    expect(clear.blockedByPillarId).toBe(null)
+    expect(clear.projectile).not.toBe(null)
+  })
+
+  it('swallows a net\'s payload with the net', () => {
+    // The refusal has to die with the shot. A net that reached through cover and stowed the glider
+    // anyway would make the pillar useless against the one enemy built to ground the player.
+    const net = spawnProjectile('n1', new Vector3(0, 1.1, -5.4), new Vector3(0, 0, 1), 0.5, 22, 2)
+    const step = stepProjectile(net, new Vector3(0, 0, 0), NO_ENEMIES, [cover()], noGround, DT, C)
+    expect(step.blockedByPillarId).toBe('rock')
+    expect(step.tangleSeconds).toBe(0)
+    // The control: the identical net with no rock in the way does land its refusal.
+    const lands = stepProjectile(
+      { ...net, position: new Vector3(0, 0.5, -0.2) }, new Vector3(0, 0, 0), NO_ENEMIES,
+      NO_PILLARS, noGround, DT, C,
+    )
+    expect(lands.tangleSeconds).toBe(2)
+  })
+
+  it('lets a shot over the top through, and one at chest height not', () => {
+    // The pair, because "the arrow was blocked" and "the arrow was not" are each satisfiable by an
+    // implementation that ignores height entirely in one direction or the other.
+    const rock = cover()
+    const over: Projectile = {
+      ...shot(), position: new Vector3(0, rock.height + 1, -5.4),
+    }
+    expect(stepProjectile(over, AWAY, NO_ENEMIES, [rock], noGround, DT, C).blockedByPillarId)
+      .toBe(null)
+    expect(stepProjectile(shot(), AWAY, NO_ENEMIES, [rock], noGround, DT, C).blockedByPillarId)
+      .toBe('rock')
+  })
+
+  it('lets a shot past the side through', () => {
+    const rock = cover()
+    const wide: Projectile = {
+      ...shot(), position: new Vector3(rock.radius + 0.5, 1.1, -5.4),
+    }
+    expect(stepProjectile(wide, AWAY, NO_ENEMIES, [rock], noGround, DT, C).blockedByPillarId)
+      .toBe(null)
+  })
+
+  it('reports no block on every other way a flight can end', () => {
+    // The field is on every return path, so a caller can read it unconditionally. A missing one would
+    // be `undefined`, which is falsy and would therefore look like "not blocked" — right by accident
+    // on three paths and wrong on the fourth.
+    const player = stepProjectile(
+      { ...shot(), position: new Vector3(0, 0, -0.2) }, new Vector3(0, 0, 0), NO_ENEMIES,
+      NO_PILLARS, noGround, DT, C,
+    )
+    expect(player.damageToPlayer).toBe(1)
+    expect(player.blockedByPillarId).toBe(null)
+    const grounded = stepProjectile(
+      { ...shot(), position: new Vector3(0, 0.1, -20), velocity: new Vector3(0, -20, 0) },
+      AWAY, NO_ENEMIES, NO_PILLARS, flatGround, DT, C,
+    )
+    expect(grounded.projectile).toBe(null)
+    expect(grounded.blockedByPillarId).toBe(null)
+    const expired = stepProjectile(
+      { ...shot(), age: C.maxSeconds }, AWAY, NO_ENEMIES, NO_PILLARS, noGround, DT, C,
+    )
+    expect(expired.projectile).toBe(null)
+    expect(expired.blockedByPillarId).toBe(null)
+    const flying = stepProjectile(shot(), AWAY, NO_ENEMIES, NO_PILLARS, noGround, DT, C)
+    expect(flying.projectile).not.toBe(null)
+    expect(flying.blockedByPillarId).toBe(null)
   })
 })

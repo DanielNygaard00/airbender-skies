@@ -1,5 +1,6 @@
 import { Vector3 } from 'three'
 import { horizontalDistance, isTargetable, type Enemy, type GroundHeightQuery } from './enemy'
+import { blockingPillar, type Pillar } from './earth'
 
 /**
  * An arrow in flight.
@@ -73,6 +74,19 @@ export interface ProjectileStep {
    * the player's posture or the state that holds the refusal.
    */
   tangleSeconds: number
+  /**
+   * The pillar that stopped this projectile this frame, or null.
+   *
+   * Reported rather than merely ending the flight silently, because a shot that vanishes with no
+   * sound and no dust is indistinguishable from a shot that was never fired — the same argument
+   * `deflectedThisFrame` makes for armour. Cover the player cannot hear working is cover they
+   * will not learn to use.
+   *
+   * The id rather than the pillar, since the caller already holds the list. Distinct from
+   * `hitEnemyId` even though both end a flight: one is an arrow arriving somewhere it was aimed,
+   * and the other is an arrow arriving nowhere.
+   */
+  blockedByPillarId: string | null
 }
 
 export function spawnProjectile(
@@ -136,7 +150,7 @@ function hitsBody(arrow: Vector3, enemy: Enemy, c: ProjectileConfig): boolean {
 /**
  * Advance one arrow.
  *
- * Four ways to end, and the order matters: whoever the arrow can hurt is tested **before**
+ * Five ways to end, and the order matters: whoever the arrow can hurt is tested **before**
  * the ground, so an arrow arriving at a target standing at ground level is not swallowed by
  * the terrain test on the same frame. That was already true of the player and it has to hold
  * for soldiers too — they stand on the ground by definition, so a ground-first order would
@@ -146,11 +160,24 @@ function hitsBody(arrow: Vector3, enemy: Enemy, c: ProjectileConfig): boolean {
  * `enemies` list is therefore ignored on the overwhelming majority of frames, and is passed
  * anyway rather than being made optional — an optional target list is a target list a caller
  * forgets, and this function has exactly one production caller.
+ *
+ * **A raised pillar is tested first, ahead of every one of those, and that ordering is the whole
+ * of whether earth's cover works.** Tested against the step as a swept segment rather than
+ * against the arrow's new position: at the archer's shipped speed of 34 an arrow covers 0.57
+ * units a frame at 60 Hz against a pillar 2.4 units across, so a position test would hold, but it
+ * would hold by luck and would stop holding the day either number moved. Tested *before* the
+ * player, because an arrow that crosses a pillar and reaches the player inside one frame has to
+ * be stopped by the rock rather than counted as a hit — the pillar is between them, and a cover
+ * that lost a race with the frame rate would fail exactly when the player was closest to it.
+ *
+ * The pillar list is not filtered by which side the arrow belongs to. A returned arrow is stopped
+ * by a rock in its way just as an incoming one is; see `pillarBlocks`.
  */
 export function stepProjectile(
   p: Projectile,
   playerPosition: Vector3,
   enemies: readonly Enemy[],
+  pillars: readonly Pillar[],
   ground: GroundHeightQuery,
   dt: number,
   c: ProjectileConfig,
@@ -158,12 +185,23 @@ export function stepProjectile(
   const position = p.position.clone().addScaledVector(p.velocity, dt)
   const age = p.age + dt
 
+  const stopped = blockingPillar(p.position, position, pillars)
+  if (stopped) {
+    // No damage to anyone and no payload delivered, which is the point: the rock ate the shot.
+    // A net stopped by a pillar therefore grounds nobody, exactly as one that lands on the
+    // terrain does.
+    return {
+      projectile: null, damageToPlayer: 0, hitEnemyId: null, tangleSeconds: 0,
+      blockedByPillarId: stopped.id,
+    }
+  }
+
   if (!p.deflected && position.distanceTo(playerPosition) <= c.hitRadius) {
     // The one branch that reports a payload: a net that lands on the terrain or expires in
     // the air has caught nothing, so its `tangleSeconds` goes nowhere.
     return {
       projectile: null, damageToPlayer: p.damage, hitEnemyId: null,
-      tangleSeconds: p.tangleSeconds,
+      tangleSeconds: p.tangleSeconds, blockedByPillarId: null,
     }
   }
 
@@ -180,7 +218,10 @@ export function stepProjectile(
         // enemy side for the payload to mean. A returned net therefore lands as a plain
         // zero-damage strike, which is what `hitEnemyId` already reports. The day enemies get
         // a posture worth taking away, this is the line that grows a branch.
-        return { projectile: null, damageToPlayer: 0, hitEnemyId: enemy.id, tangleSeconds: 0 }
+        return {
+          projectile: null, damageToPlayer: 0, hitEnemyId: enemy.id, tangleSeconds: 0,
+          blockedByPillarId: null,
+        }
       }
     }
   }
@@ -188,14 +229,21 @@ export function stepProjectile(
   // A null height is the void between islands, where there is nothing to stop an arrow.
   const height = ground.groundHeightAt(position.x, position.z)
   if (height !== null && position.y <= height) {
-    return { projectile: null, damageToPlayer: 0, hitEnemyId: null, tangleSeconds: 0 }
+    return {
+      projectile: null, damageToPlayer: 0, hitEnemyId: null, tangleSeconds: 0,
+      blockedByPillarId: null,
+    }
   }
 
   if (age >= c.maxSeconds) {
-    return { projectile: null, damageToPlayer: 0, hitEnemyId: null, tangleSeconds: 0 }
+    return {
+      projectile: null, damageToPlayer: 0, hitEnemyId: null, tangleSeconds: 0,
+      blockedByPillarId: null,
+    }
   }
 
   return {
     projectile: { ...p, position, age }, damageToPlayer: 0, hitEnemyId: null, tangleSeconds: 0,
+    blockedByPillarId: null,
   }
 }

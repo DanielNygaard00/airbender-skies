@@ -112,14 +112,66 @@ export const COMBAT_LEVELS = {
    */
   grip: 0.2,
   /**
-   * An Ice Lock: the loudest voice in the fight, and the only one above `hurt`.
+   * An Ice Lock: the loudest thing the *player* can do, and second in the mix only to `hurt`.
    *
-   * Deliberately at the top of the list. It is the one move in the game that spends Focus, and a
-   * third of the bar is a bigger commitment than any single hit either side of the fight takes —
-   * so the mix has to say so, or the most expensive press the player can make is also one of the
-   * quietest. It is still under the 0.5 ceiling every voice here is held to.
+   * Deliberately near the top of the list. It is the most expensive press in the game — 35 Focus,
+   * a third of a bar — and a bigger commitment than any single hit either side of the fight takes,
+   * so the mix has to say so, or the priciest thing the player can do is also one of the quietest.
+   * It is still under the 0.5 ceiling every voice here is held to.
+   *
+   * This used to claim to be "the loudest voice in the fight, and the only one above `hurt`",
+   * which stopped being true when `hurt` moved to 0.47 to keep its own margin — see the note there.
+   * Corrected rather than left, because a comment that says a number is the largest is exactly the
+   * kind a reader trusts instead of checking.
    */
   freeze: 0.42,
+  /**
+   * A Stone Throw: the loudest of the three light verbs, and the only one with mass in it.
+   *
+   * Above the gust's 0.22 and the grip's 0.2, because it is the one light verb that does real
+   * damage and the one whose fiction has weight. Deliberately *below* `impact`'s 0.3, though, and
+   * that ordering is the point: the throw is quieter than the blow it produces, so a stone that
+   * connects is audibly two events getting louder rather than one loud event and a lesser echo.
+   * A player who hears the throw and no impact has missed, and should be able to tell.
+   *
+   * Equal to `finisher`'s 0.26, and equal on purpose rather than by accident. They are the two
+   * committed damage presses in the kit — one at melee range with a staff, one at twelve units with
+   * a rock — and the mix has no business ranking them when the design deliberately does not: the
+   * finisher does more damage, the stone reaches further and breaks plate, and neither is the
+   * better move. Tied by a test rather than by sharing the literal, the way `clang` is tied to
+   * `impact`.
+   */
+  stone: 0.26,
+  /**
+   * A Stone Pillar: just under the Ice Lock, which is the other Focus-priced move.
+   *
+   * The two heavy verbs sit adjacent at the top of the player's own voices, in the order of what
+   * they cost — 35 Focus for a freeze against 30 for a pillar — because that is the one ranking
+   * between them the player can actually verify by watching the meter. Loud enough to be
+   * unmistakable, since raising cover is a decision the player is committing a third of a bar to,
+   * and a confirmation they might miss would have them stepping out from behind a rock they were
+   * not sure they got.
+   *
+   * It must also stay under `hurt / 1.1`, which is 0.427: `mapping.test.ts` derives `hurt`'s rivals
+   * from this whole record precisely so a new voice cannot quietly outgrow the one event the player
+   * most needs to notice. At 0.4 the loudest rival in the mix is still the freeze's 0.42, so
+   * adding two earth voices moved nothing else.
+   */
+  pillar: 0.4,
+  /**
+   * An arrow stopping on a pillar: the second-quietest voice in the game.
+   *
+   * Under every combat voice and above only the element switch, and for a related reason to that
+   * one's. It fires as often as the archers shoot — every 1.9 seconds each, and the shipped patrol
+   * has three things that shoot — so a voice with any weight would become one of the most-heard
+   * sounds in the game. It exists only so that cover working is audible at all, which the note on
+   * `pillarBlock` in `combat-audio.ts` argues is not optional: an arrow that vanishes silently is
+   * an arrow the player cannot tell was ever fired.
+   *
+   * Comfortably clear of the `> 0.05` floor every voice is held to, because unlike the switch this
+   * one competes with a fight going on around it.
+   */
+  pillarBlock: 0.09,
   /**
    * The element switch: the quietest voice in the game, by a wide margin.
    *

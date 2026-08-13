@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
   startEncounter, stepEncounter, canGust, canVortex, type CombatConfig, type Encounter,
-  type EncounterInput, type EnemySpawn, type PlayerHit,
+  type EncounterInput, type EnemySpawn, type PillarBlock, type PlayerHit,
 } from './encounter'
 import { isDowned } from './health'
 import { deflects, horizontalDistance, UNARMOURED, type EnemyConfig } from './enemy'
@@ -72,6 +72,13 @@ const C: CombatConfig = {
         // neither is what the game does.
         grip: { damage: 1, knockback: 0.5 },
         freeze: { damage: 0, knockback: 0 },
+        // Earth's two, deliberately unlike the shipped heavy on both rows for the same reason as
+        // water's above. The stone is *halved* here where the real plate does nothing at all to
+        // it, so a test that read the shipped config by accident would come out at twice the
+        // damage this fixture expects; and the pillar's shove is turned away outright, which is a
+        // branch the shipped config never takes and which therefore needs a fixture to exercise.
+        stone: { damage: 0.5, knockback: 0.5 },
+        pillar: { damage: 0, knockback: 0 },
       },
     },
     /**
@@ -157,6 +164,34 @@ const C: CombatConfig = {
     freezeHoldSeconds: 3,
     freezeFocusCost: 35,
     freezeBreathCost: 18,
+  },
+  /**
+   * Earth, with several values deliberately unlike the shipped ones so a test that read
+   * `DEFAULT_COMBAT_CONFIG` by mistake would fail here rather than pass by coincidence — the same
+   * rule the water block above and the enemy fixtures follow.
+   *
+   * `stoneDamage` is 1 against the shipped 1.1, `pillarSeconds` 5 against 6, `raiseDistance` 5
+   * against 6, `maxPillars` 2 as shipped (the cap's behaviour *is* the thing under test in the
+   * pillar block, so a different number would only obscure it), and the two prices are the shipped
+   * ones because several tests reason about what a full Focus bar buys.
+   */
+  earth: {
+    stone: { range: 12, halfAngle: Math.PI / 9 },
+    stoneVerticalReach: 4,
+    stoneDamage: 1,
+    stoneKnockback: 10,
+    stoneCooldownSeconds: 1.8,
+    stoneBreathCost: 16,
+    raiseDistance: 5,
+    raiseVerticalReach: 3,
+    pillarRadius: 1.2,
+    pillarHeight: 4.5,
+    pillarSeconds: 5,
+    maxPillars: 2,
+    raiseShoveSpeed: 6,
+    raiseLiftSpeed: 4,
+    raiseFocusCost: 30,
+    raiseBreathCost: 18,
   },
 }
 
@@ -2751,5 +2786,639 @@ describe('water against plate', () => {
     expect(find(step.encounter, 'plate').stance).not.toBe('held')
     expect(step.frozenThisFrame).toContain('leather')
     expect(find(step.encounter, 'leather').stance).toBe('held')
+  })
+})
+
+describe('earth on the two bending keys', () => {
+  /**
+   * A soldier squarely inside the fixture stone's cone, and a second one beside it.
+   *
+   * Two, always, and the reason is the trap this repo has already been caught by: an assertion that
+   * nothing happened passes for a move aimed at empty sky, for a cone that caught nobody, for an
+   * `element` that never reached the resolver and for a fight that threw nothing at all. The second
+   * soldier is the positive control that separates those from the thing under test.
+   *
+   * At (0, 0, −3) and (0.6, 0, −3) both sit inside the fixture's 40-degree cone: about 3 out and
+   * 11.3 degrees off the axis at worst, against a range of 12.
+   */
+  const PAIR: EnemySpawn[] = [
+    { id: 'front', position: new Vector3(0, 0, -3), kind: 'spear' },
+    { id: 'beside', position: new Vector3(0.6, 0, -3), kind: 'spear' },
+  ]
+  const find = (e: Encounter, id: string) => {
+    const found = e.enemies.find((enemy) => enemy.id === id)
+    if (!found) throw new Error(`no soldier named ${id}`)
+    return found
+  }
+  const pair = () => startEncounter(PAIR, C)
+  const throwStone = (from = pair(), over: Partial<EncounterInput> = {}) => stepEncounter(
+    from, { ...defaults, element: 'earth', gustPressed: true, ...over }, 1 / 60, C, DEPS,
+  )
+  const raise = (from = pair(), over: Partial<EncounterInput> = {}) => stepEncounter(
+    from, { ...defaults, element: 'earth', vortexReleased: true, ...over }, 1 / 60, C, DEPS,
+  )
+
+  describe('the light key', () => {
+    it('throws a stone under earth and a gust under air, from the same press', () => {
+      // The dispatch, all three ways round. `stoneFired` alone would pass for a resolver that
+      // ignored the element and threw a stone whatever was selected.
+      const earth = throwStone()
+      expect(earth.stoneFired).toBe(true)
+      expect(earth.hitThisFrame).toEqual([])
+      const air = stepEncounter(
+        pair(), { ...defaults, element: 'air', gustPressed: true }, 1 / 60, C, DEPS,
+      )
+      expect(air.stoneFired).toBe(false)
+      expect(air.hitThisFrame.length).toBeGreaterThan(0)
+      const water = stepEncounter(
+        pair(), { ...defaults, element: 'water', gustPressed: true }, 1 / 60, C, DEPS,
+      )
+      expect(water.stoneFired).toBe(false)
+      expect(water.gripFired).toBe(true)
+    })
+
+    it('damages and shoves everyone in the cone', () => {
+      const step = throwStone()
+      expect([...step.stoneHitThisFrame].sort()).toEqual(['beside', 'front'])
+      for (const id of ['front', 'beside']) {
+        const hit = find(step.encounter, id)
+        expect(hit.health.current).toBeCloseTo(C.enemies.spear.maxHealth - C.earth.stoneDamage, 5)
+        // Shoved outward, away from a thrower at the origin, so the push is negative in z.
+        expect(hit.knockback.z).toBeLessThan(0)
+      }
+    })
+
+    it('leaves a soldier out of the cone alone', () => {
+      // The other half of the positive control: a soldier 90 degrees off the axis is outside a
+      // 40-degree cone and must be untouched while the two in front are hit. Its *health* is the
+      // evidence rather than its position, because an unheld soldier walks under its own aggro and
+      // position would be measuring that instead.
+      const wide = startEncounter([
+        ...PAIR, { id: 'flank', position: new Vector3(6, 0, 0), kind: 'spear' },
+      ], C)
+      const step = throwStone(wide)
+      expect(step.stoneHitThisFrame).not.toContain('flank')
+      expect(find(step.encounter, 'flank').health.current).toBe(C.enemies.spear.maxHealth)
+      expect(step.stoneHitThisFrame.length).toBe(2)
+    })
+
+    it('spends the cooldown and the breath, and reports the breath rather than holding it', () => {
+      const step = throwStone()
+      expect(step.encounter.stoneThrowCooldown).toBe(C.earth.stoneCooldownSeconds)
+      expect(step.breathSpent).toBe(C.earth.stoneBreathCost)
+      // No Focus at all: the light verbs do not spend it.
+      expect(step.focusSpent).toBe(0)
+    })
+
+    it('spends the cooldown even when it catches nobody', () => {
+      // A stone that cost nothing on a miss would make the slowest move in the game free to fish
+      // with, which is the opposite of "slow, committed".
+      const step = throwStone(startEncounter([], C))
+      expect(step.stoneFired).toBe(true)
+      expect(step.stoneHitThisFrame).toEqual([])
+      expect(step.encounter.stoneThrowCooldown).toBe(C.earth.stoneCooldownSeconds)
+      expect(step.breathSpent).toBe(C.earth.stoneBreathCost)
+    })
+
+    it('refuses on cooldown, and the refusal costs nothing', () => {
+      const first = throwStone()
+      const second = throwStone(first.encounter)
+      expect(second.stoneFired).toBe(false)
+      expect(second.stoneHitThisFrame).toEqual([])
+      expect(second.breathSpent).toBe(0)
+      expect(second.encounter.stoneThrowCooldown)
+        .toBeCloseTo(C.earth.stoneCooldownSeconds - 1 / 60, 6)
+    })
+
+    it('refuses without the breath, and that refusal costs nothing either', () => {
+      const step = throwStone(pair(), { breathAvailable: C.earth.stoneBreathCost - 1 })
+      expect(step.stoneFired).toBe(false)
+      expect(step.breathSpent).toBe(0)
+      expect(step.encounter.stoneThrowCooldown).toBe(0)
+      expect(find(step.encounter, 'front').health.current).toBe(C.enemies.spear.maxHealth)
+    })
+
+    it('ticks its cooldown down whatever element is selected', () => {
+      // **The first of the four rules the water design note says cost real bugs.** Switching away
+      // must not park a cooldown, or a player hides one move's recovery inside another element and
+      // comes back to a stone that never recovered.
+      let encounter = throwStone().encounter
+      const parked = encounter.stoneThrowCooldown
+      for (let i = 0; i < 30; i++) {
+        encounter = stepEncounter(
+          encounter, { ...defaults, element: 'air' }, 1 / 60, C, DEPS,
+        ).encounter
+      }
+      expect(encounter.stoneThrowCooldown).toBeLessThan(parked - 0.4)
+    })
+
+    it('does not fire on the frame the cooldown expires, one frame before the guide agrees', () => {
+      // **A test written because mutation found nothing was holding this.** The branch is gated on
+      // `canStone(encounter, ...)` — the pre-step encounter, which is the same value the action guide
+      // reads — rather than on the copy this function has already decremented. Swapping one for the
+      // other left every other assertion green, and the bug it produces is the one the water design
+      // note lists: a move that fires a frame before the panel will admit it can, which is a
+      // discrepancy the player sees as the guide lying.
+      //
+      // The frame that separates them is the one where the cooldown is still positive but smaller
+      // than a step: the pre-step predicate says no, the decremented copy says yes.
+      let encounter = throwStone().encounter
+      let guard = 0
+      while (encounter.stoneThrowCooldown > 1 / 60 && guard++ < 600) {
+        encounter = stepEncounter(encounter, defaults, 1 / 60, C, DEPS).encounter
+      }
+      expect(encounter.stoneThrowCooldown).toBeGreaterThan(0)
+      expect(encounter.stoneThrowCooldown).toBeLessThanOrEqual(1 / 60)
+      // Pressed on exactly that frame: refused, because the cooldown has not run out yet.
+      const early = throwStone(encounter)
+      expect(early.stoneFired).toBe(false)
+      expect(early.breathSpent).toBe(0)
+      // And on the very next frame it fires, so the refusal above is one frame of timing rather than
+      // a move that stopped working.
+      expect(early.encounter.stoneThrowCooldown).toBe(0)
+      expect(throwStone(early.encounter).stoneFired).toBe(true)
+    })
+
+    it('keeps its own cooldown separate from the gust\'s and the grip\'s', () => {
+      // A shared "light verb cooldown" would let an element switch convert the shorter cooldown into
+      // the longer one. Throwing a stone must leave a gust available.
+      const step = throwStone()
+      expect(step.encounter.gustCooldown).toBe(0)
+      expect(step.encounter.waterGripCooldown).toBe(0)
+      expect(canGust(step.encounter)).toBe(true)
+    })
+  })
+
+  describe('the heavy key', () => {
+    it('raises a pillar under earth, ahead of the player, on the ground it finds', () => {
+      const step = raise()
+      expect(step.pillarRaised).not.toBeNull()
+      expect(step.encounter.pillars.length).toBe(1)
+      const pillar = step.encounter.pillars[0]!
+      expect(pillar.position.z).toBeCloseTo(-C.earth.raiseDistance, 6)
+      expect(pillar.position.y).toBe(0)
+      expect(pillar.secondsLeft).toBeCloseTo(C.earth.pillarSeconds, 6)
+    })
+
+    it('freezes under water and raises nothing, from the same release', () => {
+      const water = stepEncounter(
+        pair(), { ...defaults, element: 'water', vortexReleased: true }, 1 / 60, C, DEPS,
+      )
+      expect(water.pillarRaised).toBeNull()
+      expect(water.encounter.pillars).toEqual([])
+      expect(water.freezeFired).toBe(true)
+      const earth = raise()
+      expect(earth.freezeFired).toBe(false)
+      expect(earth.pillarRaised).not.toBeNull()
+    })
+
+    it('does not fire a vortex and a pillar for one release', () => {
+      // **The one-frame hole the water cycle found, re-asked for earth.** A charge built under air is
+      // still standing on the frame the player switches away and lets go, because the `else` that
+      // zeroes it is guarded on `!vortexReleased`. Ungated, one press would produce a full-strength
+      // vortex *and* a pillar, and pay Focus for the pillar.
+      const charged = { ...pair(), vortexHeldSeconds: C.vortex.maxChargeSeconds }
+      const step = raise(charged)
+      expect(step.vortexFired).toBeNull()
+      expect(step.pillarRaised).not.toBeNull()
+      // The charge is discarded rather than parked, so switching back to air does not find it.
+      expect(step.encounter.vortexHeldSeconds).toBe(0)
+      // The positive control: the identical charge released under *air* does fire, so the null above
+      // is the element gate and not a charge that was never there.
+      const underAir = stepEncounter(
+        charged, { ...defaults, element: 'air', vortexReleased: true }, 1 / 60, C, DEPS,
+      )
+      expect(underAir.vortexFired).not.toBeNull()
+      expect(underAir.encounter.pillars).toEqual([])
+    })
+
+    it('spends Focus and breath, and reports both rather than holding a meter', () => {
+      const step = raise()
+      expect(step.focusSpent).toBe(C.earth.raiseFocusCost)
+      expect(step.breathSpent).toBe(C.earth.raiseBreathCost)
+    })
+
+    it('refuses without the Focus, and the refusal costs nothing', () => {
+      const step = raise(pair(), { focusAvailable: C.earth.raiseFocusCost - 1 })
+      expect(step.pillarRaised).toBeNull()
+      expect(step.encounter.pillars).toEqual([])
+      expect(step.focusSpent).toBe(0)
+      expect(step.breathSpent).toBe(0)
+    })
+
+    it('refuses without the breath, for nothing', () => {
+      const step = raise(pair(), { breathAvailable: C.earth.raiseBreathCost - 1 })
+      expect(step.pillarRaised).toBeNull()
+      expect(step.focusSpent).toBe(0)
+      expect(step.breathSpent).toBe(0)
+    })
+
+    it('refuses over the void, for nothing, with the Focus still in hand', () => {
+      // A raise with nowhere to found a pillar is refused exactly as one that cannot be paid for is.
+      // The Focus assertion is the one that matters: charging for a move the world declined would be
+      // the most confusing refusal in the game, since the meter is the only visible price.
+      const overVoid = { ...DEPS, ground: { groundHeightAt: () => null } }
+      const step = stepEncounter(
+        pair(), { ...defaults, element: 'earth', vortexReleased: true }, 1 / 60, C, overVoid,
+      )
+      expect(step.pillarRaised).toBeNull()
+      expect(step.encounter.pillars).toEqual([])
+      expect(step.focusSpent).toBe(0)
+      expect(step.breathSpent).toBe(0)
+    })
+
+    it('refuses from too far above the ground, for nothing', () => {
+      // The rule that stops hard cover being manufactured from a hover.
+      const step = raise(pair(), {
+        playerPosition: new Vector3(0, C.earth.raiseVerticalReach + 2, 0),
+      })
+      expect(step.pillarRaised).toBeNull()
+      expect(step.focusSpent).toBe(0)
+      // The positive control at a height inside the limit: the same call succeeds.
+      expect(raise(pair(), {
+        playerPosition: new Vector3(0, C.earth.raiseVerticalReach - 0.5, 0),
+      }).pillarRaised).not.toBeNull()
+    })
+
+    it('shoves a soldier standing where the rock comes up, and interrupts it', () => {
+      // Section 4.2's "drop a pillar under them", as a mechanic. Zero damage, so the evidence is the
+      // impulse and the stance rather than health.
+      const underfoot: EnemySpawn[] = [
+        { id: 'under', position: new Vector3(0, 0, -C.earth.raiseDistance), kind: 'spear' },
+        { id: 'clear', position: new Vector3(6, 0, -C.earth.raiseDistance), kind: 'spear' },
+      ]
+      const step = raise(startEncounter(underfoot, C))
+      const under = find(step.encounter, 'under')
+      expect(under.health.current).toBe(C.enemies.spear.maxHealth)
+      // One frame of gravity lighter than the configured lift, and written as the arithmetic rather
+      // than as 3.667 for the reason the freeze's hold assertion is: `stepEnemy` integrates gravity
+      // after the impulse lands, so the value the step returns is already a frame old. A literal
+      // here would hide that, and a retune of the lift or the gravity would then look like a bug.
+      expect(under.verticalVelocity)
+        .toBeCloseTo(C.earth.raiseLiftSpeed - C.enemies.spear.gravity / 60, 6)
+      expect(under.stance).toBe('recover')
+      // The positive control: the soldier six metres from the rock is untouched by it, so the shove
+      // is a footprint and not a radial knockback wearing one.
+      const clear = find(step.encounter, 'clear')
+      expect(clear.verticalVelocity).toBe(0)
+      expect(clear.knockback.length()).toBe(0)
+    })
+
+    it('caps the standing pillars and retires the oldest', () => {
+      // Raised on separate frames, since one release is one pillar. The cap's own arithmetic is
+      // tested in `earth.test.ts`; this is the fight applying it.
+      let encounter = pair()
+      const ids: string[] = []
+      for (let i = 0; i < C.earth.maxPillars + 1; i++) {
+        const step = raise(encounter)
+        expect(step.pillarRaised).not.toBeNull()
+        ids.push(step.pillarRaised!.id)
+        encounter = step.encounter
+      }
+      expect(encounter.pillars.length).toBe(C.earth.maxPillars)
+      expect(encounter.pillars.map((p) => p.id)).toEqual(ids.slice(1))
+      // Ids are unique and counter-derived, so a view keyed off one cannot be reused for another.
+      expect(new Set(ids).size).toBe(ids.length)
+      expect(encounter.nextPillarId).toBe(ids.length)
+    })
+
+    it('ages its pillars whatever element is selected', () => {
+      // The same rule the cooldowns follow. Cover whose clock only ran while earth was in hand would
+      // last as long as the player did not use the rest of their kit, which is not a cost.
+      let encounter = raise().encounter
+      const raisedWith = encounter.pillars[0]!.secondsLeft
+      for (let i = 0; i < 60; i++) {
+        encounter = stepEncounter(
+          encounter, { ...defaults, element: 'water' }, 1 / 60, C, DEPS,
+        ).encounter
+      }
+      expect(encounter.pillars[0]!.secondsLeft).toBeCloseTo(raisedWith - 1, 5)
+    })
+
+    it('sinks a pillar when its life runs out', () => {
+      let encounter = raise().encounter
+      expect(encounter.pillars.length).toBe(1)
+      for (let i = 0; i < Math.ceil(C.earth.pillarSeconds * 60) + 2; i++) {
+        encounter = stepEncounter(encounter, defaults, 1 / 60, C, DEPS).encounter
+      }
+      expect(encounter.pillars).toEqual([])
+    })
+  })
+})
+
+describe('a pillar as cover, inside the fight', () => {
+  /**
+   * An archer out at 20, with the player at the origin.
+   *
+   * The block is measured through the whole fight rather than through `stepProjectile` alone, because
+   * the ordering that makes cover work — pillars aged, the raise resolved, then the arrows stepped —
+   * lives in `stepEncounter` and nowhere else.
+   */
+  const ARCHER: EnemySpawn[] = [{ id: 'bow', position: new Vector3(0, 0, -20), kind: 'archer' }]
+  /** An arrow already in the air, heading at a player standing at the origin. */
+  const incoming = (from: Encounter): Encounter => ({
+    ...from,
+    projectiles: [spawnProjectile(
+      'shot', new Vector3(0, 1.1, -12), new Vector3(0, -0.09, 1), 1, 34, 0,
+    )],
+  })
+  /** A pillar between the player and the archer, on the flat ground the fixture provides. */
+  const covered = (from: Encounter): Encounter => stepEncounter(
+    from, { ...defaults, element: 'earth', vortexReleased: true }, 1 / 60, C, DEPS,
+  ).encounter
+
+  it('stops an arrow that would otherwise reach the player', () => {
+    // Both halves, and the uncovered case is what makes the covered one mean anything: "the player
+    // was not hit" passes on its own for an arrow that expired, missed, or was never in the air.
+    let unprotected = incoming(startEncounter(ARCHER, C))
+    let hit = false
+    for (let i = 0; i < 40; i++) {
+      const step = stepEncounter(unprotected, defaults, 1 / 60, C, DEPS)
+      unprotected = step.encounter
+      if (step.playerHit) hit = true
+    }
+    expect(hit).toBe(true)
+
+    let sheltered = incoming(covered(startEncounter(ARCHER, C)))
+    expect(sheltered.pillars.length).toBe(1)
+    let blocked = 0
+    let struck = false
+    for (let i = 0; i < 40; i++) {
+      const step = stepEncounter(sheltered, defaults, 1 / 60, C, DEPS)
+      sheltered = step.encounter
+      blocked += step.blockedThisFrame.length
+      if (step.playerHit) struck = true
+    }
+    expect(blocked).toBe(1)
+    expect(struck).toBe(false)
+  })
+
+  it('reports which pillar stopped it and where, so the block can be seen and heard', () => {
+    let encounter = incoming(covered(startEncounter(ARCHER, C)))
+    const pillar = encounter.pillars[0]!
+    let report: PillarBlock | null = null
+    for (let i = 0; i < 40 && report === null; i++) {
+      const step = stepEncounter(encounter, defaults, 1 / 60, C, DEPS)
+      encounter = step.encounter
+      report = step.blockedThisFrame[0] ?? null
+    }
+    expect(report).not.toBeNull()
+    expect(report!.pillarId).toBe(pillar.id)
+    // The strike point is outside the column rather than on its axis, which is what keeps a dust
+    // burst from being drawn inside the rock. Measured as a distance from the axis rather than as a
+    // signed comparison in z — the first attempt at this assertion had the sign backwards, because
+    // this arrow flies toward +z and so meets the *more negative* face.
+    //
+    // Bounded above as well as below: the report carries the position the shot entered the step at,
+    // which at the archer's speed of 34 is up to 0.57 units short of the face it struck, so the dust
+    // lands within one frame's travel of the rock and not somewhere out in the open.
+    const offAxis = Math.hypot(
+      report!.at.x - pillar.position.x, report!.at.z - pillar.position.z,
+    )
+    expect(offAxis).toBeGreaterThan(pillar.radius)
+    expect(offAxis).toBeLessThan(pillar.radius + 1)
+    // And the arrow is gone: a blocked shot ends, it does not carry on past the rock.
+    expect(encounter.projectiles).toEqual([])
+  })
+
+  it('stops a net without grounding the player', () => {
+    // The payload has to die with the shot. A net that reached through cover and stowed the glider
+    // would make the pillar useless against the one enemy whose whole job is grounding the player.
+    let encounter: Encounter = {
+      ...covered(startEncounter(ARCHER, C)),
+      projectiles: [spawnProjectile(
+        'net', new Vector3(0, 1.1, -12), new Vector3(0, -0.09, 1), 0.5, 22, 3,
+      )],
+    }
+    let tangle = 0
+    let blocked = 0
+    for (let i = 0; i < 60; i++) {
+      const step = stepEncounter(encounter, defaults, 1 / 60, C, DEPS)
+      encounter = step.encounter
+      tangle = Math.max(tangle, step.tangleSeconds)
+      blocked += step.blockedThisFrame.length
+    }
+    expect(blocked).toBe(1)
+    expect(tangle).toBe(0)
+  })
+
+  it('keeps its pillars across a patrol restore, unlike the arrows', () => {
+    // The decision recorded on `Pillar.secondsLeft`: one clock owns a pillar's life, because the view
+    // layer cannot be told an object died early. Nothing survives the trip in practice — the player
+    // has to get past `respawnRange` — so this is the rule stated where it can be checked.
+    const spawns: EnemySpawn[] = [{ id: 'solo', position: new Vector3(0, 0, -3), kind: 'spear' }]
+    const deps = { ...DEPS, spawns, patrol: { respawnRange: 40 } }
+    const raised = stepEncounter(
+      startEncounter(spawns, C),
+      { ...defaults, element: 'earth', vortexReleased: true }, 1 / 60, C, deps,
+    ).encounter
+    expect(raised.pillars.length).toBe(1)
+    // Down the soldier and walk away, which is what makes `shouldRestorePatrol` fire.
+    const spent: Encounter = {
+      ...raised,
+      enemies: raised.enemies.map((enemy) => ({
+        ...enemy, health: { ...enemy.health, current: 0 }, downs: 99, stance: 'downed' as const,
+      })),
+      projectiles: [spawnProjectile(
+        'stray', new Vector3(0, 2, -3), new Vector3(0, 0, 1), 1, 34, 0,
+      )],
+    }
+    const step = stepEncounter(
+      spent, { ...defaults, playerPosition: new Vector3(0, 0, 200) }, 1 / 60, C, deps,
+    )
+    expect(step.restoredThisFrame.length).toBe(1)
+    // The arrows are discarded and the rock is not.
+    expect(step.encounter.projectiles).toEqual([])
+    expect(step.encounter.pillars.length).toBe(1)
+  })
+})
+
+describe('earth against plate', () => {
+  const SHIPPED = DEFAULT_COMBAT_CONFIG
+  const PLATE = SHIPPED.enemies.heavy.armour
+  /**
+   * A heavy and a spear side by side, both inside the shipped stone's cone.
+   *
+   * At (±0.6, 0, −4) each is about 4 out and 8.5 degrees off the axis, against the shipped stone's
+   * range of 12 and half-angle of 20 degrees. The spear is the positive control on every assertion
+   * here, for the reason the water block's is.
+   */
+  const PAIR: EnemySpawn[] = [
+    { id: 'plate', position: new Vector3(-0.6, 0, -4), kind: 'heavy' },
+    { id: 'leather', position: new Vector3(0.6, 0, -4), kind: 'spear' },
+  ]
+  const find = (e: Encounter, id: string) => {
+    const found = e.enemies.find((enemy) => enemy.id === id)
+    if (!found) throw new Error(`no soldier named ${id}`)
+    return found
+  }
+  const stoneThePair = (config = SHIPPED) => stepEncounter(
+    startEncounter(PAIR, config),
+    { ...defaults, element: 'earth', gustPressed: true }, 1 / 60, config, DEPS,
+  )
+  const underfoot: EnemySpawn[] = [
+    { id: 'plate', position: new Vector3(0, 0, -SHIPPED.earth.raiseDistance), kind: 'heavy' },
+    { id: 'leather', position: new Vector3(0.5, 0, -SHIPPED.earth.raiseDistance), kind: 'spear' },
+  ]
+  const raiseUnderThePair = (config = SHIPPED) => stepEncounter(
+    startEncounter(underfoot, config),
+    { ...defaults, element: 'earth', vortexReleased: true }, 1 / 60, config, DEPS,
+  )
+
+  it('writes the decision down in the shipped config', () => {
+    // The two rows, pinned as values rather than left to the prose in `config.ts`. The stone row is
+    // the one section 4.4's sentence stands on.
+    expect(PLATE.stone).toEqual({ damage: 1, knockback: 0.6 })
+    expect(PLATE.pillar).toEqual({ damage: 1, knockback: 0.5 })
+    // Neither is a full deflect, which is what keeps both landing at all.
+    expect(deflects(SHIPPED.enemies.heavy, 'stone')).toBe(false)
+    expect(deflects(SHIPPED.enemies.heavy, 'pillar')).toBe(false)
+  })
+
+  it('hurts a heavy exactly as much as it hurts the spear beside it', () => {
+    // The claim, as an equality rather than as two separate numbers: plate does *nothing* to a
+    // thrown rock. The spear is what makes "the heavy took damage" mean "the heavy took the whole
+    // blow" rather than "some damage got through".
+    const step = stoneThePair()
+    expect([...step.stoneHitThisFrame].sort()).toEqual(['leather', 'plate'])
+    const plateLost = SHIPPED.enemies.heavy.maxHealth
+      - find(step.encounter, 'plate').health.current
+    const spearLost = SHIPPED.enemies.spear.maxHealth
+      - find(step.encounter, 'leather').health.current
+    expect(plateLost).toBeCloseTo(SHIPPED.earth.stoneDamage, 6)
+    expect(plateLost).toBeCloseTo(spearLost, 6)
+  })
+
+  it('shoves a heavy less far than the spear beside it, but still shoves it', () => {
+    // Both halves. A heavy shoved as far as a spear has no armour at all; a heavy not shoved at all
+    // makes the stone's row a copy of the gust's, and displacement is the currency this type is built
+    // to defend rather than one it is immune in.
+    const step = stoneThePair()
+    const plate = find(step.encounter, 'plate').knockback.length()
+    const leather = find(step.encounter, 'leather').knockback.length()
+    expect(plate).toBeGreaterThan(0)
+    expect(plate).toBeLessThan(leather)
+    expect(plate / leather).toBeCloseTo(PLATE.stone.knockback, 5)
+  })
+
+  it('takes four stones to put a heavy down its first rung', () => {
+    // **The arithmetic that makes the design document's sentence true, measured through the fight
+    // rather than computed off the config.** Each stone is thrown on its own frame with the cooldown
+    // waited out, which is what a player actually does, and the loop is bounded well above the
+    // expected count so a regression reports the wrong number rather than hanging.
+    let encounter = startEncounter(PAIR, SHIPPED)
+    let stones = 0
+    let downed = false
+    while (stones < 12 && !downed) {
+      const step = stepEncounter(
+        encounter, { ...defaults, element: 'earth', gustPressed: true }, 1 / 60, SHIPPED, DEPS,
+      )
+      encounter = step.encounter
+      expect(step.stoneFired).toBe(true)
+      stones++
+      if (step.downedThisFrame.includes('plate')) downed = true
+      // Wait out the cooldown, so the next press is not refused.
+      for (let t = 0; t < SHIPPED.earth.stoneCooldownSeconds + 1 / 60 && !downed; t += 1 / 60) {
+        const idle = stepEncounter(encounter, defaults, 1 / 60, SHIPPED, DEPS)
+        encounter = idle.encounter
+        if (idle.downedThisFrame.includes('plate')) downed = true
+      }
+    }
+    expect(downed).toBe(true)
+    expect(stones).toBe(4)
+  })
+
+  it('beats the staff by a margin that makes the choice obvious', () => {
+    // The comparison "the only reliable armour-breaker" actually rests on, against the other tool the
+    // player has in hand at melee range. A full three-swing combo is opener, opener, finisher,
+    // through the staff's own armour row.
+    const combo = (SHIPPED.staffArc.openerDamage * 2 + SHIPPED.staffArc.finisherDamage)
+      * PLATE.staff.damage
+    const swings = Math.ceil(SHIPPED.enemies.heavy.maxHealth / combo) * 3
+    expect(swings).toBeGreaterThan(4 * 2)
+    // And every one of those swings is thrown from inside the heavy's own 2-damage reach, where a
+    // stone is not.
+    expect(SHIPPED.staffArc.finisher.range).toBeLessThan(SHIPPED.enemies.heavy.strikeRange * 2)
+    expect(SHIPPED.earth.stone.range).toBeGreaterThan(SHIPPED.enemies.heavy.strikeRange * 3)
+  })
+
+  it('reports a stone a kind turns away outright, instead of doing nothing quietly', () => {
+    // The lever the widened table provides, at a config that ships nowhere — nothing in the game
+    // deflects a stone, and `earth.test.ts` asserts that across every kind. This exists so blocking
+    // the armour-breaker against some future kind is a config edit with working code behind it.
+    const immune: CombatConfig = {
+      ...SHIPPED,
+      enemies: {
+        ...SHIPPED.enemies,
+        heavy: {
+          ...SHIPPED.enemies.heavy,
+          armour: { ...PLATE, stone: { damage: 0, knockback: 0 } },
+        },
+      },
+    }
+    const step = stoneThePair(immune)
+    expect(step.deflectedThisFrame).toContain('plate')
+    expect(step.stoneHitThisFrame).not.toContain('plate')
+    expect(find(step.encounter, 'plate').health.current).toBe(SHIPPED.enemies.heavy.maxHealth)
+    // The control: the spear beside it still takes the rock, so the deflect is the armour and not a
+    // move that failed to come out.
+    expect(step.stoneHitThisFrame).toContain('leather')
+  })
+
+  it('lifts a heavy less than the spear beside it, at the shipped rows', () => {
+    const step = raiseUnderThePair()
+    const plate = find(step.encounter, 'plate').verticalVelocity
+    const leather = find(step.encounter, 'leather').verticalVelocity
+    expect(plate).toBeGreaterThan(0)
+    expect(plate).toBeLessThan(leather)
+    // Compared against the arithmetic rather than as a ratio of the two returned values, and the
+    // difference matters: `stepEnemy` subtracts a frame of gravity after the impulse lands, and it
+    // subtracts the *same* frame from both, so the ratio of what comes back is not the armour
+    // fraction. It reads 0.45 against a row of 0.5, which is the kind of near-miss that invites
+    // someone to "fix" the config.
+    const frame = SHIPPED.enemies.heavy.gravity / 60
+    expect(plate).toBeCloseTo(SHIPPED.earth.raiseLiftSpeed * PLATE.pillar.knockback - frame, 6)
+    expect(leather).toBeCloseTo(SHIPPED.earth.raiseLiftSpeed - frame, 6)
+  })
+
+  it('reports a pillar shove a kind turns away, and leaves that soldier on its feet', () => {
+    const immune: CombatConfig = {
+      ...SHIPPED,
+      enemies: {
+        ...SHIPPED.enemies,
+        heavy: {
+          ...SHIPPED.enemies.heavy,
+          armour: { ...PLATE, pillar: { damage: 0, knockback: 0 } },
+        },
+      },
+    }
+    const step = raiseUnderThePair(immune)
+    expect(step.deflectedThisFrame).toContain('plate')
+    expect(find(step.encounter, 'plate').verticalVelocity).toBe(0)
+    // The control beside it: the spear is lifted, so the deflect is the armour rather than a raise
+    // that caught nobody. One frame of gravity lighter than the configured lift, per the note on the
+    // test above.
+    expect(find(step.encounter, 'leather').verticalVelocity)
+      .toBeCloseTo(SHIPPED.earth.raiseLiftSpeed - SHIPPED.enemies.spear.gravity / 60, 6)
+  })
+
+  it('never kills, however many stones land', () => {
+    // Section 4.6. Earth does real damage, which is its job, and damage moves a soldier down the
+    // recovery ladder and never off it: a heavy past the end of its rungs is *downed*, still in the
+    // world, at zero health rather than removed.
+    let encounter = startEncounter(PAIR, SHIPPED)
+    for (let i = 0; i < 30; i++) {
+      encounter = stepEncounter(
+        encounter, { ...defaults, element: 'earth', gustPressed: true }, 1 / 60, SHIPPED, DEPS,
+      ).encounter
+      for (let t = 0; t < SHIPPED.earth.stoneCooldownSeconds; t += 1 / 60) {
+        encounter = stepEncounter(encounter, defaults, 1 / 60, SHIPPED, DEPS).encounter
+      }
+    }
+    const plate = encounter.enemies.find((e) => e.id === 'plate')
+    expect(plate).toBeDefined()
+    expect(isDowned(plate!.health)).toBe(true)
+    expect(plate!.health.current).toBe(0)
+    expect(plate!.stance).toBe('downed')
   })
 })

@@ -153,6 +153,72 @@ export function createCombatAudio() {
     },
 
     /**
+     * A Stone Throw: the grunt of mass leaving, with grit on it.
+     *
+     * A `thud` where the other two light verbs are pure `burst`s, and that is the whole point of
+     * the voice. A gust and a grip are both *air or water moving* and both are filtered noise; a
+     * rock has mass, and mass in this synthesis kit is a pitch dropping under a fast decay. So the
+     * three moves on one key are told apart by their material rather than by their level, which is
+     * the same principle `clang` follows against `impact` — the note there argues at length that
+     * timbre, not volume, is what a player actually distinguishes.
+     *
+     * Pitched between the down's 120 and the freeze's 320. Below the freeze because rock is heavier
+     * than ice and above the down because this is a rock being thrown rather than a body landing,
+     * and the two must not be confused: a stone that sounded like a down would have the player
+     * believing they had put a heavy on the ground every time they missed one.
+     *
+     * The short bright burst over the top is the grit, and its filter sweeps *down* from a modest
+     * start — outward, matching the gust's direction and the direction the drawn arc travels, since
+     * this is the one light verb that sends something away and hurts with it.
+     */
+    stone(): void {
+      thud(COMBAT_LEVELS.stone, 0.18, 210)
+      burst(COMBAT_LEVELS.stone * 0.55, 0.16, 2400, 500)
+    },
+
+    /**
+     * A Stone Pillar: a low shove of rock, arriving and settling.
+     *
+     * The lowest-pitched voice in the game, under the down's 120, and it is the one place a pitch
+     * below a knockdown's is right: this is the ground itself moving, which is a bigger and duller
+     * event than any body hitting it. Long, too — half a second, past the freeze's 0.35 — because
+     * the rock is still arriving while the sound runs, and a six-second object announced by a click
+     * would read as something small.
+     *
+     * The burst under it sweeps down into near-silence rather than up, which is a rumble decaying
+     * rather than something drawn in: the grip's upward sweep means water coming toward the
+     * listener, and nothing about a pillar comes toward anybody.
+     *
+     * Deliberately *not* built like the freeze, which is the other Focus-priced move and the
+     * obvious template. The freeze is a crack with a detuned beat on it, chosen to be unpleasant
+     * because it is the most expensive press in the game. A pillar is not unpleasant; it is
+     * reassuring, and it should be, because the player pressed it to be safer. Two moves that cost
+     * nearly the same should not therefore sound the same — what they cost is on the meter, and
+     * what they *do* is what the ear is for.
+     */
+    pillar(): void {
+      thud(COMBAT_LEVELS.pillar, 0.5, 90)
+      burst(COMBAT_LEVELS.pillar * 0.5, 0.55, 700, 60)
+    },
+
+    /**
+     * An arrow stopped by a pillar: a dry knock, and nothing else.
+     *
+     * Short, mid-bright, and built from one `burst` alone — no `thud`, so it cannot be mistaken for
+     * a hit landing on anybody. That is the whole requirement of this voice: the player must hear
+     * that a shot *ended somewhere harmless*. Silence was the alternative and it is worse than any
+     * level, for the reason `deflectedThisFrame` exists on the enemy side — a shot that vanishes
+     * with no sound is indistinguishable from a shot that was never fired, and cover the player
+     * cannot hear working is cover they will not learn to stand behind.
+     *
+     * The quietest voice in the game bar the element switch, because it happens as often as the
+     * archers shoot and the player is not meant to be doing anything about it.
+     */
+    pillarBlock(): void {
+      burst(COMBAT_LEVELS.pillarBlock, 0.07, 1800, 700)
+    },
+
+    /**
      * The element switch: one very short, very quiet tick.
      *
      * Short enough that it cannot overlap itself even on consecutive frames of flicking, so a

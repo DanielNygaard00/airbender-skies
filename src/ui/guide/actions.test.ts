@@ -33,6 +33,8 @@ const ctx = (over: Partial<ActionContext> = {}): ActionContext => ({
   element: 'air',
   gripReady: true,
   iceLockReady: true,
+  stoneReady: true,
+  pillarReady: true,
   carryReady: true,
   ...over,
 })
@@ -330,24 +332,50 @@ function readmeKeys(): string[] {
 }
 
 describe('the bending keys follow the selected element', () => {
-  it('offers the air moves on air and strikes through the water ones', () => {
+  it('offers the air moves on air and strikes through the other four', () => {
     // The question a player opening the panel mid-fight actually has: what do my two bending keys
-    // do right now. Asserted as all four rows at once, because an implementation where every row
-    // was always available would pass each half individually — and that is exactly the bug, since
-    // the panel would then list four moves for two keys with no indication which is live.
+    // do right now. Asserted as all six rows at once, because an implementation where every row was
+    // always available would pass each half individually — and that is exactly the bug, since the
+    // panel would then list six moves for two keys with no indication which is live.
     const air = { element: 'air' as const }
     expect(can('Gust', air)).toBe(true)
     expect(can('Vortex', air)).toBe(true)
     expect(can('Water Grip', air)).toBe(false)
     expect(can('Ice Lock', air)).toBe(false)
+    expect(can('Stone Throw', air)).toBe(false)
+    expect(can('Stone Pillar', air)).toBe(false)
   })
 
-  it('offers the water moves on water and strikes through the air ones', () => {
+  it('offers the water moves on water and strikes through the other four', () => {
     const water = { element: 'water' as const }
     expect(can('Water Grip', water)).toBe(true)
     expect(can('Ice Lock', water)).toBe(true)
     expect(can('Gust', water)).toBe(false)
     expect(can('Vortex', water)).toBe(false)
+    expect(can('Stone Throw', water)).toBe(false)
+    expect(can('Stone Pillar', water)).toBe(false)
+  })
+
+  it('offers the earth moves on earth and strikes through the other four', () => {
+    const earth = { element: 'earth' as const }
+    expect(can('Stone Throw', earth)).toBe(true)
+    expect(can('Stone Pillar', earth)).toBe(true)
+    expect(can('Gust', earth)).toBe(false)
+    expect(can('Vortex', earth)).toBe(false)
+    expect(can('Water Grip', earth)).toBe(false)
+    expect(can('Ice Lock', earth)).toBe(false)
+  })
+
+  it('offers exactly two moves on the two bending keys, whichever element is held', () => {
+    // The invariant behind all three blocks above, said once rather than inferred from them: two
+    // keys mean two moves, always. It is what would catch a fourth element added to the catalogue
+    // without an element gate on its rows — the three tests above would each keep passing, because
+    // none of them knows about a row it was not told to look for.
+    const bending = ['Gust', 'Vortex', 'Water Grip', 'Ice Lock', 'Stone Throw', 'Stone Pillar']
+    for (const element of ['air', 'water', 'earth'] as const) {
+      const live = bending.filter((name) => can(name, { element }))
+      expect(live.length, element).toBe(2)
+    }
   })
 
   it('follows the grip readiness it is handed, on water', () => {
@@ -357,6 +385,7 @@ describe('the bending keys follow the selected element', () => {
     expect(can('Water Grip', {
       element: 'water', gripReady: false, gustReady: true, vortexReady: true,
       iceLockReady: true, slipstreamReady: true, avatarStateReady: true,
+      stoneReady: true, pillarReady: true,
     })).toBe(false)
   })
 
@@ -365,21 +394,45 @@ describe('the bending keys follow the selected element', () => {
     expect(can('Ice Lock', {
       element: 'water', iceLockReady: false, gripReady: true, gustReady: true,
       vortexReady: true, slipstreamReady: true, avatarStateReady: true,
+      stoneReady: true, pillarReady: true,
     })).toBe(false)
   })
 
-  it('strikes through a water move even when it is affordable, if air is selected', () => {
-    // The element gate and the resource gate are independent, and the element has to win. A row
-    // that only checked affordability would tell an airbending player that a freeze is ready.
+  it('follows the Stone Throw readiness it is handed, on earth', () => {
+    // Same isolation as the two water rows: every other flag is true in the false case, so a row
+    // reading the wrong one — the grip's cooldown copied onto the stone, which is the mistake a
+    // copy-pasted row actually makes — reddens rather than passing.
+    expect(can('Stone Throw', { element: 'earth', stoneReady: true })).toBe(true)
+    expect(can('Stone Throw', {
+      element: 'earth', stoneReady: false, gustReady: true, vortexReady: true,
+      gripReady: true, iceLockReady: true, pillarReady: true, slipstreamReady: true,
+      avatarStateReady: true,
+    })).toBe(false)
+  })
+
+  it('follows the Stone Pillar readiness it is handed, on earth', () => {
+    expect(can('Stone Pillar', { element: 'earth', pillarReady: true })).toBe(true)
+    expect(can('Stone Pillar', {
+      element: 'earth', pillarReady: false, gustReady: true, vortexReady: true,
+      gripReady: true, iceLockReady: true, stoneReady: true, slipstreamReady: true,
+      avatarStateReady: true,
+    })).toBe(false)
+  })
+
+  it('strikes through another element\'s move even when it is affordable', () => {
+    // The element gate and the resource gate are independent, and the element has to win. A row that
+    // only checked affordability would tell an airbending player that a freeze is ready.
     expect(can('Ice Lock', { element: 'air', iceLockReady: true })).toBe(false)
     expect(can('Water Grip', { element: 'air', gripReady: true })).toBe(false)
+    expect(can('Stone Throw', { element: 'air', stoneReady: true })).toBe(false)
+    expect(can('Stone Pillar', { element: 'water', pillarReady: true })).toBe(false)
   })
 
   it('always offers the radial and the direct binds', () => {
     // Switching is free, so these two can never be unavailable — there is no cooldown, no cost and
-    // no posture requirement. Checked in both stances, since every other row varies by one or the
+    // no posture requirement. Checked in every stance, since every other row varies by one or the
     // other.
-    for (const element of ['air', 'water'] as const) {
+    for (const element of ['air', 'water', 'earth'] as const) {
       expect(can('Element radial', { element })).toBe(true)
       expect(can('Select element directly', { element })).toBe(true)
       expect(can('Element radial', {

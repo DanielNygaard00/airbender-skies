@@ -76,11 +76,18 @@ import { bearingFromCamera, markFor, stepHitMarks, type HitMark } from './fx/hit
 import { createGuide, guideModelFor } from './ui/guide/panel'
 import { pauseReason, pauseOverlayModel } from './core/pause'
 import { createPauseOverlay } from './ui/pause-overlay'
-import { canGust, canGrip, canVortex } from './combat/encounter'
+import { canGust, canGrip, canStone, canVortex } from './combat/encounter'
 import { canIceLock, anyLiveWaterGripTarget } from './combat/water'
+import { anyLiveStoneThrowTarget, canRaisePillar, stoneShape, type Pillar } from './combat/earth'
+import { createEarthReach } from './fx/earth-reach'
+import { createPillarView, type PillarView } from './fx/pillar-view'
 import {
-  DEFAULT_ELEMENT_CONFIG, radialModel, restingElements, stepElements, type ElementState,
+  DEFAULT_ELEMENT_CONFIG, radialModel, restingElements, stepElements,
+  type Element, type ElementState,
 } from './elements/element'
+import type { CombatConfig, Encounter } from './combat/encounter'
+import type { ConeShape } from './combat/cone'
+import type { PlayerState } from './core/types'
 import { createElementRadial } from './ui/element-radial'
 import { createWaterReach } from './fx/water-reach'
 import { createIceShell } from './fx/ice-shell'
@@ -149,6 +156,66 @@ const SCREEN_CENTRE = { x: 0.5, y: 0.5 }
  * would mean a future retune of one silently retuning the other.
  */
 const WALL_LEAN_RESPONSE = 16
+
+/** What the aim preview needs to know about whichever light verb `F` would currently throw. */
+interface LightVerbPreview {
+  /** Something worth aiming at is inside the reach right now. */
+  hot: boolean
+  /** The move could actually fire if the key went down. */
+  ready: boolean
+  /** The reach to draw, taken from the same function the resolver builds its test from. */
+  shape: ConeShape
+}
+
+/**
+ * The light verb's aim preview, per element.
+ *
+ * **A `Record<Element, …>` rather than the chain of ternaries this was**, and the water design note
+ * called for exactly this at exactly this point: "the three per-element ternaries in `main.ts` —
+ * the `aimHot` query, the aim tell's shape, and the light-verb cone effect. Fine for two elements,
+ * a small lookup at the third." Earth is the third. Two of those three are folded in here — the
+ * hot query and the shape, which are asked in one place — and the fired cone stays where it is,
+ * because it is drawn from the fight's own report rather than from a pre-step guess.
+ *
+ * A Record and not a switch, so fire fails to compile here rather than silently inheriting air's
+ * preview: the failure mode of a fallback is a reticle that promises a gust's 120-degree reach for
+ * a move that does not have it, which is precisely the wrong-by-a-wide-margin answer the per-element
+ * split exists to prevent.
+ *
+ * At module scope and taking its inputs as arguments, so it is built once rather than every frame.
+ *
+ * Each entry reads the shape from the same function its resolver's containment test is built from —
+ * `gustShape` is `fightConfig.gust` itself, `gripShape` is what `inWaterGrip` uses, `stoneShape` is
+ * what `inStoneThrow` uses — so a previewed cone and the cone that bites cannot diverge.
+ *
+ * Only the air entry passes `enemies`, and that asymmetry is deliberate rather than an omission. A
+ * heavy's armour turns a gust away entirely, so the tell stays cold on the heavy and warm on the
+ * spear beside it: the armour's first and cheapest lesson, learned without spending the move. Water
+ * has nothing to say there because neither of its moves is fully deflected by anything shipped, and
+ * earth has nothing to say because *nothing deflects a stone at all* — a preview that went cold on
+ * an armoured target would be teaching the exact opposite of the truth about the one move that
+ * breaks armour. See `anyLiveStoneThrowTarget` for that argument in full.
+ */
+const LIGHT_VERB_PREVIEWS: Record<
+  Element,
+  (c: CombatConfig, fight: Encounter, p: PlayerState) => LightVerbPreview
+> = {
+  air: (c, fight, p) => ({
+    hot: anyLiveGustTarget(p.position, p.forward, fight.enemies, c.gust, c.enemies),
+    ready: canGust(fight),
+    shape: c.gust,
+  }),
+  water: (c, fight, p) => ({
+    hot: anyLiveWaterGripTarget(p.position, p.forward, fight.enemies, c.water),
+    ready: canGrip(fight, p.breath, c.water),
+    shape: gripShape(c.water),
+  }),
+  earth: (c, fight, p) => ({
+    hot: anyLiveStoneThrowTarget(p.position, p.forward, fight.enemies, c.earth),
+    ready: canStone(fight, p.breath, c.earth),
+    shape: stoneShape(c.earth),
+  }),
+}
 
 function start(): void {
   if (!hasWebGL()) return showFallback(WEBGL_MESSAGE)
@@ -332,6 +399,16 @@ function start(): void {
    */
   const arrowViews = new Map<string, ArrowView>()
 
+  /**
+   * One view per standing pillar, created on first sight and disposed when the rock is gone. Keyed
+   * by pillar id, the same way `arrowViews` is keyed by projectile id and `enemyViews` by enemy id.
+   *
+   * A persistent view rather than a pooled `Effect`, and `createPillarView` carries the argument:
+   * the effect pool caps at 24 and evicts oldest first, so a six-second pillar would be the first
+   * thing a busy exchange threw away — and the rock would vanish while it was still stopping arrows.
+   */
+  const pillarViews = new Map<string, PillarView>()
+
   const avatar = createAvatar()
   scene.add(avatar.object)
 
@@ -511,6 +588,11 @@ function start(): void {
       element: elements.active,
       gripReady: canGrip(encounter, player.breath, DEFAULT_COMBAT_CONFIG.water),
       iceLockReady: canIceLock(focus.value, player.breath, DEFAULT_COMBAT_CONFIG.water),
+      // Earth's two, asked through the same predicates the fight resolves them with, for the
+      // identical reason. `canRaisePillar` is affordability only — the fight also asks whether
+      // there is ground to raise from, which this row deliberately does not track; see the field.
+      stoneReady: canStone(encounter, player.breath, DEFAULT_COMBAT_CONFIG.earth),
+      pillarReady: canRaisePillar(focus.value, player.breath, DEFAULT_COMBAT_CONFIG.earth),
       // The same call `update` resolves the press with, so the row cannot dim on a frame the
       // key would have worked — or offer itself on one where it would not.
       carryReady: carryIntent(player, payloads, carriedId) !== null,
@@ -649,6 +731,18 @@ function start(): void {
    * so this is a guard rather than a fix — the same standing as the `hitMarks` clear below, and it
    * is written down for the same reason, that the relationship between those two constants is not
    * something anyone retuning either would think to check.
+   *
+   * **A third thing it does not touch, added with earth: a standing pillar keeps standing.** It is
+   * on the same footing as the hold above and then some — a pillar is more clearly the player's own
+   * mark on the world than a hold on a soldier is, and section 6's rule that the fight "keeps
+   * whatever state he put it in" covers it directly. The argument that actually settled it is
+   * mechanical rather than thematic: nothing may shorten a pillar's life but its own clock, because
+   * the view layer cannot be told an object died early, so a pillar cleared here would leave a rock
+   * drawn where nothing blocks arrows or a rock vanishing while it still does. See
+   * `Pillar.secondsLeft`. Nothing survives the beat in any case — six seconds of pillar against
+   * `DEFAULT_DOWN_CONFIG`'s ramps, which the pillar comfortably outlasts, so this one is not even a
+   * guard: it is the *observable* case of the rule, and a player who goes down behind their own
+   * cover comes back up behind it, which is the right answer.
    *
    * The selected element survives, and Focus does not, and the difference is the point. Focus is
    * wiped because it was *earned* and section 6 names it as part of the cost. Which element is
@@ -1077,49 +1171,19 @@ function start(): void {
     // on its own if a boost ever does reach the vortex.
     chargeTell.update(dt, encounter.vortexHeldSeconds, fightConfig.vortex)
 
-    // Hoisted out of the aimTell.update call below into the one variable syncVisuals reads for
-    // the reticle's hot state, so the reticle warms on exactly the frames the world-space tell
-    // does. Two calls would be two answers, and a tell that says "this will connect" beside a
-    // reticle that says it will not is worse than either alone.
-    // Asked of whichever element's light verb the key would actually throw, so the reticle and the
-    // world-space tell warm for the reach the player has rather than for the one they had before
-    // switching. Water's cone is much narrower and its band much shorter, so a single shared
-    // answer would be wrong by a wide margin in both directions — promising a connect water cannot
-    // make, and staying cold for one it can.
+    // The light verb's preview, resolved through the lookup above rather than through a chain of
+    // ternaries. `aimHot` is hoisted into the one variable syncVisuals reads for the reticle's hot
+    // state, so the reticle warms on exactly the frames the world-space tell does — two calls would
+    // be two answers, and a tell that says "this will connect" beside a reticle that says it will
+    // not is worse than either alone.
     //
-    // The gust branch also passes `fightConfig.enemies`, because a heavy's armour turns that move
-    // away entirely: the tell stays cold on the heavy and warm on the spear beside it, which is
-    // the armour's first and cheapest tell — the player learns the immunity without spending the
-    // move. The water branch has no equivalent argument to pass, because nothing in the armour
-    // model covers a Water Grip yet. See the note in `water.ts` on what that leaves open.
-    aimHot = elements.active === 'water'
-      ? anyLiveWaterGripTarget(
-        player.position, player.forward, encounter.enemies, fightConfig.water,
-      )
-      : anyLiveGustTarget(
-        player.position, player.forward, encounter.enemies, fightConfig.gust,
-        fightConfig.enemies,
-      )
-
-    // fightConfig, not the unboosted default, so the preview and the fired cone
-    // (`createGustCone` below, also fed `fightConfig.gust`) read one source and cannot
-    // diverge if a future boost ever does touch the gust's range or half angle — the same
-    // reason chargeTell reads it. Today's Avatar State does not: `boostedCombatConfig`
+    // fightConfig, not the unboosted default, so the preview and the fired cone read one source and
+    // cannot diverge if a future boost ever touches a range or a half angle — the same reason
+    // chargeTell reads it. Today's Avatar State does not: `boostedCombatConfig`
     // (`src/focus/effects.ts`) only scales damage, knockback and cooldown.
-    // The shape and the readiness of whichever light verb F would throw, so the preview is the
-    // reach the player has. `gripShape` is the same function `inWaterGrip` builds its test from,
-    // so the previewed cone and the cone that bites cannot diverge — the same relationship the
-    // gust half of this call has always had.
-    const water = elements.active === 'water'
-    aimTell.update(
-      player.position,
-      player.forward,
-      aimHot,
-      water
-        ? canGrip(encounter, player.breath, fightConfig.water)
-        : canGust(encounter),
-      water ? gripShape(fightConfig.water) : fightConfig.gust,
-    )
+    const preview = LIGHT_VERB_PREVIEWS[elements.active](fightConfig, encounter, player)
+    aimHot = preview.hot
+    aimTell.update(player.position, player.forward, aimHot, preview.ready, preview.shape)
 
     // Asked against the pre-step encounter, so the visual agrees with what stepEncounter
     // will actually do on this same frame rather than a frame late. Gated on the element as well,
@@ -1222,6 +1286,28 @@ function start(): void {
       effects.add(createWaterReach(player.position, player.forward, 'freeze', fightConfig.water))
       combatAudio.freeze()
     }
+    // Earth's two, from the fight's report for the same reason water's are: a stone can be refused
+    // for want of breath and a raise for want of Focus *or* for want of ground to raise from, and
+    // all three refusals are invisible to this file.
+    if (fight.stoneFired) {
+      effects.add(createEarthReach(player.position, player.forward, fightConfig.earth))
+      combatAudio.stone()
+    }
+    // Voiced here; drawn by the pillar views below, which sync off `encounter.pillars`. The split is
+    // the one the ice shells make — one voice for the move, and a drawn object per thing it created
+    // — except that a pillar outlives its frame, so the object is a persistent view rather than a
+    // pooled effect. `createPillarView` records why that distinction is load-bearing.
+    if (fight.pillarRaised) combatAudio.pillar()
+    // One dry knock however many shots a rock ate this frame, like every other voice in this file.
+    // Two archers can land on the same pillar on the same frame, and two bit-identical bursts at the
+    // same currentTime sum coherently into one twice as loud — the defect `bowReleaseLevel` exists
+    // to solve for arrows.
+    if (fight.blockedThisFrame.length > 0) combatAudio.pillarBlock()
+    // Dust where each shot struck, at the position the fight reported rather than at the pillar's
+    // axis: a burst on the column's centre line would be drawn inside the rock. 'deflect' is the
+    // right burst kind and not a borrowed one — it means "this did nothing to anybody", which is
+    // exactly what an arrow stopping on a rock is.
+    for (const block of fight.blockedThisFrame) effects.add(createImpact(block.at, 'deflect'))
     // A restored soldier reuses its id, so its interpolator still holds wherever the
     // body fell. Left alone the view would blend from there to the spawn point --
     // sliding across the map, or climbing up out of the void for one that fell off the
@@ -1256,6 +1342,36 @@ function start(): void {
       arrowViews.delete(id)
     }
 
+    // The standing pillars, on exactly the arrow loop's pattern above and for the same reasons: a
+    // view per record, created on first sight, updated from the record every frame, disposed when
+    // the record is gone. Read straight from the simulation rather than through an interpolator,
+    // like the arrows — a pillar does not move at all after the frame it rises, so there is nothing
+    // for an interpolator to smooth.
+    //
+    // `encounter.pillars` and not a report of what was raised: the view has to follow the whole
+    // list, because a pillar's rise and sink are both driven off its own `secondsLeft` and a third
+    // press retires the oldest one silently.
+    for (const pillar of encounter.pillars) {
+      let view = pillarViews.get(pillar.id)
+      if (!view) {
+        view = createPillarView(pillar)
+        pillarViews.set(pillar.id, view)
+        scene.add(view.object)
+        // Shadowed like the payload meshes and the soldiers, and unlike everything in `src/fx/`.
+        // A pillar is a solid object rather than an attack tell, and an object this size with no
+        // shadow does not sit on the ground it is supposed to have come out of.
+        enableShadows(view.object)
+      }
+      view.update(pillar)
+    }
+    const standing = new Set(encounter.pillars.map((pillar) => pillar.id))
+    for (const [id, view] of pillarViews) {
+      if (standing.has(id)) continue
+      scene.remove(view.object)
+      view.dispose()
+      pillarViews.delete(id)
+    }
+
     // Drawn at the true vortexRadius for the same reason the gust cone is drawn at its
     // true hit volume — a pull that reaches outside the visible ring reads as a bug.
     if (fight.vortexFired !== null) {
@@ -1280,6 +1396,7 @@ function start(): void {
       hits: fight.hitThisFrame,
       slamHits: fight.slamHitThisFrame,
       staffHits: fight.staffHitThisFrame,
+      stoneHits: fight.stoneHitThisFrame,
       redirectHits: fight.redirectHitsThisFrame,
       downed: fight.downedThisFrame,
       deflected: fight.deflectedThisFrame,

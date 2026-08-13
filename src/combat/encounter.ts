@@ -10,6 +10,10 @@ import {
   canIceLock, canWaterGrip, iceLockTargets, waterGripImpulse, waterGripTargets,
   type WaterConfig,
 } from './water'
+import {
+  addPillar, canRaisePillar, canStoneThrow, pillarShoveImpulse, pillarShoveTargets, pillarSite,
+  spawnPillar, stepPillars, stoneImpulse, stoneThrowTargets, type EarthConfig, type Pillar,
+} from './earth'
 import type { Element } from '../elements/element'
 import { gustImpulse, gustTargets, type GustConfig } from './gust'
 import {
@@ -63,12 +67,34 @@ export interface Encounter {
   /**
    * Seconds until the next Water Grip is available.
    *
-   * Its own field rather than one shared "light verb cooldown", because the two moves on that
-   * key have deliberately different cooldowns — 0.45 for a gust, 1.1 for a grip — and a shared
-   * timer would let switching element launder one move's cooldown into the other's. Earth and
-   * fire add their own for the same reason.
+   * Its own field rather than one shared "light verb cooldown", because the three moves on that
+   * key have deliberately different cooldowns — 0.45 for a gust, 1.1 for a grip, 1.8 for a stone
+   * — and a shared timer would let switching element launder one move's cooldown into the
+   * other's. Earth added its own for that reason and fire will too.
    */
   waterGripCooldown: number
+  /** Seconds until the next Stone Throw is available. Its own field, per the rule above. */
+  stoneThrowCooldown: number
+  /**
+   * The columns of rock standing in this fight, oldest first.
+   *
+   * Owned here beside the arrows because both are objects this fight put into the world with
+   * lifetimes of their own — and, like the arrows, they are stepped every frame whatever the
+   * player is doing. Order is raise order, which is what `addPillar`'s cap relies on.
+   *
+   * On `Encounter` rather than on the level or the world, even though a pillar is a physical
+   * object in the scene: it exists because of a move made in a fight, it expires on the fight's
+   * clock, and nothing outside a fight can produce one. The world is built once from a `Level`
+   * and has no mechanism for anything to arrive in it later.
+   */
+  pillars: Pillar[]
+  /**
+   * The next pillar's id.
+   *
+   * A counter rather than `Math.random()`, for the reason `nextProjectileId` is one: the view
+   * layer keys a mesh off it and this project's tests cannot tolerate unrepeatable values.
+   */
+  nextPillarId: number
 }
 
 export interface CombatConfig {
@@ -88,6 +114,7 @@ export interface CombatConfig {
   staffArc: StaffArcConfig
   airWall: AirWallConfig
   water: WaterConfig
+  earth: EarthConfig
 }
 
 export interface EnemySpawn {
@@ -129,6 +156,9 @@ export function startEncounter(spawns: readonly EnemySpawn[], c: CombatConfig): 
     vortexCooldown: 0,
     airWall: idleAirWall(),
     waterGripCooldown: 0,
+    stoneThrowCooldown: 0,
+    pillars: [],
+    nextPillarId: 0,
   }
 }
 
@@ -196,6 +226,18 @@ export interface EncounterInput {
 export interface PlayerHit {
   from: Vector3
   damage: number
+}
+
+/** One projectile a pillar stopped this frame, and where it struck the rock. */
+export interface PillarBlock {
+  pillarId: string
+  /**
+   * Where the shot met the rock, in world space.
+   *
+   * The projectile's position as it entered the step, not the pillar's centre: dust on the face
+   * the arrow hit is the tell, and a burst at the axis of the column would appear inside it.
+   */
+  at: Vector3
 }
 
 export interface EncounterStep {
@@ -292,6 +334,51 @@ export interface EncounterStep {
   gripFired: boolean
   /** Whether the freeze fired at all. Same reason. */
   freezeFired: boolean
+  /**
+   * Live soldiers a Stone Throw hit this frame.
+   *
+   * Its own list beside the four connect lists, and — unlike them — **it feeds no Focus grant.**
+   * The stone does real damage, so the instinct is to pay it the way `hitThisFrame` pays a gust,
+   * and it is deliberately not paid. Earth's heavy verb spends 30 Focus, so a light verb that
+   * earned Focus per connect would let earth fund its own cover: six stones and the pillar is
+   * paid for, which prices the pair twice and is the exact mistake the water design note names
+   * when it explains why neither water move pays. Earth is still paid for what it actually
+   * achieves — `firstDownsThisFrame` pays for putting a soldier down, and putting a *heavy* down
+   * is the thing earth exists to do.
+   *
+   * It exists for the same reason `redirectHitsThisFrame` does: the effects layer needs to know a
+   * body took something.
+   */
+  stoneHitThisFrame: string[]
+  /** Whether a stone was thrown at all, even catching nobody. Same reason as `gripFired`. */
+  stoneFired: boolean
+  /**
+   * The pillar raised this frame, or null.
+   *
+   * The object rather than a flag, because the one thing a caller wants on this frame — a voice,
+   * and the dust at its base — needs to know *where*. The pillar is also already in
+   * `encounter.pillars`, so this is a report of which one is new rather than a second copy of
+   * the state.
+   *
+   * Null on the frames a raise was refused, and refused says nothing about why: no Focus, no
+   * breath and no ground all produce the same null, and all three cost the player nothing.
+   */
+  pillarRaised: Pillar | null
+  /**
+   * Projectiles a pillar stopped this frame, with where each one struck.
+   *
+   * A list of objects rather than parallel arrays, the shape `playerHitsThisFrame` already uses,
+   * because the feedback needs the position and the position is only in hand inside the arrow
+   * loop.
+   *
+   * **It pays no Focus, and that is a decision.** `redirectedThisFrame` pays for an Air Wall
+   * turning a shot around, and the grant's own doc comment says why: the redirect is a skilled
+   * act, a barrier angled onto a bearing inside the arrow's flight time. Standing behind a rock
+   * raised five seconds ago is not that act. Paying it would also make a pillar a Focus battery
+   * aimed at an archer — raise cover, let two archers shoot it, and the pillar has paid for the
+   * next pillar, which is the same self-funding loop `stoneHitThisFrame` refuses.
+   */
+  blockedThisFrame: PillarBlock[]
   /**
    * Focus this frame's moves spent. Zero on almost every frame.
    *
@@ -444,6 +531,17 @@ export function canGrip(encounter: Encounter, breath: number, c: WaterConfig): b
 }
 
 /**
+ * Whether a Stone Throw can fire: off cooldown, and with the breath to pay for it.
+ *
+ * The same thin wrapper `canGrip` is, for the same symmetry: the rule lives in `earth.ts` and both
+ * the fight and the action guide reach it through a shape that takes an `Encounter`, so no row in
+ * the panel reads a cooldown off a fight struct by hand.
+ */
+export function canStone(encounter: Encounter, breath: number, c: EarthConfig): boolean {
+  return canStoneThrow(encounter.stoneThrowCooldown, breath, c)
+}
+
+/**
  * Advance the whole fight one frame.
  *
  * Order matters: the gust resolves, then the vortex, then the staff, then the wave,
@@ -481,6 +579,18 @@ export function stepEncounter(
   let enemies = encounter.enemies
   let gustCooldown = Math.max(0, encounter.gustCooldown - dt)
   let waterGripCooldown = Math.max(0, encounter.waterGripCooldown - dt)
+  let stoneThrowCooldown = Math.max(0, encounter.stoneThrowCooldown - dt)
+  /**
+   * The standing pillars, one frame older, expired ones gone.
+   *
+   * Aged here beside the three cooldowns and for the identical reason: **unconditionally, whatever
+   * element is selected.** A pillar whose clock only ran while earth was in hand would let a
+   * player park cover by switching to air, and hard cover that lasts as long as you do not use the
+   * rest of your kit is not a cost. This is also the only place a pillar's life is ever shortened
+   * — see `Pillar.secondsLeft` for why nothing else may.
+   */
+  let pillars = stepPillars(encounter.pillars, dt)
+  let nextPillarId = encounter.nextPillarId
 
   let hitThisFrame: string[] = []
   /**
@@ -497,6 +607,9 @@ export function stepEncounter(
   let frozenThisFrame: string[] = []
   let gripFired = false
   let freezeFired = false
+  let stoneHitThisFrame: string[] = []
+  let stoneFired = false
+  let pillarRaised: Pillar | null = null
   let focusSpent = 0
   let breathSpent = 0
 
@@ -571,6 +684,40 @@ export function stepEncounter(
     waterGripCooldown = c.water.gripCooldownSeconds
     breathSpent += c.water.gripBreathCost
     gripFired = true
+  }
+
+  // Stone Throw: the light key with earth selected, and the only borrowed-element move in the
+  // game that carries real damage. It goes through `resolveBlow` rather than a hand-rolled map
+  // like the two water moves above, and that is not a stylistic choice: this move has a damage
+  // figure and an impulse and needs `throughArmour` applied to both, which is exactly what that
+  // function is for. Water's two need the hold applied as well, which is why they are the
+  // exception rather than this.
+  //
+  // `canStone(encounter, ...)` rather than the locally decremented `stoneThrowCooldown`, for the
+  // reason every other move here reads its pre-step predicate: reading the decremented copy would
+  // let a stone fire on the frame the cooldown expired, one frame before the action guide would
+  // admit it could.
+  if (input.gustPressed && input.element === 'earth'
+    && canStone(encounter, input.breathAvailable, c.earth)) {
+    const caught = new Set(
+      stoneThrowTargets(input.playerPosition, input.playerForward, enemies, c.earth)
+        .map((enemy) => enemy.id),
+    )
+    const blow = resolveBlow(
+      enemies, caught, 'stone', c,
+      () => c.earth.stoneDamage,
+      (enemy) => stoneImpulse(input.playerPosition, enemy.position, c.earth),
+    )
+    enemies = blow.enemies
+    stoneHitThisFrame = blow.connected
+    deflectedThisFrame.push(...blow.deflected)
+    // Spent whether or not anything was standing there, and whether or not armour turned it
+    // away — the same rule the gust's cooldown follows. A stone that cost nothing on a miss
+    // would make the slowest move in the game free to fish with, which is the opposite of
+    // "slow, committed".
+    stoneThrowCooldown = c.earth.stoneCooldownSeconds
+    breathSpent += c.earth.stoneBreathCost
+    stoneFired = true
   }
 
   let vortexCooldown = Math.max(0, encounter.vortexCooldown - dt)
@@ -683,6 +830,75 @@ export function stepEncounter(
     // player is charged for.
   }
 
+  /**
+   * Stone Pillar: the heavy key with earth selected.
+   *
+   * The same press-and-release gesture the Vortex and the Ice Lock use, and deliberately not a
+   * charge: a pillar has one size, and a charge would be a second price on a move already priced
+   * in Focus. Firing on the release rather than the press is what lets one gesture drive three
+   * elements' heavy verbs without a fourth binding.
+   *
+   * **Two gates, asked in this order, and the order is the reason a refusal is honest.** Whether
+   * the player can pay comes first, then whether there is ground to raise from. Both refuse for
+   * free, so the order cannot cost the player anything — but asking about the ground first would
+   * mean a player with an empty Focus bar and no ground ahead of them was refused for the wrong
+   * reason, and the action guide's row is dimmed on the payment gate alone (see `canRaisePillar`),
+   * so the fight and the panel agree about the gate that has a widget behind it.
+   */
+  if (input.vortexReleased && input.element === 'earth') {
+    if (canRaisePillar(input.focusAvailable, input.breathAvailable, c.earth)) {
+      const site = pillarSite(
+        input.playerPosition, input.playerForward, deps.ground, c.earth,
+      )
+      if (site) {
+        const raised = spawnPillar(`pillar-${nextPillarId++}`, site, c.earth)
+        pillars = addPillar(pillars, raised, c.earth)
+        pillarRaised = raised
+
+        // Anyone standing where the rock arrives is shoved off it. Zero damage, like the Vortex
+        // and the grip: this is displacement and an interruption, not a blow. `hitEnemy` is what
+        // applies both, and the wind-up it cancels is section 4.2's "drop a pillar under them"
+        // arriving as a mechanic rather than as a sentence.
+        //
+        // The impulse goes through armour, which is what makes the heavy's `pillar` row mean
+        // something: plate is shoved less far by ground coming up under it, and is not immune to
+        // it the way it is to a gust. Scaled rather than skipped, unlike a deflect — a resisted
+        // shove is a shorter stumble, not a cancelled move.
+        // Read before anything is applied, so the two lists are disjoint by construction — the
+        // same split `resolveBlow` makes, done by hand here because the shove's origin is the
+        // pillar rather than the player and there is no blow to resolve against a cone.
+        const underfoot = pillarShoveTargets(raised, enemies).filter(isTargetable)
+        const shoved = new Set(
+          underfoot
+            .filter((enemy) => !deflects(c.enemies[enemy.kind], 'pillar'))
+            .map((enemy) => enemy.id),
+        )
+        deflectedThisFrame.push(...underfoot
+          .filter((enemy) => deflects(c.enemies[enemy.kind], 'pillar'))
+          .map((enemy) => enemy.id))
+        if (shoved.size > 0) {
+          enemies = enemies.map((enemy) => {
+            if (!shoved.has(enemy.id)) return enemy
+            const armoured = throughArmour(
+              0, pillarShoveImpulse(raised, enemy.position, c.earth),
+              c.enemies[enemy.kind].armour.pillar,
+            )
+            return hitEnemy(enemy, armoured.damage, armoured.impulse)
+          })
+        }
+
+        focusSpent += c.earth.raiseFocusCost
+        breathSpent += c.earth.raiseBreathCost
+      }
+      // No ground to raise from: refused, and it costs nothing. `pillarSite` owns both reasons
+      // that can happen — the void between islands, and ground too far below a player in the air
+      // — and neither is worth charging for, because both are conditions the player can see and
+      // fix by standing somewhere else.
+    }
+    // A refused raise costs nothing at all: no Focus, no breath, no pillar. The same shape the
+    // Ice Lock's refusal has.
+  }
+
   let staffHitThisFrame: string[] = []
 
   if (input.staffSwing) {
@@ -753,6 +969,7 @@ export function stepEncounter(
   // from the loop variable, so this is reporting what stepProjectile already knows rather
   // than computing anything new.
   const playerHitsThisFrame: PlayerHit[] = []
+  const blockedThisFrame: PillarBlock[] = []
   for (const arrow of encounter.projectiles) {
     // Offered to the barrier before it advances -- see the ordering comment above. `turned` is
     // null on almost every frame, including every frame with no wall up, so the common path is
@@ -763,11 +980,22 @@ export function stepEncounter(
     if (turned) redirectedThisFrame.push(turned.id)
     const flying = turned ?? arrow
 
+    // `pillars`, the array already aged at the top of this function, so a pillar that expired
+    // this frame no longer stops anything — and one raised this frame does, because the raise
+    // resolves above. That is the same "a barrier raised this frame catches an arrow already
+    // inside it" property the Air Wall's placement buys, and it matters more here: the player
+    // raising a pillar is reacting to a shot they can already see in the air.
     const step = stepProjectile(
-      flying, input.playerPosition, enemies, deps.ground, dt, c.projectile,
+      flying, input.playerPosition, enemies, pillars, deps.ground, dt, c.projectile,
     )
     projectileDamage += step.damageToPlayer
     tangleIncoming = Math.max(tangleIncoming, step.tangleSeconds)
+    if (step.blockedByPillarId !== null) {
+      // `flying.position`, the position the shot entered this step at, for the reason an arrow's
+      // `from` above is read the same way: it is the last place the shot certainly was, and the
+      // dust belongs on the face it struck rather than at the far side of a step that ended.
+      blockedThisFrame.push({ pillarId: step.blockedByPillarId, at: flying.position.clone() })
+    }
     if (step.damageToPlayer > 0) {
       playerHitsThisFrame.push({ from: arrow.position.clone(), damage: step.damageToPlayer })
     }
@@ -886,12 +1114,19 @@ export function stepEncounter(
     // downed branch. If the restore rule is ever loosened to fire with a soldier still
     // standing, this line silently throws away a live shot and has to move above the loop.
     projectiles = []
+    // **The pillars are deliberately not cleared here, unlike the arrows beside them.** An arrow
+    // belongs to a fight and a raised pillar belongs to the player, which is the thematic half of
+    // the argument; the half that actually decided it is that nothing may shorten a pillar's life
+    // but its own clock, because the view layer cannot be told an object died early — see
+    // `Pillar.secondsLeft`. Nothing survives the trip in any case: a restore needs the player
+    // beyond `respawnRange` 52 and no ground speed in the game covers that inside
+    // `pillarSeconds`, so this is a guard rather than a rule anyone will see working.
   }
 
   return {
     encounter: {
       enemies, projectiles, nextProjectileId, playerHealth, gustCooldown, vortexHeldSeconds,
-      vortexCooldown, airWall, waterGripCooldown,
+      vortexCooldown, airWall, waterGripCooldown, stoneThrowCooldown, pillars, nextPillarId,
     },
     downedThisFrame,
     firstDownsThisFrame,
@@ -909,6 +1144,10 @@ export function stepEncounter(
     frozenThisFrame,
     gripFired,
     freezeFired,
+    stoneHitThisFrame,
+    stoneFired,
+    pillarRaised,
+    blockedThisFrame,
     focusSpent,
     breathSpent,
     firedThisFrame,

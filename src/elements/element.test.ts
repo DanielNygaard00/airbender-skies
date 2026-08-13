@@ -21,6 +21,26 @@ function opened(aim: Aim, from: ElementState = restingElements()): ElementState 
   return stepElements(from, input({ radialHeld: true, aimDelta: aim }), C)
 }
 
+/**
+ * A flick aimed at the centre of slot `index`'s wedge.
+ *
+ * Derived from `ELEMENT_ORDER.length` rather than written as a direction per element, and that is
+ * the point of the helper. These tests used to say "straight down is slot 1", which was true with
+ * two elements and false the moment earth was appended — the sectors went from 180 degrees to 120,
+ * so straight down became a *boundary* between slots 1 and 2 rather than the middle of either.
+ * Three assertions broke, all of them correctly, and hardcoding the new directions instead would
+ * only queue the same breakage up for fire.
+ *
+ * Screen y grows downward, so up is negative y: slot 0 is straight up and each slot after it sits
+ * one sector clockwise. That is `radialHighlight`'s own convention, restated here on purpose rather
+ * than imported — the whole value of these tests is that two independent expressions of the
+ * geometry agree, and a helper that called the function under test would agree with anything.
+ */
+function aimForSlot(index: number): Aim {
+  const angle = (index * 2 * Math.PI) / ELEMENT_ORDER.length
+  return { x: Math.sin(angle) * FAR, y: -Math.cos(angle) * FAR }
+}
+
 describe('ELEMENT_ORDER', () => {
   it('starts with air, which is the baseline and the home slot', () => {
     // Both halves matter. Air first because the radial's straight-up direction is the least
@@ -34,15 +54,70 @@ describe('ELEMENT_ORDER', () => {
   it('has no duplicates, so no direction resolves to two elements', () => {
     expect(new Set(ELEMENT_ORDER).size).toBe(ELEMENT_ORDER.length)
   })
+
+  it('is exactly this order, and a new element may only be appended', () => {
+    // **Pinned as a literal, which almost nothing in this repo is, and mutation is why.** Every other
+    // test in this file derives its expectations from `ELEMENT_ORDER` itself, so swapping water and
+    // earth left the whole file green — and swapping them is the one change this array must never
+    // take. The order is a promise to the player's muscle memory: a flick direction means the same
+    // thing every session, and `radialModel` numbers the wedges straight off this array, so
+    // reordering silently reassigns two directions and every description of them in the guide and
+    // the README becomes wrong at once.
+    //
+    // Appending is the legal change and it is cheap: this assertion is the one line to extend, and
+    // the compiler already forces the rest. Reordering is meant to cost an argument, and this is
+    // where the argument has to be had.
+    expect([...ELEMENT_ORDER]).toEqual(['air', 'water', 'earth'])
+  })
 })
 
 describe('radialHighlight', () => {
-  it('reads straight up as the first slot and straight down as the second', () => {
+  it('reads straight up as the first slot', () => {
     // Screen y grows downward, so up is negative. Getting this backwards would give a radial
     // that is a vertical mirror of the one it draws, and nothing else in the game would look
     // wrong — which is why the sign is asserted rather than assumed.
+    //
+    // Air's slot is the one direction worth pinning to a literal rather than through
+    // `aimForSlot`: it is the home slot, and the promise that a straight flick up always returns
+    // the baseline element is the one part of this geometry that must survive every future
+    // element. Every other slot is checked against the sectors below.
     expect(radialHighlight({ x: 0, y: -FAR }, C)).toBe(ELEMENT_ORDER[0])
-    expect(radialHighlight({ x: 0, y: FAR }, C)).toBe(ELEMENT_ORDER[1])
+    expect(radialHighlight({ x: 0, y: -FAR }, C)).toBe('air')
+  })
+
+  it('gives every element the centre of its own wedge, and no two the same', () => {
+    // Replaces a pair that read "up is slot 0, down is slot 1" — true for two elements only. This
+    // form scales: each element is asked for at the middle of its own sector, so appending fire
+    // extends the loop rather than invalidating a direction.
+    //
+    // The reached set is compared against the whole order, which is what stops this passing for an
+    // implementation that answered slot 0 for everything: with three sectors, two of the three
+    // assertions inside the loop would fail, but a lone `toBe(ELEMENT_ORDER[i])` inside a loop over
+    // a one-element order would not — and the set comparison also catches the subtler failure where
+    // two directions resolve to the same wedge and one element becomes unreachable.
+    const reached = ELEMENT_ORDER.map((_, index) => radialHighlight(aimForSlot(index), C))
+    expect(reached).toEqual([...ELEMENT_ORDER])
+    expect(new Set(reached).size).toBe(ELEMENT_ORDER.length)
+  })
+
+  it('puts a boundary rather than an element at straight down, once there are three', () => {
+    // Recorded because it is the visible cost of appending earth, and because a reader who
+    // remembers the two-element radial will expect straight down to mean something. It resolves to
+    // *an* element deterministically — `Math.round` breaks the half upward, so it lands on the
+    // slot after the boundary — but it is not the centre of anybody's wedge, which is exactly why
+    // no description of the radial anywhere in the game calls either lower element "straight down"
+    // any more. `reference.test.ts` pins the descriptions; this pins the geometry behind them.
+    const down = radialHighlight({ x: 0, y: FAR }, C)
+    expect(down).not.toBeNull()
+    // Not air: whatever straight down means, it must never be the home slot, or a player flicking
+    // away from air would land back on it.
+    expect(down).not.toBe('air')
+    // On a boundary rather than a centre, said as a measurement: the aimed direction is half a
+    // sector away from the wedge it resolves to.
+    const sector = (2 * Math.PI) / ELEMENT_ORDER.length
+    const index = ELEMENT_ORDER.indexOf(down!)
+    const centre = index * sector
+    expect(Math.abs(Math.PI - centre)).toBeCloseTo(sector / 2, 10)
   })
 
   it('answers nothing inside the dead zone, and something just outside it', () => {
@@ -135,7 +210,7 @@ describe('stepElements: the radial', () => {
 
   it('commits the highlighted element on release', () => {
     const state = stepElements(
-      opened({ x: 0, y: FAR }), input({ radialReleased: true }), C,
+      opened(aimForSlot(1)), input({ radialReleased: true }), C,
     )
     expect(state.active).toBe(ELEMENT_ORDER[1])
     // The positive control's other half: releasing on the *other* direction has to land
@@ -289,7 +364,7 @@ describe('radialModel', () => {
     // is highlighted" alone passes for it.
     const twitched = radialModel(opened({ x: 1, y: -2 }), C)
     expect(twitched.slots.filter((slot) => slot.highlighted)).toEqual([])
-    const flicked = radialModel(opened({ x: 0, y: FAR }), C)
+    const flicked = radialModel(opened(aimForSlot(1)), C)
     expect(flicked.slots.filter((slot) => slot.highlighted).map((s) => s.element))
       .toEqual([ELEMENT_ORDER[1]])
   })

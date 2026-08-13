@@ -42,6 +42,10 @@ import type { Element, RadialModel } from '../elements/element'
 const LOOKS: Record<Element, { label: string; colour: string }> = {
   air: { label: 'Air', colour: '#7fe4ff' },
   water: { label: 'Water', colour: '#2fb8d8' },
+  // The sandstone the Stone Throw's reach is drawn in, `earth-reach.ts`'s `0xd9a066`. Warm and
+  // light rather than a realistic rock grey, for the reason recorded there: a grey-brown effect
+  // over grey-brown ground is one nobody sees, and the same colour has to work as a badge.
+  earth: { label: 'Earth', colour: '#d9a066' },
 }
 
 /**

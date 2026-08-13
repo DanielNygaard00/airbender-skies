@@ -89,10 +89,37 @@ describe('ELEMENT_LEGEND', () => {
     // whole design leans on — fixed slots so a flick direction means the same thing every session.
     // A legend that described the elements without saying where they are would leave the player
     // hunting for them mid-fight, which is when the radial is used.
-    expect(ELEMENT_LEGEND.air).toMatch(/straight up/i)
-    expect(ELEMENT_LEGEND.air).toMatch(/1/)
-    expect(ELEMENT_LEGEND.water).toMatch(/straight down/i)
-    expect(ELEMENT_LEGEND.water).toMatch(/2/)
+    //
+    // Water's line used to claim "straight down", which was true while there were two elements and
+    // stopped being true the moment earth was appended: three sectors of 120 degrees put water at
+    // down-and-right and earth at down-and-left, and straight down became a boundary belonging to
+    // neither. That is the failure this block exists to catch, and it caught it — so the
+    // directions are named per element here rather than looped, deliberately, because each one is a
+    // separate claim about a separate wedge and a loop could only check that *some* direction was
+    // mentioned.
+    // Each claim is tied to the slot the element actually occupies, rather than only to the prose.
+    // Mutation found that checking the words alone cannot fail for a *reordered* `ELEMENT_ORDER`:
+    // swapping water and earth leaves both sentences untouched and both of them wrong, since the
+    // wedge geometry is numbered straight off that array. Asserting the index beside the phrase is
+    // what makes this block a statement about the radial and not about the paragraph.
+    const claims = [
+      { element: 'air' as const, index: 0, phrase: /straight up/i, bind: /1/ },
+      { element: 'water' as const, index: 1, phrase: /down and to the right/i, bind: /2/ },
+      { element: 'earth' as const, index: 2, phrase: /down and to the left/i, bind: /3/ },
+    ]
+    // Every element is claimed, so a fourth one cannot arrive undescribed by this block either.
+    expect(claims.map((c) => c.element)).toEqual([...ELEMENT_ORDER])
+    for (const { element, index, phrase, bind } of claims) {
+      expect(ELEMENT_ORDER.indexOf(element), `${element}'s wedge`).toBe(index)
+      expect(ELEMENT_LEGEND[element], `${element}'s direction`).toMatch(phrase)
+      expect(ELEMENT_LEGEND[element], `${element}'s number bind`).toMatch(bind)
+    }
+    // Nothing may claim straight down any more, in any entry. The bare direction is the one a
+    // reader carrying the old two-element layout in their head would reach for, and
+    // `element.test.ts` pins that it is a sector boundary rather than an element's own direction.
+    for (const element of ELEMENT_ORDER) {
+      expect(ELEMENT_LEGEND[element], element).not.toMatch(/straight down/i)
+    }
   })
 
   it('says water does no damage, which is the one thing a player must not guess wrong', () => {
@@ -100,5 +127,15 @@ describe('ELEMENT_LEGEND', () => {
     // kit is built to make fail. If the guide does not say so, the player learns it by losing a
     // fight slowly.
     expect(ELEMENT_LEGEND.water).toMatch(/no damage/i)
+  })
+
+  it('says earth breaks armour, which is the other thing a player must not guess wrong', () => {
+    // The mirror of the water assertion above, and the reason is the same shape. Section 4.4 makes
+    // earth the designed answer to the heavy armoured soldier, and a player who does not know that
+    // has no answer to it at all except a dive they may not have the height for — so they would
+    // grind at plate with a staff, which the numbers deliberately make almost futile. The one fact
+    // that has to survive from the design document into the player's hands is that earth is the
+    // thing that breaks armour.
+    expect(ELEMENT_LEGEND.earth).toMatch(/armour|armor/i)
   })
 })

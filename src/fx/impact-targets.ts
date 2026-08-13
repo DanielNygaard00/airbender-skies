@@ -1,8 +1,9 @@
 /**
  * Which enemies get a burst this frame, and which kind.
  *
- * The fight reports its connects in five separate lists, because each one feeds a
- * differently tuned Focus grant — or, in `redirectHits`' case, deliberately feeds none. The
+ * The fight reports its connects in six separate lists, because each one feeds a
+ * differently tuned Focus grant — or, in `redirectHits`' and `stoneHits`' cases, deliberately
+ * feeds none. The
  * effects layer wants the opposite: one union, with a down overriding a connect for the same
  * enemy. That rule lived as a loop and a comment in `main.ts`, which has no tests, and the
  * staff was added to the fight without being added to the loop.
@@ -12,6 +13,16 @@ export interface ImpactLists {
   hits: readonly string[]
   slamHits: readonly string[]
   staffHits: readonly string[]
+  /**
+   * Enemies a thrown stone hit.
+   *
+   * The second list here that pays no Focus of its own, alongside `redirectHits`, and for a
+   * different reason: earth's heavy verb spends Focus, so a light verb that earned it would let the
+   * element fund its own cover. See `stoneHitThisFrame` in `encounter.ts`. It earns a burst because
+   * it is the hardest-hitting single press in the borrowed elements and the player has to see it
+   * land.
+   */
+  stoneHits: readonly string[]
   /**
    * Enemies a redirected arrow struck.
    *
@@ -61,7 +72,8 @@ export function impactTargets(lists: ImpactLists): ImpactTargets {
   const downs = [...new Set(lists.downed)]
   const down = new Set(downs)
   const hits = [...new Set([
-    ...lists.hits, ...lists.slamHits, ...lists.staffHits, ...lists.redirectHits,
+    ...lists.hits, ...lists.slamHits, ...lists.staffHits, ...lists.stoneHits,
+    ...lists.redirectHits,
   ])].filter((id) => !down.has(id))
   const hit = new Set(hits)
   // A returned arrow counts as a hit, which is what keeps it out of `deflects` below. That

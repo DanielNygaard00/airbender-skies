@@ -17,13 +17,12 @@ back down to a walking stick.
 | `Z` | Air scooter — tap to ride, tap to step off. Riding, drive it square into a near-vertical wall at speed and it carries you up the wall, spending the charge you built as you climb | — |
 | `Shift` | Sprint — stacks with the air scooter, so sprinting while riding is faster than riding alone | Hover — hold position in mid-air |
 | `Q` | Air blast dash — three in a chain, then a short recovery | — |
-| `F` | Gust — a wide sweep of air that knocks enemies back | Gust |
 | `G` | Air Wall — hold to raise a short-lived barrier that turns arrows around instead of swallowing them | Air Wall |
-| `F` | Your element's quick move. Airbending: Gust — a wide sweep of air that knocks enemies back. Waterbending: Water Grip — a narrow reach that yanks whoever it catches toward you and holds them there | As on the ground |
+| `F` | Your element's quick move. Airbending: Gust — a wide sweep of air that knocks enemies back. Waterbending: Water Grip — a narrow reach that yanks whoever it catches toward you and holds them there. Earthbending: Stone Throw — a thrown rock down a narrow line, slow, and the only thing that breaks armour | As on the ground |
 | `E` | Avatar State — once the pip under your Focus bar is full | Avatar State |
-| `R` | Your element's committed move, pressed and released. Airbending: Vortex — hold to charge, release to pull nearby enemies inward and lift them off their feet. Waterbending: Ice Lock — freezes the rank in front of you and spends about a third of your Focus | As on the ground |
-| `V` | Element radial — hold, flick the mouse at an element, release. Air is up, water is down | Element radial |
-| `1` / `2` | Select air or water directly, without the radial | Select air or water |
+| `R` | Your element's committed move, pressed and released. Airbending: Vortex — hold to charge, release to pull nearby enemies inward and lift them off their feet. Waterbending: Ice Lock — freezes the rank in front of you and spends about a third of your Focus. Earthbending: Stone Pillar — raises a column of rock a few paces ahead that stops arrows for a few seconds, and spends rather less Focus | As on the ground |
+| `V` | Element radial — hold, flick the mouse at an element, release. Air is up, water is down and to the right, earth is down and to the left | Element radial |
+| `1` / `2` / `3` | Select air, water or earth directly, without the radial | Select air, water or earth |
 | `C` | Slipstream — a short dash, briefly unhittable | Slipstream |
 | `B` | Pick up a payload you are standing next to, or set down the one you are carrying | Set it down, once you are back on the ground |
 | `Ctrl` | Hold through a landing to slam | Tuck — fold the wings for a fast dive, and hold it through the landing to slam |
@@ -69,16 +68,19 @@ does not get you out of its reach, and you can hear a bow release from behind yo
 at all. The blast rings off the plate and the soldier does not move a centimetre — you will hear
 it and see the spark, and the aim marker stays cold when a heavy is the only thing in front of
 you, so you can tell before you spend the move. It is slow, it cannot chase you, and it hits
-harder than anything else in the patrol. The answers are a Pressure Wave — a slam out of a real
-dive is the one thing its armour does not blunt at all — or the edge of the island: line one up
-between you and the rim, dive on it, and the shockwave puts it over the side. A staff will chip
-away at it if you have no height to spend, but slowly, and that is on purpose.
+harder than anything else in the patrol. There are three answers. Earth is the direct one: plate
+does nothing at all against a thrown rock, so four of them put it down a rung from twelve paces away,
+and it is the only thing you carry that breaks armour on demand. A Pressure Wave is the other — a
+slam out of a real dive is the one thing its armour does not blunt either — and so is the edge of the
+island: line one up between you and the rim, dive on it, and the shockwave puts it over the side. A
+staff will chip away at it if you have neither, but slowly, and that is on purpose.
 
 Water splits the difference on a heavy, and the split is the point. A Water Grip takes hold of one
 and cannot drag it — the water closes, the plate stays put — so you cannot reel a heavy in the way
 you can reel in a spear. An Ice Lock holds one exactly as long as it holds anyone: ice round the
 legs does not care what the chest is wearing. Neither hurts it, because water never hurts anything.
-What a freeze buys you is the few seconds it takes to climb and line up the dive that does.
+What a freeze buys you is the few seconds it takes to line up the answer that does — a dive, or a
+switch to earth and a rock in its chest while it cannot move.
 
 **A net thrower** sits between the spears and the archers, and it pressures flight itself. It
 winds up longer than anything else in the patrol and paints the lane it is about to throw down,
@@ -131,16 +133,17 @@ and it carries. From the glider it is the opposite and much kinder: the shot cli
 to reach you, so looking back down the line it came up sends it a long way back down. It costs
 breath, it stands for under a second, and the wait before the next one is exactly as long as
 the wait between dodges, so it answers a draw you saw rather than every arrow in the air.
-You bend two elements, and they share your two bending keys rather than adding more. `F` is
-whichever element's quick move, `R` is its committed one, and the radial on `V` — or `1` and `2` —
-decides which element that is. Switching is free and instant: no cooldown, no windup, and the game
-does not slow down or pause while the radial is open, so a switch belongs *inside* a combo rather
-than before one. Charge a Vortex and pull a group into a heap, flick to water, and freeze them
-where they landed. A small badge above the meters says which element you are holding, so you never
-have to open anything to know what a keypress will do.
+You bend three elements, and they share your two bending keys rather than adding more. `F` is
+whichever element's quick move, `R` is its committed one, and the radial on `V` — or `1`, `2` and
+`3` — decides which element that is. Switching is free and instant: no cooldown, no windup, and the
+game does not slow down or pause while the radial is open, so a switch belongs *inside* a combo
+rather than before one. Charge a Vortex and pull a group into a heap, flick to water, freeze them
+where they landed, then flick to earth and break the one the freeze cannot hurt. A small badge above
+the meters says which element you are holding, so you never have to open anything to know what a
+keypress will do.
 
-Air is the one you always have and the only one with any damage in it. **Water is control, and it
-does no damage whatsoever.** It pulls, it holds, and it freezes, and what it buys you is time and
+Air is the one you always have, and the widest and fastest: it moves people. **Water is control, and
+it does no damage whatsoever.** It pulls, it holds, and it freezes, and what it buys you is time and
 position — a Water Grip drags a spearman out of his own reach and into yours and locks him there,
 which is what makes the staff safe to commit to. An Ice Lock freezes the whole rank in front of
 you, and they stay frozen even while you hit them: a locked target is locked so that you can work
@@ -149,35 +152,56 @@ never actually wins a fight. Water's reach is also deliberately tight — narrow
 with much less height to it — because a move that stops someone acting entirely would otherwise
 win every fight from a hover.
 
-The Ice Lock is the one move in the game that spends Focus, and it spends about a third of a full
-bar — slightly more than a spear hit takes off you. Two are affordable from a full meter, and
-either one costs you the Avatar State, since both draw on the same bar. That trade is the whole
-point of the price.
+**Earth is the one that hurts, and the only one that gives you cover.** A Stone Throw is the
+narrowest thing you aim and the hardest single press you have outside a dive-slam, and armour does
+not reduce it at all — which makes it the answer to the soldier in plate that ignores a gust and
+shrugs the staff off. Four rocks put that one down a rung; the staff needs about thirteen swings
+inside its reach to do the same, and it hits back for two. The price is that earth is slow: the
+throw has the longest cooldown of any quick move, several times a gust's, so it is a move you
+spend on something worth the wait rather than a move you lean on.
+
+A Stone Pillar raises a column of rock a few paces ahead of you, and it is the only hard cover in
+the game — arrows and nets stop dead against it, including ones your own Air Wall just sent back.
+It stands about six seconds, which is three shots from an archer, and you have to stay behind it:
+step much more than a pace aside and the shot has its line again. Two can stand at once, so you can
+shut down two directions out of three; a third press sinks the oldest. Anyone standing where it
+comes up is knocked off their feet, which interrupts them, and that is what makes dropping one
+*under* someone worth doing. What it does not do is stop anybody walking — a spearman comes straight
+round it, and the rock is there for the things that shoot.
+
+Both committed elemental moves spend Focus, and they draw on the same bar as each other and as the
+Avatar State. An Ice Lock costs about a third of a full meter, slightly more than a spear hit takes
+off you; a Stone Pillar costs a little less, almost exactly what a spear hit costs — so cover that
+stops one arrow has already broken even. A full bar is two freezes, or three pillars, or one of each
+with room left over, and any of them costs you the Avatar State. That trade is the whole point of
+the price.
 
 A small reticle sits where your next attack will go, rather than in the middle of the screen,
-and warms when something is inside your quick move's reach — the gust's, or the grip's much
-narrower one, depending on which element you are holding. When you take a hit, a wedge appears
+and warms when something is inside your quick move's reach — the gust's wide sweep, the grip's much
+narrower one, or the stone's narrower still, depending on which element you are holding. When you
+take a hit, a wedge appears
 around it pointing at where the hit came from, and fades. A dodge shows one too, so slipping an
 attack still tells you where it was thrown from.
 
-Reach has a height as well as a distance. Every one of your moves — both staff arcs, the gust,
-the Vortex, the Pressure Wave and the Air Wall — sweeps a band around your own footing rather than an endless
-column, so a soldier far enough below or above you is out of range even when it is squarely in
-front. Each move gets its own band, and they are not the same: a swing with a staff barely
-reaches past your own height, a gust of air reaches a good deal further, and the Vortex reaches
-furthest of all, because getting people off their feet is the whole point of it. So climbing above
-the Vortex, both water moves and the Pressure Wave — sweeps a band around your own footing rather
-than an endless column, so a soldier far enough below or above you is out of range even when it is
-squarely in front. Each move gets its own band, and they are not the same: a swing with a staff
-barely reaches past your own height, water reaches a little further than that, a gust of air a good
-deal further again, and the Vortex furthest of all, because getting people off their feet is the
-whole point of it. Water's band is deliberately near the bottom of that list even though its moves
-are the strongest denial in the game, and for that exact reason — being unable to act at all is a
-harsher thing to do to a soldier than being shoved, so it has to be paid for by standing close. So
-climbing above
-a fight buys you less than it used to: get high enough and your own attacks stop reaching, and how
-high that is depends on the move — a couple of metres for the staff, a good deal more for the
-Vortex. Your reach is still a flat shape with a ceiling and a floor rather than a sphere, though:
+Reach has a height as well as a distance. Every one of your moves — both staff arcs, the gust, the
+Vortex, the Pressure Wave, the Air Wall, both water moves and the Stone Throw — sweeps a band around
+your own footing rather than an endless column, so a soldier far enough below or above you is out of
+range even when it is squarely in front. Each move gets its own band, and they are not the same: a
+swing with a staff barely reaches past your own height, water reaches a little further than that, a
+thrown rock further again, a gust of air further still, and the Vortex furthest of all, because
+getting people off their feet is the whole point of it. Water's band is deliberately near the bottom
+of that list even though its moves are the strongest denial in the game, and for that exact reason —
+being unable to act at all is a harsher thing to do to a soldier than being shoved, so it has to be
+paid for by standing close. Earth sits low for the mirror-image reason: it is the one that really
+hurts, and a hit that hard should not be something you can drop on a patrol from out of its reach.
+The Stone Pillar has a height rule of its own rather than a band — you need ground near your own
+feet to raise one from, so cover is a thing you build standing on the ground rather than something
+you drop from a hover.
+
+So climbing above a fight buys you less than it used to: get high enough and your own attacks stop
+reaching, and how high that is depends on the move — a couple of metres for the staff, a good deal
+more for the Vortex. Your reach is still a flat shape with a ceiling and a floor rather than a
+sphere, though:
 distance is measured across the ground and height is a separate limit, so backing away from a
 soldier costs you reach in a different currency from climbing above it. The archers and the net
 thrower, by contrast, measure a single straight-line distance — so climbing does buy real distance
