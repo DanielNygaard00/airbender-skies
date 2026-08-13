@@ -3296,3 +3296,45 @@ Anything further is a different technique — cascaded shadow maps, or ambient o
 AO radius rather than a contact one, which is a different feature with its own tuning and its own
 artefacts. The one thing this cycle establishes about all of them: render the term on its own
 before believing what the composited frame appears to show.
+
+## The scale floors: eight of them, three different reasons
+
+Every scaled effect in `src/fx/` clamps its scale with `Math.max(..., 1e-4)`. A zero scale is a
+degenerate transform, so the clamp reads as an obvious house convention, and that is how it had
+been treated — eight copies of one idea, propagated by whoever wrote the next effect. Auditing
+them as a group on 2026-08-13 found that not one of the eight was pinned by a test, and that they
+are not eight copies of anything. They fall into three classes, and only the first is a guard in
+the sense the convention implies.
+
+**Reached by the effect's own animation — one site.** `gust-cone.ts` scales its leading arc by
+`t * c.range`, and `t` is zero on the first `apply`, which runs at construction. So this floor
+fires on every gust ever cast, and without it the arc carries a scale of exactly zero for one
+frame each time. This is the only floor in the directory doing work in the shipped game, and it
+was the only one whose removal a reader would have expected to be visible.
+
+**Bounding what a caller or a config passes in — five sites.** `aim-tell.ts` (the range handed to
+it each frame), `slipstream-trail.ts` (`speed × durationSeconds`), `vortex-charge.ts`
+(`vortexRadius`, which lerps from `minRadius`), `water-reach.ts` (a fraction of `shape.range`),
+plus `shockwave.ts` and `vortex-ring.ts`, which were pinned in an earlier cycle. None of these can
+reach zero through its own arithmetic — every shipped config value is positive — so each is now
+pinned by a test that hands it the degenerate config, which is what the floor is actually for.
+
+**Reachable by nothing at all — one site, now removed.** `ice-shell.ts` scaled by
+`RADIUS * lerp(0.6, 1, forming)`. `forming` is clamped to 0..1 and `RADIUS` is a module constant,
+not a parameter, so the smallest scale that expression can produce is 0.6 × 1.3 = 0.78. The floor
+was a line no input could exercise and no test could pin, and it is gone, with a comment saying it
+has to come back if `RADIUS` ever becomes a parameter. Note the contrast with `stepStaff`'s
+unreachable `chain < maxChain` term, which was *kept*: that one bounds a `StaffState` a caller
+hands in, and the module is pure, so an out-of-band input can reach it. The test for whether an
+unreachable guard should stay is whether any caller can reach it, not whether it looks defensive.
+
+**Two things worth knowing about the convention itself.** First, these floors are zero-guards, not
+NaN-guards: `Math.max(NaN, 1e-4)` is `NaN`, so a NaN radius passes straight through every one of
+them into the transform. Nothing currently feeds one a NaN, and this is recorded rather than
+fixed. Second, `water-reach.ts` carried a test named `'never scales the arc to exactly zero'`
+which asserted `scale.x > 0` — unable to fail either way, because the floor guarantees it for
+every input, and because even with the floor deleted the grip bottoms out at a positive fraction
+of its reach. That is the third instance of exactly this shape, after `vortex-ring.ts`'s and the
+combat-audio ceiling: **an assertion written directly against a clamp tends to restate the clamp
+rather than test it.** Bound the value from both sides, or hand the effect the input that reaches
+the clamp, and prefer both.

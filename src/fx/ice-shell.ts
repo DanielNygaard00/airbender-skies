@@ -81,7 +81,15 @@ export function createIceShell(position: Vector3, holdSeconds: number): Effect {
     // The smaller of the two ramps, so a hold shorter than the two ramps together produces a
     // single rise and fall rather than a shell that pops to full and then jumps down.
     const shown = Math.min(forming, melting)
-    mesh.scale.setScalar(Math.max(RADIUS * MathUtils.lerp(0.6, 1, forming), 1e-4))
+    // No `Math.max(..., 1e-4)` floor here, deliberately, unlike every other scaled effect in this
+    // directory. Those floors keep a zero scale — a collapsed matrix — out of the transform, and
+    // each of them has some input that can reach zero: a caller's radius, a config range, or in
+    // the gust cone's case its own first frame. This expression cannot. `forming` is clamped to
+    // 0..1, so the lerp never leaves 0.6..1, and `RADIUS` is a constant in this file rather than
+    // anything passed in, so the smallest scale reachable is 0.6 × 1.3 = 0.78. A floor here was
+    // a line no input could exercise and no test could pin. If `RADIUS` ever becomes a parameter,
+    // the floor its siblings carry has to come back with it.
+    mesh.scale.setScalar(RADIUS * MathUtils.lerp(0.6, 1, forming))
     material.opacity = PEAK_OPACITY * shown
   }
 
