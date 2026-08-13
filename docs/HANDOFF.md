@@ -3042,6 +3042,22 @@ In the order I would take them:
    wrong tool. Nothing is retuned pending that, and `staff-arc.test.ts` states the opener's bound
    as `>=` so the current numbers pass honestly rather than by a test that never looked.
 
+   **A fourth, found on 2026-08-13: most of Canyon Country's wind is barely visible from the
+   floor of its own room.** The region's own test measures it — motes scattered through each
+   feature's volume, rayed from an approach point on the corridor floor — and the artist rule it
+   cites is "never place a wind feature the player cannot see from at least one approach". Measured
+   on the level as it stands: twelve of the fourteen features are under 60% visible, the worst is a
+   dead-air column at 27.5%, and the two lids are the best at 99.2% and 57.9%. The test's own
+   comment claimed the opposite — "every feature clears 60%, and the worst is a lid at 79%" — and
+   nobody caught it because the test wrote its numbers to a file and asserted nothing; see the
+   note on it in `canyon-country.test.ts`. Two things need hands here, and they are separable.
+   Whether a dead-air column at 27.5% of its volume visible actually reads as a puzzle from the
+   floor — a column is a big soft thing and a quarter of it may be plenty. And whether the
+   measurement is the right one at all: it samples a single approach where the rule says "at least
+   one", and it asks what fraction of a volume is visible rather than whether the feature reads.
+   Nothing about the level was changed pending that; the test now holds the weaker bound it can
+   support and says so.
+
    **The reticle and the hit-direction indicator are the other thing that needs hands, and
    they need them more completely than most.** Neither has ever been seen in a running game:
    pointer lock cannot be held here, so the reticle has never been watched tracking a turn or

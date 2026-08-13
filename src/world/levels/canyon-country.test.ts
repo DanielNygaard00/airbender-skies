@@ -1,6 +1,4 @@
 import { describe, it, expect } from 'vitest'
-import { appendFileSync } from 'node:fs'
-const OUT='/private/tmp/claude-501/-Users-danielnygaard-Developer-airbender-skies/8e5120bb-c137-4808-86d3-908490be8c65/scratchpad/wind.txt'
 import { Mesh, Vector3 } from 'three'
 import {
   CANYON_COUNTRY, CANYON_FLOOR_Y, CANYON_ROOMS, CANYON_SLAB_IDS, CANYON_WALL_IDS,
@@ -40,6 +38,17 @@ function realTerrain(): TerrainQuery {
 const terrain = realTerrain()
 
 const UP = new Vector3(0, 1, 0)
+
+/**
+ * The floor the wind-visibility test holds every feature to.
+ *
+ * Set from the measurement rather than from the design rule, and the gap between the two is
+ * recorded on that test: the worst feature on the level as it stands is a dead-air column at
+ * 0.275 visible, so 0.2 sits under it with enough margin that ordinary noise cannot redden it
+ * while a feature newly walled in by a hoodoo will. Raising this to the 0.6 the old comment
+ * claimed would redden twelve of the fourteen features today.
+ */
+const BURIED_FRACTION = 0.2
 
 describe('Canyon Country as a level', () => {
   it('validates', () => {
@@ -391,25 +400,36 @@ describe('the air, and whether it can be seen', () => {
     }
   })
 
-  it('can be seen from the floor of the room it belongs to, which is the artist rule', () => {
+  it('is never essentially buried from the floor of its own room', () => {
     // "Never place a wind feature the player cannot see from at least one approach. Wind is a
     // puzzle, and a puzzle you cannot see is a bug." Made into a measurement: motes are scattered
     // through each feature's volume the way `wind-tell.ts` scatters them, and a ray is cast from
     // an approach point on the corridor floor to each mote. A mote inside rock, or behind a
-    // hoodoo, is not visible.
+    // hoodoo, is not visible. The approach for a ridge or a dead-air column is the middle of its
+    // own room; for the two lids it is the floor beneath them, looking up the slot.
     //
-    // The approach for a ridge or a dead-air column is the middle of its own room. For the two
-    // lids it is the floor beneath them, looking up the slot. Every feature clears 60%, and the
-    // worst is a lid at 79% — the lids are wide enough to overhang the walls, so some of their
-    // volume genuinely is behind rock, which is the honest result rather than a failure.
-    const worst: [string, number][] = []
+    // **This test wrote its numbers to a file and asserted nothing until 2026-08-13**, which is
+    // also why it could not run anywhere but the machine that wrote it — the path was one
+    // session's scratchpad directory, so every CI run failed on ENOENT. Converting it to an
+    // assertion turned up why nobody had noticed the numbers: they do not say what the comment
+    // here claimed. The claim was "every feature clears 60%, and the worst is a lid at 79%".
+    // Measured, on the level as it stands: twelve of the fourteen features are *under* 60%, the
+    // worst is a dead-air column at 27.5%, and the lids are the two best at 99.2% and 57.9%.
+    //
+    // So the bound below is not the artist rule. It is the weaker claim the measurement can
+    // actually support — no feature is essentially invisible from its own approach — set with
+    // margin under the observed worst so a feature newly buried in rock reddens. The rule as
+    // written says "from at least one approach" and this samples exactly one, and it asks for a
+    // fraction of a *volume* rather than whether the feature reads at all, so the two were never
+    // the same claim. Whether the level's real visibility is acceptable needs someone at the
+    // controls; it is recorded in `HANDOFF.md` beside the other things waiting on that.
     for (const w of winds) {
       const approach = new Vector3(w.position.x, 0, w.position.z)
       const ground = terrain.groundHeightAt(approach.x, approach.z)
       approach.y = (ground ?? CANYON_FLOOR_Y) + 2
-      worst.push([`${w.kind} @${w.position.x},${w.position.z}`, visibleFraction(approach, w)])
+      const label = `${w.kind} @${w.position.x},${w.position.z}`
+      expect(visibleFraction(approach, w), `${label} is buried`).toBeGreaterThan(BURIED_FRACTION)
     }
-    appendFileSync(OUT, worst.map(([l, f]) => `VIS ${l} ${f.toFixed(3)}`).join('\n') + '\n')
   })
 
   /**
