@@ -1,10 +1,19 @@
 import { describe, it, expect } from 'vitest'
-import { Vector3 } from 'three'
-import { createArrowView, SHAFT_MATERIAL_OPTIONS } from './arrow'
+import { Color, Mesh, Vector3 } from 'three'
+import { createArrowView, SHAFT_MATERIAL_OPTIONS, type ArrowView } from './arrow'
 import { spawnProjectile } from '../combat/projectile'
 
 const arrow = (position: Vector3, direction: Vector3) =>
   spawnProjectile('a1', position, direction, 1, 34, 0)
+
+// The shaft's built material, found by name rather than by child index so that a later
+// fletching or nock mesh cannot quietly reroute this to the wrong child. Indexed as a
+// plain record because the assertions below look options up by key.
+const shaftMaterialOf = (view: ArrowView): Record<string, unknown> => {
+  const shaft = view.object.getObjectByName('arrow-shaft')
+  if (!(shaft instanceof Mesh)) throw new Error('expected a mesh named arrow-shaft')
+  return shaft.material as unknown as Record<string, unknown>
+}
 
 describe('the arrow view', () => {
   it('sits where the arrow is', () => {
@@ -46,6 +55,48 @@ describe('the arrow view', () => {
     // passes whether or not arrow.ts asks for it -- deleting the option left this test
     // green. On the options object a removed key reads undefined instead.
     expect(SHAFT_MATERIAL_OPTIONS.depthTest).toBe(true)
+  })
+
+  it('builds the shaft material out of those options, so the mesh really carries them', () => {
+    // The test above pins the intent -- that this file asks for depth testing. This one
+    // pins that the shaft mesh is actually built from what it asks for, which is a
+    // separate thing: a refactor giving the shaft its own `new MeshLambertMaterial({
+    // color: TINT })` would leave the options object still reading true, so the test
+    // above would stay green while the mesh silently stopped carrying anything the
+    // object specifies. Nothing on screen would show that either, because depthTest's
+    // value coincides with three.js's own default. Neither test covers the other's half.
+    //
+    // Options are iterated rather than asserted key by key, the way config Records are
+    // elsewhere in this project, so a key added later is covered without anyone
+    // remembering to extend this test.
+    const view = createArrowView()
+    const material = shaftMaterialOf(view)
+    const options = Object.entries(SHAFT_MATERIAL_OPTIONS)
+    // An empty options object would run the loop below zero times and assert nothing.
+    expect(options.length).toBeGreaterThan(0)
+    for (const [key, asked] of options) {
+      const carried = material[key]
+      // three.js turns a numeric colour into a Color, so the raw values never match.
+      expect(carried instanceof Color ? carried.getHex() : carried).toEqual(asked)
+    }
+    view.dispose()
+
+    // Every option currently on the object happens to agree with three.js's default --
+    // depthTest is true by default and the tint is passed either way -- so the loop
+    // above cannot yet tell a wired-up material from a hand-rolled one. Adding a probe
+    // option that disagrees with the default gives it something to detect: it reaches
+    // the mesh only if the mesh is built from this object. It is removed again straight
+    // away, and the guard above it fails loudly rather than deleting a real setting if
+    // alphaTest ever becomes one.
+    expect(SHAFT_MATERIAL_OPTIONS.alphaTest).toBeUndefined()
+    SHAFT_MATERIAL_OPTIONS.alphaTest = 0.25
+    try {
+      const probed = createArrowView()
+      expect(shaftMaterialOf(probed).alphaTest).toBe(0.25)
+      probed.dispose()
+    } finally {
+      delete SHAFT_MATERIAL_OPTIONS.alphaTest
+    }
   })
 
   it('lays the shaft along its flight axis rather than across it', () => {
