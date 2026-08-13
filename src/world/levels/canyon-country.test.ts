@@ -49,11 +49,15 @@ const UP = new Vector3(0, 1, 0)
  * animation respects — put the worst at 0.628, so the claim is true now and asserted rather than
  * asserted and false.
  *
- * The margin is thin on purpose. The worst case is the amphitheatre lid, which sits partly behind
- * the hoodoo caps from the floor beneath it and is meant to, so there is no headroom left to win
- * without moving the level. Nothing here is noisy — the island geometry and the mote scatter are
- * both seeded — so a thin margin costs no flakiness, and a retune that drops a feature under the
- * rule reddening is the whole point of holding the rule rather than a measurement.
+ * The margin is thin on purpose, and thinner than a decimal makes it look. The worst case is the
+ * amphitheatre lid at 0.630, which sits partly behind the hoodoo caps from the floor beneath it and
+ * is meant to, so there is no headroom left to win without moving the level. At the shipped
+ * `MOTE_COUNT` of 100 that margin is **three motes**: the measure has 0.01 granularity, so a level
+ * nudge worth four motes of occlusion reddens this. That is the intended behaviour of holding a rule
+ * rather than a measurement, and it is worth knowing before anyone reads 0.03 as comfortable.
+ *
+ * Nothing here is noisy — the island geometry and the mote scatter are both seeded — so a thin
+ * margin costs no flakiness, only sensitivity.
  */
 const BURIED_FRACTION = 0.6
 
