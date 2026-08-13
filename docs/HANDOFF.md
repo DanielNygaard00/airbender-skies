@@ -3042,21 +3042,35 @@ In the order I would take them:
    wrong tool. Nothing is retuned pending that, and `staff-arc.test.ts` states the opener's bound
    as `>=` so the current numbers pass honestly rather than by a test that never looked.
 
-   **A fourth, found on 2026-08-13: most of Canyon Country's wind is barely visible from the
-   floor of its own room.** The region's own test measures it — motes scattered through each
-   feature's volume, rayed from an approach point on the corridor floor — and the artist rule it
-   cites is "never place a wind feature the player cannot see from at least one approach". Measured
-   on the level as it stands: twelve of the fourteen features are under 60% visible, the worst is a
-   dead-air column at 27.5%, and the two lids are the best at 99.2% and 57.9%. The test's own
-   comment claimed the opposite — "every feature clears 60%, and the worst is a lid at 79%" — and
-   nobody caught it because the test wrote its numbers to a file and asserted nothing; see the
-   note on it in `canyon-country.test.ts`. Two things need hands here, and they are separable.
-   Whether a dead-air column at 27.5% of its volume visible actually reads as a puzzle from the
-   floor — a column is a big soft thing and a quarter of it may be plenty. And whether the
-   measurement is the right one at all: it samples a single approach where the rule says "at least
-   one", and it asks what fraction of a volume is visible rather than whether the feature reads.
-   Nothing about the level was changed pending that; the test now holds the weaker bound it can
-   support and says so.
+   **A fourth, found and largely fixed on 2026-08-13: Canyon Country's wind was drawing most of
+   itself inside the rock.** The cause was not placement. A feature's `radius` is its *field*, and
+   in a slot canyon that is deliberately wider than the slot so the whole corridor lifts — but the
+   motes were scattered across the same radius, so 46 to 73 per cent of every ridge and dead-air
+   feature's motes were underground. Of the motes that were in open air, 77 to 96 per cent were
+   already visible from the corridor floor, so nothing was hidden; the tell was spending most of
+   itself where nobody could be. `createWindTell` now takes an open-air test and walks each azimuth
+   to find how far the air reaches, which took the worst feature from 0.194 visible to 0.467 and
+   improved all twelve. The field is untouched, so nothing about how the region flies changed.
+
+   The open-air test itself is worth knowing about, because the obvious version of it is wrong in
+   this world. "Below the ground height at this column" also describes the whole sky beneath a
+   floating island, and using it collapsed two of the *archipelago's* tells — a thermal high above
+   the islands, a dead-air pocket slung under them — to stubs. `insideIsland` in `island.ts` asks
+   each island's own noise where its surface lies along the direction in question, sharing
+   `shellRadius` with the geometry builder so the two cannot drift. Bounds on that noise band were
+   tried both ways round first: the outer bound broke the archipelago, and the inner one left the
+   hoodoos clamping at 58 per cent of their shell with motes still buried past it. The archipelago
+   now keeps seven of its eight features untouched and the eighth at 99.7 per cent of its reach.
+
+   What is left for hands, and it is smaller than it was. Dead air still has roughly half its
+   motes underground, and that half is *below the canyon floor* rather than beyond a wall: a
+   dead-air field is centred low on purpose so no live air is left under the wall bases, so its
+   lower half is under the crown by design. Fixing the tell for that means clamping inside the
+   animation rather than at construction, because rising kinds wrap their motes back to the bottom
+   — worth doing only if it reads badly in play. The other open question is the measurement itself:
+   the artist rule asks whether a feature can be seen from *at least one* approach, and the test
+   samples exactly one and asks what fraction of a volume is visible, which is a stricter and
+   different claim. Both are recorded on `OpenAir` in `wind-tell.ts` with the numbers.
 
    **The reticle and the hit-direction indicator are the other thing that needs hands, and
    they need them more completely than most.** Neither has ever been seen in a running game:

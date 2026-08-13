@@ -19,6 +19,7 @@ import { buildPayloadMesh, placePayloads } from './world/payload'
 import { carryIntent, carryPose, carryStep, loadedFlight, returnCarriedHome } from './player/payload'
 import { windSampler, stillAir, type WindSample } from './world/wind'
 import { createWindTell } from './world/wind-tell'
+import { openAirTest } from './world/island'
 import { startEncounter, stepEncounter } from './combat/encounter'
 import { risingProgress } from './combat/enemy'
 import { DEFAULT_COMBAT_CONFIG, DEFAULT_PATROL_CONFIG, HOME_PATROL } from './combat/config'
@@ -424,8 +425,16 @@ function start(): void {
   }
 
   // A wind feature the player cannot see is a bug, so each one is given its tell.
+  //
+  // Handed an open-air test, which is what keeps the motes out of the rock. A feature's radius is
+  // its field, and in Canyon Country's slot that is deliberately wider than the slot, so without
+  // this the tell scattered most of itself inside the walls — see `OpenAir` in `wind-tell.ts` for
+  // the measurement. `openAirTest` is analytic over the level's island shells rather than a
+  // height probe, because these islands float and the air beneath one is not rock; the first
+  // version of this used `groundHeightAt` and collapsed two of the archipelago's own tells.
+  const openAir = openAirTest(LEVEL.islands)
   const windTells = (LEVEL.winds ?? []).map((def) => {
-    const tell = createWindTell(def)
+    const tell = createWindTell(def, openAir)
     scene.add(tell.object)
     return tell
   })

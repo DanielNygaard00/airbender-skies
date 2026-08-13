@@ -1,14 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import { Mesh, Vector3 } from 'three'
+import { Mesh, Points, Vector3 } from 'three'
 import {
   CANYON_COUNTRY, CANYON_FLOOR_Y, CANYON_ROOMS, CANYON_SLAB_IDS, CANYON_WALL_IDS,
 } from './canyon-country'
 import { ARCHIPELAGO } from './archipelago'
-import { createIslandGeometry, MAX_DEPTH_MULTIPLIER } from '../island'
+import { createIslandGeometry, MAX_DEPTH_MULTIPLIER, openAirTest } from '../island'
 import { createTerrainQuery, type IslandMesh } from '../terrain-query'
 import { findOverlappingIslands, validateLevel } from '../level'
 import { LEVELS } from './index'
 import { sampleWind, type WindDef } from '../wind'
+import { createWindTell } from '../wind-tell'
 import { placeShrines } from '../shrine'
 import type { TerrainQuery } from '../../core/types'
 
@@ -42,13 +43,19 @@ const UP = new Vector3(0, 1, 0)
 /**
  * The floor the wind-visibility test holds every feature to.
  *
- * Set from the measurement rather than from the design rule, and the gap between the two is
- * recorded on that test: the worst feature on the level as it stands is a dead-air column at
- * 0.275 visible, so 0.2 sits under it with enough margin that ordinary noise cannot redden it
- * while a feature newly walled in by a hoodoo will. Raising this to the 0.6 the old comment
- * claimed would redden twelve of the fourteen features today.
+ * Set from the measurement rather than from the design rule. On the drawn motes, with the open-air
+ * clamp `main.ts` passes to `createWindTell`, the worst feature on the level is a dead-air column
+ * at 0.467 visible from the floor of its own room, so 0.4 sits under that with margin: ordinary
+ * noise cannot redden it, and a feature newly walled in by a hoodoo will. Before the clamp the
+ * worst was 0.194, which is why this used to be 0.2.
+ *
+ * Still not the artist rule, which asks whether a feature can be seen from *at least one* approach
+ * and gets a single approach and a volume fraction here instead. Raising this to the 0.6 an earlier
+ * comment in this file claimed is met would still redden — the remaining shortfall is dead air's
+ * lower half sitting under the canyon crown by design, which is explained on `OpenAir` in
+ * `wind-tell.ts`.
  */
-const BURIED_FRACTION = 0.2
+const BURIED_FRACTION = 0.4
 
 describe('Canyon Country as a level', () => {
   it('validates', () => {
@@ -411,18 +418,23 @@ describe('the air, and whether it can be seen', () => {
     // **This test wrote its numbers to a file and asserted nothing until 2026-08-13**, which is
     // also why it could not run anywhere but the machine that wrote it — the path was one
     // session's scratchpad directory, so every CI run failed on ENOENT. Converting it to an
-    // assertion turned up why nobody had noticed the numbers: they do not say what the comment
-    // here claimed. The claim was "every feature clears 60%, and the worst is a lid at 79%".
-    // Measured, on the level as it stands: twelve of the fourteen features are *under* 60%, the
-    // worst is a dead-air column at 27.5%, and the lids are the two best at 99.2% and 57.9%.
+    // assertion turned up why nobody had noticed the numbers: they did not say what the comment
+    // here claimed. The claim was "every feature clears 60%, and the worst is a lid at 79%";
+    // measured, twelve of the fourteen features were under 60%, the worst was a dead-air column,
+    // and the lids were the two best.
     //
-    // So the bound below is not the artist rule. It is the weaker claim the measurement can
-    // actually support — no feature is essentially invisible from its own approach — set with
-    // margin under the observed worst so a feature newly buried in rock reddens. The rule as
-    // written says "from at least one approach" and this samples exactly one, and it asks for a
-    // fraction of a *volume* rather than whether the feature reads at all, so the two were never
-    // the same claim. Whether the level's real visibility is acceptable needs someone at the
-    // controls; it is recorded in `HANDOFF.md` beside the other things waiting on that.
+    // The cause was found and fixed rather than merely bounded, and it was not that the features
+    // were hidden. A feature's `radius` is its *field*, which in a slot canyon is deliberately
+    // wider than the slot, and the motes were scattered across all of it — so 46 to 73 per cent of
+    // every slot feature's motes were inside the rock walls, while 77 to 96 per cent of the ones in
+    // open air were already visible. `createWindTell` now takes an open-air test and hugs the air
+    // with it, which took the worst feature from 0.194 visible to 0.467 and improved all twelve.
+    // The field is untouched, so nothing about how the level flies changed.
+    //
+    // The bound is still weaker than the artist rule, and deliberately: the rule asks whether a
+    // feature can be seen from at least one approach, and this samples exactly one and asks what
+    // fraction of a volume is visible. Whether the level now reads well enough needs someone at
+    // the controls, and `HANDOFF.md` carries that beside the other things waiting on hands.
     for (const w of winds) {
       const approach = new Vector3(w.position.x, 0, w.position.z)
       const ground = terrain.groundHeightAt(approach.x, approach.z)
@@ -433,30 +445,30 @@ describe('the air, and whether it can be seen', () => {
   })
 
   /**
-   * The fraction of a feature's mote volume with an unobstructed line from `from`.
+   * The fraction of a feature's drawn motes with an unobstructed line from `from`.
    *
-   * Deterministic sampling with the same sqrt-of-uniform radius `wind-tell.ts` uses, so this
-   * measures the tell that is actually drawn rather than a uniform cylinder that is not. A hit
-   * short of the mote means rock in the way.
+   * Reads the real mote positions out of `createWindTell`, built with the same open-air test
+   * `main.ts` gives it, rather than reproducing the scatter here. It used to reproduce it — "the
+   * same sqrt-of-uniform radius `wind-tell.ts` uses" — and that duplication is why this could
+   * measure one thing while the game drew another: a change to the scatter would have left this
+   * copy quietly measuring the old one. A hit short of the mote means rock in the way.
    */
-  function visibleFraction(from: Vector3, def: WindDef, count = 240): number {
+  function visibleFraction(from: Vector3, def: WindDef): number {
+    const tell = createWindTell(def, openAirTest(CANYON_COUNTRY.islands))
+    const points = tell.object.children[0]
+    if (!(points instanceof Points)) throw new Error('expected the motes as children[0]')
+    const local = points.geometry.getAttribute('position')
     let visible = 0
-    let state = Math.abs(Math.floor(def.position.x * 7919 + def.position.y * 104729 + 13)) || 1
-    const random = () => (state = (state * 48271) % 2147483647) / 2147483647
-    for (let i = 0; i < count; i++) {
-      const angle = random() * Math.PI * 2
-      const radius = Math.sqrt(random()) * def.radius
-      const mote = new Vector3(
-        def.position.x + Math.cos(angle) * radius,
-        def.position.y + (random() - 0.5) * def.height,
-        def.position.z + Math.sin(angle) * radius,
-      )
+    const mote = new Vector3()
+    for (let i = 0; i < local.count; i++) {
+      // Local to the feature, which is where the tell's own group sits.
+      mote.set(local.getX(i), local.getY(i), local.getZ(i)).add(def.position)
       const to = mote.clone().sub(from)
       const distance = to.length()
       const hit = terrain.raycast(from, to, distance)
       if (!hit || hit.point.distanceTo(from) > distance - 0.5) visible++
     }
-    return visible / count
+    return visible / local.count
   }
 })
 

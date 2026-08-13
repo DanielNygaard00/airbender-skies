@@ -50,6 +50,25 @@ export const MAX_DEPTH_MULTIPLIER = BOTTOM_STRETCH * (1 + ROUGHNESS)
  * own vertices: computeVertexNormals then gives per-face flat normals, and
  * the painter can give each face its own color.
  */
+/**
+ * How far this island's surface sits from its centre along a unit direction, before the halves are
+ * flattened or stretched and before the world scale goes on.
+ *
+ * One definition, used by the geometry builder below and by `insideIsland`. They were separate for
+ * a moment while `insideIsland` was written and that was the wrong shape immediately: a containment
+ * test that reproduces the displacement maths is a second copy that has to be kept in step with
+ * this one, which is exactly the drift that let a wind-visibility test measure a scatter the game
+ * no longer drew.
+ */
+function shellRadius(unit: Vector3, noise: (x: number, z: number) => number): number {
+  let n = 0
+  for (const { frequency, amplitude } of OCTAVES) {
+    n += noise(unit.x * frequency, unit.z * frequency) * amplitude
+  }
+  // The walkable crown keeps less roughness than the ragged underside.
+  return 1 + n * (1 - TOP_DAMPENING * Math.max(unit.y, 0))
+}
+
 export function createIslandGeometry(def: IslandDef): BufferGeometry {
   const sphere = new IcosahedronGeometry(1, DETAIL)
   const position = sphere.attributes.position
@@ -59,13 +78,7 @@ export function createIslandGeometry(def: IslandDef): BufferGeometry {
 
   for (let i = 0; i < position.count; i++) {
     v.fromBufferAttribute(position, i)
-    let n = 0
-    for (const { frequency, amplitude } of OCTAVES) {
-      n += noise(v.x * frequency, v.z * frequency) * amplitude
-    }
-    // The walkable crown keeps less roughness than the ragged underside.
-    const dampening = 1 - TOP_DAMPENING * Math.max(v.y, 0)
-    v.multiplyScalar(1 + n * dampening)
+    v.multiplyScalar(shellRadius(v, noise))
     v.y *= v.y > 0 ? TOP_FLATTEN : BOTTOM_STRETCH
     v.x *= def.radius
     v.z *= def.radius
@@ -77,4 +90,65 @@ export function createIslandGeometry(def: IslandDef): BufferGeometry {
   sphere.computeBoundingBox()
   sphere.computeBoundingSphere()
   return sphere
+}
+
+/**
+ * Whether a world point lies inside an island's shell.
+ *
+ * Analytic rather than a raycast, and it exists because the obvious test is wrong in this world.
+ * `groundHeightAt(x, z) > y` reads as "underground", which holds for terrain you cannot get
+ * beneath — and every island here floats, so the air *under* one satisfies it too. Using that as
+ * an open-air test collapsed two of the archipelago's eight wind tells to a stub: a thermal 320
+ * units up and a dead-air pocket 150 below the islands were both classified as solid rock.
+ *
+ * Undoing `createIslandGeometry`'s transform — the world scale, then the flatten or stretch on
+ * whichever half the point is in — puts the point back in unit-sphere space, where `shellRadius`
+ * answers where this island's own surface is along that direction. So this asks the island's real
+ * noise rather than a bound on it.
+ *
+ * Bounds were tried first, both ways round, and neither was good enough. Counting the whole
+ * `1 ± ROUGHNESS` band as rock collapsed the archipelago's high thermal and its under-island dead
+ * air to stubs, because both sit legitimately inside a large island's ragged envelope. Counting
+ * only the inner bound fixed that and left Canyon Country's hoodoos clamping at 58 per cent of
+ * their nominal shell, so motes stayed buried in the outer noise. The exact query has neither
+ * problem, and it costs three octaves of 2D noise.
+ *
+ * The one approximation left: the noise is sampled along the *displaced* direction rather than the
+ * original undisplaced one, since inverting the displacement exactly is not worth it for a mote
+ * cloud. That is a second-order error well inside one mote's width.
+ */
+export function insideIsland(
+  x: number, y: number, z: number, def: IslandDef,
+  noise: (nx: number, nz: number) => number = seededNoise2D(def.noiseSeed),
+): boolean {
+  const dx = (x - def.position.x) / def.radius
+  const dz = (z - def.position.z) / def.radius
+  const rawY = y - def.position.y
+  const dy = rawY >= 0
+    ? rawY / (def.height * TOP_FLATTEN)
+    : rawY / (def.height * BOTTOM_STRETCH)
+  const q = Math.hypot(dx, dy, dz)
+  // Dead centre: inside by definition, and there is no direction to sample.
+  if (q < 1e-9) return true
+  SCRATCH_UNIT.set(dx / q, dy / q, dz / q)
+  return q < shellRadius(SCRATCH_UNIT, noise)
+}
+
+/** Reused, because `openAirTest` runs this per probe and per island. */
+const SCRATCH_UNIT = new Vector3()
+
+/**
+ * An open-air test over a whole level, for `createWindTell`.
+ *
+ * One definition so the game and the tests that measure it cannot drift — the wind-visibility
+ * measurement in `canyon-country.test.ts` and the tells `main.ts` builds ask exactly the same
+ * question. That duplication is a mistake this file's neighbours have already made once.
+ */
+export function openAirTest(
+  islands: readonly IslandDef[],
+): (x: number, y: number, z: number) => boolean {
+  // Noise functions built once per island rather than per probe: `seededNoise2D` allocates a
+  // permutation table, and this is called dozens of times per wind feature at load.
+  const shells = islands.map((def) => ({ def, noise: seededNoise2D(def.noiseSeed) }))
+  return (x, y, z) => !shells.some(({ def, noise }) => insideIsland(x, y, z, def, noise))
 }

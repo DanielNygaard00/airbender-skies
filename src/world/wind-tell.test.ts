@@ -33,6 +33,55 @@ describe('createWindTell', () => {
     expect(createWindTell(def('thermal')).object.userData.excludeFromShadows).toBe(true)
   })
 
+  describe('given an open-air test', () => {
+    /**
+     * A slot running along world Z through the feature's centre: air within 8 units of x = 10,
+     * rock beyond it. Chosen to stand in for Canyon Country's corridor, where the field radius of
+     * 40 is deliberately far wider than the gap the player can be in.
+     */
+    const SLOT_HALF_WIDTH = 8
+    const slot = (x: number, _y: number, _z: number): boolean =>
+      Math.abs(x - 10) <= SLOT_HALF_WIDTH
+
+    /** Motes as world offsets from the feature centre, which is where the group sits. */
+    const offsets = (tell: ReturnType<typeof createWindTell>): [number, number, number][] => {
+      const data = motes(tell)
+      const out: [number, number, number][] = []
+      for (let i = 0; i < data.length; i += 3) out.push([data[i]!, data[i + 1]!, data[i + 2]!])
+      return out
+    }
+
+    it('keeps the motes in the air instead of scattering them into rock', () => {
+      // The defect this exists for: with the field radius of 40 in an 8-unit slot, the unclamped
+      // scatter puts most of its motes inside the walls. Stated as a comparison against the
+      // unclamped tell rather than as an absolute count, so it is the clamp being measured.
+      const loose = offsets(createWindTell(def('ridge'))).filter((m) => Math.abs(m[0]) > SLOT_HALF_WIDTH)
+      const hugged = offsets(createWindTell(def('ridge'), slot)).filter(
+        (m) => Math.abs(m[0]) > SLOT_HALF_WIDTH,
+      )
+      expect(loose.length).toBeGreaterThan(50)
+      expect(hugged.length).toBeLessThan(loose.length / 4)
+    })
+
+    it('still reaches along the slot, so the clamp is per direction and not one radius', () => {
+      // The reason the probe walks each azimuth separately. A single clamp to the narrow width
+      // would keep the motes out of the rock and also cut the feature short along its own length,
+      // which for a ridge is the axis the lift runs on — the thing the tell is there to show.
+      const hugged = offsets(createWindTell(def('ridge'), slot))
+      const alongSlot = Math.max(...hugged.map((m) => Math.abs(m[2])))
+      expect(alongSlot).toBeGreaterThan(SLOT_HALF_WIDTH * 2)
+    })
+
+    it('draws a small core rather than nothing when the centre itself is walled in', () => {
+      // A tell that vanishes is worse than one partly in rock: the player would have no sign the
+      // feature is there at all, and the level-authoring mistake would be invisible rather than
+      // obvious. `canyon-country.test.ts` is what catches that mistake.
+      const walled = offsets(createWindTell(def('ridge'), () => false))
+      const spread = Math.max(...walled.map((m) => Math.hypot(m[0], m[2])))
+      expect(spread).toBeGreaterThan(0)
+    })
+  })
+
   it('keeps its motes inside the feature it marks', () => {
     const tell = createWindTell(def('thermal'))
     for (let i = 0; i < 400; i++) tell.advance(1 / 60)
