@@ -57,24 +57,27 @@ export interface WindTell {
  *
  * Passing this lets the scatter hug the air. Leaving it out keeps the old behaviour exactly, so
  * a caller with no terrain to consult — every test in this file, and any level whose features
- * stand in the open — is unaffected. Measured on Canyon Country, the worst feature's visible
- * fraction went from 0.194 to 0.467 and every one of the twelve slot features improved; measured on
- * the archipelago, whose features stand clear of the islands, seven of eight are untouched and the
- * eighth keeps 99.7 per cent of its reach.
+ * stand in the open — is unaffected.
  *
- * **Two things it does not fix, both understood.** The clamp is radial, so it cannot help a mote
- * that is underground because it is *below* the floor rather than beyond a wall — which is the
- * whole of dead air's residue, since a dead-air field is deliberately centred low so no live air
- * is left under the wall bases, and its lower half is therefore under the crown by design. And a
- * thermal rotates its motes (`angles[i] += dt`) while keeping each radius, so over time a mote can
- * drift from a wide azimuth to a narrow one; Canyon Country has no thermals, and fixing it would
- * mean clamping inside the animation rather than at construction.
+ * Measured on Canyon Country after thirty seconds of animation: motes inside rock fell from 31-77
+ * per cent per feature to at most 10, and the fraction visible from the floor of each feature's own
+ * room rose from a worst of 0.194 to a worst of 0.628. That worst case is now the amphitheatre lid,
+ * which sits partly behind the caps from the floor below and is meant to — so every feature on the
+ * level clears the 60 per cent the artist rule asks for. On the archipelago every feature keeps its
+ * full reach and none is worse than before: the dead air slung under an island went from 6 per cent
+ * of its motes in rock to none.
+ *
+ * **What it does not fix.** A thermal turns its motes as they rise (`angles[i] += dt`) while keeping
+ * each radius, so one can rotate out of air and into stone over time — a mote's floor follows it,
+ * its azimuth does not. Neither region has a thermal standing close enough to rock for it to show,
+ * and fixing it would mean re-testing positions inside `advance` every frame.
  */
 export type OpenAir = (x: number, y: number, z: number) => boolean
 
-/** Azimuths probed for open air, and steps outward along each. 12 × 6 = 72 probes per feature. */
-const OPEN_AZIMUTHS = 12
+/** Heights probed up a mote's own column to find the lowest air in it. */
 const OPEN_STEPS = 6
+/** Positions tried per mote before one is accepted wherever it landed. */
+const OPEN_TRIES = 6
 
 /**
  * Deterministic scatter, so a level looks the same on every load. Seeded from the
@@ -102,45 +105,69 @@ export function createWindTell(def: WindDef, openAir?: OpenAir): WindTell {
   const heights = new Float32Array(MOTE_COUNT)
 
   /**
-   * How far the air reaches on each azimuth, when a caller can tell us.
+   * The lowest local height each mote is allowed to reach, so none of them ends up under the floor.
    *
-   * Per azimuth rather than one number for the whole feature, and that is the point: a slot
-   * canyon is wide along the corridor and narrow across it, so a single clamp would either leave
-   * motes in the walls or cut the feature short along its own length. Walking each azimuth
-   * outward finds that shape without the feature needing to know its own heading.
+   * The azimuth clamp above keeps motes out of the *walls*; this keeps them off the ground, and the
+   * two are separate problems with separate answers. Dead air is the case that needs it: its field
+   * is centred low on purpose — so no live air is left in the pockets along the wall bases — which
+   * puts the bottom half of its 34-unit band under the canyon crown. Radial clamping cannot help,
+   * because those motes are not beyond a wall, they are beneath the floor.
    *
-   * Probed at the feature's centre height, one height for the whole column, which is the
-   * compromise this makes: the slot is narrower near the floor and opens out above the caps, so
-   * low motes can still clip a wall and high ones are held tighter than they need to be. Both are
-   * far better than the 46-to-73 per cent of motes that were underground before, and probing per
-   * mote instead would be 180 rays a feature at load rather than 72.
+   * Found per mote rather than per feature, since the canyon floor undulates by 11 metres along the
+   * corridor and a single floor for a 22-unit-wide column would be wrong at one end or the other.
+   * Each column is walked from the bottom of the band upward until the air opens, which is the same
+   * shape as the azimuth walk and costs the same handful of probes.
    */
-  const openRadius = new Float32Array(OPEN_AZIMUTHS).fill(def.radius)
-  if (openAir) {
-    for (let a = 0; a < OPEN_AZIMUTHS; a++) {
-      const angle = (a / OPEN_AZIMUTHS) * Math.PI * 2
-      let reach = 0
-      for (let s = 1; s <= OPEN_STEPS; s++) {
-        const r = (s / OPEN_STEPS) * def.radius
-        if (!openAir(
-          def.position.x + Math.cos(angle) * r, def.position.y, def.position.z + Math.sin(angle) * r,
-        )) break
-        reach = r
-      }
-      // Floored at one step rather than allowed to reach zero. A feature whose own centre is
-      // walled in draws a small core instead of collapsing to a point, because a tell that
-      // vanishes is worse than one partly in rock — and that case is a level-authoring mistake,
-      // which `canyon-country.test.ts` catches by measuring what is visible from the floor.
-      openRadius[a] = Math.max(reach, def.radius / OPEN_STEPS)
-    }
-  }
+  const floors = new Float32Array(MOTE_COUNT).fill(-def.height / 2)
 
   for (let i = 0; i < MOTE_COUNT; i++) {
-    const angle = random() * Math.PI * 2
+    let angle = 0
+    let radius = 0
+    let height = 0
+    // Rejection sampling, and the reason it is not a radial clamp is worth keeping. Walking each
+    // azimuth outward from the centre and stopping at the first rock assumes the air is near the
+    // axis and the stone is beyond it, which is true of a canyon slot and exactly inverted for the
+    // archipelago's dead air, which is slung under an island with the spike down its middle. That
+    // version dragged those motes inward into the rock and measured worse than no clamp at all.
+    // Sampling the whole position and keeping the first one that lands in air assumes nothing about
+    // which side the stone is on.
+    for (let attempt = 0; attempt <= OPEN_TRIES; attempt++) {
+      angle = random() * Math.PI * 2
+      radius = Math.sqrt(random()) * def.radius
+      height = (random() - 0.5) * def.height
+      if (!openAir) break
+      if (openAir(
+        def.position.x + Math.cos(angle) * radius,
+        def.position.y + height,
+        def.position.z + Math.sin(angle) * radius,
+      )) break
+      // Out of attempts: this position stands. It is what the mote would have been without any of
+      // this, so a feature with no air in it draws exactly as it used to rather than worse — and a
+      // feature with no air in it is a level-authoring mistake for the visibility measurement in
+      // `canyon-country.test.ts` to catch, not for this clamp to signal.
+    }
     angles[i] = angle
-    const bucket = Math.floor((angle / (Math.PI * 2)) * OPEN_AZIMUTHS) % OPEN_AZIMUTHS
-    radii[i] = Math.sqrt(random()) * openRadius[bucket]!
-    heights[i] = (random() - 0.5) * def.height
+    radii[i] = radius
+
+    if (openAir) {
+      // The lowest height this mote may return to, scanned from the bottom of the band up. Rising
+      // kinds wrap, so without this a ridge would carry its motes back under the floor within a
+      // few seconds of the clamp above having lifted them off it. Scanning from the bottom is
+      // topology-agnostic in the way the azimuth walk was not: it finds the lowest air there is,
+      // whether the rock is above it, below it, or both.
+      const x = def.position.x + Math.cos(angle) * radius
+      const z = def.position.z + Math.sin(angle) * radius
+      for (let s = 0; s <= OPEN_STEPS; s++) {
+        const candidate = -def.height / 2 + (s / OPEN_STEPS) * def.height
+        if (openAir(x, def.position.y + candidate, z)) { floors[i] = candidate; break }
+      }
+    }
+    // No clamp against the floor here, deliberately. An accepted position is in open air, and the
+    // floor is the *lowest* open height in that same column, so an accepted height cannot be below
+    // it — the clamp was there and did nothing, which a mutation check showed by surviving. When
+    // sampling ran out of attempts instead, the fallback above says the position stands, and
+    // clamping it would contradict that.
+    heights[i] = height
   }
 
   const geometry = new BufferGeometry()
@@ -197,26 +224,33 @@ export function createWindTell(def: WindDef, openAir?: OpenAir): WindTell {
     advance(dt: number): void {
       elapsed += dt
       for (let i = 0; i < MOTE_COUNT; i++) {
+        // Each mote loops back to its own floor rather than to the bottom of the band, so a kind
+        // that rises cannot carry a mote underground on the way round. Clamping only at
+        // construction would have fixed the first frame and nothing after it: a ridge lifts its
+        // motes at 4 units a second and wraps them, so within a few seconds every one of them
+        // would have been back under the floor the clamp had just lifted it off.
+        const floor = floors[i]!
         switch (def.kind) {
           case 'thermal':
             // Rise and turn: the spiral is the tell.
-            heights[i] = wrap(heights[i]! + dt * 9, halfHeight)
+            heights[i] = wrap(heights[i]! + dt * 9, halfHeight, floor)
             angles[i] = angles[i]! + dt * 0.7
             break
           case 'downdraft':
-            heights[i] = wrap(heights[i]! - dt * 11, halfHeight)
+            heights[i] = wrap(heights[i]! - dt * 11, halfHeight, floor)
             break
           case 'ridge':
             // Drifts up the slope, slower than a thermal and without the turn.
-            heights[i] = wrap(heights[i]! + dt * 4, halfHeight)
+            heights[i] = wrap(heights[i]! + dt * 4, halfHeight, floor)
             break
           case 'river':
             // Reusing height as distance along the current keeps the buffer small.
-            heights[i] = wrap(heights[i]! + dt * 26, halfHeight)
+            heights[i] = wrap(heights[i]! + dt * 26, halfHeight, floor)
             break
           case 'dead':
-            // Hangs. A barely-there bob, so it reads as still rather than frozen.
-            heights[i] = heights[i]! + Math.sin(elapsed * 0.6 + i) * dt * 0.35
+            // Hangs. A barely-there bob, so it reads as still rather than frozen. The bob
+            // integrates to well under a unit, so the floor only has to catch it, not fight it.
+            heights[i] = Math.max(heights[i]! + Math.sin(elapsed * 0.6 + i) * dt * 0.35, floor)
             break
         }
       }
@@ -225,9 +259,16 @@ export function createWindTell(def: WindDef, openAir?: OpenAir): WindTell {
   }
 }
 
-/** Keep a mote inside the column by looping it back to the far end. */
-function wrap(value: number, half: number): number {
-  if (value > half) return value - half * 2
-  if (value < -half) return value + half * 2
+/**
+ * Keep a mote inside the column by looping it back to the far end.
+ *
+ * `floor` is where the bottom of this mote's own column is — the band's bottom when no open-air
+ * test was given, and otherwise the lowest height at its position that is not inside rock. A mote
+ * leaving the top reappears there rather than at the nominal bottom, which is what keeps a rising
+ * kind from cycling its motes back underground.
+ */
+function wrap(value: number, half: number, floor: number): number {
+  if (value > half) return floor
+  if (value < floor) return half
   return value
 }

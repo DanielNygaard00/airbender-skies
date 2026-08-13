@@ -41,21 +41,21 @@ const terrain = realTerrain()
 const UP = new Vector3(0, 1, 0)
 
 /**
- * The floor the wind-visibility test holds every feature to.
+ * The floor the wind-visibility test holds every feature to — the artist rule itself, at last.
  *
- * Set from the measurement rather than from the design rule. On the drawn motes, with the open-air
- * clamp `main.ts` passes to `createWindTell`, the worst feature on the level is a dead-air column
- * at 0.467 visible from the floor of its own room, so 0.4 sits under that with margin: ordinary
- * noise cannot redden it, and a feature newly walled in by a hoodoo will. Before the clamp the
- * worst was 0.194, which is why this used to be 0.2.
+ * 0.6 is the number this file's own comment claimed was met when it was not: measured on the drawn
+ * motes, twelve of the fourteen features were under it and the worst was 0.194. Two rounds of work
+ * on `createWindTell` — scattering only where the air is, then giving every mote a floor its
+ * animation respects — put the worst at 0.628, so the claim is true now and asserted rather than
+ * asserted and false.
  *
- * Still not the artist rule, which asks whether a feature can be seen from *at least one* approach
- * and gets a single approach and a volume fraction here instead. Raising this to the 0.6 an earlier
- * comment in this file claimed is met would still redden — the remaining shortfall is dead air's
- * lower half sitting under the canyon crown by design, which is explained on `OpenAir` in
- * `wind-tell.ts`.
+ * The margin is thin on purpose. The worst case is the amphitheatre lid, which sits partly behind
+ * the hoodoo caps from the floor beneath it and is meant to, so there is no headroom left to win
+ * without moving the level. Nothing here is noisy — the island geometry and the mote scatter are
+ * both seeded — so a thin margin costs no flakiness, and a retune that drops a feature under the
+ * rule reddening is the whole point of holding the rule rather than a measurement.
  */
-const BURIED_FRACTION = 0.4
+const BURIED_FRACTION = 0.6
 
 describe('Canyon Country as a level', () => {
   it('validates', () => {
@@ -427,14 +427,16 @@ describe('the air, and whether it can be seen', () => {
     // were hidden. A feature's `radius` is its *field*, which in a slot canyon is deliberately
     // wider than the slot, and the motes were scattered across all of it — so 46 to 73 per cent of
     // every slot feature's motes were inside the rock walls, while 77 to 96 per cent of the ones in
-    // open air were already visible. `createWindTell` now takes an open-air test and hugs the air
-    // with it, which took the worst feature from 0.194 visible to 0.467 and improved all twelve.
-    // The field is untouched, so nothing about how the level flies changed.
+    // open air were already visible. `createWindTell` now samples only where the air is, and every
+    // mote carries a floor that its animation respects, so a rising kind cannot loop one back under
+    // the ground. Measured after thirty seconds of animation, motes in rock fell from 31-77 per cent
+    // per feature to at most 10, and the worst visible fraction went from 0.194 to 0.628. The field
+    // is untouched, so nothing about how the level flies changed.
     //
-    // The bound is still weaker than the artist rule, and deliberately: the rule asks whether a
-    // feature can be seen from at least one approach, and this samples exactly one and asks what
-    // fraction of a volume is visible. Whether the level now reads well enough needs someone at
-    // the controls, and `HANDOFF.md` carries that beside the other things waiting on hands.
+    // What is measured here is still narrower than the rule as written: the rule asks whether a
+    // feature can be seen from *at least one* approach, and this takes one approach and asks what
+    // fraction of a volume is visible from it. That makes the bound conservative rather than
+    // generous, which is the right direction for a rule about whether the player can see something.
     for (const w of winds) {
       const approach = new Vector3(w.position.x, 0, w.position.z)
       const ground = terrain.groundHeightAt(approach.x, approach.z)

@@ -63,22 +63,72 @@ describe('createWindTell', () => {
       expect(hugged.length).toBeLessThan(loose.length / 4)
     })
 
-    it('still reaches along the slot, so the clamp is per direction and not one radius', () => {
-      // The reason the probe walks each azimuth separately. A single clamp to the narrow width
-      // would keep the motes out of the rock and also cut the feature short along its own length,
-      // which for a ridge is the axis the lift runs on — the thing the tell is there to show.
+    it('still reaches the full length of the slot, and is not pulled toward the axis', () => {
+      // Rejection sampling rather than a radial clamp, and this is the difference. Walking each
+      // azimuth outward from the centre and stopping at the first rock keeps motes out of the walls
+      // and also drags them inward — which is wrong twice over: it cuts a ridge short along the axis
+      // its lift runs on, and where the stone is in the *middle* of a feature rather than around it,
+      // as under a floating island, it herds the motes straight into it.
       const hugged = offsets(createWindTell(def('ridge'), slot))
       const alongSlot = Math.max(...hugged.map((m) => Math.abs(m[2])))
-      expect(alongSlot).toBeGreaterThan(SLOT_HALF_WIDTH * 2)
+      expect(alongSlot).toBeGreaterThan(SLOT_HALF_WIDTH * 3)
     })
 
-    it('draws a small core rather than nothing when the centre itself is walled in', () => {
-      // A tell that vanishes is worse than one partly in rock: the player would have no sign the
-      // feature is there at all, and the level-authoring mistake would be invisible rather than
-      // obvious. `canyon-country.test.ts` is what catches that mistake.
-      const walled = offsets(createWindTell(def('ridge'), () => false))
-      const spread = Math.max(...walled.map((m) => Math.hypot(m[0], m[2])))
-      expect(spread).toBeGreaterThan(0)
+    it('keeps the whole scatter when the feature has no air in it at all', () => {
+      // The fallback: a mote out of attempts stands wherever it last landed, which is exactly where
+      // it would have been with no open-air test. So a feature with no air draws as it always did
+      // rather than collapsing to a stub or bunching into the rock — both of which were tried and
+      // measured worse. A feature with no air is a level-authoring mistake, and the visibility
+      // measurement in `canyon-country.test.ts` is what catches it; this is not a signalling device.
+      // Stated against the feature's own radius rather than against the unclamped tell's exact
+      // draw: the rejection loop consumes a different number of random values, so the two scatters
+      // are different samples of the same distribution and their extremes do not match to the digit.
+      const radius = def('ridge').radius
+      const walled = offsets(createWindTell(def('ridge'), () => false)).map((m) => Math.hypot(m[0], m[2]))
+      expect(Math.max(...walled)).toBeGreaterThan(radius * 0.95)
+      // And genuinely spread through the volume, not bunched at the rim or in a core: a
+      // sqrt-of-uniform radius puts the mean at about two thirds of the way out.
+      const mean = walled.reduce((sum, r) => sum + r, 0) / walled.length
+      expect(mean).toBeGreaterThan(radius * 0.5)
+      expect(mean).toBeLessThan(radius * 0.8)
+    })
+
+    it('never lets dead air bob down out of the air it hangs in', () => {
+      // Dead air does not wrap — it drifts on a sine — so its floor has to hold against a slow
+      // excursion rather than a loop. The bob integrates to well under a unit, so it can only carry
+      // a mote out of the air if that mote sits within a unit of the boundary, and the boundary here
+      // is placed just under one of the heights the floor scan probes (local -100 + 200/6, which is
+      // world 33.33) so that accepted motes land essentially on their own floor. Sited anywhere else
+      // the scan's own coarseness leaves the motes metres clear and nothing is being tested.
+      const ceilingOfRock = 33.32
+      const above = (_x: number, y: number, _z: number): boolean => y > ceilingOfRock
+      const tell = createWindTell(def('dead'), above)
+      const centreY = def('dead').position.y
+      for (let step = 0; step < 3000; step++) {
+        tell.advance(1 / 60)
+        if (step % 250 !== 0) continue
+        for (const [, y] of offsets(tell)) {
+          expect(centreY + y, `world height at step ${step}`).toBeGreaterThan(ceilingOfRock)
+        }
+      }
+    })
+
+    it('never lets a rising mote wrap back below the air it was lifted into', () => {
+      // Dead air's residue, and the reason the floor is a per-mote value the animation respects
+      // rather than a clamp applied once. A ridge lifts its motes at 4 units a second and loops them
+      // round, so a construction-time clamp would have been undone within a few seconds — the motes
+      // would cycle straight back under the floor they had just been lifted off.
+      const ceilingOfRock = 30
+      const above = (_x: number, y: number, _z: number): boolean => y > ceilingOfRock
+      const tell = createWindTell(def('ridge'), above)
+      const centreY = def('ridge').position.y
+      for (let step = 0; step < 1200; step++) {
+        tell.advance(1 / 60)
+        if (step % 120 !== 0) continue
+        for (const [, y] of offsets(tell)) {
+          expect(centreY + y, `world height at step ${step}`).toBeGreaterThan(ceilingOfRock)
+        }
+      }
     })
   })
 
