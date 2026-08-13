@@ -3376,7 +3376,33 @@ the directory for modules importing `./scale` and fails if one is missing, which
 drift that produced five unguarded sites in the first place. A thirteenth effect cannot quietly
 join without appearing there.
 
-**Not fixed, and deliberately.** None of this addresses where a NaN would come from. Nothing in the
-game feeds one today; the routes are a NaN `dt` reaching the effect layer or a NaN in a config
-value, and both would be defects upstream in their own right. `safeScale` is the last line before
-the scene graph, not a substitute for the first.
+**Where a NaN would come from, and the correction this paragraph used to need.** An earlier version
+of this section said the routes were "a NaN `dt` reaching the effect layer or a NaN in a config
+value, and both would be defects upstream in their own right", which reads as though two holes were
+being left open. They are not open. Every numeric value that enters this game from outside the
+simulation is already validated at its boundary, most of them with `Number.isFinite`, and the
+inventory below is the evidence — recorded here so the next person to ask this question does not
+have to search for it again.
+
+| Boundary | Guard | What it stops |
+| --- | --- | --- |
+| The frame clock, `createStepper.advance` (`core/loop.ts:25`) | `!Number.isFinite(elapsed) \|\| elapsed <= 0` → render with `frameDt` 0, zero steps | The whole NaN-`dt` class. `update` has exactly one call site and it passes `fixedDt`, a module constant, so no simulation step can ever receive a non-finite `dt`; `render` receives either 0 or an already-checked `elapsed`. Pinned twice, by `'ignores a non-finite or negative delta but still renders'` and `'renders an invalid delta with a frameDt of zero and alpha unchanged'`. |
+| A persisted save, `loadSave` (`core/save.ts:77`) | `typeof === 'number' && Number.isFinite && > 0`, else the base value | A hand-edited `maxBreath` reaching the breath model |
+| Persisted settings, `readSettings` (`core/settings.ts:55,62`) | `Number.isFinite` then `clamp`, per field | A hand-edited sensitivity or volume |
+| A settings slider, `patchForRow` (`ui/guide/settings-rows.ts:99`) | `!Number.isFinite(value)` → discard the edit | An unparseable DOM value being stored |
+| An element keybind, `InputTracker` (`core/input.ts:229`) | `Number.isInteger(digit) && 1..N`, where the non-digit case *is* `NaN` | A `NaN` sentinel selecting an element |
+| A terrain ray, `raycast` (`world/terrain-query.ts:38`) | `!(lengthSq > 1e-12)` → null, written in the negated form on purpose | A NaN direction normalising into a ray that silently reports no hit |
+| A loaded model, `fitToPlaceholder` (`player/avatar.ts:75`) | `!Number.isFinite(height) \|\| height <= 0` → identity transform | A degenerate GLTF making the fit scale infinite |
+| The viewport, the aspect divide (`core/renderer.ts:117`) | `width / Math.max(height, 1)` | A zero-height window producing an infinite aspect |
+
+Two things follow. Configs cannot carry a NaN in the first place: every config value is a literal,
+and the only ones computed at runtime are `motionScales`, which returns literals chosen by a
+validated boolean. And the negated-comparison idiom — `!(x > 0)` rather than `x <= 0` — is
+load-bearing wherever it appears, because it takes the NaN branch; `terrain-query.ts` says so in a
+comment beside it.
+
+So `safeScale` is not covering for an unguarded upstream. It is the last line behind seven guarded
+ones, which is the right place for it: those boundaries stop the values this game can actually
+receive, and `safeScale` stops whatever a future arithmetic mistake produces between them and the
+scene graph. No guard was added anywhere for this investigation, because a guard where nothing can
+arrive is decoration — the same ruling that took the floor out of `ice-shell.ts`.
