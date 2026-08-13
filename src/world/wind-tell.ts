@@ -13,10 +13,27 @@ import type { WindDef, WindKind } from './wind'
  * dust spiralling up a thermal, streamers running down a river, mist falling
  * through a downdraft, and hanging haze that goes nowhere in dead air.
  */
-// Enough motes that a column reads as a column from a distance. At 90 a feature
-// 55 units across and 240 tall was so sparse it looked like stray specks, which
-// fails the rule it exists to satisfy.
-const MOTE_COUNT = 180
+/**
+ * Enough motes that a column reads as a column from a distance, and few enough that standing
+ * inside one does not read as a hailstorm.
+ *
+ * **This value has been set from both ends and the tension is real.** It was raised to 180 because
+ * at 90 a feature 55 units across and 240 tall — the archipelago's big thermal — was so sparse it
+ * looked like stray specks, which fails the rule the tell exists to satisfy. It came down to 100 on
+ * 2026-08-13 from the other side: `OpenAir` stopped the scatter wasting 46 to 73 per cent of its
+ * motes inside rock, so the *visible* density in Canyon Country roughly doubled without anyone
+ * asking for it, and the canyon is the first region where the camera stands inside a wind volume
+ * rather than looking at one from outside. At 180 the motes read as white blocks there — see the
+ * note on `SIZE` below, which predicted exactly that failure at close range.
+ *
+ * So 100 is a decision between two measured problems rather than a tuned optimum: it is close to
+ * the 90 that was rejected as too sparse at distance, and it is the density the canyon wants at
+ * arm's length. If the far-field sparseness matters more than the near-field blocks, the honest
+ * next move is not to raise this again but to make the count or the size depend on the feature —
+ * a 240-tall thermal seen from outside and a 34-tall dead-air layer the player is standing in are
+ * not asking for the same number.
+ */
+const MOTE_COUNT = 100
 
 /** Rough colour language: warm for lift, cold for sink, pale for nothing. */
 const TINT: Record<WindKind, number> = {
