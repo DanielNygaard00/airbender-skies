@@ -12,11 +12,12 @@ and slipstream (2026-08-04), and archers and projectiles (2026-08-05). Each item
 against the code on 2026-08-12 before being carried over; eight were already fixed by later
 cycles and are listed at the end so nobody re-investigates them.
 
-None of these is a known player-visible bug. They are mostly assertions that cannot fail and
-comments in the wrong place — the same classes the register at the end of `HANDOFF.md` tracks.
+None of these is a known player-visible bug. What remains open is three assertions that give
+less signal than they appear to, and the standing fact that nothing has been played — the same
+classes the register at the end of `HANDOFF.md` tracks.
 
-**Fixed since this file was written.** Two items, both by the same move — keep the guard,
-pin it with a test that reaches it:
+**Fixed since this file was written**, most by the same move — keep the guard, pin it with a
+test that reaches it:
 
 - The unreachable `s.chain < c.maxChain` term in `stepStaff`'s `free` gate, kept on the same
   grounds `staffBusy` keeps its redundant `isSwinging`. Deleting it now reddens `'refuses a
@@ -27,7 +28,26 @@ pin it with a test that reaches it:
   was worse than unexercised: with the floor in place, greater-than-zero holds for every input,
   so it could not fail either way. It has been replaced by a test that bounds the closing scale
   from both sides, which catches an `END_FRACTION` of 0.
-
+- The `inCone` guards in `src/combat/cone.ts` (misfiled in this document's first version under
+  `src/player/`) now carry the observability explanation beside the guards themselves — below a
+  90° half-angle a zero dot product fails the angle check on its own, so only the staff
+  finisher's width makes them load-bearing — instead of leaving it on `WIDE_FOR_GUARDS` in the
+  test file, where a reader editing only `cone.ts` would never meet it.
+- The impossible fixture in `actions.test.ts` (`staffElapsed` set, `staffChain` 0). Checking it
+  found the reason it existed: it was the only test in the suite that reddened if `isSwinging`
+  was deleted from `staffBusy`, because every reachable mid-swing state has `chain >= 1`. The
+  fixture is now reachable (`staffChain: 1`), and the pin moved to `staff.test.ts` as a declared
+  out-of-band test — `'reports busy mid-swing even when chain has desynced, which only a caller
+  can hand it'` — which was mutation-verified as the sole failure with `isSwinging` deleted.
+- Both `drawnContains` helpers (`staff-arc-fx.test.ts` and `gust-cone.test.ts`, which share the
+  hazard) now tolerate an ulp at the sector edge: `+ 1e-9` radians, resolving the tie toward
+  inclusion to match the hit tests' own `>=`, and ten orders of magnitude below the ~20° error
+  the agreement assertions exist to catch — a 0.4-radian epsilon reddens them.
+- The corpse-fling watch item in `'does not hit a downed enemy'` is now a precondition: before
+  the probe swing, the corpse must still lie inside the opener's arc, measured with the same
+  origin and forward `stepEncounter` hands `staffTargets`. A `finisherKnockback` raised 5×
+  reddens the precondition with its own message; the `isDowned` guard disabled reddens the final
+  assertion while the precondition stays green — the test now isolates the guard.
 - `'outreaches a spear'` in `staff-arc.test.ts`, which compared one arc against one kind.
   Replaced by two tests iterating every melee kind in the config Record, plus one that pins the
   filter so an empty list cannot pass silently. This one was not only inert: it had gone stale.
@@ -60,26 +80,6 @@ decision.
   exactly on the ceiling counts as compliant and only a value strictly above it fails. That is
   the convention across every voice in the file. One of the two no-clip tests also duplicates
   the iterating test's identical check on the same value.
-
-## Comments in the wrong place, and one impossible fixture
-
-- **`src/player/cone.ts`** — the explanation that its guards are unobservable below 90 degrees
-  lives on a test constant rather than beside the guards themselves, so a reader editing only
-  `cone.ts` could remove one as dead code. A reviewer suggested an explicit early return would
-  read as intentional at any width; the current form is a lower-risk stopgap.
-- **`src/ui/guide/actions.test.ts`** has a fixture with `staffElapsed` set and `staffChain` 0 —
-  a state the staff state machine cannot reach. A gate-hole fix was written to be defensive
-  about it rather than to correct the fixture, which is defensible and leaves the fixture
-  describing something impossible.
-
-## Two watch items
-
-- **`drawnContains`** compares `relative <= thetaLength` with no epsilon, so a config angle
-  landing a sample exactly on the boundary could be flaky. Not observed.
-- **The corpse-displacement test** is only moderately robust to a knockback retune.
-  Displacement per hit is capped at `knockback / 60`, one integration frame between swings, so
-  roughly doubling knockback could push the body past the opener's 3.6 m reach and turn the
-  test back into a false pass. Worth re-reading if the knockback numbers move.
 
 ## Never verified at the controls
 
