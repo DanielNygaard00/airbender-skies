@@ -167,6 +167,30 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
      *   Recorded because it was raised as a balance problem and settled the other way: if it
      *   should be blocked after playing it, this row is now the one line that does it, which it
      *   was not before -- `BendingSource` had no entry for water at all.
+     * - **burst: half the damage, and none of the shove.** A Fire Burst is the largest aimed damage
+     *   figure in the game, and this is the row that decides whether fire quietly becomes the
+     *   armour-breaker section 4.4 promises to *earth*. It does not, and the arithmetic is what
+     *   makes that true rather than the intent: at 0.5 a burst does 0.5 to this soldier, so its
+     *   4.0 health is eight bursts for the first rung and sixteen for a permanent down, against
+     *   two full dives per rung for the Pressure Wave and five dives in total. Fire is capped
+     *   harder still by its own resource -- three charges per touchdown is 1.5 damage per landing,
+     *   so grinding a heavy down with fire means walking away and coming back three times, which
+     *   is the same "this is the wrong tool" feeling the staff route is deliberately given.
+     *
+     *   Halved rather than refused, because a blast of burning air is neither a sweep this soldier
+     *   can ignore (gust 0) nor a shock travelling through the ground beneath it (wave 1). Plate
+     *   over padding takes real heat badly and the body inside it takes it much less badly than
+     *   bare skin would, and half is the honest reading of that. A full deflect was the other
+     *   candidate and it is worse for the same reason a full deflect on the grip would be: it would
+     *   read as "fire does not work on plate", and the element the design document builds around
+     *   single-target damage should not have *nothing* to say to the one high-health single target.
+     *
+     *   Knockback 0, joining the gust and the grip. This type is never displaced by anything except
+     *   an earned Pressure Wave, and that is what "knockback economy" means. The burst's shove is
+     *   tiny anyway -- 5 against the gust's 26 -- so scaling it would be a distinction without a
+     *   difference, and zero says the rule out loud. It is safe to write 0 here only because the
+     *   damage fraction is non-zero: `deflects` needs both at 0, so this row lands as a real hit
+     *   with a real number rather than as a clang.
      *
      * Every number below is an argued guess. Nothing here has been played.
      */
@@ -221,6 +245,7 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
         staff: { damage: 0.35, knockback: 0.3 },
         grip: { damage: 1, knockback: 0 },
         freeze: { damage: 1, knockback: 1 },
+        burst: { damage: 0.5, knockback: 0 },
       },
     },
     /**
@@ -507,6 +532,61 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     // Above the grip's, because it is the committed move; low against the Focus price, because
     // two meters gating one press is one more refusal to diagnose.
     freezeBreathCost: 18,
+  },
+  /**
+   * Fire: burst and propulsion. The only element with real single-target damage.
+   *
+   * Every number's argument lives on the field it belongs to in `src/combat/fire.ts`, because that
+   * is where the next person to retune one will be reading. What is worth stating in one place is
+   * the shape they add up to: **fire is the only thing in the kit that hurts one soldier properly,
+   * and it is rationed by landings rather than by a meter.** Three charges, both verbs spending
+   * one, refilled by touching down and by nothing else. So a burst is 1.0 damage — twice a gust,
+   * just under a staff finisher, half a committed dive — and there are exactly three of them
+   * between one touchdown and the next, shared with the emergency thrust that is the other half of
+   * the element.
+   *
+   * What that buys and what it costs, in one place:
+   *
+   * - Two spears from full, per landing, and not a third. Fire alone never clears the patrol.
+   * - One press puts a net thrower down, which is the pairing section 4.4 already implies: the type
+   *   that takes the air away against the element that answers being grounded.
+   * - Sixteen bursts for a permanent down on a heavy, against five dives. Fire is not the
+   *   armour-breaker; earth is, and its rows are still waiting for it.
+   * - No Focus at all, in either direction. See the module comment in `fire.ts`.
+   *
+   * Every value here is an argued guess. None of it has been played.
+   */
+  fire: {
+    // The narrowest cone in the game by a wide margin: 30 degrees swept, against water's 60 and the
+    // gust's 120. At range 7 that is a band about 3.6 m across at full reach, well inside the
+    // shipped patrol's closest pair of 11.31 m, which is what makes "single-target" a property of
+    // the geometry rather than a rule in the code.
+    burst: { range: 7, halfAngle: Math.PI / 12 },
+    // The shortest band of the six after the staff's 2.0, and below water's 3.0 on purpose:
+    // reaching high is what fire pays for doing the game's best aimed damage.
+    verticalReach: 2.5,
+    // Two gusts, and the number the recovery ladder is read against: two bursts for a spear's first
+    // down, one per rung after it, one press for a net thrower. Under the Pressure Wave's 2.2, so a
+    // committed dive stays the biggest single blow in the game.
+    burstDamage: 1.0,
+    // Against knockbackDamping 2.6 this travels 1.92 m, so a target hit inside 5.08 m is still
+    // inside the burst's own 7 m reach for the next one. A fifth of the gust's 26: fire hurts,
+    // air displaces.
+    burstKnockback: 5,
+    // Above the grip's 1.1 -- damage costs more than denial -- and sized so three charges take 2.4
+    // seconds to spend, longer than a spear's whole exchange of 1.25.
+    burstCooldownSeconds: 1.2,
+    // Three, per the owner's ruling: a count a player reads at a glance rather than a fourth gauge.
+    maxCharges: 3,
+    // DEFAULT_GROUND_CONFIG.airJumpSpeed exactly: one thrust is worth one push of air. With the
+    // forward component that is 10.8 m/s, about 0.49 s of bent-air thrust at thrustAccel 22 -- so
+    // all three charges together are under a third of a Breath bar, and they do not come back until
+    // the player lands.
+    thrustUpSpeed: 9,
+    // Under the up component, and less than a quarter of the blast dash's 26, so this can never be
+    // used as a third horizontal burst move. Enough that the total impulse clears stallSpeed 8 and
+    // a stalled wing comes out of the push flying.
+    thrustForwardSpeed: 6,
   },
 }
 

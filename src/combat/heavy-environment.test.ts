@@ -86,6 +86,9 @@ function inputAt(playerPosition: Vector3): EncounterInput {
     element: 'air' as const,
     focusAvailable: 0,
     breathAvailable: 100,
+    // A full hand, so nothing here is refused for want of a charge. No test in this file throws a
+    // fire move; the field is required so a future one has to decide.
+    fireCharges: DEFAULT_COMBAT_CONFIG.fire.maxCharges,
   }
 }
 

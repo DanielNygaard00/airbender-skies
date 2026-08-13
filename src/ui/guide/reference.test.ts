@@ -26,10 +26,13 @@ describe('COMBOS', () => {
 })
 
 describe('METERS', () => {
-  it('explains all three bars on the HUD', () => {
+  it('explains all three bars on the HUD, and the pip row beside them', () => {
     // The HUD draws three unlabelled bars; leaving one unexplained is the gap this
-    // section exists to close.
-    expect(METERS.map((m) => m.name)).toEqual(['Breath', 'Focus', 'Health'])
+    // section exists to close. Fire's charges join the list as the fourth entry and the only one
+    // that is not a bar, because they are drawn in the same bottom-left stack and answer the same
+    // question the bars do — how much of something is left. Asserted as the whole list in order, so
+    // a new HUD element cannot be added to the screen without being described here.
+    expect(METERS.map((m) => m.name)).toEqual(['Breath', 'Focus', 'Fire charges', 'Health'])
   })
 
   it('gives every meter a detail', () => {
@@ -84,15 +87,39 @@ describe('ELEMENT_LEGEND', () => {
     }
   })
 
-  it('names the radial direction and the number bind for each element', () => {
+  it('names each element\'s own number bind, derived from the order rather than transcribed', () => {
     // The legend is the only place the layout is written down in prose, and the layout is what the
-    // whole design leans on — fixed slots so a flick direction means the same thing every session.
-    // A legend that described the elements without saying where they are would leave the player
-    // hunting for them mid-fight, which is when the radial is used.
+    // whole design leans on — fixed slots, so a flick means the same thing every session. A legend
+    // that described the elements without saying where they are would leave the player hunting for
+    // them mid-fight, which is when the radial is used.
+    //
+    // **The digit is computed from `ELEMENT_ORDER`, and that is what makes this test able to fail
+    // for the right reason.** It used to assert "straight down" and "2" for water as literals, and
+    // appending fire silently made the direction wrong while the digit stayed right by luck. Read
+    // this way, an element whose prose claims a slot it no longer occupies reddens here — which is
+    // exactly the mistake the next append will make, since the last element in the array is the one
+    // whose digit changes.
+    ELEMENT_ORDER.forEach((element, index) => {
+      expect(ELEMENT_LEGEND[element], element).toContain(String(index + 1))
+    })
+    // Air is the one element allowed to name an absolute direction, because slot 0 is the only slot
+    // that does not move when the count changes. Every other entry says "clockwise from air"
+    // instead — see the note on ELEMENT_LEGEND.
     expect(ELEMENT_LEGEND.air).toMatch(/straight up/i)
-    expect(ELEMENT_LEGEND.air).toMatch(/1/)
-    expect(ELEMENT_LEGEND.water).toMatch(/straight down/i)
-    expect(ELEMENT_LEGEND.water).toMatch(/2/)
+    for (const element of ELEMENT_ORDER) {
+      if (element === 'air') continue
+      expect(ELEMENT_LEGEND[element], element).toMatch(/clockwise/i)
+      expect(ELEMENT_LEGEND[element], element).not.toMatch(/straight (up|down|left|right)/i)
+    }
+  })
+
+  it('says fire is rationed and how it comes back, which is the rule nothing else teaches', () => {
+    // The two facts a player cannot discover by pressing the key. That fire hurts is obvious the first
+    // time a burst lands; that it is three charges and that *landing* is the only thing that refills
+    // them is invisible until the pips run out mid-flight, which is the worst possible moment to be
+    // learning it. The guide is the only place either is written down.
+    expect(ELEMENT_LEGEND.fire).toMatch(/three charges/i)
+    expect(ELEMENT_LEGEND.fire).toMatch(/ground/i)
   })
 
   it('says water does no damage, which is the one thing a player must not guess wrong', () => {

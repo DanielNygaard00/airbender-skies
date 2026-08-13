@@ -59,10 +59,49 @@ export interface FocusReadout {
   avatarActive: boolean
 }
 
+/**
+ * Fire's charges, as the HUD draws them.
+ *
+ * An object rather than three more trailing parameters on `hudModelFor`, and that is a decision the
+ * file's own warning forces: there are already three optional numbers in a row down there, and the
+ * comment on them says outright that this is the shape where a caller silently swaps two. A fourth
+ * and fifth number would join that queue; an object's fields cannot be transposed without a type
+ * error.
+ *
+ * `active` is here rather than derived from a count, because "fire is selected" and "some charges are
+ * missing" are two independent reasons to show the pips and the HUD's culture is to hide anything with
+ * nothing to say — the same rule `showBreath` follows.
+ */
+export interface FireReadout {
+  /** Charges in hand. */
+  charges: number
+  /** How many the player holds when full, so the HUD draws the right number of pips. */
+  max: number
+  /** Fire is the selected element, so the two bending keys spend these right now. */
+  active: boolean
+}
+
 /** Fractions arrive from a division, so a non-finite one must not reach the DOM. */
 function fraction(value: number): number {
   if (!Number.isFinite(value)) return 0
   return Math.max(0, Math.min(1, value))
+}
+
+/**
+ * A pip count: a whole number, never negative, and zero for anything corrupt.
+ *
+ * The counting sibling of `fraction` above, and it exists for the same reason rather than for tidiness.
+ * The view loops over these to build DOM nodes, so a fraction would draw a pip 2.4 pips wide, and the
+ * obvious `Math.max(0, Math.floor(value))` does *not* handle a NaN — `Math.max(0, NaN)` is NaN, which
+ * would reach `hud-fire` as a loop bound and draw nothing at all. Found by the test that asserts it,
+ * which is why the guard is a named function instead of an inline clamp.
+ *
+ * Fails toward zero, the same direction `fraction` fails: a corrupt count reads as no charges, which
+ * is what every gate in `fire.ts` also refuses on, so the widget and the rules fail the same way.
+ */
+function wholeCount(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return 0
+  return Math.max(0, Math.floor(value))
 }
 
 export interface HudModel {
@@ -99,6 +138,27 @@ export interface HudModel {
    * and cannot disagree with the gate in `controller.ts` that actually refuses the deploy.
    */
   tangled: boolean
+  /**
+   * Fire charges in hand, and how many pips to draw for them.
+   *
+   * **A count and not a fraction, unlike every other resource in this model.** That is the owner's
+   * ruling made structural: a fraction here would let a future edit draw a fourth bar without
+   * anything objecting, and the whole argument for three discrete charges is that the player reads
+   * a number at a glance rather than watching a level. Both values are integers clamped to sanity
+   * by `hudModelFor`, so the view can loop over them without checking anything.
+   */
+  fireCharges: number
+  maxFireCharges: number
+  /**
+   * Whether the pips are on screen at all.
+   *
+   * True while fire is selected, and *also* true whenever a charge is missing whatever element is
+   * held — the same two-clause rule `showBreath` uses. A player who spent two charges and switched
+   * to air still needs to know fire is nearly out, because the thing that gives them back is a
+   * landing rather than a wait, and that is a decision about where to fly rather than about which
+   * key to press.
+   */
+  showFireCharges: boolean
 }
 
 /**
@@ -141,6 +201,9 @@ export function hudModelFor(
   hurtFlash = 0,
   stall = 0,
   fade = 0,
+  // The one non-number in the trailing group, and deliberately so: see `FireReadout`. Optional like
+  // the other two structs, so the HUD still works anywhere fire is not running.
+  fire?: FireReadout,
 ): HudModel {
   const breath = breathFraction(state)
   const health = playerHealth && playerHealth.max > 0
@@ -148,6 +211,12 @@ export function hudModelFor(
     : 1
   const focusValue = fraction(focus?.focus ?? 0)
   const avatarActive = focus?.avatarActive ?? false
+  // Whole pips, never negative, and the count never above the max: the view loops over these to build
+  // DOM nodes, so an inverted pair would draw an empty row while the resource was live. Every gate in
+  // `fire.ts` refuses at zero so nothing in the game can produce either; this is two comparisons
+  // against a widget that silently stops reporting a resource.
+  const maxFireCharges = wholeCount(fire?.max)
+  const fireCharges = Math.min(maxFireCharges, wholeCount(fire?.charges))
   return {
     altitude: formatAltitude(state.position.y),
     airspeed: formatAirspeed(state.velocity.length()),
@@ -172,6 +241,11 @@ export function hudModelFor(
     // gate cannot end up disagreeing about a corrupt value, which is the failure that would
     // actually confuse a player.
     tangled: state.tangled > 0,
+    fireCharges,
+    maxFireCharges,
+    // Nothing at all when fire is not running: with no readout there are no pips to draw, which is
+    // what keeps this file usable by a caller that has no element system.
+    showFireCharges: maxFireCharges > 0 && ((fire?.active ?? false) || fireCharges < maxFireCharges),
   }
 }
 
@@ -230,6 +304,27 @@ export const STYLE = `
   border-radius: 4px; font-size: 12px; letter-spacing: .04em;
   background: rgba(159,182,196,.22); color: #d6e6f0; opacity: 0;
   transition: opacity .15s; }
+/* Fire's charges. A row of pips rather than a bar, which is the owner's ruling and is the whole
+   reason this rule looks nothing like .hud-breath: a bar invites the player to watch a level, and a
+   count is read in a glance. Sized and spaced so three of them are countable in peripheral vision
+   without being a fourth meter competing with the stack below.
+
+   Above the readouts, beside the tangled tell rather than inside the meter stack, and for the same
+   reason that one sits there: both are statements about what the player can and cannot do right now,
+   where the bars below are quantities that drift. It also keeps the pips out of the run of three
+   180px bars, so the eye does not read them as a fourth one that happens to be broken up.
+
+   Orange-red, matching the element's badge dot and its burst cone, and deliberately not the health
+   bar's pale salmon: the two are the only warm things in this corner, so fire is the saturated one. */
+.hud-fire { display: flex; gap: 5px; align-items: center; margin-bottom: 8px;
+  opacity: 0; transition: opacity .15s; }
+.hud-fire-pip { width: 9px; height: 9px; border-radius: 50%;
+  background: #ff5a2d; transition: background .12s, box-shadow .12s;
+  box-shadow: 0 0 5px rgba(255,90,45,.55); }
+/* A spent charge stays on screen as an empty socket rather than disappearing, so the row's length
+   always says how many the player would have if they landed. A row that shrank would make "two left"
+   and "two total" look identical. */
+.hud-fire-pip.is-spent { background: rgba(255,255,255,.18); box-shadow: none; }
 .hud-hint { margin-top: 8px; font-size: 12px; opacity: .45; }
 /* The pause card (src/ui/pause-overlay.ts) repeats this same "H — guide" hint, and its
    backdrop is translucent rather than opaque, so without this rule the front door shows
@@ -257,6 +352,9 @@ export function createHud(parent: HTMLElement) {
   root.className = 'hud'
   root.innerHTML = `
     <div class="hud-tangled">Wings tangled</div>
+    <!-- Empty: the pips are built on first sight from the model's own max, because how many
+         charges the player has is config and this file must not carry a second copy of it. -->
+    <div class="hud-fire"></div>
     <div class="hud-readouts">
       <span data-altitude></span>
       <span data-airspeed></span>
@@ -289,6 +387,32 @@ export function createHud(parent: HTMLElement) {
   const hurt = root.querySelector('.hud-hurt') as HTMLElement
   const fade = root.querySelector('.hud-fade') as HTMLElement
   const tangled = root.querySelector('.hud-tangled') as HTMLElement
+  const fire = root.querySelector('.hud-fire') as HTMLElement
+
+  /**
+   * The pip elements, grown to the model's max on first sight and then reused.
+   *
+   * The same grow-and-reuse shape `element-radial.ts` uses for its wedges and
+   * `hit-direction-view.ts` for its marks, and for the same reason: rebuilding the row every frame
+   * would churn the DOM sixty times a second for a widget that toggles one class. Grown from the
+   * model rather than from a constant here, so `maxCharges` lives in the combat config and nowhere
+   * else.
+   */
+  const pips: HTMLElement[] = []
+
+  function pipsFor(count: number): HTMLElement[] {
+    while (pips.length < count) {
+      const pip = document.createElement('div')
+      pip.className = 'hud-fire-pip'
+      fire.append(pip)
+      pips.push(pip)
+    }
+    // Anything beyond the current max is hidden rather than removed, so a max that ever shrank
+    // mid-session leaves no orphan on screen and no node to rebuild if it grows back.
+    for (let i = count; i < pips.length; i++) pips[i]!.style.display = 'none'
+    for (let i = 0; i < count; i++) pips[i]!.style.display = ''
+    return pips
+  }
 
   return {
     update(model: HudModel): void {
@@ -318,6 +442,13 @@ export function createHud(parent: HTMLElement) {
       // Opacity rather than `display`, so the badge fading in does not shift the readouts
       // beneath it every time a net lands.
       tangled.style.opacity = model.tangled ? '1' : '0'
+      // Opacity for the row and a class per pip, for the same reason: the row appearing must not
+      // shift the readouts under it every time the player flicks to fire and back.
+      fire.style.opacity = model.showFireCharges ? '1' : '0'
+      const row = pipsFor(model.maxFireCharges)
+      for (let i = 0; i < model.maxFireCharges; i++) {
+        row[i]!.classList.toggle('is-spent', i >= model.fireCharges)
+      }
     },
     dispose(): void {
       root.remove()

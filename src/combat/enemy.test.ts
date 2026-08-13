@@ -818,6 +818,9 @@ describe('armour, as a per-source fraction of a blow', () => {
       staff: { damage: 0.25, knockback: 0.5 },
       grip: { damage: 1, knockback: 0 },
       freeze: { damage: 1, knockback: 1 },
+      // Unlike the shipped heavy's 0.5, so a test here that read the real config instead of this
+      // fixture is visible — the same convention every other row in this table follows.
+      burst: { damage: 0.25, knockback: 0 },
     },
   }
 

@@ -65,7 +65,7 @@ export type EnemyAttack =
  * blow itself: `hitEnemy` takes a damage figure and an impulse and has no idea what threw
  * them, which is what lets the four resolvers in `stepEncounter` share one code path.
  */
-export type BendingSource = 'gust' | 'vortex' | 'wave' | 'staff' | 'grip' | 'freeze'
+export type BendingSource = 'gust' | 'vortex' | 'wave' | 'staff' | 'grip' | 'freeze' | 'burst'
 
 /**
  * How much of a blow actually lands, as fractions of what was thrown.
@@ -103,6 +103,11 @@ export const UNARMOURED: ArmourTable = {
   // was the actual defect here. A kind that should resist a pull now has somewhere to say so.
   grip: { damage: 1, knockback: 1 },
   freeze: { damage: 1, knockback: 1 },
+  // Fire's one source. Unlike water's two rows above, both fractions here are live rather than
+  // moot: the Fire Burst carries the largest aimed damage figure in the game and a small outward
+  // shove, so a kind that should resist either has a real number to say so with. Everyone not
+  // wearing plate takes all of it.
+  burst: { damage: 1, knockback: 1 },
 }
 
 /**

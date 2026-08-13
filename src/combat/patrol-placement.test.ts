@@ -190,6 +190,7 @@ describe('a motionless player is left alone', () => {
       airWallHeld: false,
       focusAvailable: 0,
       breathAvailable: 100,
+      fireCharges: DEFAULT_COMBAT_CONFIG.fire.maxCharges,
     }
 
     let encounter = startEncounter(HOME_PATROL, DEFAULT_COMBAT_CONFIG)
@@ -245,6 +246,7 @@ describe('a motionless player is left alone', () => {
       element: 'air' as const,
       focusAvailable: 0,
       breathAvailable: 100,
+      fireCharges: DEFAULT_COMBAT_CONFIG.fire.maxCharges,
     }
 
     let encounter = startEncounter(HOME_PATROL, DEFAULT_COMBAT_CONFIG)
