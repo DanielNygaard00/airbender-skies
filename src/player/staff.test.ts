@@ -115,15 +115,36 @@ describe('stepStaff', () => {
     expect(staffBusy(after)).toBe(true)
   })
 
-  it('does not extend recovery when mashed', () => {
-    // Recovery is the price of the combo, not a punishment for pressing again.
-    let a = wait(chain(S.maxChain).state, S.swingSeconds)
-    let b = a
-    for (let t = 0; t < 0.1; t += 1 / 60) {
-      a = stepStaff(a, true, 1 / 60, S).state
-      b = stepStaff(b, false, 1 / 60, S).state
+  it('does not extend recovery when mashed, and decays it in real time', () => {
+    // Recovery is the price of the combo, not a punishment for pressing again — and it is a
+    // fixed price, so both halves of that get pinned here.
+    //
+    // The comparison pins the first half: mashing buys nothing. During recovery the two
+    // branches run the same code (`free` requires `recovery <= 0`, so a press cannot land),
+    // which is exactly what makes the comparison worth asserting — it is the only thing in
+    // this file that reddens if a press starts mattering, by resetting or extending the debt.
+    //
+    // The absolute assertion pins the second half: the debt is paid off in real time, one dt
+    // per frame. The comparison alone says nothing about the rate, because a scaled dt leaves
+    // both sides equally wrong and still equal to each other.
+    const dt = 1 / 60
+    // `chain` plays the combo forward and the wait carries it past the finisher, so recovery
+    // has already been running for a while — the expectation is derived from where it actually
+    // stands, not from S.recoverySeconds.
+    const start = wait(chain(S.maxChain).state, S.swingSeconds)
+    // Stop halfway through the remaining debt: once recovery clamps at zero, every decay rate
+    // looks alike and the assertion below would stop meaning anything.
+    const frames = Math.floor(start.recovery / dt / 2)
+    expect(frames).toBeGreaterThan(0)
+
+    let a = start
+    let b = start
+    for (let i = 0; i < frames; i++) {
+      a = stepStaff(a, true, dt, S).state
+      b = stepStaff(b, false, dt, S).state
     }
     expect(a.recovery).toBeCloseTo(b.recovery, 6)
+    expect(a.recovery).toBeCloseTo(start.recovery - frames * dt, 6)
   })
 
   it('is free again once recovery expires', () => {
