@@ -104,6 +104,17 @@ describe('the cone preview', () => {
     expect(DEFAULT_AIM_TELL_CONFIG.previewOpacity).toBeLessThan(GUST_CONE_FILL_OPACITY * 0.6)
   })
 
+  it('keeps the preview off zero for a shape with no range', () => {
+    // The `Math.max(shape.range, 1e-4)` floor on the preview's scale. This effect has no
+    // animation to reach it — the scale is whatever range the caller hands over, every frame —
+    // so what the floor bounds is the config, and a zero scale is a degenerate matrix. The same
+    // reason and the same shape as the floors in `vortex-ring.ts` and `shockwave.ts`.
+    const tell = createAimTell()
+    tell.update(ORIGIN, NORTH, true, true, { ...GUST, range: 0 })
+    expect(parts(tell).preview.scale.x).toBeGreaterThan(0)
+    tell.dispose()
+  })
+
   it('draws the cone at the gust the caller hands it, not a fixed one', () => {
     // The preview must draw whatever range it is handed, not a value compiled into this
     // module: main.ts feeds it fightConfig.gust every frame precisely so the drawn reach

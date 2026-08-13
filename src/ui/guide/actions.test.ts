@@ -140,7 +140,11 @@ describe('the staff', () => {
   })
 
   it('withholds the combo while a swing is in flight', () => {
-    expect(can('Staff combo', { player: p({ staffElapsed: 0.1 }) })).toBe(false)
+    // staffChain: 1 alongside staffElapsed, because stepStaff sets the chain the instant a
+    // swing starts — a mid-swing state with an empty chain is not one the game can produce.
+    // This test's job is the wiring (the row asks staffBusy), so it uses a reachable state;
+    // staff.test.ts pins staffBusy's behaviour on the desynced state directly.
+    expect(can('Staff combo', { player: p({ staffChain: 1, staffElapsed: 0.1 }) })).toBe(false)
   })
 
   it('withholds the combo during the post-combo recovery', () => {

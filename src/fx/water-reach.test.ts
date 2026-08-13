@@ -122,14 +122,30 @@ describe('createWaterReach', () => {
     expect(arcOf(freeze).scale.x).toBeCloseTo(freezeStart, 4)
   })
 
-  it('never scales the arc to exactly zero', () => {
-    // A zero scale collapses the matrix. The grip's arc closes toward a fraction of the reach
-    // rather than to nothing anyway, which is also what keeps it legible as it closes.
+  it('closes the grip\'s arc to a legible fraction of the reach, not to nothing', () => {
+    // This used to assert `scale.x > 0` across the whole sweep, which could not fail either way:
+    // `apply` clamps with `Math.max(..., 1e-4)`, so every input yields a positive scale, and even
+    // with that clamp deleted the grip bottoms out at GRIP_END_FRACTION times the reach. Bounded
+    // on both sides instead, so an end fraction of 0 — the arc genuinely collapsing to a point —
+    // reddens the lower bound, while a retune of the fraction stays free.
     const effect = createWaterReach(ORIGIN, NORTH, 'grip', W)
-    for (let i = 0; i < 40; i++) {
-      effect.advance(0.01)
-      expect(arcOf(effect).scale.x).toBeGreaterThan(0)
-    }
+    const start = arcOf(effect).scale.x
+    effect.advance(0.4)
+    const end = arcOf(effect).scale.x
+    expect(end).toBeGreaterThan(start * 0.05)
+    expect(end).toBeLessThan(start * 0.5)
+  })
+
+  it('keeps the arc off zero for a shape with no reach at all', () => {
+    // The `Math.max(..., 1e-4)` floor itself, which the sweep above cannot reach: the arc closes
+    // to a fraction of `shape.range`, and every shipped range is positive. The floor bounds the
+    // config, and a zero scale is a degenerate matrix — the same reason and the same shape as the
+    // floors in `vortex-ring.ts` and `shockwave.ts`.
+    const noReach = { ...W, grip: { ...W.grip, range: 0 } }
+    const effect = createWaterReach(ORIGIN, NORTH, 'grip', noReach)
+    expect(arcOf(effect).scale.x).toBeGreaterThan(0)
+    effect.advance(0.4)
+    expect(arcOf(effect).scale.x).toBeGreaterThan(0)
   })
 
   it('fades out and finishes', () => {

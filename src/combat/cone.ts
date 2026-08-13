@@ -40,10 +40,19 @@ export function inCone(
   // A target on top of the caster has no direction to compare, so it is out rather than
   // normalised into a NaN. Separate from the height test above: that one asks whether the
   // target is in the slab at all, this one whether there is a heading to measure against.
+  // The `< 1e-6` half is not dead code, though below a 90° half-angle it looks it:
+  // cos(halfAngle) is positive there, so a degenerate zero dot product already fails the
+  // angle check on its own. At the staff finisher's ~94.7° the cosine is negative, a zero
+  // dot product would pass, and only this guard stops the false-positive hit —
+  // WIDE_FOR_GUARDS in cone.test.ts is the test that exercises it.
   if (distance > c.range || distance < 1e-6) return false
 
   const toTarget = new Vector3(target.x - origin.x, 0, target.z - origin.z).normalize()
   const heading = new Vector3(forward.x, 0, forward.z)
+  // A caster with no horizontal facing has no heading to aim the cone along, so nothing is
+  // hit rather than normalising into a NaN. The same observability caveat as the distance
+  // guard above applies: unobservable below a 90° half-angle, load-bearing at the staff's
+  // width, exercised by WIDE_FOR_GUARDS in cone.test.ts.
   if (heading.lengthSq() < 1e-8) return false
 
   return toTarget.dot(heading.normalize()) >= Math.cos(c.halfAngle)

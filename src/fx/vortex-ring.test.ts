@@ -25,9 +25,31 @@ describe('createVortexRing', () => {
     expect(mesh(ring).scale.x).toBeLessThan(start)
   })
 
-  it('keeps a positive scale all the way in', () => {
-    // A zero scale is a degenerate matrix.
+  it('closes to a legible fraction of where it started, not to nothing', () => {
+    // What `END_FRACTION` is for: the ring stays readable as it shuts. Asserted as the
+    // fraction rather than as "greater than zero", because greater-than-zero cannot fail
+    // while `apply`'s `Math.max(..., 1e-4)` floor is in place — the floor makes any scale
+    // positive for every input, so that form of the assertion tested nothing about this
+    // sweep and would have passed with END_FRACTION set to 0, a ring collapsing to a point.
     const ring = createVortexRing(AT, 9)
+    const start = mesh(ring).scale.x
+    ring.advance(10)
+    const end = mesh(ring).scale.x
+    // Bounded on both sides rather than pinned to END_FRACTION's exact value, so a retune
+    // stays free while both degenerate ends redden: a collapse to the floor fails the lower
+    // bound, and a ring that never really closes fails the upper one.
+    expect(end).toBeGreaterThan(start * 0.05)
+    expect(end).toBeLessThan(start * 0.5)
+  })
+
+  it('keeps a positive scale for a zero radius, which only a caller can hand it', () => {
+    // The `Math.max(..., 1e-4)` floor, which the sweep itself never reaches: END_FRACTION
+    // 0.15 against the shipped minRadius of 5 bottoms out at 0.75. The floor is a bound on
+    // the radius the caller passes in — `vortexRadius` lerps from `minRadius`, so a config
+    // with a zero minimum, or a direct call like this one, is what reaches it. A zero scale
+    // is a degenerate matrix, which is the thing being prevented.
+    const ring = createVortexRing(AT, 0)
+    expect(mesh(ring).scale.x).toBeGreaterThan(0)
     ring.advance(10)
     expect(mesh(ring).scale.x).toBeGreaterThan(0)
   })

@@ -2,6 +2,7 @@ import {
   BackSide, MathUtils, Mesh, MeshBasicMaterial, OctahedronGeometry, Vector3,
 } from 'three'
 import type { Effect } from './effect'
+import { safeScale } from './scale'
 
 /**
  * The ice on a held soldier, for exactly as long as the hold lasts.
@@ -81,7 +82,16 @@ export function createIceShell(position: Vector3, holdSeconds: number): Effect {
     // The smaller of the two ramps, so a hold shorter than the two ramps together produces a
     // single rise and fall rather than a shell that pops to full and then jumps down.
     const shown = Math.min(forming, melting)
-    mesh.scale.setScalar(Math.max(RADIUS * MathUtils.lerp(0.6, 1, forming), 1e-4))
+    // `safeScale` here is for its non-finite half, not its floor. The floor cannot bite: `forming`
+    // is clamped to 0..1 so the lerp never leaves 0.6..1, and `RADIUS` is a constant in this file
+    // rather than anything passed in, so the smallest scale this expression can produce is
+    // 0.6 × 1.3 = 0.78. A hand-written `Math.max(..., 1e-4)` did sit here for exactly that reason
+    // and was removed as a line no input could reach — correct about zero, and wrong about NaN,
+    // which arrives by a different route: `age` accumulates whatever `dt` `advance` is handed, so
+    // one NaN frame makes `forming` NaN and the scale with it, and `Math.max` would have passed
+    // that through anyway. If `RADIUS` ever becomes a parameter the floor starts mattering too,
+    // and `safeScale` already covers that case.
+    mesh.scale.setScalar(safeScale(RADIUS * MathUtils.lerp(0.6, 1, forming)))
     material.opacity = PEAK_OPACITY * shown
   }
 

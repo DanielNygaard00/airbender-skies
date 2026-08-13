@@ -90,6 +90,24 @@ describe('stepStaff', () => {
     expect(stepStaff(state, true, 1 / 60, S).started).toBeNull()
   })
 
+  it('refuses a press on a full chain with nothing owed, which only a caller can hand it', () => {
+    // `stepStaff` cannot reach this state. The finisher's own frame routes through `spent`,
+    // which zeroes the chain before recovery is ever paid off, so a full chain and an empty
+    // recovery never coexist in anything this function returns — which is why the test above,
+    // pressing during recovery, exercises the gate's `recovery` half and never its chain half.
+    // The state is constructed here on purpose: the module is pure and takes a `StaffState`
+    // from its caller, the chain half of the gate is the only bound on that input, and without
+    // this test deleting it reddens nothing. Not a claim that the game can produce this.
+    const fullChainNothingOwed: StaffState = {
+      chain: S.maxChain, elapsed: null, recovery: 0, sinceSwing: 0,
+    }
+    const { state, started } = stepStaff(fullChainNothingOwed, true, 1 / 60, S)
+    expect(started).toBeNull()
+    // The ceiling itself: without the gate's chain half this becomes maxChain + 1, and keeps
+    // climbing on every later press.
+    expect(state.chain).toBe(S.maxChain)
+  })
+
   it('owes recovery once the combo ends', () => {
     const { state } = chain(S.maxChain)
     const after = wait(state, S.swingSeconds)
@@ -97,15 +115,36 @@ describe('stepStaff', () => {
     expect(staffBusy(after)).toBe(true)
   })
 
-  it('does not extend recovery when mashed', () => {
-    // Recovery is the price of the combo, not a punishment for pressing again.
-    let a = wait(chain(S.maxChain).state, S.swingSeconds)
-    let b = a
-    for (let t = 0; t < 0.1; t += 1 / 60) {
-      a = stepStaff(a, true, 1 / 60, S).state
-      b = stepStaff(b, false, 1 / 60, S).state
+  it('does not extend recovery when mashed, and decays it in real time', () => {
+    // Recovery is the price of the combo, not a punishment for pressing again — and it is a
+    // fixed price, so both halves of that get pinned here.
+    //
+    // The comparison pins the first half: mashing buys nothing. During recovery the two
+    // branches run the same code (`free` requires `recovery <= 0`, so a press cannot land),
+    // which is exactly what makes the comparison worth asserting — it is the only thing in
+    // this file that reddens if a press starts mattering, by resetting or extending the debt.
+    //
+    // The absolute assertion pins the second half: the debt is paid off in real time, one dt
+    // per frame. The comparison alone says nothing about the rate, because a scaled dt leaves
+    // both sides equally wrong and still equal to each other.
+    const dt = 1 / 60
+    // `chain` plays the combo forward and the wait carries it past the finisher, so recovery
+    // has already been running for a while — the expectation is derived from where it actually
+    // stands, not from S.recoverySeconds.
+    const start = wait(chain(S.maxChain).state, S.swingSeconds)
+    // Stop halfway through the remaining debt: once recovery clamps at zero, every decay rate
+    // looks alike and the assertion below would stop meaning anything.
+    const frames = Math.floor(start.recovery / dt / 2)
+    expect(frames).toBeGreaterThan(0)
+
+    let a = start
+    let b = start
+    for (let i = 0; i < frames; i++) {
+      a = stepStaff(a, true, dt, S).state
+      b = stepStaff(b, false, dt, S).state
     }
     expect(a.recovery).toBeCloseTo(b.recovery, 6)
+    expect(a.recovery).toBeCloseTo(start.recovery - frames * dt, 6)
   })
 
   it('is free again once recovery expires', () => {
@@ -149,6 +188,21 @@ describe('staffBusy', () => {
 
     // Free once recovery has fully decayed.
     expect(staffBusy(wait(afterWindowLapses, S.recoverySeconds + 0.01))).toBe(false)
+  })
+
+  it('reports busy mid-swing even when chain has desynced, which only a caller can hand it', () => {
+    // `stepStaff` cannot reach this state: it sets `chain` the instant a swing starts, so
+    // every reachable mid-swing state has chain >= 1. It is constructed here on purpose,
+    // to pin the contract staffBusy's own comment states — `isSwinging` stays in the
+    // expression even though it is redundant over reachable states, because callers are
+    // entitled to rely on "mid-flight blocks the staff" without that also depending on
+    // `chain` staying in sync. Before this test existed, the only thing that reddened on
+    // deleting `isSwinging` from staffBusy was an actions.test.ts fixture that posed as a
+    // reachable game state. Not a claim that the game can produce this.
+    const midSwingChainDesynced: StaffState = {
+      chain: 0, elapsed: 0.1, recovery: 0, sinceSwing: 0,
+    }
+    expect(staffBusy(midSwingChainDesynced)).toBe(true)
   })
 })
 

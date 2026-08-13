@@ -1,6 +1,7 @@
 import { BoxGeometry, Mesh, MeshBasicMaterial, Vector3 } from 'three'
 import type { SlipstreamConfig } from '../player/slipstream'
 import type { Effect } from './effect'
+import { safeScale } from './scale'
 
 /**
  * The streak a Slipstream leaves.
@@ -19,7 +20,7 @@ export function createSlipstreamTrail(
 ): Effect {
   // Length is what the dash actually covers, so the streak cannot claim ground the
   // move does not reach.
-  const length = Math.max(c.speed * c.durationSeconds, 1e-4)
+  const length = safeScale(c.speed * c.durationSeconds)
   const geometry = new BoxGeometry(WIDTH, TALL, 1)
   const material = new MeshBasicMaterial({
     color: TINT, transparent: true, depthWrite: false, opacity: OPACITY, depthTest: false,

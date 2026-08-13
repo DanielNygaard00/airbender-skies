@@ -43,7 +43,12 @@ function drawnContains(cone: Effect, point: Vector3): boolean {
   let relative = Math.atan2(local.y, local.x) - p.thetaStart
   const turn = Math.PI * 2
   relative = ((relative % turn) + turn) % turn
-  return relative <= p.thetaLength
+  // `relative` (atan2 plus a modulo) and `p.thetaLength` (the config angle through the
+  // geometry constructor) are two different float paths to the same boundary; a sample
+  // landing exactly on the sector edge can disagree by an ulp. The epsilon resolves that
+  // tie toward inclusion, matching inGust's own `>=`, and at 1e-9 radians sits ~10 orders
+  // of magnitude below the ~20-degree error this assertion exists to catch.
+  return relative <= p.thetaLength + 1e-9
 }
 
 /** Every sampled point where the hit test and the drawn shape disagree. */
@@ -109,6 +114,20 @@ describe('createGustCone', () => {
     const cone = createGustCone(ORIGIN, new Vector3(0, 0, 1), C)
     cone.object.updateWorldMatrix(true, true)
     expect(fill(cone).getWorldPosition(new Vector3()).y).toBeGreaterThan(ORIGIN.y)
+  })
+
+  it('keeps the leading arc off a zero scale on the frame it is born', () => {
+    // The one scale floor in this directory that its own effect reaches unaided, and it does so
+    // on every gust ever cast: `apply` scales the arc by `t * c.range`, and `t` is zero on the
+    // first call, so without the `Math.max(..., 1e-4)` the arc would carry a scale of exactly
+    // zero for one frame — a collapsed matrix, every time. The same floor in the other effects
+    // here only bounds what a caller passes in; this one is live in the shipped game, which is
+    // why it gets a test of its own rather than a zero-config one.
+    const cone = createGustCone(ORIGIN, new Vector3(0, 0, 1), C)
+    const born = cone.object.children[1]
+    if (!(born instanceof Mesh)) throw new Error('expected a leading arc as children[1]')
+    expect(born.scale.x).toBeGreaterThan(0)
+    cone.dispose()
   })
 
   it('drives the leading arc outward across its life', () => {
