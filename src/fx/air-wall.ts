@@ -4,6 +4,7 @@ import {
 } from 'three'
 import type { AirWallConfig } from '../combat/air-wall'
 import { SECTOR_SEGMENTS } from './sector'
+import { safeScale } from './scale'
 
 /**
  * The barrier shown while an Air Wall is up.
@@ -234,7 +235,7 @@ export function createAirWallPanel(): AirWallPanel {
       // happens at the face and the rest of the band exists so a dropped frame cannot let a
       // shot tunnel through. The same trade `gust-cone.ts` makes in the other axis, where it
       // draws the footprint and leaves the slab's height undrawn.
-      panel.scale.set(c.range, 2 * c.verticalReach, c.range)
+      panel.scale.set(safeScale(c.range), safeScale(2 * c.verticalReach), safeScale(c.range))
     },
 
     dispose(): void {

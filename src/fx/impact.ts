@@ -2,6 +2,7 @@ import {
   DoubleSide, MathUtils, Mesh, MeshBasicMaterial, SphereGeometry, Vector3,
 } from 'three'
 import type { Effect } from './effect'
+import { safeScale } from './scale'
 
 /**
  * The burst where a blow lands, or fails to.
@@ -73,7 +74,7 @@ export function createImpact(position: Vector3, kind: ImpactKind): Effect {
 
   function apply(): void {
     const t = MathUtils.clamp(age / shape.lifetime, 0, 1)
-    mesh.scale.setScalar(MathUtils.lerp(START_FRACTION * shape.radius, shape.radius, t))
+    mesh.scale.setScalar(safeScale(MathUtils.lerp(START_FRACTION * shape.radius, shape.radius, t)))
     material.opacity = shape.opacity * (1 - t)
   }
 

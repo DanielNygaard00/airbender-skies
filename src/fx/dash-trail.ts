@@ -3,6 +3,7 @@ import {
 } from 'three'
 import type { GroundConfig } from '../core/types'
 import type { Effect } from './effect'
+import { safeScale } from './scale'
 
 /**
  * The streak an air blast dash leaves behind.
@@ -81,7 +82,7 @@ export function createDashTrail(
     depthTest: false,
   })
   const streak = new Mesh(geometry, material)
-  streak.scale.z = length
+  streak.scale.z = safeScale(length)
   // Pushed forward by half its length so it starts at the origin rather than straddling it.
   streak.position.z = length / 2
   streak.userData.excludeFromShadows = true

@@ -92,10 +92,13 @@ test that reaches it:
   and the parity is now written down in the config and in `HANDOFF.md`'s list of things to feel
   for, because retuning it is a design decision.
 
-The other six `1e-4` scale floors in `src/fx/` have since been audited as a group, which is
-written up under "The scale floors" in `HANDOFF.md`. In short: all six were unpinned, deleting any
-of them reddened nothing, and they turned out to fall into three classes needing three different
-answers rather than being six copies of one thing.
+The other six `1e-4` scale floors in `src/fx/` have since been audited as a group, and the
+non-finite hole the audit recorded has since been closed too. Both are written up under "The scale
+floors" in `HANDOFF.md`. In short: all six were unpinned, deleting any of them reddened nothing,
+they fell into three classes rather than being six copies of one thing, and the convention turned
+out to cover only about half the sites it belonged to. All thirteen now go through `safeScale` in
+`src/fx/scale.ts`, with a table in `scale-wiring.test.ts` that reads the directory and fails if a
+new one is missing.
 
 **On checking these, which turned out to be the main lesson of the exercise.** Several items were
 already fixed at the moment they were carried into this file, and were only found to be so when

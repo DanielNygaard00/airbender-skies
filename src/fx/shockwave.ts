@@ -1,5 +1,6 @@
 import { DoubleSide, MathUtils, Mesh, MeshBasicMaterial, RingGeometry } from 'three'
 import type { Effect } from './effect'
+import { safeScale } from './scale'
 
 /**
  * The ring a Pressure Wave leaves on the ground.
@@ -40,7 +41,7 @@ export function createShockwave(radius: number, strength: number): Effect {
 
   function apply(): void {
     const t = MathUtils.clamp(age / LIFETIME, 0, 1)
-    mesh.scale.setScalar(Math.max(MathUtils.lerp(START_FRACTION * radius, radius, t), 1e-4))
+    mesh.scale.setScalar(safeScale(MathUtils.lerp(START_FRACTION * radius, radius, t)))
     material.opacity = peak * (1 - t)
   }
 
