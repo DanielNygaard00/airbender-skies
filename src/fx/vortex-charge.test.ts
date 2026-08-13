@@ -34,6 +34,18 @@ describe('createVortexChargeTell', () => {
     expect(full).toBeCloseTo(V.maxRadius, 1)
   })
 
+  it('keeps a positive scale for a config whose radius starts at zero', () => {
+    // The `Math.max(..., 1e-4)` floor on the ring's scale, which the tell's own animation cannot
+    // reach: `vortexRadius` lerps from `minRadius`, shipped at 5, so the smallest radius it ever
+    // asks for is 5. The floor bounds the config instead, and a zero scale is a degenerate
+    // matrix — the same reason and the same shape as the floors in `vortex-ring.ts` and
+    // `shockwave.ts`. Held at zero charge, where a zero `minRadius` actually bites.
+    const tell = createVortexChargeTell()
+    tell.update(1 / 60, V.minChargeSeconds, { ...V, minRadius: 0, maxRadius: 0 })
+    expect(ring(tell).scale.x).toBeGreaterThan(0)
+    tell.dispose()
+  })
+
   it('disposes without throwing', () => {
     expect(() => createVortexChargeTell().dispose()).not.toThrow()
   })

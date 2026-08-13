@@ -92,10 +92,10 @@ test that reaches it:
   and the parity is now written down in the config and in `HANDOFF.md`'s list of things to feel
   for, because retuning it is a design decision.
 
-There are six more `1e-4` scale floors across `src/fx/`. They are a house convention rather
-than copies of one mistake, and not all are in the same position: `gust-cone.ts:91` scales by
-`t * c.range`, so its floor is reached on the effect's own first frame. Worth a look if anyone
-audits them as a group; not carried here as a finding.
+The other six `1e-4` scale floors in `src/fx/` have since been audited as a group, which is
+written up under "The scale floors" in `HANDOFF.md`. In short: all six were unpinned, deleting any
+of them reddened nothing, and they turned out to fall into three classes needing three different
+answers rather than being six copies of one thing.
 
 **On checking these, which turned out to be the main lesson of the exercise.** Several items were
 already fixed at the moment they were carried into this file, and were only found to be so when

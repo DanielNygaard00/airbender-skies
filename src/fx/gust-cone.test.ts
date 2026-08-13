@@ -116,6 +116,20 @@ describe('createGustCone', () => {
     expect(fill(cone).getWorldPosition(new Vector3()).y).toBeGreaterThan(ORIGIN.y)
   })
 
+  it('keeps the leading arc off a zero scale on the frame it is born', () => {
+    // The one scale floor in this directory that its own effect reaches unaided, and it does so
+    // on every gust ever cast: `apply` scales the arc by `t * c.range`, and `t` is zero on the
+    // first call, so without the `Math.max(..., 1e-4)` the arc would carry a scale of exactly
+    // zero for one frame — a collapsed matrix, every time. The same floor in the other effects
+    // here only bounds what a caller passes in; this one is live in the shipped game, which is
+    // why it gets a test of its own rather than a zero-config one.
+    const cone = createGustCone(ORIGIN, new Vector3(0, 0, 1), C)
+    const born = cone.object.children[1]
+    if (!(born instanceof Mesh)) throw new Error('expected a leading arc as children[1]')
+    expect(born.scale.x).toBeGreaterThan(0)
+    cone.dispose()
+  })
+
   it('drives the leading arc outward across its life', () => {
     const cone = createGustCone(ORIGIN, new Vector3(0, 0, 1), C)
     const arc = cone.object.children[1]
