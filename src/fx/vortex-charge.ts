@@ -2,6 +2,7 @@ import {
   DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial, RingGeometry, type Object3D,
 } from 'three'
 import { vortexRadius, vortexCharge, type VortexConfig } from '../combat/vortex'
+import { safeScale } from './scale'
 
 /**
  * The ring that shows what a held Vortex will catch.
@@ -42,7 +43,7 @@ export function createVortexChargeTell(): VortexChargeTell {
       object.visible = heldSeconds > 0
       if (!object.visible) return
       const charge = vortexCharge(heldSeconds, c)
-      ring.scale.setScalar(Math.max(vortexRadius(charge, c), 1e-4))
+      ring.scale.setScalar(safeScale(vortexRadius(charge, c)))
       // Brightens as it fills, so the moment it is worth releasing is visible.
       material.opacity = PEAK_OPACITY * MathUtils.lerp(0.45, 1, charge)
     },

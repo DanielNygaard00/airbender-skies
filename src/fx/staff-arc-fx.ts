@@ -4,6 +4,7 @@ import {
 import type { ConeShape } from '../combat/cone'
 import type { Effect } from './effect'
 import { SECTOR_FLAT_ROTATION_X, sectorGeometry } from './sector'
+import { safeScale } from './scale'
 
 /**
  * The staff's swing, drawn at the exact reach and half-angle the fight resolved with.
@@ -58,7 +59,7 @@ export function createStaffArc(origin: Vector3, forward: Vector3, shape: ConeSha
   })
   const fill = new Mesh(fillGeometry, fillMaterial)
   fill.rotation.x = SECTOR_FLAT_ROTATION_X
-  fill.scale.setScalar(shape.range)
+  fill.scale.setScalar(safeScale(shape.range))
   fill.userData.excludeFromShadows = true
 
   group.add(fill)

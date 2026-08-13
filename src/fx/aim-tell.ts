@@ -5,6 +5,7 @@ import {
 import type { ConeShape } from '../combat/cone'
 import { SECTOR_FLAT_ROTATION_X, sectorGeometry } from './sector'
 import { DEFAULT_AIM_TELL_CONFIG, type AimTellConfig } from './config'
+import { safeScale } from './scale'
 
 /**
  * Just above the ground.
@@ -138,7 +139,7 @@ export function createAimTell(c: AimTellConfig = DEFAULT_AIM_TELL_CONFIG): AimTe
           preview.geometry = sectorGeometry(shape.halfAngle, 0, 1)
           builtHalfAngle = shape.halfAngle
         }
-        preview.scale.setScalar(Math.max(shape.range, 1e-4))
+        preview.scale.setScalar(safeScale(shape.range))
         previewMaterial.opacity = c.previewOpacity * (ready ? 1 : c.dimmedFactor)
       }
     },

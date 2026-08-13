@@ -4,6 +4,7 @@ import {
 import type { GustConfig } from '../combat/gust'
 import type { Effect } from './effect'
 import { SECTOR_FLAT_ROTATION_X, sectorGeometry } from './sector'
+import { safeScale } from './scale'
 
 /**
  * The air a gust moves, drawn at the volume it actually affects.
@@ -88,7 +89,7 @@ export function createGustCone(origin: Vector3, forward: Vector3, c: GustConfig)
 
   function apply(): void {
     const t = MathUtils.clamp(age / LIFETIME, 0, 1)
-    arc.scale.setScalar(Math.max(t * c.range, 1e-4))
+    arc.scale.setScalar(safeScale(t * c.range))
     fillMaterial.opacity = FILL_OPACITY * (1 - t)
     // The arc brightens as it goes out, so the leading edge is what the eye follows.
     arcMaterial.opacity = ARC_OPACITY * (1 - t * t)

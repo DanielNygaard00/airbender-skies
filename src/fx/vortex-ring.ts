@@ -1,5 +1,6 @@
 import { DoubleSide, MathUtils, Mesh, MeshBasicMaterial, RingGeometry, Vector3 } from 'three'
 import type { Effect } from './effect'
+import { safeScale } from './scale'
 
 /**
  * The air a Vortex gathers, drawn at the radius it actually caught.
@@ -36,7 +37,7 @@ export function createVortexRing(origin: Vector3, radius: number): Effect {
 
   function apply(): void {
     const t = MathUtils.clamp(age / LIFETIME, 0, 1)
-    mesh.scale.setScalar(Math.max(MathUtils.lerp(radius, radius * END_FRACTION, t), 1e-4))
+    mesh.scale.setScalar(safeScale(MathUtils.lerp(radius, radius * END_FRACTION, t)))
     material.opacity = OPACITY * (1 - t * t)
   }
 

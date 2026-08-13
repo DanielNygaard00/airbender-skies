@@ -3319,22 +3319,64 @@ plus `shockwave.ts` and `vortex-ring.ts`, which were pinned in an earlier cycle.
 reach zero through its own arithmetic — every shipped config value is positive — so each is now
 pinned by a test that hands it the degenerate config, which is what the floor is actually for.
 
-**Reachable by nothing at all — one site, now removed.** `ice-shell.ts` scaled by
+**Reachable by nothing at all — one site.** `ice-shell.ts` scaled by
 `RADIUS * lerp(0.6, 1, forming)`. `forming` is clamped to 0..1 and `RADIUS` is a module constant,
-not a parameter, so the smallest scale that expression can produce is 0.6 × 1.3 = 0.78. The floor
-was a line no input could exercise and no test could pin, and it is gone, with a comment saying it
-has to come back if `RADIUS` ever becomes a parameter. Note the contrast with `stepStaff`'s
-unreachable `chain < maxChain` term, which was *kept*: that one bounds a `StaffState` a caller
-hands in, and the module is pure, so an out-of-band input can reach it. The test for whether an
-unreachable guard should stay is whether any caller can reach it, not whether it looks defensive.
+not a parameter, so the smallest scale that expression can produce is 0.6 × 1.3 = 0.78. Its
+hand-written floor was a line no input could exercise and no test could pin, so the audit removed
+it. That was correct about zero and wrong about NaN, and the NaN work below put a guard back — see
+the note at the end of this section. Note the contrast with `stepStaff`'s unreachable
+`chain < maxChain` term, which was *kept*: that one bounds a `StaffState` a caller hands in, and
+the module is pure, so an out-of-band input can reach it. The test for whether an unreachable guard
+should stay is whether any caller can reach it, not whether it looks defensive — and "any caller"
+has to be asked separately about each way the value can go wrong.
 
-**Two things worth knowing about the convention itself.** First, these floors are zero-guards, not
-NaN-guards: `Math.max(NaN, 1e-4)` is `NaN`, so a NaN radius passes straight through every one of
-them into the transform. Nothing currently feeds one a NaN, and this is recorded rather than
-fixed. Second, `water-reach.ts` carried a test named `'never scales the arc to exactly zero'`
+**One thing worth knowing about the convention itself.** `water-reach.ts` carried a test named
+`'never scales the arc to exactly zero'`
 which asserted `scale.x > 0` — unable to fail either way, because the floor guarantees it for
 every input, and because even with the floor deleted the grip bottoms out at a positive fraction
 of its reach. That is the third instance of exactly this shape, after `vortex-ring.ts`'s and the
 combat-audio ceiling: **an assertion written directly against a clamp tends to restate the clamp
 rather than test it.** Bound the value from both sides, or hand the effect the input that reaches
 the clamp, and prefer both.
+
+### The NaN half, and one definition instead of thirteen
+
+The audit above stopped at zero and recorded the rest: `Math.max(NaN, 1e-4)` is `NaN`, so every
+hand-written clamp in the directory passed a non-finite scale straight through to the transform,
+where it poisons the object's world matrix and everything three.js derives from it. That is now
+fixed, and fixing it collapsed the whole convention into one function.
+
+`src/fx/scale.ts` holds it: `MIN_SCALE`, and `safeScale(value)`, which returns the floor for
+anything not finite and `Math.max(value, MIN_SCALE)` otherwise. The floor is the deliberate failure
+mode — an effect invisible for one frame beats a corrupted matrix, and an effect asked to draw at a
+non-finite size had nothing to draw. `Infinity` is caught along with `NaN`, since an infinite radius
+is equally unusable once anything multiplies it.
+
+**Thirteen call sites, not eight.** Replacing the clamps turned up five more scaled sites that had
+never had one: `dash-trail.ts` (whose sibling `slipstream-trail.ts` did), `impact.ts` (whose
+structural twin `shockwave.ts` did), `staff-arc-fx.ts` (whose twin `aim-tell.ts` did), plus
+`air-wall.ts` and `ice-shell.ts`. So the "house convention" had been applied to roughly half the
+places it belonged, and the halves were not distinguishable by anything except who wrote them.
+That is the argument for one named function over a remembered idiom: an idiom cannot be audited,
+and a missing call to `safeScale` is visible in a way a missing `Math.max` never was.
+
+**`ice-shell.ts` gets a guard again, for the other reason.** Its floor was removed because no input
+could bring the scale near zero, which remains true. NaN arrives by an unrelated route: `age`
+accumulates whatever `dt` `advance` is handed, so one non-finite frame makes `forming` non-finite
+and the scale with it. The removal was right about the question it asked and the question was too
+narrow — worth remembering as the general shape, since "unreachable" is always unreachable *by some
+particular path*.
+
+**How it is pinned.** `scale.test.ts` covers the function. `scale-wiring.test.ts` covers the wiring
+as one table over the directory, driving each effect the way a NaN could actually arrive — a NaN
+`dt` into `advance`, or a NaN in a config value — rather than writing a scale directly, and
+asserting every node's scale is finite and positive. Dropping the `Number.isFinite` check from
+`safeScale` reddens all twelve cases, so no case is inert. The table also polices itself: it reads
+the directory for modules importing `./scale` and fails if one is missing, which is exactly the
+drift that produced five unguarded sites in the first place. A thirteenth effect cannot quietly
+join without appearing there.
+
+**Not fixed, and deliberately.** None of this addresses where a NaN would come from. Nothing in the
+game feeds one today; the routes are a NaN `dt` reaching the effect layer or a NaN in a config
+value, and both would be defects upstream in their own right. `safeScale` is the last line before
+the scene graph, not a substitute for the first.

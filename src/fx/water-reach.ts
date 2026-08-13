@@ -6,6 +6,7 @@ import { freezeShape, gripShape } from '../combat/water'
 import type { ConeShape } from '../combat/cone'
 import type { Effect } from './effect'
 import { SECTOR_FLAT_ROTATION_X, sectorGeometry } from './sector'
+import { safeScale } from './scale'
 
 /**
  * The water a grip or a freeze reaches, drawn at the volume it actually affects.
@@ -134,7 +135,7 @@ export function createWaterReach(
     const reach = MathUtils.lerp(look.from, look.to, t) * look.shape.range
     // Never exactly zero: a zero scale collapses the matrix, and the grip's arc closes toward
     // the caster rather than to nothing anyway.
-    arc.scale.setScalar(Math.max(reach, 1e-4))
+    arc.scale.setScalar(safeScale(reach))
     fillMaterial.opacity = FILL_OPACITY * (1 - t)
     // Squared, so the arc holds its brightness through most of its travel and then goes
     // quickly — the leading edge is what the eye follows. Same curve as the gust's.
