@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { Vector3 } from 'three'
 import { ACTIONS, actionKeys, type ActionContext } from './actions'
+import { guideModelFor } from './panel'
+import { UNLOCKED_IN } from '../../progress/acts'
 import { DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG } from '../../core/config'
 import { DEFAULT_COMBAT_CONFIG } from '../../combat/config'
 import type { PlayerState } from '../../core/types'
@@ -510,6 +512,67 @@ describe('the bending keys follow the selected element', () => {
       expect(can('Element radial', {
         element, player: p({ mode: 'glider', grounded: false }),
       })).toBe(true)
+    }
+  })
+})
+
+/**
+ * Every element's rows carry the element's own lock.
+ *
+ * **This shipped wrong, and it shipped wrong for a reason worth writing down.** `lock` is optional
+ * on an action row, so the compiler cannot demand it the way `UNLOCKED_IN` demands an act per
+ * ability. Water and the Avatar State got their locks because the act cycle wrote those rows;
+ * earth and fire were built on branches that forked before acts existed, and the merge that
+ * brought all three together added the two table entries the compile insisted on and missed the
+ * four guide rows it did not.
+ *
+ * The visible result was the exact failure the act cycle exists to prevent: Stone Throw and Fire
+ * Burst were struck through as "not usable right now" — indistinguishable from a cooldown — where
+ * Water Grip carried an "Act 2" badge and was left unstruck, meaning "waiting rather than busy".
+ * Found by opening the shipped guide and reading it, which no test in this file was asking.
+ *
+ * Derived from `ELEMENT_ORDER` so a fifth element is covered the day it is appended.
+ */
+describe('the bending rows are gated by their own element', () => {
+  it('gives every non-air bending row the lock for its element', () => {
+    for (const element of ELEMENT_ORDER) {
+      const rows = ACTIONS.filter((action) => action.press?.startsWith(element));
+      // Every element has exactly two rows, the light verb and the heavy one. Asserted so a
+      // renamed `press` string cannot make this block vacuously true by matching nothing.
+      expect(rows.length, `${element} rows`).toBe(2)
+      for (const row of rows) {
+        if (element === 'air') {
+          // Air is never gated — the water design note states it as an invariant, and a player
+          // with no element at all would have no attack.
+          expect(row.lock, `${row.name} must not be locked`).toBeUndefined()
+        } else {
+          expect(row.lock, `${row.name} needs its element's lock`).toBe(element)
+        }
+      }
+    }
+  })
+
+  it('marks a locked bending row with its act instead of striking it through', () => {
+    // The distinction itself, at the model rather than in the markup: at Act 1 every borrowed
+    // element is unreached, and such a row reports `locked` with the act it is waiting for. The
+    // air rows are the positive control — same key, same frame, not locked.
+    const model = guideModelFor(ctx({ player: p({ act: 1 }) }))
+    const rows = model.ground.concat(model.glider)
+    for (const element of ELEMENT_ORDER) {
+      const named = rows.filter((row) => row.press?.startsWith(element))
+      expect(named.length, `${element} rows in the model`).toBeGreaterThan(0)
+      for (const row of named) {
+        if (element === 'air') {
+          expect(row.locked, `${row.name} at act 1`).toBe(false)
+          expect(row.unlocksIn, `${row.name} act tag`).toBeNull()
+        } else {
+          expect(row.locked, `${row.name} at act 1`).toBe(true)
+          expect(row.unlocksIn, `${row.name} act tag`).toBe(UNLOCKED_IN[element])
+          // And not merely unavailable: a locked row is forced unavailable, which is what keeps a
+          // caller reading one field from offering a move the game would refuse.
+          expect(row.available, `${row.name} availability`).toBe(false)
+        }
+      }
     }
   })
 })

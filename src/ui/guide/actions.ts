@@ -260,6 +260,7 @@ export const ACTIONS: readonly GameAction[] = [
   },
   {
     key: 'F', press: 'earthbending', name: 'Stone Throw', mode: 'both',
+    lock: 'earth',
     available: (ctx) => bending('earth')(ctx) && ctx.stoneReady,
     detail: 'Hurls a rock down a narrow line ahead of you — the tightest aim of the three quick '
       + 'moves, and the only one that really hurts. It hits harder than anything else you can '
@@ -271,6 +272,7 @@ export const ACTIONS: readonly GameAction[] = [
   },
   {
     key: 'F', press: 'firebending', name: 'Fire Burst', mode: 'both',
+    lock: 'fire',
     available: (ctx) => bending('fire')(ctx) && ctx.burstReady,
     detail: 'The only move you have that really hurts one soldier. A very narrow blast straight '
       + 'ahead — the tightest reach in the game, and the one that extends least above and below you, '
@@ -320,6 +322,7 @@ export const ACTIONS: readonly GameAction[] = [
   },
   {
     key: 'R', press: 'earthbending: press, then release', name: 'Stone Pillar', mode: 'both',
+    lock: 'earth',
     available: (ctx) => bending('earth')(ctx) && ctx.pillarReady,
     detail: 'Raises a column of rock a few paces ahead of you, and it is the only hard cover in '
       + 'the game: arrows and nets stop dead against it, from either side. It stands about six '
@@ -337,6 +340,7 @@ export const ACTIONS: readonly GameAction[] = [
     // ground at all, so a row in the ground column would be offering something that is refused
     // there. The other three heavy verbs work in either posture and are listed accordingly.
     key: 'R', press: 'firebending: press, then release', name: 'Fire Thrust', mode: 'glider',
+    lock: 'fire',
     available: (ctx) => bending('fire')(ctx) && ctx.fireThrustReady,
     detail: 'One shove up and forward, for one charge. This is what fire is for when the breath bar '
       + 'is empty and the ground is coming up: it is worth about one push of air, enough to pull a '
