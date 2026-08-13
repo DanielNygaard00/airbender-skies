@@ -137,9 +137,15 @@ describe('the combat voices', () => {
   })
 
   it('keeps every voice audible and none of them clipping', () => {
+    // Both bounds are strict. 0.5 is the mix's clipping threshold, not the last safe level, so
+    // a voice sitting exactly on it is at best marginal rather than compliant -- and this used
+    // to be `toBeLessThanOrEqual`, which accepted exactly that. The volley test below holds
+    // `bowReleaseLevel` to the same 0.5 with a strict `toBeLessThan`, and the audibility bound
+    // on the line above has always been strict, so the `<=` here was the odd one out and the
+    // looser of the two treatments of one threshold.
     for (const [name, level] of Object.entries(COMBAT_LEVELS)) {
       expect(level, `${name} is silent`).toBeGreaterThan(0.05)
-      expect(level, `${name} will clip`).toBeLessThanOrEqual(0.5)
+      expect(level, `${name} will clip`).toBeLessThan(0.5)
     }
   })
 
