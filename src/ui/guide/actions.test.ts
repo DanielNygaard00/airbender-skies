@@ -10,6 +10,11 @@ import type { PlayerState } from '../../core/types'
 const README = fileURLToPath(new URL('../../../README.md', import.meta.url))
 
 const p = (over: Partial<PlayerState> = {}): PlayerState => ({
+  // Act 1, the act the game starts in. Nothing in an `available` predicate reads the act any
+  // more -- the act question moved to `GameAction.lock`, which `guideModelFor` applies and
+  // `panel.test.ts` asserts -- so this only has to be honest rather than permissive. The rows'
+  // locks are checked against the table further down this file.
+  act: 1,
   mode: 'ground', position: new Vector3(), velocity: new Vector3(),
   forward: new Vector3(0, 0, 1), breath: 100, maxBreath: 100,
   grounded: true, lastGroundIslandId: null, airJumpsUsed: 0, chargeTime: 0, coyoteTime: 0, jumpBuffer: 0,

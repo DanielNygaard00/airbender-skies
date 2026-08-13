@@ -29,7 +29,7 @@ const input = (over: Partial<InputState> = {}): InputState => ({
   ...over,
 })
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({
-  mode: 'ground', position: new Vector3(0, 0, 0), velocity: new Vector3(),
+  act: 1, mode: 'ground', position: new Vector3(0, 0, 0), velocity: new Vector3(),
   forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
   grounded: true, lastGroundIslandId: 'flat', airJumpsUsed: 0, chargeTime: 0,
   coyoteTime: 0, jumpBuffer: 0,

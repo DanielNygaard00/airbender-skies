@@ -35,6 +35,8 @@
  * element is selected is not a property of the character's kinematics.
  */
 
+import { isUnlocked, type Act } from '../progress/acts'
+
 /**
  * The elements Aang can bend.
  *
@@ -117,12 +119,18 @@ export function restingElements(): ElementState {
 /**
  * Whether an element is available to the player at all.
  *
- * **Section 5 puts water in Act 2, and there is no act structure yet, so water is available
- * from the start** — exactly as the Avatar State is, which section 4.5 story-locks to the
- * early game and which the game hands over on the first frame. When acts exist, this is the
- * one function that has to learn about them: gate it on progression here and the guide's
- * strike-through, the radial's dimming and the resolvers in `stepEncounter` all follow,
- * because all three ask this and nothing restates the rule.
+ * **Section 5 puts water in Act 2, and the act structure now exists, so this is the gate the
+ * water design note's section 3.4 left the seam for.** It asks one question of one table:
+ * `UNLOCKED_IN` in `src/progress/acts.ts` is a total `Record` over every ability the acts can
+ * withhold, so this function needs no knowledge of which elements there are — earth and fire
+ * become gated by adding a line to that table, and nothing here changes. There is deliberately
+ * no `switch` on the element and no per-element condition anywhere in this file.
+ *
+ * Everything downstream follows from this one call, and nothing downstream restates the rule:
+ * the guide's lock marker, the radial's dimming, and — because `stepElements` below refuses to
+ * *select* a locked element — the resolvers in `stepEncounter`, which can therefore never be
+ * handed one. That last one is worth being explicit about: the fight is gated by never being
+ * told about an element the player does not have, rather than by a second check of its own.
  *
  * **It is also where a "water needs a source nearby" rule would go, and it deliberately is
  * not one.** Section 4.2 gives water three jobs and the world can support one of them: there
@@ -130,6 +138,10 @@ export function restingElements(): ElementState {
  * hazards" and "turns pooled water into a hazard surface" have nothing to act on. What does
  * exist is `src/world/waterfall.ts` — six curtains on five islands — and drawing from those
  * is the strongest available reading of the control element without inventing world content.
+ *
+ * The act gate does not revive that question and does not answer it either. An act is a fact
+ * about progression and a source is a fact about where the player is standing, so a source rule
+ * would be a second clause on this function rather than a replacement for the one now here.
  *
  * The argument for requiring one was real and it lost on a measurement. A source requirement
  * makes water positional, which suits a game whose whole defence is positional, and it would
@@ -146,8 +158,8 @@ export function restingElements(): ElementState {
  * within reach" — and building that query for a rule that only restricts the player, with no
  * rule that rewards them for standing near a source, is the wrong half to build first.
  */
-export function isElementAvailable(_element: Element): boolean {
-  return true
+export function isElementAvailable(element: Element, act: Act): boolean {
+  return isUnlocked(element, act)
 }
 
 /**
@@ -203,9 +215,15 @@ export interface ElementInput {
  * A direct bind wins over a radial release landing on the same frame. Either would be
  * defensible; the direct bind is chosen because it is unambiguous — the player named an
  * element — where a release may well be inside the dead zone and mean nothing.
+ *
+ * `act` is a parameter rather than a field on `ElementState`, and that is not a stylistic
+ * choice: `element.test.ts` asserts that `ElementState` has exactly `active` and `aim`, which
+ * section 2.3 of the water design note puts there so that adding a cooldown to the switch
+ * reddens a test rather than quietly landing. An act on the state would trip the same guard,
+ * and rightly — the act is a fact about the save, not about the selection.
  */
 export function stepElements(
-  state: ElementState, input: ElementInput, c: ElementConfig,
+  state: ElementState, input: ElementInput, c: ElementConfig, act: Act,
 ): ElementState {
   let active = state.active
   /**
@@ -223,7 +241,7 @@ export function stepElements(
     // bound to an element that does not exist yet must not throw and must not wrap around
     // to air, because wrapping would make 3 a second air bind and then break the day earth
     // arrives and 3 starts meaning something.
-    if (picked !== undefined && isElementAvailable(picked)) {
+    if (picked !== undefined && isElementAvailable(picked, act)) {
       active = picked
       named = true
     }
@@ -236,7 +254,7 @@ export function stepElements(
     // `!named` is what makes the direct bind win, and the guard is here rather than implied by
     // statement order — which is how it was written first, and it silently did the opposite of
     // what the doc comment above claims. `element.test.ts` pins the precedence for that reason.
-    if (!named && pending !== null && isElementAvailable(pending)) active = pending
+    if (!named && pending !== null && isElementAvailable(pending, act)) active = pending
     return { active, aim: null }
   }
 
@@ -281,7 +299,7 @@ export interface RadialModel {
  * the node environment, so every decision that could be wrong is made on this side of the
  * line and the view is left with a class toggle and a transform.
  */
-export function radialModel(state: ElementState, c: ElementConfig): RadialModel {
+export function radialModel(state: ElementState, c: ElementConfig, act: Act): RadialModel {
   const highlighted = state.aim === null ? null : radialHighlight(state.aim, c)
   return {
     open: state.aim !== null,
@@ -290,8 +308,13 @@ export function radialModel(state: ElementState, c: ElementConfig): RadialModel 
       element,
       index,
       active: element === state.active,
+      // A locked wedge still gets a slot, and still reports the direction it is on. Hiding it
+      // instead would renumber the wedges as the acts advance, which is the one thing the fixed
+      // `ELEMENT_ORDER` exists to prevent: the whole argument for a fixed order is that a flick
+      // means the same thing every session, and a radial that grew from two wedges to four as
+      // the player progressed would break that far more thoroughly than reordering would.
       highlighted: element === highlighted,
-      available: isElementAvailable(element),
+      available: isElementAvailable(element, act),
     })),
   }
 }

@@ -22,9 +22,15 @@ export const COMBOS: readonly Combo[] = [
   {
     name: 'Dive into a slam, and back into the air',
     keys: ['Ctrl', 'Space', 'Space'],
+    // The second half of this chain is gated. The act is deliberately not named here — the two
+    // `Ctrl` rows in the columns above carry the badge, and `UNLOCKED_IN` is the only place that
+    // decides which act it is, so repeating the number here would be a second thing to keep true.
     detail: 'Tuck into a dive, hold Ctrl through the landing to slam, then Space twice on ' +
       'the way back up — once for the double jump, once to open the wings. The flagship ' +
-      'chain: the harder the dive, the heavier the slam and the higher the bounce.',
+      'chain: the harder the dive, the heavier the slam and the higher the bounce. The slam ' +
+      'is yours from the start; the bounce that gets you back into the air is earned later, ' +
+      'so until then this chain ends on the ground and the Ctrl rows above say when it stops ' +
+      'doing that.',
   },
   {
     name: 'Deploy out of a rising jump',
@@ -184,10 +190,16 @@ export const SCREEN_MARKS: readonly MeterNote[] = [
  * with two places to keep it true. What a player reading this section needs is the reason to
  * switch at all.
  *
- * The availability rule is expressible here and today has nothing to say, which is deliberate.
- * When acts exist and `isElementAvailable` starts refusing, an unavailable element is already
- * struck through in the radial and its rows are already struck through in the columns above; this
- * legend is where the sentence explaining *why* would go.
+ * **Acts now exist, and this legend deliberately still says nothing about them.** The earlier note
+ * here reserved this spot for the sentence explaining why an element is unavailable, and building
+ * it turned out to be the wrong call: the act is already stated twice on screen where it is
+ * actionable — as a badge on each of the element's two rows in the columns above, and as a struck
+ * wedge on the radial — and putting an act number in this prose would make it a third place to
+ * keep true, with no reader that the other two do not already reach. What a player needs from this
+ * section is the reason to *switch*, which does not change between acts.
+ *
+ * `UNLOCKED_IN` in `src/progress/acts.ts` is where an element's act is decided, and it is the only
+ * place. A future line here would restate it.
  */
 export const ELEMENT_LEGEND: Record<Element, string> = {
   air: 'Always yours, and the only element with a damage move in it at all. Wide, fast, and it '

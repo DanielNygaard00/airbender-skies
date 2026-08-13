@@ -74,6 +74,7 @@ describe('a glider cannot fly through an island', () => {
     const terrain = archipelagoTerrain()
     const needle = island('needle')
     let state: PlayerState = {
+      act: 1,
       mode: 'glider',
       // 60 out on +X at the needle's own centre height, flying straight at it.
       position: new Vector3(needle.position.x + 60, needle.position.y, needle.position.z),
@@ -127,6 +128,7 @@ describe('a walker cannot walk through an island', () => {
     const underside = spire.position.y + spireMesh.geometry.boundingBox!.min.y
 
     let state: PlayerState = {
+      act: 1,
       mode: 'ground',
       position: new Vector3(startX, ground!, offsetZ),
       velocity: new Vector3(),

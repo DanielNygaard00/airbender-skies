@@ -6,7 +6,7 @@ import type { PlayerState } from '../core/types'
 import type { Shrine } from '../world/shrine'
 
 const player = (over: Partial<PlayerState> = {}): PlayerState => ({
-  mode: 'glider', position: new Vector3(0, 0, 0), velocity: new Vector3(),
+  act: 1, mode: 'glider', position: new Vector3(0, 0, 0), velocity: new Vector3(),
   forward: new Vector3(0, 0, -1), breath: 40, maxBreath: 100,
   grounded: false, lastGroundIslandId: null, airJumpsUsed: 0, chargeTime: 0, coyoteTime: 0,
   jumpBuffer: 0, scooterActive: false, scooterCharge: 0, dashesUsed: 0, dashRecovery: 0,

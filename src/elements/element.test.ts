@@ -3,8 +3,20 @@ import {
   DEFAULT_ELEMENT_CONFIG, ELEMENT_ORDER, isElementAvailable, radialHighlight, radialModel,
   restingElements, stepElements, type Aim, type ElementInput, type ElementState,
 } from './element'
+import { UNLOCKED_IN, type Act } from '../progress/acts'
 
 const C = DEFAULT_ELEMENT_CONFIG
+/**
+ * The act every test below runs in unless it is testing the act gate itself.
+ *
+ * Act 2 rather than 1, because water is an Act 2 unlock and almost everything in this file is
+ * about the *radial* -- which direction resolves to which element, that a twitch keeps what you
+ * had, that a number key beats a release on the same frame. Run at Act 1 those tests would all
+ * still pass while proving only that water is locked, since every assertion about picking water
+ * would be satisfied by a `stepElements` that refused every pick. The gate is asserted on its
+ * own terms, with Act 1 and Act 2 side by side, in `describe('the act gate')`.
+ */
+const ACT: Act = 2
 /** Well past the dead zone, so a direction test is testing direction and not distance. */
 const FAR = C.deadZonePixels * 3
 
@@ -18,7 +30,7 @@ const input = (over: Partial<ElementInput> = {}): ElementInput => ({
 
 /** Open the radial and flick it by `aim`, without releasing. */
 function opened(aim: Aim, from: ElementState = restingElements()): ElementState {
-  return stepElements(from, input({ radialHeld: true, aimDelta: aim }), C)
+  return stepElements(from, input({ radialHeld: true, aimDelta: aim }), C, ACT)
 }
 
 describe('ELEMENT_ORDER', () => {
@@ -119,7 +131,7 @@ describe('stepElements: the radial', () => {
     // a few pixels — it would never leave the dead zone at all.
     let state = restingElements()
     for (let i = 0; i < 5; i++) {
-      state = stepElements(state, input({ radialHeld: true, aimDelta: { x: 0, y: -8 } }), C)
+      state = stepElements(state, input({ radialHeld: true, aimDelta: { x: 0, y: -8 } }), C, ACT)
     }
     expect(state.aim).toEqual({ x: 0, y: -40 })
   })
@@ -128,14 +140,14 @@ describe('stepElements: the radial', () => {
     expect(restingElements().aim).toBeNull()
     expect(opened({ x: 0, y: -FAR }).aim).not.toBeNull()
     const released = stepElements(
-      opened({ x: 0, y: -FAR }), input({ radialReleased: true }), C,
+      opened({ x: 0, y: -FAR }), input({ radialReleased: true }), C, ACT,
     )
     expect(released.aim).toBeNull()
   })
 
   it('commits the highlighted element on release', () => {
     const state = stepElements(
-      opened({ x: 0, y: FAR }), input({ radialReleased: true }), C,
+      opened({ x: 0, y: FAR }), input({ radialReleased: true }), C, ACT,
     )
     expect(state.active).toBe(ELEMENT_ORDER[1])
     // The positive control's other half: releasing on the *other* direction has to land
@@ -143,7 +155,7 @@ describe('stepElements: the radial', () => {
     // that always picked slot 1.
     const up = stepElements(
       opened({ x: 0, y: -FAR }, { active: 'water', aim: null }),
-      input({ radialReleased: true }), C,
+      input({ radialReleased: true }), C, ACT,
     )
     expect(up.active).toBe(ELEMENT_ORDER[0])
   })
@@ -154,7 +166,7 @@ describe('stepElements: the radial', () => {
     // air", which is what a naive implementation would do.
     const from: ElementState = { active: 'water', aim: null }
     const state = stepElements(
-      opened({ x: 2, y: -3 }, from), input({ radialReleased: true }), C,
+      opened({ x: 2, y: -3 }, from), input({ radialReleased: true }), C, ACT,
     )
     expect(state.active).toBe('water')
   })
@@ -165,7 +177,7 @@ describe('stepElements: the radial', () => {
     // the release frame's delta points hard down: reading them together would select water.
     const held = opened({ x: 0, y: -FAR }, { active: 'water', aim: null })
     const state = stepElements(
-      held, input({ radialReleased: true, aimDelta: { x: 0, y: FAR * 4 } }), C,
+      held, input({ radialReleased: true, aimDelta: { x: 0, y: FAR * 4 } }), C, ACT,
     )
     expect(state.active).toBe(ELEMENT_ORDER[0])
   })
@@ -178,7 +190,7 @@ describe('stepElements: the radial', () => {
     // charge, and the same answer.
     const stale = opened({ x: 0, y: FAR })
     expect(stale.aim).not.toBeNull()
-    const blurred = stepElements(stale, input(), C)
+    const blurred = stepElements(stale, input(), C, ACT)
     expect(blurred.aim).toBeNull()
     // And the element was not switched on the way out: a blur is not a selection.
     expect(blurred.active).toBe('air')
@@ -187,9 +199,9 @@ describe('stepElements: the radial', () => {
 
 describe('stepElements: the number binds', () => {
   it('selects by 1-based index', () => {
-    expect(stepElements(restingElements(), input({ directIndex: 2 }), C).active)
+    expect(stepElements(restingElements(), input({ directIndex: 2 }), C, ACT).active)
       .toBe(ELEMENT_ORDER[1])
-    expect(stepElements({ active: 'water', aim: null }, input({ directIndex: 1 }), C).active)
+    expect(stepElements({ active: 'water', aim: null }, input({ directIndex: 1 }), C, ACT).active)
       .toBe(ELEMENT_ORDER[0])
   })
 
@@ -198,15 +210,15 @@ describe('stepElements: the number binds', () => {
     // earth is appended and 3 starts meaning something real. Paired with a positive control on
     // the same call shape, so "ignores it" is not passing because nothing works.
     const from: ElementState = { active: 'water', aim: null }
-    expect(stepElements(from, input({ directIndex: ELEMENT_ORDER.length + 1 }), C).active)
+    expect(stepElements(from, input({ directIndex: ELEMENT_ORDER.length + 1 }), C, ACT).active)
       .toBe('water')
-    expect(stepElements(from, input({ directIndex: 1 }), C).active).toBe('air')
+    expect(stepElements(from, input({ directIndex: 1 }), C, ACT).active).toBe('air')
   })
 
   it('ignores a zero or negative index', () => {
     const from: ElementState = { active: 'water', aim: null }
-    expect(stepElements(from, input({ directIndex: 0 }), C).active).toBe('water')
-    expect(stepElements(from, input({ directIndex: -1 }), C).active).toBe('water')
+    expect(stepElements(from, input({ directIndex: 0 }), C, ACT).active).toBe('water')
+    expect(stepElements(from, input({ directIndex: -1 }), C, ACT).active).toBe('water')
   })
 
   it('does not close or disturb an open radial', () => {
@@ -215,7 +227,7 @@ describe('stepElements: the number binds', () => {
     // flicked. Closing it here would be a second, invisible rule.
     const held = opened({ x: 0, y: -FAR })
     const state = stepElements(
-      held, input({ radialHeld: true, directIndex: 2 }), C,
+      held, input({ radialHeld: true, directIndex: 2 }), C, ACT,
     )
     expect(state.active).toBe(ELEMENT_ORDER[1])
     expect(state.aim).toEqual(held.aim)
@@ -228,7 +240,7 @@ describe('stepElements: the number binds', () => {
     // key names air, so the two answers are distinguishable.
     const held = opened({ x: 0, y: FAR })
     const state = stepElements(
-      held, input({ radialReleased: true, directIndex: 1 }), C,
+      held, input({ radialReleased: true, directIndex: 1 }), C, ACT,
     )
     expect(state.active).toBe('air')
   })
@@ -249,7 +261,7 @@ describe('switching is free', () => {
     let state = restingElements()
     for (let frame = 0; frame < 60; frame++) {
       const index = (frame % ELEMENT_ORDER.length) + 1
-      state = stepElements(state, input({ directIndex: index }), C)
+      state = stepElements(state, input({ directIndex: index }), C, ACT)
       expect(state.active).toBe(ELEMENT_ORDER[index - 1])
     }
   })
@@ -261,35 +273,35 @@ describe('isElementAvailable', () => {
     // exactly as the Avatar State is. This is the gate to change when acts arrive; it is asserted
     // so that changing it is a deliberate act with a failing test attached rather than a quiet
     // edit.
-    for (const element of ELEMENT_ORDER) expect(isElementAvailable(element)).toBe(true)
+    for (const element of ELEMENT_ORDER) expect(isElementAvailable(element, ACT)).toBe(true)
   })
 })
 
 describe('radialModel', () => {
   it('reports one slot per element, in order, with its clockwise index', () => {
-    const model = radialModel(restingElements(), C)
+    const model = radialModel(restingElements(), C, ACT)
     expect(model.count).toBe(ELEMENT_ORDER.length)
     expect(model.slots.map((slot) => slot.element)).toEqual([...ELEMENT_ORDER])
     expect(model.slots.map((slot) => slot.index)).toEqual(ELEMENT_ORDER.map((_, i) => i))
   })
 
   it('marks exactly one slot active, and it is the selected one', () => {
-    const model = radialModel({ active: 'water', aim: null }, C)
+    const model = radialModel({ active: 'water', aim: null }, C, ACT)
     expect(model.slots.filter((slot) => slot.active).map((s) => s.element)).toEqual(['water'])
   })
 
   it('is closed with no offset and open with one', () => {
-    expect(radialModel(restingElements(), C).open).toBe(false)
-    expect(radialModel(opened({ x: 0, y: -FAR }), C).open).toBe(true)
+    expect(radialModel(restingElements(), C, ACT).open).toBe(false)
+    expect(radialModel(opened({ x: 0, y: -FAR }), C, ACT).open).toBe(true)
   })
 
   it('highlights nothing inside the dead zone and the aimed slot outside it', () => {
     // The pair again, and it is the assertion that matters most for this function: a model that
     // never highlighted anything would look like a radial the mouse does not drive, and "no slot
     // is highlighted" alone passes for it.
-    const twitched = radialModel(opened({ x: 1, y: -2 }), C)
+    const twitched = radialModel(opened({ x: 1, y: -2 }), C, ACT)
     expect(twitched.slots.filter((slot) => slot.highlighted)).toEqual([])
-    const flicked = radialModel(opened({ x: 0, y: FAR }), C)
+    const flicked = radialModel(opened({ x: 0, y: FAR }), C, ACT)
     expect(flicked.slots.filter((slot) => slot.highlighted).map((s) => s.element))
       .toEqual([ELEMENT_ORDER[1]])
   })
@@ -302,15 +314,15 @@ describe('radialModel', () => {
       const radians = (degrees * Math.PI) / 180
       const aim = { x: Math.sin(radians) * FAR, y: -Math.cos(radians) * FAR }
       const expected = radialHighlight(aim, C)
-      const model = radialModel(opened(aim), C)
+      const model = radialModel(opened(aim), C, ACT)
       const highlighted = model.slots.find((slot) => slot.highlighted)?.element ?? null
       expect(highlighted, `${degrees} degrees`).toBe(expected)
     }
   })
 
   it('reports availability per slot from the one predicate that owns it', () => {
-    for (const slot of radialModel(restingElements(), C).slots) {
-      expect(slot.available).toBe(isElementAvailable(slot.element))
+    for (const slot of radialModel(restingElements(), C, ACT).slots) {
+      expect(slot.available).toBe(isElementAvailable(slot.element, ACT))
     }
   })
 })

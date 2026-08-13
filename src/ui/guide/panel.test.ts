@@ -15,7 +15,7 @@ const p = (over: Partial<PlayerState> = {}): PlayerState => ({
   mode: 'ground', position: new Vector3(), velocity: new Vector3(),
   forward: new Vector3(0, 0, 1), breath: 100, maxBreath: 100,
   grounded: true, lastGroundIslandId: null, airJumpsUsed: 0, chargeTime: 0,
-  coyoteTime: 0, jumpBuffer: 0,
+  coyoteTime: 0, jumpBuffer: 0, act: 1,
   scooterActive: false, scooterCharge: 0, wallRideNormal: null, dashesUsed: 0, dashRecovery: 0,
   slipstreamElapsed: null, slipstreamCooldown: 0,
   staffChain: 0, staffElapsed: null, staffRecovery: 0, staffSinceSwing: 0, tangled: 0, ...over,
@@ -116,7 +116,8 @@ describe('escape', () => {
 
 describe('HTML builders', () => {
   const row = (over: Partial<GuideRow> = {}) => ({
-    key: 'Space', name: 'Jump', detail: 'A short hop.', available: true, ...over,
+    key: 'Space', name: 'Jump', detail: 'A short hop.', available: true,
+    locked: false, unlocksIn: null, ...over,
   })
 
   it('keeps a row whose name carries a script tag inert', () => {

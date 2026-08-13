@@ -168,7 +168,7 @@ export function groundStep(
   // ball is what was climbing.
   const wallRide = stepWallRide(
     state.wallRideNormal,
-    { scooterActive: scooter.active, charge: scooter.charge, jumped: jump.jumped },
+    { act: state.act, scooterActive: scooter.active, charge: scooter.charge, jumped: jump.jumped },
     state.position,
     candidate,
     dt,

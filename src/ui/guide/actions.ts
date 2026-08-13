@@ -4,7 +4,8 @@ import { canDash } from '../../player/dash'
 import { canAirJump } from '../../player/jump'
 import { canBend } from '../../player/breath'
 import { staffBusy, staffOf } from '../../player/staff'
-import { isElementAvailable, type Element } from '../../elements/element'
+import type { Element } from '../../elements/element'
+import type { Ability } from '../../progress/acts'
 
 /**
  * Every action the player can perform, and whether they can perform it now.
@@ -14,6 +15,14 @@ import { isElementAvailable, type Element } from '../../elements/element'
  * reimplements the rules drifts, and a guide that lies to a tester is worse than no
  * guide at all. Where a rule has no importable predicate, the comment names where the
  * original lives so the two can be checked against each other by hand.
+ *
+ * **Two kinds of "no", kept apart.** `available` answers "can you do this on this frame" —
+ * posture, cooldowns, resources, which element is selected. `lock` answers "is this yours yet",
+ * and it answers it out of `UNLOCKED_IN` rather than out of a predicate written here. They are
+ * separate fields because they are separate sentences to a player, and the panel draws them
+ * differently: an unavailable row is struck through, a locked one is badged with the act it
+ * arrives in. Nothing below asks the act question inside an `available` predicate, so the two can
+ * never contradict each other.
  */
 export type ActionMode = 'ground' | 'glider' | 'both'
 
@@ -80,6 +89,25 @@ export interface GameAction {
   name: string
   detail: string
   mode: ActionMode
+  /**
+   * The ability whose act gate holds this row, or absent for anything Act 1 already grants.
+   *
+   * **This is what makes "you cannot do this yet" a different statement from "you cannot do this
+   * right now", and the panel renders the two differently — see `rowHtml`.** A single
+   * `available` flag cannot carry both: a gust on cooldown and a freeze the player has not
+   * earned are both unavailable, and telling a tester they are the same thing sends them looking
+   * for a cooldown in one case and a bug in the other.
+   *
+   * An `Ability` rather than a boolean or an act number, so the row names *what* is gated and
+   * `UNLOCKED_IN` decides *when*. Two things follow. The act shown to the player comes from the
+   * same table the gate does, so the panel cannot promise Act 2 for something gated at Act 3.
+   * And earth's and fire's rows each need one field — `lock: 'earth'` — with no act written here
+   * at all, so retuning the table moves the guide with it.
+   *
+   * `available` is deliberately *not* asked when this is locked (`guideModelFor` short-circuits),
+   * so the predicates below never restate an act rule and cannot disagree with one.
+   */
+  lock?: Ability
   available(ctx: ActionContext): boolean
 }
 
@@ -93,12 +121,15 @@ const hasBreath = (ctx: ActionContext): boolean => inGlider(ctx) && canBend(ctx.
 /**
  * Whether a given element is the one the bending keys currently resolve to.
  *
- * Asks `isElementAvailable` as well, so an element that a future act structure has not unlocked
- * is struck through even if something managed to select it — the panel must not offer a move the
- * fight would refuse, and that predicate is the one authority on availability.
+ * It used to ask `isElementAvailable` here as well, and no longer does. That is not a rule being
+ * dropped: it has moved to `GameAction.lock`, where the panel can say *why* the row is off. This
+ * predicate now answers only the binding question — which key does what right now — and the act
+ * question is answered once, by the lock, in a way that reads differently on screen. Asking it in
+ * both places would be the restatement this module exists to avoid, and it would collapse the two
+ * answers back into one strike-through.
  */
 const bending = (element: Element) => (ctx: ActionContext): boolean =>
-  ctx.element === element && isElementAvailable(element)
+  ctx.element === element
 
 export const ACTIONS: readonly GameAction[] = [
   {
@@ -155,6 +186,10 @@ export const ACTIONS: readonly GameAction[] = [
     // and the wall itself is left to the world. Named here so the next reader knows the
     // omission is deliberate: see `stepWallRide` in src/player/wall-ride.ts for the full gate.
     key: 'Z', press: 'while riding, into a wall', name: 'Wall ride', mode: 'ground',
+    // The row the act split is most visible on: `Air scooter` above carries no lock and this one
+    // does, which is the panel saying in two adjacent rows that the ball is yours and the climb is
+    // not yet. See `WallRideInput.act`.
+    lock: 'wall-ride',
     available: (ctx) => onGround(ctx) && ctx.player.scooterActive
       && ctx.player.scooterCharge >= ctx.ground.wallRideMinCharge,
     detail: 'Drive a charged scooter square into a near-vertical face at speed and it carries '
@@ -191,6 +226,7 @@ export const ACTIONS: readonly GameAction[] = [
   },
   {
     key: 'F', press: 'waterbending', name: 'Water Grip', mode: 'both',
+    lock: 'water',
     available: (ctx) => bending('water')(ctx) && ctx.gripReady,
     detail: 'Pull, then hold. A narrow reach straight ahead — much tighter than a gust, and it '
       + 'does not reach nearly as far above or below you — that yanks whoever it catches toward '
@@ -213,7 +249,8 @@ export const ACTIONS: readonly GameAction[] = [
       + 'dodges, so it answers a shot you saw coming rather than every shot.',
   },
   {
-    key: 'E', name: 'Avatar State', mode: 'both', available: (ctx) => ctx.avatarStateReady,
+    key: 'E', name: 'Avatar State', mode: 'both', lock: 'avatar-state',
+    available: (ctx) => ctx.avatarStateReady,
     detail: 'Once the pip under your Focus bar is full. Eight seconds of free breath, ' +
       'a gust that downs a soldier outright, and every wind feature turning to your side.',
   },
@@ -227,6 +264,7 @@ export const ACTIONS: readonly GameAction[] = [
   },
   {
     key: 'R', press: 'waterbending: press, then release', name: 'Ice Lock', mode: 'both',
+    lock: 'water',
     available: (ctx) => bending('water')(ctx) && ctx.iceLockReady,
     detail: 'Freezes the rank in front of you where it stands — wider than the grip and '
       + 'shorter, and it holds them far longer. No pull, no damage, and they stay frozen even if '
@@ -280,14 +318,38 @@ export const ACTIONS: readonly GameAction[] = [
     detail: 'Fold the wings for a fast dive.',
   },
   {
+    // No lock. Section 4.2 lists the Pressure Wave under "Airbending — always available", which
+    // section 5's Act 1 row grants as the "Airbending core", so the slam is yours from the first
+    // frame. What Act 3 adds is the row directly below. See `applyBounce` in src/player/slam.ts
+    // for the whole argument, and note that the detail here no longer promises the throw back up:
+    // that sentence moved to the row that owns it, so the panel cannot claim a rebound the player
+    // has not earned.
     key: 'Ctrl', press: 'hold through a landing', name: 'Pressure Wave', mode: 'both',
     detail: 'Land fast enough while holding this and the fall becomes a ground slam. What ' +
       'matters is your speed at touchdown, not your speed right now — a fall that is still ' +
       'accelerating can clear the threshold before it lands. The harder the landing, the ' +
-      'wider and heavier the blast: a committed dive downs a soldier outright, and throws ' +
-      'you back up.',
+      'wider and heavier the blast: a committed dive downs a soldier outright. It is also the ' +
+      'one thing in the kit a heavy armoured soldier cannot shrug off.',
     // The fall-speed threshold lives inside detectSlam, which needs a landing to test,
     // so it is restated here. See src/player/slam.ts.
+    available: (ctx) => !ctx.player.grounded
+      && -ctx.player.velocity.y >= ctx.wave.minImpactSpeed,
+  },
+  {
+    // A second row on `Ctrl`, listed under the key that produces the thing it is a property of —
+    // the same shape `Z` uses for the wall ride and `Space` uses for its three escalating presses.
+    // It has no key of its own because it is not a press: it is what the slam does to you
+    // afterwards, once Act 3 has handed it over.
+    //
+    // `available` is the Pressure Wave's own predicate, unchanged and deliberately not narrowed to
+    // dives: `detectSlam` does not distinguish a dive from any other fast landing, and inventing
+    // that distinction here would be the panel holding an opinion the game does not.
+    key: 'Ctrl', press: 'hold through a landing, once earned', name: 'Dive rebound', mode: 'both',
+    lock: 'dive-rebound',
+    detail: 'The slam throws you back up, hard enough to open the wings again — so a dive into a '
+      + 'slam is a move you leave the ground from rather than one that ends on it. Space twice on '
+      + 'the way up is the full chain: once for the double jump, once for the glider. The harder '
+      + 'the landing, the higher the bounce.',
     available: (ctx) => !ctx.player.grounded
       && -ctx.player.velocity.y >= ctx.wave.minImpactSpeed,
   },

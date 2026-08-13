@@ -152,6 +152,12 @@ const input = (over: Partial<InputState> = {}): InputState => ({
 
 /** A rider on a charged scooter, standing at `foot`, already moving at `velocity`. */
 const riding = (foot: Vector3, velocity: Vector3, islandId: string): PlayerState => ({
+  // Act 2, because that is the act wall-riding exists in and this whole file measures how much
+  // ridable rock the shipped archipelago actually offers. At Act 1 every sweep below would report
+  // zero reachable faces — not because the geometry is wrong but because the move is not yours
+  // yet, which would silently turn a level-design measurement into a restatement of the gate.
+  // The gate is asserted in `wall-ride.test.ts`, where it is the subject.
+  act: 2,
   mode: 'ground', position: foot.clone(), velocity: velocity.clone(),
   forward: velocity.clone().setY(0).normalize(),
   breath: 100, maxBreath: 100,

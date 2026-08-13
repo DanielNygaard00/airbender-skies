@@ -9,6 +9,7 @@ const C = DEFAULT_FLIGHT_CONFIG
 
 /** A glider moving at the given speed. Direction is irrelevant: only the magnitude counts. */
 const gliding = (speed: number): PlayerState => ({
+  act: 1,
   mode: 'glider', position: new Vector3(), velocity: new Vector3(0, 0, -speed),
   forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
   grounded: false, lastGroundIslandId: null, airJumpsUsed: 0, chargeTime: 0,

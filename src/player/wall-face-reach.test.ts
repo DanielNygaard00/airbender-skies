@@ -65,6 +65,9 @@ const input = (over: Partial<InputState> = {}): InputState => ({
 
 /** Airborne, descending, air jump spent, staff idle: the one state the deploy gate opens in. */
 const falling = (position: Vector3, islandId: string): PlayerState => ({
+  // Act 1: this file measures the *deploy* gate against real wall faces, and deploying is Act 1
+  // kit. The scooter is down in this fixture, so the Act 2 wall-ride gate never comes near it.
+  act: 1,
   mode: 'ground', position, velocity: new Vector3(0, DESCENT, 0),
   forward: new Vector3(0, 0, -1), breath: 100, maxBreath: 100,
   grounded: false, lastGroundIslandId: islandId, airJumpsUsed: G.maxAirJumps, chargeTime: 0,

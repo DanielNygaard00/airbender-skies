@@ -56,7 +56,7 @@ describe('spawnPointFor', () => {
 
 describe('createPlayerState', () => {
   it('starts in ground mode with full breath and at least baseMaxBreath', () => {
-    const state = createPlayerState(level, terrain(0), save(0), DEFAULT_FLIGHT_CONFIG)
+    const state = createPlayerState(level, terrain(0), save(0), DEFAULT_FLIGHT_CONFIG, 1)
     expect(state.mode).toBe('ground')
     expect(state.grounded).toBe(true)
     expect(state.maxBreath).toBeGreaterThanOrEqual(DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
@@ -66,13 +66,21 @@ describe('createPlayerState', () => {
 
   it('honours a higher saved maxBreath', () => {
     const higher = DEFAULT_FLIGHT_CONFIG.baseMaxBreath + 50
-    const state = createPlayerState(level, terrain(0), save(higher), DEFAULT_FLIGHT_CONFIG)
+    const state = createPlayerState(level, terrain(0), save(higher), DEFAULT_FLIGHT_CONFIG, 1)
     expect(state.maxBreath).toBe(higher)
     expect(state.breath).toBe(higher)
   })
 
+  it('carries the act it is handed rather than deriving one of its own', () => {
+    // The act comes from the caller because only the caller has placed the shrines, which is
+    // what validates a hand-edited save's ids. Asserted as a pair: a function that hard-coded
+    // 1 -- or that reached into `save` -- would pass the first half alone.
+    expect(createPlayerState(level, terrain(0), save(0), DEFAULT_FLIGHT_CONFIG, 1).act).toBe(1)
+    expect(createPlayerState(level, terrain(0), save(0), DEFAULT_FLIGHT_CONFIG, 3).act).toBe(3)
+  })
+
   it('spawns with no air jumps used and no charge', () => {
-    const state = createPlayerState(level, terrain(0), save(0), DEFAULT_FLIGHT_CONFIG)
+    const state = createPlayerState(level, terrain(0), save(0), DEFAULT_FLIGHT_CONFIG, 1)
     expect(state.airJumpsUsed).toBe(0)
     expect(state.chargeTime).toBe(0)
   })
