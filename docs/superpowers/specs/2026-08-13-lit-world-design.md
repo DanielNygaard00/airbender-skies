@@ -77,6 +77,17 @@ for. The dependency is pinned against three 0.185.1 at install time; if no publi
 supports that three release, the fallback is three's own composer with a reduced pass list, and
 this note is amended rather than the version quietly floated.
 
+**Corrected after implementation: the merge is not "one pass over everything", and it cannot be.**
+`EffectPass` re-orders the effects handed to a single pass — `setEffects` sorts them by attribute
+bitmask, descending. `SMAAEffect` declares `CONVOLUTION | DEPTH`, which is 3; bloom,
+brightness/contrast, hue/saturation and tone mapping all declare `NONE`, which is 0. So an
+`EffectPass` given the whole list runs antialiasing *first*, which is the ordering §3.2 forbids,
+and it does it silently while the call site still reads in the intended order. Antialiasing
+therefore ships as its own `EffectPass`, added after the merged one. What survives of the argument
+above is the part that mattered: the three colour effects are one fullscreen shader rather than
+three passes, so the pipeline is two passes and not four. Bloom-before-grade is safe inside the
+merge because equal attributes leave the sort stable.
+
 ### 3.2 The pass list
 
 | Effect | Role |
@@ -84,7 +95,15 @@ this note is amended rather than the version quietly floated.
 | Bloom | The single biggest change. Sun, sky highlights and every bright effect gain a halo, which is what makes emissive things read as *light* rather than as bright paint. Mipmap blur, a luminance threshold high enough that the terrain does not glow, moderate intensity. |
 | Tone mapping | ACES, **moved off the renderer and into the composer**. See the hazard below. |
 | Colour grade | Brightness, contrast and saturation trim. A lookup-table grade was considered and deferred: it needs an authored asset, and the trim is what actually separates "raw WebGL" from "graded". |
-| Antialiasing | SMAA in the composer, at every tier that runs the composer. |
+| Antialiasing | SMAA in the composer, at every tier that runs the composer. Ships as a **second `EffectPass` of its own, added after the merged colour pass** — see §3.1 for why it cannot be merged with them and still run last. |
+
+**Order.** Bloom and the grade work on scene colour, tone mapping brings that range down to the
+display, and SMAA runs last because it reads the composited image: smoothing before the grade means
+grading the smoothed edges back into hard ones. `postEffects` in `src/core/post.ts` states that
+order and `postPasses` is what enforces it, by keeping antialiasing out of the merged pass. Running
+SMAA last also puts it on a tone-mapped, display-referred image, which is what its default
+`EdgeDetectionMode.COLOR` threshold of 0.1 is calibrated for — inside the merged pass it was
+reading raw linear radiance.
 
 **Deliberately not in the pass list:**
 
@@ -108,10 +127,22 @@ this note is amended rather than the version quietly floated.
 - **Multisampling cannot be toggled at runtime.** The canvas is created with `antialias: true`, and
   `WebGLRenderer` takes that at construction — changing it means rebuilding the renderer, which
   would mean rebuilding every material and shadow map with it. Since quality is a live setting, the
-  flag stays on for the life of the renderer. The consequence is deliberate and worth naming: the
-  composited tiers pay for an MSAA buffer they do not use, and the low tier gets antialiasing in
-  exchange. That trade is the right way round — the tier that cannot afford SMAA is the one that
-  keeps its MSAA, and the tiers that waste the buffer are the ones with headroom to waste.
+  flag stays on for the life of the renderer. That is what antialiases the low tier, which bypasses
+  the composer and so has no SMAA.
+
+  **Corrected after implementation: the "deliberate trade" this bullet used to describe was a
+  defect.** The reasoning was that the composited tiers pay for an MSAA buffer they do not use while
+  the low tier gets antialiasing in exchange, and that this is the right way round. The second half
+  is wrong. Once `RenderPass` draws the world into a composer render target, the canvas's
+  multisample buffer is *bypassed*, not merely wasted — and `EffectComposer`'s `multisampling`
+  option defaults to `0`, so the composited tiers were rasterising the world with no hardware
+  antialiasing at all, leaving SMAA as a substitute for MSAA rather than a supplement. That is a
+  concrete mechanism by which high tier could be **more** aliased than the build this step replaces,
+  which is exactly the claim §4 rests on. The composer now asks for `multisampling: 4` (WebGL 2,
+  which `hasWebGL` already prefers), as one value for both composited tiers rather than a
+  `QualityProfile` field: frame cost could not be measured on the development machine — the browser
+  harness only runs its render loop while its pane is frontmost — so a per-tier split would be a
+  guess presented as a measurement.
 
 ## 4. Quality tiers
 
@@ -236,7 +267,7 @@ shots of the same id, taken a week apart, differ only by what changed in the cod
 
 | Module | Responsibility | Testable in node |
 | --- | --- | --- |
-| `src/core/post.ts` | Builds and owns the composer; `render`, `setSize`, `setOptions`, `dispose` | Wiring only, against a fake renderer |
+| `src/core/post.ts` | Builds and owns the composer; `render`, `setSize`, `setProfile`, `dispose` | **No**, apart from the pure pass list and pass split it exports |
 | `src/core/quality.ts` | Tier → profile. Pure | Fully |
 | `src/core/renderer.ts` | Device concerns; tone-mapping owner when the composer is off | Partly, as today |
 | `src/core/sky.ts`, `sun.ts` | Elevation → sky, haze, fog, light | The derivation, fully |
@@ -249,10 +280,21 @@ shadow-map size, and the tone-mapping owner. Everything else in the game is unto
 movement, world or HUD module changes behaviour in this step.
 
 **Why `post.ts` is a seam rather than inline setup.** The composer is the one piece of this step
-that cannot be tested for correctness, only for wiring. Putting it behind a four-method interface
-means the untestable surface is four methods wide, the tier logic that decides *what* it contains
-is pure and fully tested, and `main.ts` does not grow another block of setup it already has too
-much of.
+that cannot be tested at all in this project. Putting it behind a four-method interface means the
+untestable surface is four methods wide, the decisions it acts on — which effects a tier gets, and
+which of them may share a pass — are pure functions that are fully tested, and `main.ts` does not
+grow another block of setup it already has too much of.
+
+**Corrected after implementation: there is no fake renderer, and "wiring only, against a fake
+renderer" was never built.** The table above claimed it and `post.ts`'s own doc comment said the
+opposite from the day it landed. The environment is the reason: the suite runs in node with no DOM
+and no GL context, so a fake would have to stand in for `WebGLRenderer` deeply enough to satisfy
+`EffectComposer`'s constructor — which reads `getContext().getContextAttributes()`, `getSize()`,
+`getDrawingBufferSize()` and `outputColorSpace`, and allocates render targets — and a test written
+against that fake would be asserting what the fake was told to return. `setSize` and `dispose` have
+no coverage as a result, and that is a stated gap rather than a promise. What is tested instead is
+everything that decides *what* the composer contains: the pass list and the pass split, swept over
+every tier.
 
 ## 8. Verification
 
@@ -263,14 +305,24 @@ much of.
   rather than to `undefined`;
 - bench id resolution: every registered id resolves, an unknown id falls back and warns, an empty
   parameter behaves as absent;
-- the sun-to-sky derivation: colour moves monotonically with elevation, haze never exceeds fog,
-  nothing returns a non-finite value at either extreme — the same non-finite discipline
-  `src/fx/scale.ts` already enforces across the effect directory;
-- composer wiring against a fake: the effect list matches the profile for each tier, `setSize`
-  propagates, and `dispose` releases everything it created.
+- the sun-to-sky derivation: it reproduces the shipped palette exactly at the shipped elevation,
+  sunlight brightens and cools as the sun climbs, the fog colour equals the horizon band at every
+  elevation, the horizon stays lighter than the zenith, an elevation outside 0–90 clamps, and
+  nothing returns a non-finite value at any extreme — the same non-finite discipline
+  `src/fx/scale.ts` already enforces across the effect directory. There is no haze field on
+  `Daylight`, so the "haze never exceeds fog" test this note used to promise tests nothing that
+  exists; the horizon band is what plays that role and it is covered by the two constraints above;
+- the pass list and the pass split, swept over every tier: the list contains exactly what the
+  profile turned on, tone mapping is present whenever the composer runs, bloom precedes the grade,
+  and antialiasing is grouped into a pass of its own after the merged colour pass. **Not** the
+  composer itself — see §7 for why there is no fake renderer and what is uncovered as a result
+  (`setSize` and `dispose` have no tests).
 
 **Verified by screenshot:** the look. Bench shots per tier, before and against after, taken through
-the browser preview.
+the browser preview. Telling high from medium this way depends on shadows being in the frame at all,
+since `shadowMapSize` is their most visible difference — and the bench shipped without calling
+`enableShadows`, so for a while no bench shot had a shadow in it. `src/bench/main.ts` now makes that
+call; nothing in `src/world/` sets the flags itself.
 
 **Verified at the controls:** by the owner, at the end of the step. Bloom on a moving camera, sky
 in motion, and whether the low tier is a downgrade or a different game are all things a still frame
@@ -307,27 +359,46 @@ Everything above is what was planned or, where corrected, what shipped. This sec
 it is what the nine implementation tasks found out along the way, kept here because step B starts
 from it rather than from §10's predictions.
 
-**The composer was never sized at construction, and it took two symptoms to find.** `createPost`
+**The composer was sized in the wrong units, and it took two symptoms to find.** `createPost`
 originally sized the composer from `renderer.domElement.width` and `renderer.domElement.height`.
-At the moment `createPost` runs, `window.innerWidth` and `window.innerHeight` genuinely read `0` —
-the page has not finished laying out yet — so the composer's render targets were built at zero
-size. The same root cause showed up as two unrelated-looking symptoms. In the game it was a startup
-flicker: the first several frames rendered ungraded, indistinguishable from the low tier, before
-the image snapped to graded. On the bench it was a black screen with
+Those are the canvas's drawing-buffer attributes — device pixels, already multiplied by the pixel
+ratio — and `EffectComposer.setSize` takes CSS pixels. The library detail that makes the unit matter
+is not obvious from the outside: `setSize` compares its arguments against `renderer.getSize()`, which
+is in CSS pixels, and calls `renderer.setSize()` if they differ, then derives its own render-target
+sizes from `renderer.getDrawingBufferSize()`, which is in device pixels. So the composer accepts
+CSS-pixel arguments and does the device-pixel conversion itself, and a caller feeding it device
+pixels on any retina display makes the two disagree — at which point the composer resizes the
+*renderer* to the device-pixel figure and, with `updateStyle` left at its default of `true`, rewrites
+the canvas's CSS size with it.
+
+The same root cause showed up as two unrelated-looking symptoms. In the game it was a startup
+flicker: the first several frames rendered ungraded, indistinguishable from the low tier, before the
+image snapped to graded. On the bench it was a black screen with
 `GL_INVALID_FRAMEBUFFER_OPERATION: Attachment has zero size` on every draw call, because the bench
-has no other content to show through the broken composer. One defect, two presentations, found
-first as the game's cosmetic flicker and diagnosed only once the bench made it reproduce as an
-outright failure. The fix sizes the composer from `renderer.getSize()` instead, which is the same
-unit the resize hook already passes to `Post.setSize`, and the bench now subscribes its own
-`onResize` the same way `main.ts` does, so a real resize corrects any construction-time miss on
-both sides. Verified afterwards: two screenshots taken immediately after load are now identical and
-already graded, where before the fix the first was ungraded and the second graded. The library
-detail that made the units matter is not obvious from the outside: `EffectComposer.setSize`
-compares its arguments against `renderer.getSize()`, which is in CSS pixels, to decide whether to
-resize the renderer at all, but derives its own render-target sizes from
-`renderer.getDrawingBufferSize()`, which is in device pixels — so the composer accepts CSS-pixel
-arguments and does the device-pixel conversion internally, and a caller that feeds it anything else
-is wrong regardless of whether the wrongness happens to be nonzero.
+has no other content to show through the broken composer. Both symptoms went away when the units
+were corrected — `createPost` now sizes from `renderer.getSize()`, the same unit the resize hook
+passes to `Post.setSize` — and when the bench was subscribed to `onResize` the way `main.ts` already
+was. Verified afterwards: two screenshots taken immediately after load are now identical and already
+graded, where before the fix the first was ungraded and the second graded.
+
+**An earlier version of this section explained it as a genuine `0x0`, and that explanation does not
+hold.** It claimed `window.innerWidth` reads `0` at that moment because the page has not laid out
+yet. If that were so, `renderer.getSize()` would return `0` as well and the fix would have changed
+nothing — the fix changed the *units*, not the timing. So the route from a too-large size to a driver
+complaint about a *zero*-size attachment is unexplained, and is recorded here as unexplained rather
+than papered over. What is established is the unit mismatch and that correcting it removed both
+symptoms.
+
+That mattered beyond the wording, because the false diagnosis came with a false remedy: the comment
+concluded that a subsequent real `resize` event corrects a bad construction-time size. A player who
+never touches the window never generates one, so if the hazard had been real the composer would have
+stayed wrong for the life of the page. `Post.render` now compares its own render-target size against
+`renderer.getDrawingBufferSize()` once per frame and re-sizes when they disagree — device pixels
+rather than CSS pixels, because that is the invariant the composer actually maintains and it also
+catches a pixel-ratio change, which moves the drawing buffer without moving `getSize()`. The resize
+subscription stays as the cheap path. Its limit is stated in the code rather than hidden: it cannot
+invent a size the renderer does not have, so a genuinely `0x0` renderer stays `0x0` until the next
+`resize()` fixes both together — but nothing is renderable in that state anyway.
 
 **Three code reviews approved that defect.** The composer's construction-time sizing landed in one
 review, was rendered through in a second, and survived a first-round diff review of the bench
@@ -337,6 +408,26 @@ node with no DOM, because nothing in that suite can construct a real `WebGLRende
 `getSize()` currently returns. It was found on the bench's first real use, by looking at the
 rendered frame rather than at the code — which is the concrete argument for the bench existing at
 all, not an abstract one.
+
+**Three defects that all had the same shape: the code said one thing and the library did another.**
+The whole-branch review found them together, and step B should read them as a set rather than three
+unrelated fixes, because the pattern is what generalises.
+
+- **The pass order was inverted.** `postEffects` listed SMAA last, the comment above it explained
+  why last is the only correct place, and `EffectPass` re-sorted the list by attribute bitmask so
+  SMAA ran first. Corrected in §3.1 and §3.2; SMAA now has its own pass.
+- **The composited tiers had no hardware multisampling.** `EffectComposer`'s `multisampling`
+  defaults to `0`, and the canvas's own MSAA buffer is bypassed the moment rendering goes through a
+  render target. Corrected in §3.3.
+- **The bench had no shadows.** `enableShadows` is what sets the flags and only `main.ts` called it.
+  Corrected in §8.
+
+The common thread is that each one was a *default* or a *sort* inside a dependency, invisible in the
+diff and unreachable from a suite with no GL context, and in each case a comment asserting the
+intended behaviour was mistaken for a guarantee of it. Two of the three were then pinned by making
+the guarantee a pure function with a test — the pass split — or by naming the default explicitly.
+The third, multisampling, is still a single unmeasured number, because frame cost cannot be measured
+on this machine.
 
 **A bench scene whose clock outlives its effect holds a picture of nothing.** The `gust` scene
 originally fired at 0.2s and froze at 0.6s, against a `LIFETIME` of 0.22s on the gust cone itself —
