@@ -14,26 +14,45 @@ import type { WindDef, WindKind } from './wind'
  * through a downdraft, and hanging haze that goes nowhere in dead air.
  */
 /**
- * Enough motes that a column reads as a column from a distance, and few enough that standing
- * inside one does not read as a hailstorm.
- *
- * **This value has been set from both ends and the tension is real.** It was raised to 180 because
- * at 90 a feature 55 units across and 240 tall — the archipelago's big thermal — was so sparse it
- * looked like stray specks, which fails the rule the tell exists to satisfy. It came down to 100 on
- * 2026-08-13 from the other side: `OpenAir` stopped the scatter wasting 46 to 73 per cent of its
- * motes inside rock, so the *visible* density in Canyon Country roughly doubled without anyone
- * asking for it, and the canyon is the first region where the camera stands inside a wind volume
- * rather than looking at one from outside. At 180 the motes read as white blocks there — see the
- * note on `SIZE` below, which predicted exactly that failure at close range.
- *
- * So 100 is a decision between two measured problems rather than a tuned optimum: it is close to
- * the 90 that was rejected as too sparse at distance, and it is the density the canyon wants at
- * arm's length. If the far-field sparseness matters more than the near-field blocks, the honest
- * next move is not to raise this again but to make the count or the size depend on the feature —
- * a 240-tall thermal seen from outside and a 34-tall dead-air layer the player is standing in are
- * not asking for the same number.
+ * The canyon's dead-air column: 22 units across, 34 tall, and the feature the player spends most
+ * time standing inside. Its count was set by eye in the running game and everything else is scaled
+ * from it.
  */
-const MOTE_COUNT = 100
+const REFERENCE_VOLUME = 22 * 22 * 34
+const REFERENCE_COUNT = 100
+/** Below this a feature stops reading as a volume at all; above it, the biggest ones make soup. */
+const MIN_MOTES = 60
+const MAX_MOTES = 600
+
+/**
+ * How many motes a feature gets, from how big it is.
+ *
+ * **One count could not serve both regions, and the history is the argument.** It was raised to 180
+ * because at 90 the archipelago's big thermal — 55 across, 240 tall — read as stray specks against
+ * the sky. It came down to 100 because `OpenAir` stopped the scatter wasting 46 to 73 per cent of
+ * its motes in rock, which doubled the *visible* density in Canyon Country, where the camera stands
+ * inside the wind rather than looking at it from outside; at 180 it read as a hailstorm of white
+ * blocks there. Each value was right for one region and wrong for the other, measured in the running
+ * game both times. A 240-tall thermal seen from outside and a 34-tall layer the player is standing
+ * in are not asking for the same number.
+ *
+ * **Scaled by the cube root of the volume, which is to say by linear size.** That is the exponent
+ * that makes both readings work at once, and the reason is that it deliberately does *not* hold
+ * density constant: motes per unit volume fall as a feature grows, so the small columns the player
+ * walks through keep exactly the density that was tuned by eye, while a feature ten times the size
+ * gets about twice the motes rather than ten times — enough to read as a body from a distance,
+ * sparse enough to fly through. Scaling by the square root instead was tried on paper and pinned six
+ * of the twelve shipped features to the ceiling, which would have made the ceiling the real value
+ * and this function decoration.
+ *
+ * The ceiling also bounds the construction cost, since the open-air probing below runs per mote.
+ */
+export function moteCount(def: WindDef): number {
+  const volume = def.radius * def.radius * def.height
+  if (!(volume > 0)) return MIN_MOTES
+  const scaled = REFERENCE_COUNT * Math.cbrt(volume / REFERENCE_VOLUME)
+  return Math.min(MAX_MOTES, Math.max(MIN_MOTES, Math.round(scaled)))
+}
 
 /** Rough colour language: warm for lift, cold for sink, pale for nothing. */
 const TINT: Record<WindKind, number> = {
@@ -110,34 +129,35 @@ function seededRandom(seed: number): () => number {
 }
 
 export function createWindTell(def: WindDef, openAir?: OpenAir): WindTell {
+  const count = moteCount(def)
   const random = seededRandom(
     def.position.x * 73856093 + def.position.y * 19349663 + def.position.z * 83492791 + 7,
   )
 
-  const positions = new Float32Array(MOTE_COUNT * 3)
+  const positions = new Float32Array(count * 3)
   // Angles and radii are kept so thermals can spiral rather than rise straight,
   // which is what makes a thermal readable as a thermal from a distance.
-  const angles = new Float32Array(MOTE_COUNT)
-  const radii = new Float32Array(MOTE_COUNT)
-  const heights = new Float32Array(MOTE_COUNT)
+  const angles = new Float32Array(count)
+  const radii = new Float32Array(count)
+  const heights = new Float32Array(count)
 
   /**
    * The lowest local height each mote is allowed to reach, so none of them ends up under the floor.
    *
-   * The azimuth clamp above keeps motes out of the *walls*; this keeps them off the ground, and the
-   * two are separate problems with separate answers. Dead air is the case that needs it: its field
-   * is centred low on purpose — so no live air is left in the pockets along the wall bases — which
-   * puts the bottom half of its 34-unit band under the canyon crown. Radial clamping cannot help,
-   * because those motes are not beyond a wall, they are beneath the floor.
+   * The sampling above places a mote in air; this is what keeps it there once the animation starts
+   * moving it, and the two are separate problems. Dead air is the case that needs it: its field is
+   * centred low on purpose — so no live air is left in the pockets along the wall bases — which puts
+   * the bottom half of its 34-unit band under the canyon crown, and a rising kind would loop its
+   * motes straight back down into that.
    *
    * Found per mote rather than per feature, since the canyon floor undulates by 11 metres along the
    * corridor and a single floor for a 22-unit-wide column would be wrong at one end or the other.
-   * Each column is walked from the bottom of the band upward until the air opens, which is the same
-   * shape as the azimuth walk and costs the same handful of probes.
+   * Each column is walked from the bottom of the band upward until the air opens, which costs the
+   * same handful of probes as accepting the position did.
    */
-  const floors = new Float32Array(MOTE_COUNT).fill(-def.height / 2)
+  const floors = new Float32Array(count).fill(-def.height / 2)
 
-  for (let i = 0; i < MOTE_COUNT; i++) {
+  for (let i = 0; i < count; i++) {
     let angle = 0
     let radius = 0
     let height = 0
@@ -215,7 +235,7 @@ export function createWindTell(def: WindDef, openAir?: OpenAir): WindTell {
   let elapsed = 0
 
   function write(): void {
-    for (let i = 0; i < MOTE_COUNT; i++) {
+    for (let i = 0; i < count; i++) {
       const angle = angles[i]!
       const radius = radii[i]!
       let x = Math.cos(angle) * radius
@@ -240,7 +260,7 @@ export function createWindTell(def: WindDef, openAir?: OpenAir): WindTell {
     object,
     advance(dt: number): void {
       elapsed += dt
-      for (let i = 0; i < MOTE_COUNT; i++) {
+      for (let i = 0; i < count; i++) {
         // Each mote loops back to its own floor rather than to the bottom of the band, so a kind
         // that rises cannot carry a mote underground on the way round. Clamping only at
         // construction would have fixed the first frame and nothing after it: a ridge lifts its
