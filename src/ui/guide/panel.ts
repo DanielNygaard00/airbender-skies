@@ -233,6 +233,12 @@ export function settingRowHtml(row: SettingsRow): string {
       <input type="checkbox" data-setting="${row.key}"${row.on ? ' checked' : ''}>
     </label>`
   }
+  if (row.kind === 'select') {
+    const options = row.options.map((opt) => `<option value="${opt}"${opt === row.value ? ' selected' : ''}>${opt}</option>`).join('')
+    return `<label class="guide-setting">${label}
+      <select data-setting="${row.key}">${options}</select>
+    </label>`
+  }
   return `<label class="guide-setting">${label}
     <input type="range" data-setting="${row.key}" min="${row.min}" max="${row.max}"
       step="${row.step}" value="${row.value}">

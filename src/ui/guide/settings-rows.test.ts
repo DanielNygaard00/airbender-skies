@@ -120,7 +120,11 @@ describe('patchForRow', () => {
     // and `settingsRows` returning `[]` would otherwise leave this one green.
     expect(rows.length).toBeGreaterThan(0)
     for (const row of rows) {
-      const patch = patchForRow(row, { value: '0.5', checked: true })
+      // Use the row's current value as input so it's always valid for that row kind.
+      // Sliders accept '0.5', selects accept the current quality, toggles accept any
+      // checked boolean.
+      const value = row.kind === 'select' ? row.value : '0.5'
+      const patch = patchForRow(row, { value, checked: true })
       expect(Object.keys(patch ?? {})).toEqual([row.key])
     }
   })

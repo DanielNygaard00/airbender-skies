@@ -1,3 +1,5 @@
+import { DEFAULT_QUALITY, isQuality, type Quality } from './quality'
+
 export interface Settings {
   /** Multiplier on the base look speed. 1 is the shipped feel. */
   sensitivity: number
@@ -6,6 +8,14 @@ export interface Settings {
   volume: number
   muted: boolean
   reduceMotion: boolean
+  /**
+   * What the renderer is allowed to spend. See `quality.ts` for the tiers themselves.
+   *
+   * A preference rather than a detected value, and deliberately: probing the GPU to pick a
+   * tier automatically guesses at a machine the player knows better than we do, and guesses
+   * wrong silently. A visible control the player can move is both simpler and honest.
+   */
+  quality: Quality
 }
 
 export interface MotionScales {
@@ -37,6 +47,7 @@ export function defaultSettings(prefersReducedMotion: boolean): Settings {
     volume: 0.7,
     muted: false,
     reduceMotion: prefersReducedMotion,
+    quality: DEFAULT_QUALITY,
   }
 }
 
@@ -68,7 +79,11 @@ export function readSettings(raw: unknown, prefersReducedMotion: boolean): Setti
   const reduceMotion =
     typeof data.reduceMotion === 'boolean' ? data.reduceMotion : fallback.reduceMotion
 
-  return { sensitivity, invertY, volume, muted, reduceMotion }
+  // `isQuality` rather than a string comparison, so a tier renamed in quality.ts fails here
+  // instead of silently reading as invalid and resetting every player's choice.
+  const quality = isQuality(data.quality) ? data.quality : fallback.quality
+
+  return { sensitivity, invertY, volume, muted, reduceMotion, quality }
 }
 
 /**

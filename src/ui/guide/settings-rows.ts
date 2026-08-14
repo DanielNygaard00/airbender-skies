@@ -1,4 +1,5 @@
 import { SENSITIVITY_MAX, SENSITIVITY_MIN, type Settings } from '../../core/settings'
+import { QUALITIES, isQuality, type Quality } from '../../core/quality'
 
 /**
  * The settings section of the guide, as data.
@@ -25,6 +26,13 @@ export type SettingsRow =
     display: string
   }
   | { kind: 'toggle'; key: 'invertY' | 'muted' | 'reduceMotion'; label: string; on: boolean }
+  | {
+    kind: 'select'
+    key: 'quality'
+    label: string
+    value: Quality
+    options: readonly Quality[]
+  }
 
 /**
  * Fine enough to find a comfortable value, coarse enough that a drag lands on round
@@ -66,6 +74,7 @@ export function settingsRows(s: Settings): SettingsRow[] {
     },
     { kind: 'toggle', key: 'muted', label: 'Mute', on: s.muted },
     { kind: 'toggle', key: 'reduceMotion', label: 'Reduce motion', on: s.reduceMotion },
+    { kind: 'select', key: 'quality', label: 'Quality', value: s.quality, options: QUALITIES },
   ]
 }
 
@@ -106,6 +115,10 @@ export function patchForRow(row: SettingsRow, input: RowInput): Partial<Settings
     // guard does; the comment this replaced claimed both cases and only one is true.
     if (!Number.isFinite(value)) return null
     return row.key === 'sensitivity' ? { sensitivity: value } : { volume: value }
+  }
+  if (row.kind === 'select') {
+    if (!isQuality(input.value)) return null
+    return { quality: input.value }
   }
   switch (row.key) {
     case 'invertY': return { invertY: input.checked }
