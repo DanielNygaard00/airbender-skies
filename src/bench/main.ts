@@ -48,9 +48,16 @@ function start(): void {
   const scene = requested
 
   const profile = tierFromSearch(window.location.search)
-  const { renderer, scene: graph, camera, followSun } =
+  const { renderer, scene: graph, camera, followSun, onResize } =
     createRenderer(canvas, profile, scene.elevation)
   const post = createPost(renderer, graph, camera, profile)
+  // `main.ts` subscribes the same way, and for the same reason: `createRenderer` already
+  // called `resize()` once during its own construction, before `post` existed to hear it, so
+  // `createPost`'s own initial sizing is the composer's only chance to be right until a real
+  // resize happens. Without this the composer can be stuck at whatever size — including a
+  // legitimately empty one, if the page had not finished laying out yet — that was current at
+  // that single moment, for the life of the bench.
+  onResize((width, height) => post.setSize(width, height))
 
   const level = LEVELS.find((l) => l.id === scene.regionId)
   if (!level) { showFallback(`Bench scene "${scene.id}" names an unknown region.`); return }

@@ -1,4 +1,4 @@
-import { HalfFloatType, type Camera, type Scene, type WebGLRenderer } from 'three'
+import { HalfFloatType, Vector2, type Camera, type Scene, type WebGLRenderer } from 'three'
 import {
   BloomEffect, BrightnessContrastEffect, type Effect, EffectComposer, EffectPass,
   HueSaturationEffect, RenderPass, SMAAEffect, ToneMappingEffect, ToneMappingMode,
@@ -104,7 +104,29 @@ export function createPost(
     // One EffectPass over the whole list, which is the reason this library was chosen: the
     // effects are merged into a single fullscreen shader rather than run as a pass each.
     made.addPass(new EffectPass(camera, ...effects))
-    made.setSize(renderer.domElement.width, renderer.domElement.height)
+    /**
+     * **The unit trap.** `EffectComposer.setSize(width, height)` takes *CSS* pixels, not
+     * device pixels: internally it compares its arguments against `renderer.getSize()` (CSS)
+     * to decide whether to re-call `renderer.setSize()`, and only afterwards reads
+     * `renderer.getDrawingBufferSize()` to size its actual render targets. `renderer
+     * .domElement.width/height` are the canvas's drawing-buffer attributes — already
+     * multiplied by the pixel ratio — so passing them here is a device-pixel number handed
+     * to a CSS-pixel parameter. Every caller of `Post.setSize` has to agree on the same
+     * units for this to work at all: the resize hook below calls it with `window.innerWidth
+     * /innerHeight`, which are CSS pixels, so construction has to start from the same source
+     * — `renderer.getSize()` — rather than from the canvas's own attributes.
+     *
+     * **The construction-order trap.** `createRenderer` calls its own `resize()` once during
+     * construction, before this module or its caller exist to subscribe to the resize hook —
+     * so this call is the composer's *only* sizing until a real `resize` event fires. If the
+     * page has not finished laying out yet at that point, `renderer.getSize()` can still
+     * legitimately read as `0x0` here: this call cannot fix that by itself, which is why the
+     * caller is also required to route the resize hook to `setSize` (see `Post.setSize`
+     * below) so a subsequent real resize corrects a bad initial size instead of leaving it
+     * wrong for the life of the renderer.
+     */
+    const cssSize = renderer.getSize(new Vector2())
+    made.setSize(cssSize.width, cssSize.height)
     composer = made
   }
 
