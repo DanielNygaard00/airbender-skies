@@ -203,6 +203,48 @@ describe('createWindTell', () => {
       }
     })
 
+    it('never turns a thermal mote out of the air and into stone', () => {
+      // A thermal is the only kind that moves a mote sideways: it rotates each one as it rises,
+      // keeping the radius. So a mote placed in air can orbit into rock, which no amount of care at
+      // construction can prevent — the air at the next bearing is a different question from the air
+      // at this one. Rock on one side of the feature here, so every mote's orbit crosses the
+      // boundary twice per turn and the gate is asked constantly rather than incidentally.
+      const rockEastOf = 10
+      const westOnly = (x: number, _y: number, _z: number): boolean => x < rockEastOf
+      const tell = createWindTell(def('thermal'), westOnly)
+      const centre = def('thermal').position
+      const inAir = (x: number): boolean => centre.x + x < rockEastOf
+
+      // Stated as "no mote crosses from air into stone" rather than "no mote is ever in stone",
+      // because those are different claims and only the first one is this gate's. The feature's
+      // centre sits exactly on the boundary here, so half of every position sampled is rock and a
+      // handful of motes exhaust their attempts and stand where they landed — the fallback the
+      // scatter documents. Those motes start in rock and the gate cannot rescue them; what it must
+      // guarantee is that a mote which *was* in air is never turned out of it.
+      const startedInAir = offsets(tell).map(([x]) => inAir(x))
+      expect(startedInAir.filter(Boolean).length).toBeGreaterThan(startedInAir.length * 0.9)
+
+      for (let step = 0; step < 2400; step++) {
+        tell.advance(1 / 60)
+        if (step % 200 !== 0) continue
+        offsets(tell).forEach(([x], i) => {
+          if (!startedInAir[i]) return
+          expect(inAir(x), `mote ${i} left the air by step ${step}, at x ${centre.x + x}`).toBe(true)
+        })
+      }
+    })
+
+    it('still spins a thermal that has room to spin, which is the tell', () => {
+      // The gate must not have quietly frozen the spiral everywhere. In open air every mote keeps
+      // turning, so the cloud's bearings after a few seconds differ from where they started.
+      const tell = createWindTell(def('thermal'), () => true)
+      const before = offsets(tell).map(([x, , z]) => Math.atan2(z, x))
+      for (let step = 0; step < 120; step++) tell.advance(1 / 60)
+      const after = offsets(tell).map(([x, , z]) => Math.atan2(z, x))
+      const moved = before.filter((angle, i) => Math.abs(angle - after[i]!) > 1e-3).length
+      expect(moved).toBeGreaterThan(before.length / 2)
+    })
+
     it('never lets a rising mote wrap back below the air it was lifted into', () => {
       // Dead air's residue, and the reason the floor is a per-mote value the animation respects
       // rather than a clamp applied once. A ridge lifts its motes at 4 units a second and loops them
