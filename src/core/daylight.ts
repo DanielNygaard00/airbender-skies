@@ -1,6 +1,6 @@
 import { Color, MathUtils } from 'three'
 import { SKY_HORIZON, SKY_ZENITH } from './sky'
-import { SUN_DIRECTION } from './sun'
+import { SUN_COLOUR, SUN_DIRECTION, SUN_INTENSITY } from './sun'
 
 /**
  * Sky, fog and light derived from one number: how high the sun is.
@@ -58,10 +58,15 @@ const SUNSET: Stop = {
   skyZenith: 0x1d4f8f, skyHorizon: 0xf0c49a, fogColour: 0xf0c49a,
 }
 
-/** The palette the game ships. Every value here is copied from the file that owns it today. */
+/**
+ * The palette the game ships. Every value here comes from the file that owns it today, and the
+ * ones that could be imported are imported rather than copied — the sky pair from `sky.ts` and
+ * the sun pair from `sun.ts`, so neither can drift from the light the scene actually builds.
+ * The hemisphere numbers stay literal because `renderer.ts` reads them from here.
+ */
 const SHIPPED: Stop = {
   elevation: SUN_ELEVATION_DEGREES,
-  sunColour: 0xfff2d8, sunIntensity: 1.8,
+  sunColour: SUN_COLOUR, sunIntensity: SUN_INTENSITY,
   hemiSky: SKY_HORIZON, hemiGround: 0x4a5a3a, hemiIntensity: 1.5,
   skyZenith: SKY_ZENITH, skyHorizon: SKY_HORIZON, fogColour: SKY_HORIZON,
 }
@@ -90,8 +95,13 @@ export function daylightFor(elevationDegrees: number): Daylight {
   const [lower, upper] = elevation <= SHIPPED.elevation ? [SUNSET, SHIPPED] : [SHIPPED, NOON]
 
   const span = upper.elevation - lower.elevation
-  // Exactly 0 at a stop, so `daylightFor(SUN_ELEVATION_DEGREES)` returns the shipped values
-  // bit for bit rather than a rounding of them.
+  // Exactly 1 at the shipped elevation, not 0: the segment chosen above is the one *ending* at
+  // SHIPPED, so `elevation - lower.elevation` equals `span` and the division is exact. Both
+  // `MathUtils.lerp` and `Color.lerp` return the upper endpoint exactly at t === 1 — checked,
+  // including `lerp(1.1, 1.8, 1) === 1.8`, which is not a float identity to assume — so
+  // `daylightFor(SUN_ELEVATION_DEGREES)` returns the shipped values bit for bit rather than a
+  // rounding of them. The guard on a zero span is for a future stop placed on top of another
+  // one, which would otherwise divide by zero; no pair of stops here shares an elevation.
   const t = span === 0 ? 0 : (elevation - lower.elevation) / span
 
   const skyHorizon = mixHex(lower.skyHorizon, upper.skyHorizon, t)
