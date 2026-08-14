@@ -140,10 +140,12 @@ export interface WindTell {
  * full reach and none is worse than before: the dead air slung under an island went from 6 per cent
  * of its motes in rock to none.
  *
- * **What it does not fix.** A thermal turns its motes as they rise (`angles[i] += dt`) while keeping
- * each radius, so one can rotate out of air and into stone over time — a mote's floor follows it,
- * its azimuth does not. Neither region has a thermal standing close enough to rock for it to show,
- * and fixing it would mean re-testing positions inside `advance` every frame.
+ * The predicate is kept for the lifetime of the tell, not just its construction, because the one
+ * kind that moves a mote sideways needs it every frame: a thermal turns its motes as they rise, and
+ * the air at the next bearing is a different question from the air at this one. The turn asks before
+ * it commits — see the `'thermal'` case in `advance` — so a mote whose next bearing is stone holds
+ * the bearing it has and keeps climbing. Only thermals rotate, so nothing else pays for it, and
+ * Canyon Country pays nothing at all because it has none.
  */
 export type OpenAir = (x: number, y: number, z: number) => boolean
 
@@ -324,11 +326,30 @@ export function createWindTell(def: WindDef, openAir?: OpenAir): WindTell {
         // would have been back under the floor the clamp had just lifted it off.
         const floor = floors[i]!
         switch (def.kind) {
-          case 'thermal':
+          case 'thermal': {
             // Rise and turn: the spiral is the tell.
             heights[i] = wrap(heights[i]! + dt * 9, halfHeight, floor)
-            angles[i] = angles[i]! + dt * 0.7
+            // The turn is the one piece of this animation that moves a mote sideways, so it is the
+            // one piece that can carry it out of the air it was placed in. A mote's floor follows it
+            // up and down; its azimuth has no such thing, because the air at the next bearing is a
+            // different question from the air at this one. So the turn asks before it commits, and a
+            // mote whose next bearing is stone simply holds the one it has and keeps rising — dust
+            // climbing a wall rather than orbiting through it.
+            //
+            // One probe per thermal mote per frame, and only thermals rotate, so nothing else pays
+            // for this and Canyon Country pays nothing at all: it has no thermals. Precomputing a
+            // safe arc per mote was the alternative and it is worse — the mote's height changes as
+            // it rises, so a bearing that is clear at the bottom of the band need not be clear at
+            // the top, and the precomputed version would have to cover the whole cylinder shell at
+            // that radius to be honest about it.
+            const turned = angles[i]! + dt * 0.7
+            angles[i] = openAir && !openAir(
+              def.position.x + Math.cos(turned) * radii[i]!,
+              def.position.y + heights[i]!,
+              def.position.z + Math.sin(turned) * radii[i]!,
+            ) ? angles[i]! : turned
             break
+          }
           case 'downdraft':
             heights[i] = wrap(heights[i]! - dt * 11, halfHeight, floor)
             break
