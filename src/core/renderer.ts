@@ -18,9 +18,14 @@ export const FOG_FAR = 2200
 
 /**
  * Tone mapping is what stops flat-lit geometry reading as raw WebGL: it rolls the
- * sunlit highlights off instead of clipping them to a hard white. The exposure
- * compensates for ACES darkening the midtones, and the light intensities below
- * were raised for the same reason.
+ * sunlit highlights off instead of clipping them to a hard white.
+ *
+ * 1.0, which is neutral: nothing here compensates for ACES darkening the midtones, and no
+ * earlier version of this file did either. The comment this replaced claimed both an exposure
+ * compensation and light intensities raised to match it, and the number has been 1.0
+ * throughout. It stays a named constant because it is uploaded on every `applyProfile`, and
+ * because it still reaches ACES when the composer owns tone mapping — see `GRADE` in
+ * `post.ts` for how.
  */
 const EXPOSURE = 1.0
 
@@ -62,10 +67,17 @@ export function createRenderer(
    * `antialias` stays on for the life of the renderer, and it is not a leftover.
    * `WebGLRenderer` takes the flag at construction, so changing it means rebuilding the
    * renderer — and with it every material, texture and shadow map in the scene. Quality is a
-   * live setting, so that is not on the table. The consequence is deliberate: the composited
-   * tiers pay for a multisample buffer they do not use, and the low tier, which bypasses the
-   * composer and therefore has no SMAA, gets antialiasing out of it. That is the right way
-   * round — the tier that cannot afford SMAA is the one that keeps its MSAA.
+   * live setting, so that is not on the table.
+   *
+   * What this flag does and does not buy, since the earlier version of this comment reasoned
+   * from the wrong half. It multisamples what is drawn *to the canvas*, so it is what
+   * antialiases the low tier, which bypasses the composer and therefore has no SMAA. On the
+   * composited tiers `RenderPass` draws into a composer render target instead, and the
+   * canvas's multisample buffer is bypassed — so it is not a buffer those tiers "waste in
+   * exchange for SMAA", it is simply unreachable from them, and MSAA has to be asked for
+   * again inside the composer. `MULTISAMPLING` in `post.ts` is where that is done and where
+   * the argument lives. Every tier now gets hardware multisampling; SMAA supplements it on
+   * the two that can afford a pass for it.
    */
   renderer.shadowMap.enabled = true
   /*
