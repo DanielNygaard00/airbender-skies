@@ -19,8 +19,11 @@ import { SUN_DIRECTION } from './sun'
  *
  * **The shipped elevation reproduces the game's existing palette exactly**, which is what
  * makes "this step changed nothing but the passes" a claim a test can hold rather than an
- * assurance. The stops below are anchored on the values `sky.ts`, `sun.ts` and `renderer.ts`
- * ship today; the sunset stop is new, and it is the only invented set of numbers in this file.
+ * assurance. Of the three stops below, only `SHIPPED` is anchored — every value in it is
+ * copied from the file that owns it today (`sky.ts`, `sun.ts`, `renderer.ts`), and it is what
+ * the claim above rests on. `SUNSET` and `NOON` are both invented: nothing in the game ships
+ * a sunset or a measured noon, so their numbers are chosen to satisfy the tests, not measured
+ * from anything that ships.
  */
 export interface Daylight {
   sunColour: number
