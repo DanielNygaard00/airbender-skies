@@ -44,7 +44,19 @@ export function showFallback(message: string): void {
   }
 }
 
-export function createRenderer(canvas: HTMLCanvasElement, profile: QualityProfile) {
+export function createRenderer(
+  canvas: HTMLCanvasElement,
+  profile: QualityProfile,
+  /**
+   * Defaulted so `main.ts`'s call site is untouched and the shipped game's look cannot move.
+   * The one caller that needs a different value is the FX bench: it has to be able to
+   * photograph a different hour without a day/night cycle, which still does not exist and
+   * is not being added here — `daylight.ts` requires the sun's *direction* to stay constant
+   * so the shadow map's frustum and the bench's determinism are unaffected either way. Only
+   * the derived colours change; `SUN_DIRECTION` itself is untouched.
+   */
+  elevationDegrees: number = SUN_ELEVATION_DEGREES,
+) {
   const renderer = new WebGLRenderer({ canvas, antialias: true })
   /*
    * `antialias` stays on for the life of the renderer, and it is not a leftover.
@@ -102,7 +114,7 @@ export function createRenderer(canvas: HTMLCanvasElement, profile: QualityProfil
   renderer.shadowMap.type = PCFShadowMap
 
   // One number, five consumers. See daylight.ts for why they must agree.
-  const light = daylightFor(SUN_ELEVATION_DEGREES)
+  const light = daylightFor(elevationDegrees)
 
   const scene = new Scene()
   // A fallback for anything the dome does not cover, and the colour the fog fades

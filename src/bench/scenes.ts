@@ -5,10 +5,13 @@ import { ARCHIPELAGO } from '../world/levels/archipelago'
  * Fixed camera poses that render the same frame every time.
  *
  * **Why this exists.** Every one of this project's tests runs in node with no DOM, so nothing
- * in the suite can see a pixel — the visual half of this work has no automated gate at all.
- * And `docs/deferred-findings.md` records what that costs: the gust cone's first colour pass
- * measured correctly in tests and was invisible in play, found only by looking. A shot framed
- * identically every time is the cheapest instrument that would have caught it.
+ * in the suite can see a pixel — the visual half of this work has no automated gate at all, which
+ * is exactly the gap `docs/deferred-findings.md` names in "Never verified at the controls":
+ * nothing in this project has been played. And the gust cone has already paid for that gap once —
+ * `FILL_OPACITY`'s comment in `src/fx/gust-cone.ts` records that its first colour pass, a pale
+ * blue at 0.16 and 0.5 opacity, measured correctly in every test and was invisible against the
+ * terrain and sky in play, found only by looking. A shot framed identically every time is the
+ * cheapest instrument that would have caught it.
  *
  * **Why a registry rather than a debug camera.** A camera the operator flies to roughly the
  * same place produces shots that differ by where they flew. The point is that two shots taken
@@ -59,8 +62,8 @@ export const BENCH_SCENES: readonly BenchScene[] = [
   {
     /**
      * The effect shot: close, level with the ground, so a 12-unit wedge fills the frame. The
-     * gust is the first effect on the bench because it is the one the deferred-findings file
-     * records as having been invisible in play at its first tint.
+     * gust is the first effect on the bench because it is the one `gust-cone.ts` records as
+     * having been invisible in play at its first tint — see `FILL_OPACITY`'s comment there.
      */
     id: 'gust',
     regionId: ARCHIPELAGO_ID,
@@ -69,6 +72,23 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     effect: 'gust',
     fireAt: 0.2,
     duration: 0.6,
+  },
+  {
+    /**
+     * Proves the elevation parameter actually reaches the sky rather than sitting unread in
+     * the registry. Same pose and region as `light`, and deliberately so: with an identical
+     * frame the only thing that can differ between the two shots is the hour, so if `light`
+     * and `golden-hour` render identically, `createRenderer`'s elevation argument is still
+     * wired to nothing. A low elevation rather than a token change from 57.9, so the two are
+     * unmistakably different lighting conditions side by side, not a rounding error.
+     */
+    id: 'golden-hour',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(40, 26, 60), target: new Vector3(0, 8, 0) },
+    elevation: 8,
+    effect: null,
+    fireAt: 0,
+    duration: 1,
   },
 ]
 

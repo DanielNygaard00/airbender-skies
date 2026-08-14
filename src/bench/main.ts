@@ -48,7 +48,8 @@ function start(): void {
   const scene = requested
 
   const profile = tierFromSearch(window.location.search)
-  const { renderer, scene: graph, camera, followSun } = createRenderer(canvas, profile)
+  const { renderer, scene: graph, camera, followSun } =
+    createRenderer(canvas, profile, scene.elevation)
   const post = createPost(renderer, graph, camera, profile)
 
   const level = LEVELS.find((l) => l.id === scene.regionId)
