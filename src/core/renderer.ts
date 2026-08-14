@@ -3,9 +3,10 @@ import {
   HemisphereLight, ACESFilmicToneMapping, NoToneMapping, PCFShadowMap,
 } from 'three'
 import { BASE_FOV } from '../fx/mapping'
-import { createSkyDome, SKY_HORIZON } from './sky'
+import { createSkyDome } from './sky'
 import { aimSun, createSun } from './sun'
 import { toneMappingOwner, type QualityProfile } from './quality'
+import { daylightFor, SUN_ELEVATION_DEGREES } from './daylight'
 
 export const WEBGL_MESSAGE =
   'This game needs WebGL, which your browser has disabled or does not support. ' +
@@ -100,16 +101,23 @@ export function createRenderer(canvas: HTMLCanvasElement, profile: QualityProfil
    */
   renderer.shadowMap.type = PCFShadowMap
 
+  // One number, five consumers. See daylight.ts for why they must agree.
+  const light = daylightFor(SUN_ELEVATION_DEGREES)
+
   const scene = new Scene()
   // A fallback for anything the dome does not cover, and the colour the fog fades
   // distant geometry into, so islands dissolve into the horizon band.
-  scene.background = new Color(SKY_HORIZON)
+  scene.background = new Color(light.skyHorizon)
   // Fog hides the empty void between islands and sells the sense of altitude.
-  scene.fog = new Fog(SKY_HORIZON, FOG_NEAR, FOG_FAR)
-  scene.add(createSkyDome())
+  scene.fog = new Fog(light.fogColour, FOG_NEAR, FOG_FAR)
+  scene.add(createSkyDome(light.skyZenith, light.skyHorizon))
 
-  scene.add(new HemisphereLight(SKY_HORIZON, 0x4a5a3a, 1.5))
+  scene.add(new HemisphereLight(light.hemiSky, light.hemiGround, light.hemiIntensity))
   const sun = createSun(profile.shadowMapSize)
+  // The light's colour is a property with a public setter, and a three-argument factory
+  // would put two things that always travel together behind separate parameters.
+  sun.color.setHex(light.sunColour)
+  sun.intensity = light.sunIntensity
   scene.add(sun)
   // The light aims at its target object, which has to be in the graph to be found.
   scene.add(sun.target)

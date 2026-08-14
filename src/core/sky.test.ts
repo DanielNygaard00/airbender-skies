@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { BackSide, Mesh, ShaderMaterial, SphereGeometry } from 'three'
+import { BackSide, Color, Mesh, ShaderMaterial, SphereGeometry } from 'three'
 import { createSkyDome, SKY_RADIUS, SKY_HORIZON, SKY_ZENITH } from './sky'
 import { FOG_FAR } from './renderer'
 
@@ -7,6 +7,15 @@ function materialOf(dome: Mesh): ShaderMaterial {
   const material = dome.material
   if (Array.isArray(material)) throw new Error('expected a single material')
   return material as ShaderMaterial
+}
+
+// `uniforms` is typed with an index signature, so `noUncheckedIndexedAccess` makes a
+// direct `.zenith` read possibly-undefined. Destructuring once and checking here, rather
+// than asserting at each call site, keeps every caller below looking at plain `Color`s.
+function coloursOf(dome: ReturnType<typeof createSkyDome>): { zenith: Color; horizon: Color } {
+  const { zenith, horizon } = (dome.material as ShaderMaterial).uniforms
+  if (!zenith || !horizon) throw new Error('sky dome is missing its colour uniforms')
+  return { zenith: zenith.value as Color, horizon: horizon.value as Color }
 }
 
 describe('createSkyDome', () => {
@@ -66,5 +75,21 @@ describe('createSkyDome', () => {
     const brightness = (hex: number) =>
       ((hex >> 16) & 0xff) + ((hex >> 8) & 0xff) + (hex & 0xff)
     expect(brightness(SKY_HORIZON)).toBeGreaterThan(brightness(SKY_ZENITH))
+  })
+})
+
+describe('the sky dome', () => {
+  it('defaults to the shipped gradient', () => {
+    const c = coloursOf(createSkyDome())
+    expect(c.zenith.getHex()).toBe(SKY_ZENITH)
+    expect(c.horizon.getHex()).toBe(SKY_HORIZON)
+  })
+
+  it('takes the gradient it is given', () => {
+    // The dome is what the daylight derivation drives. Without this the module would keep
+    // its own two constants and the sun's elevation would move the light but not the sky.
+    const c = coloursOf(createSkyDome(0x112233, 0x445566))
+    expect(c.zenith.getHex()).toBe(0x112233)
+    expect(c.horizon.getHex()).toBe(0x445566)
   })
 })
