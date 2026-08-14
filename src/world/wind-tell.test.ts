@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3, Points } from 'three'
-import { createWindTell } from './wind-tell'
+import { createWindTell, moteCount } from './wind-tell'
 import type { WindDef, WindKind } from './wind'
 
 const def = (kind: WindKind): WindDef => ({
@@ -15,6 +15,51 @@ function motes(tell: ReturnType<typeof createWindTell>): Float32Array {
   if (!(points instanceof Points)) throw new Error('expected a Points cloud')
   return points.geometry.attributes.position!.array as Float32Array
 }
+
+describe('moteCount', () => {
+  const at = (radius: number, height: number): WindDef => ({ ...def('thermal'), radius, height })
+
+  it('gives the reference feature the count that was tuned by eye', () => {
+    // The canyon's dead-air column, which is the one the player stands inside and the one whose
+    // density was judged in the running game. Everything else is scaled from it, so if this moves
+    // the whole scheme moves with it.
+    expect(moteCount(at(22, 34))).toBe(100)
+  })
+
+  it('gives a bigger feature more motes, and a smaller one fewer', () => {
+    expect(moteCount(at(55, 240))).toBeGreaterThan(moteCount(at(22, 34)))
+    expect(moteCount(at(10, 12))).toBeLessThan(moteCount(at(22, 34)))
+  })
+
+  it('thins with size rather than holding density, which is the point of the cube root', () => {
+    // The claim the exponent exists for. A feature 44 times the volume gets about 3.5 times the
+    // motes, not 44 times: enough to read as a body from outside, sparse enough to fly through.
+    // Holding density constant instead — a linear scale — would put 4400 motes in the big thermal
+    // and make the inside of it opaque.
+    const small = at(22, 34)
+    const large = at(55, 240)
+    const volumeRatio = (55 * 55 * 240) / (22 * 22 * 34)
+    const countRatio = moteCount(large) / moteCount(small)
+    expect(countRatio).toBeGreaterThan(1)
+    expect(countRatio).toBeLessThan(volumeRatio / 10)
+    const densityOf = (d: WindDef) => moteCount(d) / (d.radius * d.radius * d.height)
+    expect(densityOf(large)).toBeLessThan(densityOf(small))
+  })
+
+  it('holds a floor and a ceiling, so no feature vanishes or turns to soup', () => {
+    expect(moteCount(at(1, 1))).toBe(60)
+    expect(moteCount(at(400, 900))).toBe(600)
+  })
+
+  it('survives a degenerate feature rather than asking for a negative buffer', () => {
+    // `createWindTell` sizes its typed arrays from this, so a zero or nonsense extent has to come
+    // back as a real count. A zero radius is reachable from config, as `vortex-charge.ts` and the
+    // scale floors in `src/fx/` both record.
+    expect(moteCount(at(0, 34))).toBe(60)
+    expect(moteCount(at(22, 0))).toBe(60)
+    expect(moteCount(at(Number.NaN, 34))).toBe(60)
+  })
+})
 
 describe('createWindTell', () => {
   it('gives every wind kind a visible tell', () => {
