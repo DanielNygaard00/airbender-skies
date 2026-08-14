@@ -32,9 +32,17 @@ export interface BenchScene {
   elevation: number
   /** The effect to fire, or `null` for a scene that only shows the world and the light. */
   effect: BenchEffectId | null
-  /** Seconds from start before the effect fires. */
+  /**
+   * Seconds from start before the effect fires.
+   *
+   * For a scene with an `effect`, `duration` must land while that effect is still alive —
+   * check its lifetime constant (e.g. `LIFETIME` in `gust-cone.ts`) against `fireAt +
+   * duration`. The bench freezes on whatever the last frame drew, so a scene whose clock
+   * outlives its effect holds a picture of nothing: the effect has already finished and been
+   * disposed by the time anyone looks at the frozen frame.
+   */
   fireAt: number
-  /** Seconds the bench runs before it freezes on the last frame. */
+  /** Seconds the bench runs before it freezes on the last frame. See `fireAt`'s note. */
   duration: number
 }
 
@@ -61,17 +69,33 @@ export const BENCH_SCENES: readonly BenchScene[] = [
   },
   {
     /**
-     * The effect shot: close, level with the ground, so a 12-unit wedge fills the frame. The
-     * gust is the first effect on the bench because it is the one `gust-cone.ts` records as
-     * having been invisible in play at its first tint — see `FILL_OPACITY`'s comment there.
+     * The effect shot: looking down at the home island's centre from above and behind, so
+     * the 12-unit, 120-degree wedge reads as a wedge instead of edge-on. The gust is the
+     * first effect on the bench because it is the one `gust-cone.ts` records as having been
+     * invisible in play at its first tint — see `FILL_OPACITY`'s comment there.
+     *
+     * The target's height, 11.9, is the home island's actual raycast surface height at its
+     * centre (`world.terrain.groundHeightAt(0, 0)`, measured at ≈11.87 with a scratch probe
+     * against `buildWorld(ARCHIPELAGO)` and rounded), not the 14 the game's HUD shows at
+     * spawn — the HUD adds `SPAWN_CLEARANCE` (`src/player/state.ts`), a 2-unit clearance the
+     * player stands on top of, which is not part of the ground itself. `createGustCone` adds
+     * its own `HEIGHT` of 1 above whatever origin it is given, so a target already sitting on
+     * the true surface is what keeps the sector from being buried in the terrain.
+     *
+     * `fireAt`/`duration` land the frozen frame at 0.1s into the gust's 0.22s `LIFETIME`
+     * (`gust-cone.ts`) — mid-pulse, with the bright arc partway out through the fill rather
+     * than at either extreme. An earlier version of this scene fired at 0.2s and froze at
+     * 0.6s, well after the gust had already expired and been disposed: every screenshot of
+     * it showed an empty island. See `fireAt`'s doc comment on `BenchScene` for the rule this
+     * scene now follows.
      */
     id: 'gust',
     regionId: ARCHIPELAGO_ID,
-    camera: { position: new Vector3(0, 4, 16), target: new Vector3(0, 2, 0) },
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
     elevation: 57.9,
     effect: 'gust',
-    fireAt: 0.2,
-    duration: 0.6,
+    fireAt: 0.1,
+    duration: 0.2,
   },
   {
     /**
