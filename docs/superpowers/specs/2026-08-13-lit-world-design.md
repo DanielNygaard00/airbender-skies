@@ -190,8 +190,28 @@ stay stable at runtime. Volumetric atmosphere is not in this step.
 
 ## 6. The FX bench
 
-A route — `?bench=<id>` — that renders a fixed scene, from a fixed camera pose, on a fixed clock,
-with a seeded random number generator and no player input, and fires one nominated effect.
+A fixed scene, from a fixed camera pose, on a fixed clock, with a seeded random number generator
+and no player input, that fires one nominated effect.
+
+**Corrected: not a route inside `main.ts`.** This section originally specified `?bench=<id>`,
+resolved the way `?region=` is resolved, inside the game's own entry point. What was built instead
+is a **separate HTML entry point** — `bench.html?scene=<id>` — with its own registry in
+`src/bench/scenes.ts` and its own entry script in `src/bench/main.ts`. The reason is `main.ts`
+itself: at the time of writing it is 2,301 lines, and every render path through it runs through the
+player, the HUD, the pause state and the input tracker. A `?bench=` branch inside that file would
+have had to choose between two bad options — reuse that machinery, in which case the shot is not
+deterministic because the player and the soldiers are live, or add a second render path through the
+largest file in the project. A sibling entry point shares only the modules that decide how things
+look (`createRenderer`, `createPost`, `profileFor`, the world builder, the effect pool) and touches
+no gameplay code at all, which is what the determinism this section asks for actually requires.
+
+The registry ships three scenes: `light` (no effect, the shot that says whether the pipeline
+changed the world's look), `golden-hour` (the same pose at a low sun elevation, proving the
+elevation parameter is actually wired to the sky), and `gust` (the one effect on the bench so far,
+chosen because it is the effect that measured correctly in every test and was still invisible in
+play — see §11). The bench runs on a fixed step of `1/60` rather than real frame time, so a fast
+machine and a slow one photograph the identical point in an effect's life, and it reads a `quality`
+query parameter so a shot can be taken at any tier without touching the registry.
 
 **Why it exists.** Two facts about this project make it necessary rather than nice. First, every
 one of the 2453 tests runs in node with no DOM, so nothing in the suite can see a pixel; the visual
@@ -199,12 +219,14 @@ half of this arc has no automated gate at all. Second,
 `docs/deferred-findings.md` records that the game's feel has been signed off from tests and
 screenshots rather than at the controls, and that the gust's first colour pass measured fine and
 was invisible in play. A repeatable, identically-framed shot is the cheapest instrument that would
-have caught that.
+have caught that — and, per §11, one that went on to catch something worse than a colour miss.
 
-**What it is not.** Not a level, not a debug menu, and not a place gameplay lives. It resolves
-exactly like `?region=` already does — a query parameter, an unknown id warning and falling back
-rather than throwing, and the one function that knows about the browser staying in `main.ts`. A
-mistyped parameter must not be the difference between a game and a blank page.
+**What it is not.** Not a level, not a debug menu, and not a place gameplay lives. **Corrected:**
+it does not resolve through `main.ts`'s `?region=` machinery as this section originally said —
+it has its own resolver, `resolveBench` in `src/bench/scenes.ts`, which follows the same
+*behaviour* `?region=` established (a query parameter, an unknown id warning and falling back
+rather than throwing) from `src/bench/main.ts`, the one function that knows about the browser on
+the bench's side. A mistyped parameter must not be the difference between a scene and a blank page.
 
 **What one bench entry specifies:** the camera pose, the ground and prop dressing, the sun
 elevation, the effect to fire and when, and how long to run. Determinism is the whole point: two
@@ -264,7 +286,12 @@ lands the bench.
 ## 10. Risks
 
 - **The dependency may not support three 0.185.1.** Handled by the fallback in §3.1, decided at
-  install time rather than assumed.
+  install time rather than assumed. **Resolved: the fallback was never needed.**
+  `postprocessing@6.39.4`, the version installed, declares its `three` peer dependency as
+  `>= 0.168.0 < 0.186.0`, and three 0.185.1 — the version this project pins — sits inside that
+  range with room to spare. The reduced-pass-list fallback in §3.1 stays written down as the
+  documented behaviour for the day the range no longer includes whatever three version is current,
+  but that day did not arrive in this step.
 - **Bloom over the DOM HUD is a non-issue and should be confirmed as one.** The HUD, radial,
   reticle and vignette are DOM overlays outside the WebGL canvas, so no pass can wash them out.
   Worth one screenshot to confirm rather than one assumption.
@@ -273,3 +300,70 @@ lands the bench.
 - **Effects tuned before bloom may now be too bright.** Expected, and out of scope to fix here:
   step B retunes the effect inventory against the pipeline. Anything egregious enough to look
   broken at high tier gets recorded for B rather than patched ad hoc in A.
+
+## 11. What building this step actually cost
+
+Everything above is what was planned or, where corrected, what shipped. This section is neither —
+it is what the nine implementation tasks found out along the way, kept here because step B starts
+from it rather than from §10's predictions.
+
+**The composer was never sized at construction, and it took two symptoms to find.** `createPost`
+originally sized the composer from `renderer.domElement.width` and `renderer.domElement.height`.
+At the moment `createPost` runs, `window.innerWidth` and `window.innerHeight` genuinely read `0` —
+the page has not finished laying out yet — so the composer's render targets were built at zero
+size. The same root cause showed up as two unrelated-looking symptoms. In the game it was a startup
+flicker: the first several frames rendered ungraded, indistinguishable from the low tier, before
+the image snapped to graded. On the bench it was a black screen with
+`GL_INVALID_FRAMEBUFFER_OPERATION: Attachment has zero size` on every draw call, because the bench
+has no other content to show through the broken composer. One defect, two presentations, found
+first as the game's cosmetic flicker and diagnosed only once the bench made it reproduce as an
+outright failure. The fix sizes the composer from `renderer.getSize()` instead, which is the same
+unit the resize hook already passes to `Post.setSize`, and the bench now subscribes its own
+`onResize` the same way `main.ts` does, so a real resize corrects any construction-time miss on
+both sides. Verified afterwards: two screenshots taken immediately after load are now identical and
+already graded, where before the fix the first was ungraded and the second graded. The library
+detail that made the units matter is not obvious from the outside: `EffectComposer.setSize`
+compares its arguments against `renderer.getSize()`, which is in CSS pixels, to decide whether to
+resize the renderer at all, but derives its own render-target sizes from
+`renderer.getDrawingBufferSize()`, which is in device pixels — so the composer accepts CSS-pixel
+arguments and does the device-pixel conversion internally, and a caller that feeds it anything else
+is wrong regardless of whether the wrongness happens to be nonzero.
+
+**Three code reviews approved that defect.** The composer's construction-time sizing landed in one
+review, was rendered through in a second, and survived a first-round diff review of the bench
+itself, all clean. It is invisible in a diff, because a diff shows that a size is being passed, not
+that the size is `0` at the moment it is read; and it is invisible to a test suite that runs in
+node with no DOM, because nothing in that suite can construct a real `WebGLRenderer` and ask it what
+`getSize()` currently returns. It was found on the bench's first real use, by looking at the
+rendered frame rather than at the code — which is the concrete argument for the bench existing at
+all, not an abstract one.
+
+**A bench scene whose clock outlives its effect holds a picture of nothing.** The `gust` scene
+originally fired at 0.2s and froze at 0.6s, against a `LIFETIME` of 0.22s on the gust cone itself —
+so by the time the bench stopped advancing, the effect had already finished and been disposed, and
+every screenshot of the scene showed an empty island. The rule this forced — that a scene's frozen
+frame must land while its effect is still alive — now lives as the doc comment on the `fireAt`
+field in `src/bench/scenes.ts`, next to the data it constrains, rather than only in this note.
+
+**The home island's surface at the origin is at y ≈ 11.87**, measured with a `groundHeightAt(0, 0)`
+probe against the built world, not read off the HUD. The HUD shows "14 m" at spawn, and that number
+includes `SPAWN_CLEARANCE` — a 2-unit clearance the player stands on top of, defined in
+`src/player/state.ts` — which is not part of the ground itself. This is worth writing down because
+the original bench camera pose was built against the HUD's 14, which put it underground: a target
+near y = 14 sits inside terrain whose real surface is almost 2 units lower.
+
+**The one effect-appearance finding so far, and it is for step B.** At high tier, the gust cone's
+pale cyan filled sector reads *subtly* against the pale green grass of the home island. This is the
+same hazard `gust-cone.ts`'s own `FILL_OPACITY` comment already records from the effect's first
+colour pass: a pale blue at low opacity measured correctly in every test and was invisible in play,
+which is why the fill's opacity was raised to 0.34 and its tint cooled toward cyan — a pale effect
+over pale terrain is one nobody sees, regardless of how correct its shape and timing are. Bloom did
+not fix this on its own, because the fill's brightness sits below the bloom threshold that keeps
+the terrain itself from glowing. Step B should treat the cone's legibility over light terrain as an
+open question to re-examine once its effects sit behind the full pipeline, not as a solved problem
+because the tint survived to this step unchanged.
+
+**No other effect has been examined yet.** The gust is the only effect with a bench scene, so
+everything else in the effect inventory — fire, water, earth, and the rest of air — is unaudited
+against bloom, the colour grade and SMAA. An empty finding list for those effects is the absence of
+a look, not evidence that they look right.
