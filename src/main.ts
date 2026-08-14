@@ -1,5 +1,8 @@
 import { Vector3, Mesh, OctahedronGeometry, MeshBasicMaterial, Group } from 'three'
 import { createRenderer, hasWebGL, showFallback, WEBGL_MESSAGE } from './core/renderer'
+// Aliased: `./camera/follow-cam` already exports a `profileFor` for the camera's own
+// per-mode profile, used throughout this file, and that name is not free to reuse.
+import { profileFor as qualityProfileFor } from './core/quality'
 import { createStepper } from './core/loop'
 import { createInterpolatedVector, type InterpolatedVector } from './core/interpolation'
 import { InputTracker } from './core/input'
@@ -269,11 +272,6 @@ function start(): void {
     return showFallback(`The level failed to load: ${(error as Error).message}`)
   }
 
-  const { renderer, scene, camera, followSun } = createRenderer(canvas)
-  scene.add(world.group)
-  enableShadows(world.group)
-
-  const save = loadSave(localStorage, DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
   // Read once, at startup, and only as the seed for `reduceMotion`'s default: once the
   // player has touched that toggle their choice is what is stored, and the OS preference
   // must not keep overriding it. Guarded because `matchMedia` is absent in some embedded
@@ -282,7 +280,17 @@ function start(): void {
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches
   // Its own key, beside loadSave rather than inside it: progress and preferences have
   // different lifetimes, so clearing one must not cost the other. See settings-store.ts.
+  //
+  // Loaded here, ahead of `createRenderer`, because the renderer needs the quality tier
+  // this holds before it can build itself.
   let settings: Settings = loadSettings(localStorage, prefersReducedMotion)
+
+  const { renderer, scene, camera, followSun } =
+    createRenderer(canvas, qualityProfileFor(settings.quality))
+  scene.add(world.group)
+  enableShadows(world.group)
+
+  const save = loadSave(localStorage, DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
   /**
    * The five reduce-motion scalars, recomputed by `applySettings` rather than per frame.
    * `motionScales` is pure and cheap, but recomputing it in `update` and again in

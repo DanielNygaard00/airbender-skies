@@ -1,10 +1,11 @@
 import {
   WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, Vector3,
-  HemisphereLight, ACESFilmicToneMapping, PCFShadowMap,
+  HemisphereLight, ACESFilmicToneMapping, NoToneMapping, PCFShadowMap,
 } from 'three'
 import { BASE_FOV } from '../fx/mapping'
 import { createSkyDome, SKY_HORIZON } from './sky'
 import { aimSun, createSun } from './sun'
+import { toneMappingOwner, type QualityProfile } from './quality'
 
 export const WEBGL_MESSAGE =
   'This game needs WebGL, which your browser has disabled or does not support. ' +
@@ -42,11 +43,17 @@ export function showFallback(message: string): void {
   }
 }
 
-export function createRenderer(canvas: HTMLCanvasElement) {
+export function createRenderer(canvas: HTMLCanvasElement, profile: QualityProfile) {
   const renderer = new WebGLRenderer({ canvas, antialias: true })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-  renderer.toneMapping = ACESFilmicToneMapping
-  renderer.toneMappingExposure = EXPOSURE
+  /*
+   * `antialias` stays on for the life of the renderer, and it is not a leftover.
+   * `WebGLRenderer` takes the flag at construction, so changing it means rebuilding the
+   * renderer — and with it every material, texture and shadow map in the scene. Quality is a
+   * live setting, so that is not on the table. The consequence is deliberate: the composited
+   * tiers pay for a multisample buffer they do not use, and the low tier, which bypasses the
+   * composer and therefore has no SMAA, gets antialiasing out of it. That is the right way
+   * round — the tier that cannot afford SMAA is the one that keeps its MSAA.
+   */
   renderer.shadowMap.enabled = true
   /*
    * `PCFShadowMap`, named explicitly, and the history matters because the obvious
@@ -102,7 +109,7 @@ export function createRenderer(canvas: HTMLCanvasElement) {
   scene.add(createSkyDome())
 
   scene.add(new HemisphereLight(SKY_HORIZON, 0x4a5a3a, 1.5))
-  const sun = createSun()
+  const sun = createSun(profile.shadowMapSize)
   scene.add(sun)
   // The light aims at its target object, which has to be in the graph to be found.
   scene.add(sun.target)
@@ -110,14 +117,46 @@ export function createRenderer(canvas: HTMLCanvasElement) {
 
   const camera = new PerspectiveCamera(BASE_FOV, 1, 0.5, FOG_FAR)
 
+  /**
+   * Extra listeners for the one resize this module already owns.
+   *
+   * The composer keeps its own render targets and has to be resized with the canvas. The
+   * alternative — a second `window` listener in `main.ts` — would work by luck: two
+   * listeners on the same event have an order, and the composer resizing before the
+   * renderer would size its targets to the previous frame's dimensions.
+   */
+  const resizeHooks: ((width: number, height: number) => void)[] = []
+
   function resize(): void {
     const width = window.innerWidth
     const height = window.innerHeight
     renderer.setSize(width, height, false)
     camera.aspect = width / Math.max(height, 1)
     camera.updateProjectionMatrix()
+    for (const hook of resizeHooks) hook(width, height)
   }
-  resize()
+
+  /**
+   * Applying a tier. Three things move: how many pixels are drawn, how big the shadow map
+   * is, and who tone maps.
+   *
+   * The shadow map is disposed rather than resized in place. `mapSize` is read when the map
+   * is allocated, so setting it on a live light changes nothing until the existing render
+   * target is thrown away — which looks exactly like the tier not working.
+   */
+  function applyProfile(p: QualityProfile): void {
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, p.pixelRatioCap))
+    renderer.toneMapping =
+      toneMappingOwner(p) === 'renderer' ? ACESFilmicToneMapping : NoToneMapping
+    renderer.toneMappingExposure = EXPOSURE
+    if (sun.shadow.mapSize.x !== p.shadowMapSize) {
+      sun.shadow.mapSize.set(p.shadowMapSize, p.shadowMapSize)
+      sun.shadow.map?.dispose()
+      sun.shadow.map = null
+    }
+    resize()
+  }
+  applyProfile(profile)
   window.addEventListener('resize', resize)
 
   /**
@@ -128,5 +167,8 @@ export function createRenderer(canvas: HTMLCanvasElement) {
     aimSun(sun, target)
   }
 
-  return { renderer, scene, camera, resize, followSun }
+  return {
+    renderer, scene, camera, resize, followSun, applyProfile,
+    onResize(fn: (width: number, height: number) => void): void { resizeHooks.push(fn) },
+  }
 }

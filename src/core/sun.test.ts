@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Group, Mesh, BoxGeometry, Vector3 } from 'three'
 import {
-  aimSun, createSun, enableShadows, SHADOW_EXTENT, SUN_DIRECTION, SUN_DISTANCE,
+  aimSun, createSun, enableShadows, SHADOW_EXTENT, SHADOW_MAP_SIZE, SUN_DIRECTION, SUN_DISTANCE,
 } from './sun'
 import { createSkyDome } from './sky'
 import { ARCHIPELAGO } from '../world/levels/archipelago'
@@ -28,6 +28,14 @@ describe('createSun', () => {
     // follows the player — but it must at least cover the biggest island whole.
     const widest = Math.max(...ARCHIPELAGO.islands.map((island) => island.radius))
     expect(SHADOW_EXTENT).toBeGreaterThan(widest)
+  })
+
+  it('takes the shadow map size from its caller, and keeps the measured default', () => {
+    // The tier switches this. The default stays 4096 because renderer.ts records the
+    // measurement that chose it: at 2048 the character's shadow renders the staff as a smear.
+    expect(createSun().shadow.mapSize.x).toBe(SHADOW_MAP_SIZE)
+    expect(createSun(1024).shadow.mapSize.x).toBe(1024)
+    expect(createSun(1024).shadow.mapSize.y).toBe(1024)
   })
 })
 
