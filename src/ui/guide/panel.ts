@@ -138,6 +138,7 @@ export const STYLE = `
 .guide-setting-label { flex: 0 0 168px; }
 .guide-setting input { accent-color: #8fd8ff; }
 .guide-setting input[type=range] { flex: 1 1 140px; min-width: 0; }
+.guide-setting select { flex: 0 1 auto; accent-color: #8fd8ff; }
 .guide-setting-value { flex: 0 0 52px; text-align: right;
   font-family: ui-monospace, monospace; font-size: 12px; color: #d9f4ff; }
 `
@@ -222,9 +223,9 @@ export function notesHtml(title: string, notes: readonly { name: string; detail:
  * rows can be rebuilt from a string without wiring a listener per control. `data-display`
  * marks the value readout so it can be refreshed in place mid-drag.
  *
- * Only `label` is interpolated text, and it goes between tags where `escape` is safe. Every
- * attribute value here is either a fixed key from the `SettingsRow` union or a number, so
- * nothing reaches an attribute that `escape`'s documented quote limitation would apply to.
+ * Only `label` is interpolated text, and it goes between tags where `escape` is safe. Choice
+ * row option labels also go between tags and need escaping. Every other attribute value is
+ * either a fixed key from the `SettingsRow` union or a number.
  */
 export function settingRowHtml(row: SettingsRow): string {
   const label = `<span class="guide-setting-label">${escape(row.label)}</span>`
@@ -233,8 +234,10 @@ export function settingRowHtml(row: SettingsRow): string {
       <input type="checkbox" data-setting="${row.key}"${row.on ? ' checked' : ''}>
     </label>`
   }
-  if (row.kind === 'select') {
-    const options = row.options.map((opt) => `<option value="${opt}"${opt === row.value ? ' selected' : ''}>${opt}</option>`).join('')
+  if (row.kind === 'choice') {
+    const options = row.options.map((o) =>
+      `<option value="${o.value}"${o.value === row.value ? ' selected' : ''}>${escape(o.label)}</option>`,
+    ).join('')
     return `<label class="guide-setting">${label}
       <select data-setting="${row.key}">${options}</select>
     </label>`
@@ -368,20 +371,25 @@ export function createGuide(
    *
    * `input` rather than `change` so a slider reports while it is being dragged: volume
    * and sensitivity are both things a player judges by feel, and a value that only
-   * arrives on release cannot be judged that way. Checkboxes fire `input` too.
+   * arrives on release cannot be judged that way. Checkboxes fire `input` too. Selects fire
+   * `input` on change.
    */
   function onInput(e: Event): void {
     const target = e.target
-    if (!(target instanceof HTMLInputElement)) return
+    // Check for the structural shape rather than narrowing to HTMLInputElement, so both
+    // inputs and selects reach patchForRow. Both carry `value` and `checked` (checked is
+    // irrelevant for selects, but `RowInput` carries both regardless).
+    if (typeof (target as any).dataset?.setting !== 'string') return
+    if (typeof (target as any).value !== 'string') return
     if (rendered === null) return
-    const row = rows.find((r) => r.key === target.dataset.setting)
+    const row = rows.find((r) => r.key === (target as any).dataset.setting)
     if (!row) return
 
     // The key-to-field mapping lives in `settings-rows.ts`, next to the rows it mirrors,
-    // because it is pure logic and here it would be untestable: swapping two of its five
-    // branches type-checks and, while it sat in this function, reddened nothing at all.
+    // because it is pure logic and here it would be untestable: swapping two of its branches
+    // type-checks and, while it sat in this function, reddened nothing at all.
     // `target` satisfies `RowInput` structurally, so the element goes straight in.
-    const patch = patchForRow(row, target)
+    const patch = patchForRow(row, target as any)
     if (patch === null) return
 
     rendered = { ...rendered, ...patch }

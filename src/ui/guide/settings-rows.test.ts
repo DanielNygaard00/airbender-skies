@@ -3,8 +3,10 @@ import { patchForRow, settingsRows, type SettingsRow } from './settings-rows'
 import {
   defaultSettings, SENSITIVITY_MAX, SENSITIVITY_MIN, type Settings,
 } from '../../core/settings'
+import { QUALITIES } from '../../core/quality'
 
-const s = (over: Partial<Settings> = {}): Settings => ({ ...defaultSettings(false), ...over })
+const baseSettings = (): Settings => defaultSettings(false)
+const s = (over: Partial<Settings> = {}): Settings => ({ ...baseSettings(), ...over })
 
 /**
  * Narrowed lookups, so a missing row surfaces as an `undefined` field rather than as a
@@ -121,9 +123,9 @@ describe('patchForRow', () => {
     expect(rows.length).toBeGreaterThan(0)
     for (const row of rows) {
       // Use the row's current value as input so it's always valid for that row kind.
-      // Sliders accept '0.5', selects accept the current quality, toggles accept any
+      // Sliders accept '0.5', choice rows accept the current quality, toggles accept any
       // checked boolean.
-      const value = row.kind === 'select' ? row.value : '0.5'
+      const value = row.kind === 'choice' ? row.value : '0.5'
       const patch = patchForRow(row, { value, checked: true })
       expect(Object.keys(patch ?? {})).toEqual([row.key])
     }
@@ -174,5 +176,41 @@ describe('patchForRow', () => {
     // instead leave the slider showing a position that never took effect.
     expect(patchForRow(rowFor('sensitivity'), { value: '9', checked: false }))
       .toEqual({ sensitivity: 9 })
+  })
+})
+
+describe('the graphics row', () => {
+  const rowFor = (settings: Settings) => {
+    const row = settingsRows(settings).find((r) => r.kind === 'choice')
+    if (!row) throw new Error('no choice row in the settings list')
+    return row
+  }
+
+  it('offers every tier, exactly once each', () => {
+    const row = rowFor(baseSettings())
+    expect(row.options.map((o) => o.value).sort()).toEqual([...QUALITIES].sort())
+  })
+
+  it('shows the stored tier as the selected one', () => {
+    expect(rowFor({ ...baseSettings(), quality: 'low' }).value).toBe('low')
+  })
+
+  it('labels every option with something a player can read', () => {
+    for (const option of rowFor(baseSettings()).options) {
+      expect(option.label.length).toBeGreaterThan(0)
+      expect(option.label).not.toBe(option.value)
+    }
+  })
+
+  it('patches the quality field from the selected value', () => {
+    const row = rowFor(baseSettings())
+    expect(patchForRow(row, { value: 'medium', checked: false })).toEqual({ quality: 'medium' })
+  })
+
+  it('discards a selection that is not a tier', () => {
+    // The same discipline as the slider's non-finite guard: a value that cannot be stored is
+    // dropped at the edit rather than written and silently reset on the next load.
+    const row = rowFor(baseSettings())
+    expect(patchForRow(row, { value: 'ultra', checked: false })).toBeNull()
   })
 })
