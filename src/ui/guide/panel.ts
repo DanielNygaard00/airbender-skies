@@ -436,13 +436,18 @@ export function createGuide(
       api.close()
       return
     }
-    // A focused slider keeps its own keys: Arrow, Page, Home and End all move a range
-    // input, and the switch below would preventDefault them out from under it.
+    // A focused control that uses these keys keeps them: Arrow, Page, Home and End all move a
+    // range input *and* change a select's option, and the switch below would preventDefault
+    // them out from under either one.
     //
-    // Narrowed to `range` rather than every input. A checkbox uses none of these keys, so
-    // yielding to one only cost the player the panel's scrolling while a toggle happened to
-    // be focused — which, since Tab walks straight from the sensitivity slider into the
-    // toggles, is most of the time a keyboard user spends in here.
+    // Three cases, not two, and the third was missing until a review found it. A range input
+    // yields. A `<select>` yields — that is the Graphics row, and without this line Tab to it
+    // and press Down did nothing at all, because the only way to operate a select from the
+    // keyboard is exactly the keys this handler was eating. A checkbox does not: it uses none
+    // of these keys, so yielding to one would only cost the player the panel's scrolling while
+    // a toggle happened to be focused — which, since Tab walks straight from the sensitivity
+    // slider into the toggles, is most of the time a keyboard user spends in here.
+    if (e.target instanceof HTMLSelectElement) return
     if (e.target instanceof HTMLInputElement && e.target.type === 'range') return
     // The panel keeps `pointer-events: none` so it can never swallow a click meant
     // for the canvas underneath — that would break pointer lock. That also takes it
