@@ -179,6 +179,52 @@ describe('settings HTML builders', () => {
     expect(off).not.toContain('checked')
   })
 
+  it('builds a choice row as a select carrying every option', () => {
+    // Nothing pinned this row's markup until a review asked for it, and this is the one
+    // control on the branch that has already shipped unoperable once. `data-setting` is what
+    // the delegated `input` listener matches on, so a renamed or missing attribute is a
+    // Graphics row that reads fine and changes nothing.
+    const html = settingRowHtml({
+      kind: 'choice', key: 'quality', label: 'Graphics', value: 'medium',
+      options: [
+        { value: 'high', label: 'High' },
+        { value: 'medium', label: 'Medium' },
+        { value: 'low', label: 'Low' },
+      ],
+    })
+    expect(html).toContain('<select data-setting="quality">')
+    expect(html).toContain('value="high"')
+    expect(html).toContain('value="medium"')
+    expect(html).toContain('value="low"')
+    expect(html).toContain('Graphics')
+  })
+
+  it('marks the current tier selected and only that one', () => {
+    // Without the marking the select would open on whichever option happens to be first,
+    // telling the player their tier is High while the stored setting says Medium.
+    const html = settingRowHtml({
+      kind: 'choice', key: 'quality', label: 'Graphics', value: 'medium',
+      options: [
+        { value: 'high', label: 'High' },
+        { value: 'medium', label: 'Medium' },
+        { value: 'low', label: 'Low' },
+      ],
+    })
+    expect(html).toContain('<option value="medium" selected>')
+    expect(html.split('selected').length - 1).toBe(1)
+  })
+
+  it('keeps a choice row\'s option label carrying a script tag inert', () => {
+    // The labels are escaped separately from the row's own label, so the row-label test above
+    // does not cover them.
+    const html = settingRowHtml({
+      kind: 'choice', key: 'quality', label: 'Graphics', value: 'high',
+      options: [{ value: 'high', label: '<script>alert(1)</script>' }],
+    })
+    expect(html).not.toContain('<script>alert(1)</script>')
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+  })
+
   it('keeps a label carrying a script tag inert', () => {
     const html = settingRowHtml({
       kind: 'toggle', key: 'muted', label: '<script>alert(1)</script>', on: false,
