@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { Vector3, Points } from 'three'
-import { createWindTell, moteCount } from './wind-tell'
+import { Points, PointsMaterial, ShaderLib, Vector3 } from 'three'
+import {
+  createWindTell, moteCount, POINT_SIZE_ANCHOR, POINT_SIZE_CLAMPED,
+} from './wind-tell'
 import type { WindDef, WindKind } from './wind'
 
 const def = (kind: WindKind): WindDef => ({
@@ -58,6 +60,49 @@ describe('moteCount', () => {
     expect(moteCount(at(0, 34))).toBe(60)
     expect(moteCount(at(22, 0))).toBe(60)
     expect(moteCount(at(Number.NaN, 34))).toBe(60)
+  })
+})
+
+describe('the near-size clamp', () => {
+  const materialOf = (tell: ReturnType<typeof createWindTell>): PointsMaterial => {
+    const points = tell.object.children[0]
+    if (!(points instanceof Points)) throw new Error('expected a Points cloud')
+    const material = points.material
+    if (!(material instanceof PointsMaterial)) throw new Error('expected a PointsMaterial')
+    return material
+  }
+
+  it('still finds the line in three that it rewrites', () => {
+    // **The assertion that matters, and the only one here that can catch a three.js upgrade.**
+    // The patch is a `String.replace`, and a replace that matches nothing succeeds while doing
+    // nothing — so a reworded shader would put the white blocks back with every test still green.
+    // Asserted against three's shipped source rather than against our copy of the string.
+    expect(ShaderLib.points.vertexShader).toContain(POINT_SIZE_ANCHOR)
+  })
+
+  it('floors the distance the size is divided by, rather than capping pixels', () => {
+    // A pixel ceiling would mean something different on every display, since `gl_PointSize` is in
+    // device pixels; a distance floor is in world units and means the same everywhere.
+    expect(POINT_SIZE_CLAMPED).toContain('max( - mvPosition.z,')
+    expect(POINT_SIZE_CLAMPED).not.toBe(POINT_SIZE_ANCHOR)
+  })
+
+  it('installs the rewrite on the material it builds', () => {
+    const material = materialOf(createWindTell(def('dead')))
+    expect(material.onBeforeCompile).toBeTypeOf('function')
+
+    // Run three's own vertex shader through the hook the renderer would call, and check the result
+    // is the clamped form and no longer the unclamped one.
+    const shader = { vertexShader: ShaderLib.points.vertexShader, fragmentShader: '', uniforms: {} }
+    material.onBeforeCompile(shader as never, null as never)
+    expect(shader.vertexShader).toContain(POINT_SIZE_CLAMPED)
+    expect(shader.vertexShader).not.toContain(POINT_SIZE_ANCHOR)
+  })
+
+  it('leaves the size attenuation on, because distant motes still have to shrink', () => {
+    // The clamp is a floor on the distance, not a switch that turns perspective off: a mote across
+    // the canyon must still read as smaller than one an arm's length away.
+    expect(materialOf(createWindTell(def('dead'))).sizeAttenuation).toBe(true)
   })
 })
 

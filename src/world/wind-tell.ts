@@ -72,6 +72,43 @@ const SIZE: Record<WindKind, number> = {
   thermal: 0.55, ridge: 0.5, river: 0.75, downdraft: 0.55, dead: 0.45,
 }
 
+/**
+ * No mote is ever drawn larger than one this far away, in world units.
+ *
+ * `PointsMaterial` sizes a point as `size * scale / -mvPosition.z`, so apparent size grows without
+ * limit as the camera closes on one — and a mote is a hard-edged screen-facing square with additive
+ * blending, so a close one is not a big soft speck, it is a white tile. At half a metre a 0.45-unit
+ * mote covers a sixth of the screen. This never mattered while the player only ever looked at wind
+ * from outside; Canyon Country is the first region where the camera stands *inside* the volumes,
+ * and there the tell read as blocky white confetti no matter how the count was tuned.
+ *
+ * Clamping the distance rather than the pixel size is what keeps this honest across displays.
+ * `gl_PointSize` is in device pixels, so a pixel ceiling would mean something different on every
+ * screen and would need the device pixel ratio plumbed into the material; a distance floor is in
+ * world units, so it means the same thing everywhere and reads as what it is — a mote stops growing
+ * once you are closer to it than this.
+ *
+ * Eight units is a body-length or two: close enough that a mote drifting past still changes size as
+ * it approaches, far enough that standing in the middle of a dead-air column does not white out the
+ * frame.
+ */
+const NEAR_SIZE_CLAMP = 8
+
+/**
+ * The line in three's own points shader that this rewrite depends on, quoted exactly.
+ *
+ * Kept as a constant because `wind-tell.test.ts` asserts it still appears in
+ * `ShaderLib.points.vertexShader`. A `String.replace` that finds nothing is a no-op, so without
+ * that assertion a three.js upgrade which reworded this line would put the white blocks back
+ * silently — the failure mode this project has already been bitten by five separate times in one
+ * screen-space pass, all recorded under the contact shadows section of `HANDOFF.md`.
+ */
+export const POINT_SIZE_ANCHOR = 'if ( isPerspective ) gl_PointSize *= ( scale / - mvPosition.z );'
+
+/** The same line with the near distance floored, so a point stops growing once you are inside it. */
+export const POINT_SIZE_CLAMPED =
+  `if ( isPerspective ) gl_PointSize *= ( scale / max( - mvPosition.z, ${NEAR_SIZE_CLAMP.toFixed(1)} ) );`
+
 export interface WindTell {
   object: Group
   /** Drift the motes. Pure animation: nothing here feeds back into flight. */
@@ -114,6 +151,24 @@ export type OpenAir = (x: number, y: number, z: number) => boolean
 const OPEN_STEPS = 6
 /** Positions tried per mote before one is accepted wherever it landed. */
 const OPEN_TRIES = 6
+
+/**
+ * Stop a mote growing once the camera is closer to it than `NEAR_SIZE_CLAMP`.
+ *
+ * `onBeforeCompile` rather than a `ShaderMaterial`, because everything else about `PointsMaterial`
+ * — the tint, the additive blend, the size attenuation itself — is wanted exactly as it is, and a
+ * hand-written material would have to reproduce all of it and then keep up with three's own
+ * changes. This rewrites one line and leaves the rest of the program alone.
+ *
+ * If the anchor is ever missing the patch does nothing at all, which is why the test asserts the
+ * anchor's presence in three's shipped shader rather than only asserting that this function
+ * rewrote a string it was handed.
+ */
+function clampNearPointSize(material: PointsMaterial): void {
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace(POINT_SIZE_ANCHOR, POINT_SIZE_CLAMPED)
+  }
+}
 
 /**
  * Deterministic scatter, so a level looks the same on every load. Seeded from the
@@ -221,6 +276,7 @@ export function createWindTell(def: WindDef, openAir?: OpenAir): WindTell {
     // they never look like geometry the player could land on.
     blending: AdditiveBlending,
   })
+  clampNearPointSize(material)
 
   const points = new Points(geometry, material)
   points.frustumCulled = false
