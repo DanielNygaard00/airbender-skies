@@ -7,7 +7,7 @@ import {
 } from './reference'
 import type { Element } from '../../elements/element'
 import { isUnlocked, UNLOCKED_IN, type Act } from '../../progress/acts'
-import { patchForRow, settingsRows, type SettingsRow } from './settings-rows'
+import { patchForRow, settingsRows, type RowInput, type SettingsRow } from './settings-rows'
 
 /**
  * The guide panel: a pure model function, then the DOM, split the way hud.ts splits.
@@ -366,6 +366,23 @@ export function createGuide(
   }
 
   /**
+   * The subset of an element `patchForRow` reads, as a shape rather than a class.
+   *
+   * `instanceof HTMLInputElement` was the old test and it silently excluded the graphics
+   * row's `<select>`, which fires `input` like every other control but is an
+   * `HTMLSelectElement`. Casting to `any` would fix that by giving up the check entirely;
+   * a structural guard keeps `RowInput` load-bearing, so a renamed field fails to compile.
+   */
+  function asRowInput(target: EventTarget | null): (RowInput & { dataset: DOMStringMap }) | null {
+    if (!(target instanceof HTMLElement)) return null
+    if (typeof target.dataset.setting !== 'string') return null
+    const value: unknown = (target as HTMLInputElement | HTMLSelectElement).value
+    if (typeof value !== 'string') return null
+    const checked: unknown = (target as HTMLInputElement).checked
+    return { dataset: target.dataset, value, checked: checked === true }
+  }
+
+  /**
    * One delegated listener rather than one per control, because `update` replaces the
    * panel's whole `innerHTML` on every open and per-control listeners would go with it.
    *
@@ -375,21 +392,17 @@ export function createGuide(
    * `input` on change.
    */
   function onInput(e: Event): void {
-    const target = e.target
-    // Check for the structural shape rather than narrowing to HTMLInputElement, so both
-    // inputs and selects reach patchForRow. Both carry `value` and `checked` (checked is
-    // irrelevant for selects, but `RowInput` carries both regardless).
-    if (typeof (target as any).dataset?.setting !== 'string') return
-    if (typeof (target as any).value !== 'string') return
+    const rowInput = asRowInput(e.target)
+    if (rowInput === null) return
     if (rendered === null) return
-    const row = rows.find((r) => r.key === (target as any).dataset.setting)
+    const row = rows.find((r) => r.key === rowInput.dataset.setting)
     if (!row) return
 
     // The key-to-field mapping lives in `settings-rows.ts`, next to the rows it mirrors,
     // because it is pure logic and here it would be untestable: swapping two of its branches
     // type-checks and, while it sat in this function, reddened nothing at all.
-    // `target` satisfies `RowInput` structurally, so the element goes straight in.
-    const patch = patchForRow(row, target as any)
+    // `rowInput` is structurally typed as `RowInput`, so it type-checks against the parameter.
+    const patch = patchForRow(row, rowInput)
     if (patch === null) return
 
     rendered = { ...rendered, ...patch }
