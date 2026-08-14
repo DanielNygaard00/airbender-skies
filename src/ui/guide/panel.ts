@@ -7,7 +7,7 @@ import {
 } from './reference'
 import type { Element } from '../../elements/element'
 import { isUnlocked, UNLOCKED_IN, type Act } from '../../progress/acts'
-import { patchForRow, settingsRows, type SettingsRow } from './settings-rows'
+import { patchForRow, settingsRows, type RowInput, type SettingsRow } from './settings-rows'
 
 /**
  * The guide panel: a pure model function, then the DOM, split the way hud.ts splits.
@@ -138,6 +138,7 @@ export const STYLE = `
 .guide-setting-label { flex: 0 0 168px; }
 .guide-setting input { accent-color: #8fd8ff; }
 .guide-setting input[type=range] { flex: 1 1 140px; min-width: 0; }
+.guide-setting select { flex: 0 1 auto; accent-color: #8fd8ff; }
 .guide-setting-value { flex: 0 0 52px; text-align: right;
   font-family: ui-monospace, monospace; font-size: 12px; color: #d9f4ff; }
 `
@@ -222,15 +223,23 @@ export function notesHtml(title: string, notes: readonly { name: string; detail:
  * rows can be rebuilt from a string without wiring a listener per control. `data-display`
  * marks the value readout so it can be refreshed in place mid-drag.
  *
- * Only `label` is interpolated text, and it goes between tags where `escape` is safe. Every
- * attribute value here is either a fixed key from the `SettingsRow` union or a number, so
- * nothing reaches an attribute that `escape`'s documented quote limitation would apply to.
+ * Only `label` is interpolated text, and it goes between tags where `escape` is safe. Choice
+ * row option labels also go between tags and need escaping. Every other attribute value is
+ * either a fixed key from the `SettingsRow` union or a number.
  */
 export function settingRowHtml(row: SettingsRow): string {
   const label = `<span class="guide-setting-label">${escape(row.label)}</span>`
   if (row.kind === 'toggle') {
     return `<label class="guide-setting">${label}
       <input type="checkbox" data-setting="${row.key}"${row.on ? ' checked' : ''}>
+    </label>`
+  }
+  if (row.kind === 'choice') {
+    const options = row.options.map((o) =>
+      `<option value="${o.value}"${o.value === row.value ? ' selected' : ''}>${escape(o.label)}</option>`,
+    ).join('')
+    return `<label class="guide-setting">${label}
+      <select data-setting="${row.key}">${options}</select>
     </label>`
   }
   return `<label class="guide-setting">${label}
@@ -357,25 +366,43 @@ export function createGuide(
   }
 
   /**
+   * The subset of an element `patchForRow` reads, as a shape rather than a class.
+   *
+   * `instanceof HTMLInputElement` was the old test and it silently excluded the graphics
+   * row's `<select>`, which fires `input` like every other control but is an
+   * `HTMLSelectElement`. Casting to `any` would fix that by giving up the check entirely;
+   * a structural guard keeps `RowInput` load-bearing, so a renamed field fails to compile.
+   */
+  function asRowInput(target: EventTarget | null): (RowInput & { dataset: DOMStringMap }) | null {
+    if (!(target instanceof HTMLElement)) return null
+    if (typeof target.dataset.setting !== 'string') return null
+    const value: unknown = (target as HTMLInputElement | HTMLSelectElement).value
+    if (typeof value !== 'string') return null
+    const checked: unknown = (target as HTMLInputElement).checked
+    return { dataset: target.dataset, value, checked: checked === true }
+  }
+
+  /**
    * One delegated listener rather than one per control, because `update` replaces the
    * panel's whole `innerHTML` on every open and per-control listeners would go with it.
    *
    * `input` rather than `change` so a slider reports while it is being dragged: volume
    * and sensitivity are both things a player judges by feel, and a value that only
-   * arrives on release cannot be judged that way. Checkboxes fire `input` too.
+   * arrives on release cannot be judged that way. Checkboxes fire `input` too. Selects fire
+   * `input` on change.
    */
   function onInput(e: Event): void {
-    const target = e.target
-    if (!(target instanceof HTMLInputElement)) return
+    const rowInput = asRowInput(e.target)
+    if (rowInput === null) return
     if (rendered === null) return
-    const row = rows.find((r) => r.key === target.dataset.setting)
+    const row = rows.find((r) => r.key === rowInput.dataset.setting)
     if (!row) return
 
     // The key-to-field mapping lives in `settings-rows.ts`, next to the rows it mirrors,
-    // because it is pure logic and here it would be untestable: swapping two of its five
-    // branches type-checks and, while it sat in this function, reddened nothing at all.
-    // `target` satisfies `RowInput` structurally, so the element goes straight in.
-    const patch = patchForRow(row, target)
+    // because it is pure logic and here it would be untestable: swapping two of its branches
+    // type-checks and, while it sat in this function, reddened nothing at all.
+    // `rowInput` is structurally typed as `RowInput`, so it type-checks against the parameter.
+    const patch = patchForRow(row, rowInput)
     if (patch === null) return
 
     rendered = { ...rendered, ...patch }
@@ -409,13 +436,18 @@ export function createGuide(
       api.close()
       return
     }
-    // A focused slider keeps its own keys: Arrow, Page, Home and End all move a range
-    // input, and the switch below would preventDefault them out from under it.
+    // A focused control that uses these keys keeps them: Arrow, Page, Home and End all move a
+    // range input *and* change a select's option, and the switch below would preventDefault
+    // them out from under either one.
     //
-    // Narrowed to `range` rather than every input. A checkbox uses none of these keys, so
-    // yielding to one only cost the player the panel's scrolling while a toggle happened to
-    // be focused — which, since Tab walks straight from the sensitivity slider into the
-    // toggles, is most of the time a keyboard user spends in here.
+    // Three cases, not two, and the third was missing until a review found it. A range input
+    // yields. A `<select>` yields — that is the Graphics row, and without this line Tab to it
+    // and press Down did nothing at all, because the only way to operate a select from the
+    // keyboard is exactly the keys this handler was eating. A checkbox does not: it uses none
+    // of these keys, so yielding to one would only cost the player the panel's scrolling while
+    // a toggle happened to be focused — which, since Tab walks straight from the sensitivity
+    // slider into the toggles, is most of the time a keyboard user spends in here.
+    if (e.target instanceof HTMLSelectElement) return
     if (e.target instanceof HTMLInputElement && e.target.type === 'range') return
     // The panel keeps `pointer-events: none` so it can never swallow a click meant
     // for the canvas underneath — that would break pointer lock. That also takes it

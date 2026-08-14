@@ -1,10 +1,12 @@
 import {
   WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, Vector3,
-  HemisphereLight, ACESFilmicToneMapping, PCFShadowMap,
+  HemisphereLight, ACESFilmicToneMapping, NoToneMapping, PCFShadowMap,
 } from 'three'
 import { BASE_FOV } from '../fx/mapping'
-import { createSkyDome, SKY_HORIZON } from './sky'
+import { createSkyDome } from './sky'
 import { aimSun, createSun } from './sun'
+import { toneMappingOwner, type QualityProfile } from './quality'
+import { daylightFor, SUN_ELEVATION_DEGREES } from './daylight'
 
 export const WEBGL_MESSAGE =
   'This game needs WebGL, which your browser has disabled or does not support. ' +
@@ -16,9 +18,14 @@ export const FOG_FAR = 2200
 
 /**
  * Tone mapping is what stops flat-lit geometry reading as raw WebGL: it rolls the
- * sunlit highlights off instead of clipping them to a hard white. The exposure
- * compensates for ACES darkening the midtones, and the light intensities below
- * were raised for the same reason.
+ * sunlit highlights off instead of clipping them to a hard white.
+ *
+ * 1.0, which is neutral: nothing here compensates for ACES darkening the midtones, and no
+ * earlier version of this file did either. The comment this replaced claimed both an exposure
+ * compensation and light intensities raised to match it, and the number has been 1.0
+ * throughout. It stays a named constant because it is uploaded on every `applyProfile`, and
+ * because it still reaches ACES when the composer owns tone mapping — see `GRADE` in
+ * `post.ts` for how.
  */
 const EXPOSURE = 1.0
 
@@ -42,11 +49,36 @@ export function showFallback(message: string): void {
   }
 }
 
-export function createRenderer(canvas: HTMLCanvasElement) {
+export function createRenderer(
+  canvas: HTMLCanvasElement,
+  profile: QualityProfile,
+  /**
+   * Defaulted so `main.ts`'s call site is untouched and the shipped game's look cannot move.
+   * The one caller that needs a different value is the FX bench: it has to be able to
+   * photograph a different hour without a day/night cycle, which still does not exist and
+   * is not being added here — `daylight.ts` requires the sun's *direction* to stay constant
+   * so the shadow map's frustum and the bench's determinism are unaffected either way. Only
+   * the derived colours change; `SUN_DIRECTION` itself is untouched.
+   */
+  elevationDegrees: number = SUN_ELEVATION_DEGREES,
+) {
   const renderer = new WebGLRenderer({ canvas, antialias: true })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-  renderer.toneMapping = ACESFilmicToneMapping
-  renderer.toneMappingExposure = EXPOSURE
+  /*
+   * `antialias` stays on for the life of the renderer, and it is not a leftover.
+   * `WebGLRenderer` takes the flag at construction, so changing it means rebuilding the
+   * renderer — and with it every material, texture and shadow map in the scene. Quality is a
+   * live setting, so that is not on the table.
+   *
+   * What this flag does and does not buy, since the earlier version of this comment reasoned
+   * from the wrong half. It multisamples what is drawn *to the canvas*, so it is what
+   * antialiases the low tier, which bypasses the composer and therefore has no SMAA. On the
+   * composited tiers `RenderPass` draws into a composer render target instead, and the
+   * canvas's multisample buffer is bypassed — so it is not a buffer those tiers "waste in
+   * exchange for SMAA", it is simply unreachable from them, and MSAA has to be asked for
+   * again inside the composer. `MULTISAMPLING` in `post.ts` is where that is done and where
+   * the argument lives. Every tier now gets hardware multisampling; SMAA supplements it on
+   * the two that can afford a pass for it.
+   */
   renderer.shadowMap.enabled = true
   /*
    * `PCFShadowMap`, named explicitly, and the history matters because the obvious
@@ -93,16 +125,23 @@ export function createRenderer(canvas: HTMLCanvasElement) {
    */
   renderer.shadowMap.type = PCFShadowMap
 
+  // One number, five consumers. See daylight.ts for why they must agree.
+  const light = daylightFor(elevationDegrees)
+
   const scene = new Scene()
   // A fallback for anything the dome does not cover, and the colour the fog fades
   // distant geometry into, so islands dissolve into the horizon band.
-  scene.background = new Color(SKY_HORIZON)
+  scene.background = new Color(light.skyHorizon)
   // Fog hides the empty void between islands and sells the sense of altitude.
-  scene.fog = new Fog(SKY_HORIZON, FOG_NEAR, FOG_FAR)
-  scene.add(createSkyDome())
+  scene.fog = new Fog(light.fogColour, FOG_NEAR, FOG_FAR)
+  scene.add(createSkyDome(light.skyZenith, light.skyHorizon))
 
-  scene.add(new HemisphereLight(SKY_HORIZON, 0x4a5a3a, 1.5))
-  const sun = createSun()
+  scene.add(new HemisphereLight(light.hemiSky, light.hemiGround, light.hemiIntensity))
+  const sun = createSun(profile.shadowMapSize)
+  // The light's colour is a property with a public setter, and a three-argument factory
+  // would put two things that always travel together behind separate parameters.
+  sun.color.setHex(light.sunColour)
+  sun.intensity = light.sunIntensity
   scene.add(sun)
   // The light aims at its target object, which has to be in the graph to be found.
   scene.add(sun.target)
@@ -110,14 +149,46 @@ export function createRenderer(canvas: HTMLCanvasElement) {
 
   const camera = new PerspectiveCamera(BASE_FOV, 1, 0.5, FOG_FAR)
 
+  /**
+   * Extra listeners for the one resize this module already owns.
+   *
+   * The composer keeps its own render targets and has to be resized with the canvas. The
+   * alternative — a second `window` listener in `main.ts` — would work by luck: two
+   * listeners on the same event have an order, and the composer resizing before the
+   * renderer would size its targets to the previous frame's dimensions.
+   */
+  const resizeHooks: ((width: number, height: number) => void)[] = []
+
   function resize(): void {
     const width = window.innerWidth
     const height = window.innerHeight
     renderer.setSize(width, height, false)
     camera.aspect = width / Math.max(height, 1)
     camera.updateProjectionMatrix()
+    for (const hook of resizeHooks) hook(width, height)
   }
-  resize()
+
+  /**
+   * Applying a tier. Three things move: how many pixels are drawn, how big the shadow map
+   * is, and who tone maps.
+   *
+   * The shadow map is disposed rather than resized in place. `mapSize` is read when the map
+   * is allocated, so setting it on a live light changes nothing until the existing render
+   * target is thrown away — which looks exactly like the tier not working.
+   */
+  function applyProfile(p: QualityProfile): void {
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, p.pixelRatioCap))
+    renderer.toneMapping =
+      toneMappingOwner(p) === 'renderer' ? ACESFilmicToneMapping : NoToneMapping
+    renderer.toneMappingExposure = EXPOSURE
+    if (sun.shadow.mapSize.x !== p.shadowMapSize) {
+      sun.shadow.mapSize.set(p.shadowMapSize, p.shadowMapSize)
+      sun.shadow.map?.dispose()
+      sun.shadow.map = null
+    }
+    resize()
+  }
+  applyProfile(profile)
   window.addEventListener('resize', resize)
 
   /**
@@ -128,5 +199,8 @@ export function createRenderer(canvas: HTMLCanvasElement) {
     aimSun(sun, target)
   }
 
-  return { renderer, scene, camera, resize, followSun }
+  return {
+    renderer, scene, camera, resize, followSun, applyProfile,
+    onResize(fn: (width: number, height: number) => void): void { resizeHooks.push(fn) },
+  }
 }

@@ -1,4 +1,5 @@
 import { SENSITIVITY_MAX, SENSITIVITY_MIN, type Settings } from '../../core/settings'
+import { QUALITIES, isQuality, type Quality } from '../../core/quality'
 
 /**
  * The settings section of the guide, as data.
@@ -25,6 +26,32 @@ export type SettingsRow =
     display: string
   }
   | { kind: 'toggle'; key: 'invertY' | 'muted' | 'reduceMotion'; label: string; on: boolean }
+  | {
+    /**
+     * A pick-one row. Neither a slider nor a toggle: the tiers are named, ordered and
+     * few, and a slider over three named things would show the player a continuum that
+     * does not exist.
+     */
+    kind: 'choice'
+    key: 'quality'
+    label: string
+    value: Quality
+    options: readonly { value: Quality; label: string }[]
+  }
+
+/**
+ * What each tier is called in the panel.
+ *
+ * A `Record<Quality, string>`, so a fourth tier fails to compile until it has a label — the
+ * same reason `LOOKS` is a Record over `Element`. The labels say what the player gets rather
+ * than what the renderer does: "Everything on" is checkable against the screen in a way
+ * "SMAA + bloom" is not.
+ */
+const QUALITY_LABELS: Record<Quality, string> = {
+  high: 'High — everything on',
+  medium: 'Medium — softer shadows',
+  low: 'Low — effects off',
+}
 
 /**
  * Fine enough to find a comfortable value, coarse enough that a drag lands on round
@@ -66,6 +93,15 @@ export function settingsRows(s: Settings): SettingsRow[] {
     },
     { kind: 'toggle', key: 'muted', label: 'Mute', on: s.muted },
     { kind: 'toggle', key: 'reduceMotion', label: 'Reduce motion', on: s.reduceMotion },
+    {
+      kind: 'choice',
+      key: 'quality',
+      label: 'Graphics',
+      value: s.quality,
+      // Highest first, so the list reads as a descent from the default rather than as a
+      // ladder the player has to climb to reach what they already had.
+      options: [...QUALITIES].reverse().map((q) => ({ value: q, label: QUALITY_LABELS[q] })),
+    },
   ]
 }
 
@@ -106,6 +142,11 @@ export function patchForRow(row: SettingsRow, input: RowInput): Partial<Settings
     // guard does; the comment this replaced claimed both cases and only one is true.
     if (!Number.isFinite(value)) return null
     return row.key === 'sensitivity' ? { sensitivity: value } : { volume: value }
+  }
+  if (row.kind === 'choice') {
+    // Guarded rather than cast: the DOM half hands over whatever string the select carries,
+    // and a stale option value would otherwise be stored and then thrown away on load.
+    return isQuality(input.value) ? { quality: input.value } : null
   }
   switch (row.key) {
     case 'invertY': return { invertY: input.checked }

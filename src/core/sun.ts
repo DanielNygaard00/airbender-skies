@@ -60,15 +60,29 @@ export const SHADOW_EXTENT = 90
  * units per texel, which is 1.6 times coarser than what ships. So the memory and the
  * density cannot both be had: there is no cheap way back, only a choice.
  */
-const SHADOW_MAP_SIZE = 4096
+export const SHADOW_MAP_SIZE = 4096
 
 /** Pulls the shadow slightly towards the caster to keep surfaces from self-striping. */
 const SHADOW_BIAS = -0.0006
 
-export function createSun(): DirectionalLight {
-  const sun = new DirectionalLight(0xfff2d8, 1.8)
+/**
+ * The sunlight the game ships, exported for the reason `SKY_ZENITH` and `SKY_HORIZON` already
+ * are: `daylight.ts`'s `SHIPPED` stop has to reproduce this light exactly, and it held its own
+ * copies of both numbers. Two literals that must agree, in two files, is the arrangement that
+ * makes "the derivation returns today's palette" quietly stop being true.
+ */
+export const SUN_COLOUR = 0xfff2d8
+export const SUN_INTENSITY = 1.8
+
+/**
+ * The map size is a parameter with the measured default, not a constant read from module
+ * scope, because the quality tier now chooses it. Defaulted rather than required so every
+ * existing caller and test keeps the size the measurement in `renderer.ts` settled on.
+ */
+export function createSun(shadowMapSize: number = SHADOW_MAP_SIZE): DirectionalLight {
+  const sun = new DirectionalLight(SUN_COLOUR, SUN_INTENSITY)
   sun.castShadow = true
-  sun.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE)
+  sun.shadow.mapSize.set(shadowMapSize, shadowMapSize)
   sun.shadow.bias = SHADOW_BIAS
 
   const shadowCamera = sun.shadow.camera

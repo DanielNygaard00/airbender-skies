@@ -49,11 +49,17 @@ const FRAGMENT_SHADER = /* glsl */ `
   }
 `
 
-export function createSkyDome(): Mesh {
+/**
+ * The colours are parameters with the shipped defaults, because `daylight.ts` now derives
+ * them from the sun's elevation. Defaulted rather than required so the constants stay the
+ * one place the shipped gradient is written down, and so a caller that does not care about
+ * time of day — a test, a tool — does not have to know about elevation at all.
+ */
+export function createSkyDome(zenith: number = SKY_ZENITH, horizon: number = SKY_HORIZON): Mesh {
   const material = new ShaderMaterial({
     uniforms: {
-      zenith: { value: new Color(SKY_ZENITH) },
-      horizon: { value: new Color(SKY_HORIZON) },
+      zenith: { value: new Color(zenith) },
+      horizon: { value: new Color(horizon) },
     },
     vertexShader: VERTEX_SHADER,
     fragmentShader: FRAGMENT_SHADER,

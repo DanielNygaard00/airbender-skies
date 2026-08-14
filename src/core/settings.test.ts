@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { defaultSettings, readSettings, effectiveVolume, motionScales } from './settings'
+import { DEFAULT_QUALITY } from './quality'
 // Reached across from the fx layer deliberately: the `speedFov` scalar below is argued from
 // what `fovForSpeed` actually produces, and asserting those degrees is the only way the
 // argument in that comment can be wrong and caught.
@@ -113,13 +114,13 @@ describe('readSettings', () => {
 
 describe('effectiveVolume', () => {
   it('is the volume field when not muted', () => {
-    expect(effectiveVolume({ sensitivity: 1, invertY: false, volume: 0.55, muted: false, reduceMotion: false })).toBe(
+    expect(effectiveVolume({ sensitivity: 1, invertY: false, volume: 0.55, muted: false, reduceMotion: false, quality: DEFAULT_QUALITY })).toBe(
       0.55,
     )
   })
 
   it('is 0 when muted, without touching the stored volume, so unmuting restores it', () => {
-    const s = { sensitivity: 1, invertY: false, volume: 0.55, muted: true, reduceMotion: false }
+    const s = { sensitivity: 1, invertY: false, volume: 0.55, muted: true, reduceMotion: false, quality: DEFAULT_QUALITY }
     expect(effectiveVolume(s)).toBe(0)
     expect(s.volume).toBe(0.55)
   })
@@ -172,6 +173,38 @@ describe('motionScales', () => {
     expect(residual).toBeLessThan(MAX_DASH_FOV_KICK)
     // And it stays a cue: 20 m/s and 50 m/s still look different under reduce motion.
     expect(fovForSpeed(50, reduced.speedFov)).toBeGreaterThan(fovForSpeed(20, reduced.speedFov))
+  })
+})
+
+describe('the quality setting', () => {
+  it('defaults to the default tier', () => {
+    expect(defaultSettings(false).quality).toBe(DEFAULT_QUALITY)
+  })
+
+  it('resolves a payload written before the field existed', () => {
+    // The migration case, and the reason it matters: every player who has opened the
+    // settings panel already has a stored payload with no `quality` key in it.
+    const stored = { sensitivity: 1.5, invertY: true, volume: 0.4, muted: false, reduceMotion: false }
+    expect(readSettings(stored, false).quality).toBe(DEFAULT_QUALITY)
+  })
+
+  it('keeps a stored tier', () => {
+    expect(readSettings({ quality: 'low' }, false).quality).toBe('low')
+    expect(readSettings({ quality: 'medium' }, false).quality).toBe('medium')
+  })
+
+  it('discards a tier that is not one', () => {
+    for (const bad of ['ultra', '', 'HIGH', 3, null]) {
+      expect(readSettings({ quality: bad }, false).quality).toBe(DEFAULT_QUALITY)
+    }
+  })
+
+  it('does not let a bad tier cost the player their other preferences', () => {
+    // The field-by-field fallback readSettings already promises, extended to the new field.
+    const s = readSettings({ sensitivity: 2, invertY: true, quality: 'ultra' }, false)
+    expect(s.sensitivity).toBe(2)
+    expect(s.invertY).toBe(true)
+    expect(s.quality).toBe(DEFAULT_QUALITY)
   })
 })
 

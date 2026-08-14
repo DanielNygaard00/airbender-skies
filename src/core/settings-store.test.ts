@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { loadSettings, writeSettings, SETTINGS_KEY } from './settings-store'
 import { defaultSettings } from './settings'
+import { DEFAULT_QUALITY } from './quality'
 import type { StorageLike } from './save'
 
 function memory(initial: Record<string, string> = {}): StorageLike {
@@ -23,7 +24,7 @@ describe('loadSettings', () => {
 
   it('round-trips a written settings object', () => {
     const s = memory()
-    const written = { sensitivity: 2.5, invertY: true, volume: 0.4, muted: true, reduceMotion: true }
+    const written = { sensitivity: 2.5, invertY: true, volume: 0.4, muted: true, reduceMotion: true, quality: DEFAULT_QUALITY }
     writeSettings(s, written)
     expect(loadSettings(s, false)).toEqual(written)
   })

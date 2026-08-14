@@ -1,5 +1,9 @@
 import { Vector3, Mesh, OctahedronGeometry, MeshBasicMaterial, Group } from 'three'
 import { createRenderer, hasWebGL, showFallback, WEBGL_MESSAGE } from './core/renderer'
+import { createPost } from './core/post'
+// Aliased: `./camera/follow-cam` already exports a `profileFor` for the camera's own
+// per-mode profile, used throughout this file, and that name is not free to reuse.
+import { profileFor as qualityProfileFor } from './core/quality'
 import { createStepper } from './core/loop'
 import { createInterpolatedVector, type InterpolatedVector } from './core/interpolation'
 import { InputTracker } from './core/input'
@@ -269,11 +273,6 @@ function start(): void {
     return showFallback(`The level failed to load: ${(error as Error).message}`)
   }
 
-  const { renderer, scene, camera, followSun } = createRenderer(canvas)
-  scene.add(world.group)
-  enableShadows(world.group)
-
-  const save = loadSave(localStorage, DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
   // Read once, at startup, and only as the seed for `reduceMotion`'s default: once the
   // player has touched that toggle their choice is what is stored, and the OS preference
   // must not keep overriding it. Guarded because `matchMedia` is absent in some embedded
@@ -282,7 +281,19 @@ function start(): void {
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches
   // Its own key, beside loadSave rather than inside it: progress and preferences have
   // different lifetimes, so clearing one must not cost the other. See settings-store.ts.
+  //
+  // Loaded here, ahead of `createRenderer`, because the renderer needs the quality tier
+  // this holds before it can build itself.
   let settings: Settings = loadSettings(localStorage, prefersReducedMotion)
+
+  const { renderer, scene, camera, followSun, applyProfile, onResize } =
+    createRenderer(canvas, qualityProfileFor(settings.quality))
+  const post = createPost(renderer, scene, camera, qualityProfileFor(settings.quality))
+  onResize((width, height) => post.setSize(width, height))
+  scene.add(world.group)
+  enableShadows(world.group)
+
+  const save = loadSave(localStorage, DEFAULT_FLIGHT_CONFIG.baseMaxBreath)
   /**
    * The five reduce-motion scalars, recomputed by `applySettings` rather than per frame.
    * `motionScales` is pure and cheap, but recomputing it in `update` and again in
@@ -739,6 +750,12 @@ function start(): void {
     // type error — what it does is leave one spelling instead of two, which is the only
     // defence available here. Do not inline the string back.
     document.documentElement.style.setProperty(VIGNETTE_SCALE_PROPERTY, String(motion.vignette))
+    // Both, and in this order: the renderer owns pixel ratio, the shadow map and the
+    // tone-mapping switch, and the composer has to be rebuilt after that switch rather than
+    // before it — a composer built while the renderer still holds ACES would tone map twice
+    // for one frame.
+    applyProfile(qualityProfileFor(settings.quality))
+    post.setProfile(qualityProfileFor(settings.quality))
   }
   applySettings()
 
@@ -2159,7 +2176,7 @@ function start(): void {
     update,
     render: (alpha, frameDt) => {
       syncVisuals(alpha, frameDt)
-      renderer.render(scene, camera)
+      post.render(frameDt)
     },
   })
 
@@ -2267,7 +2284,11 @@ function start(): void {
       // one they can. The selection itself is untouched — no simulation time passes — so it comes
       // back exactly as it was.
       elementRadial.hide()
-      renderer.render(scene, camera)
+      // `0`, not a real delta: nothing in `postEffects` consumes `dt` (there is no temporal
+      // pass in the list), and the simulation is frozen on this branch, so advancing the
+      // pipeline's own clock here would be the one place the pipeline moved and the game did
+      // not.
+      post.render(0)
     } else {
       stepper.advance((now - last) / 1000)
       last = now
