@@ -2,6 +2,7 @@ import { Vector3 } from 'three'
 import { createPost } from '../core/post'
 import { profileFor, isQuality, DEFAULT_QUALITY } from '../core/quality'
 import { createRenderer, hasWebGL, showFallback, WEBGL_MESSAGE } from '../core/renderer'
+import { enableShadows } from '../core/sun'
 import { createEffectPool } from '../fx/effect-pool'
 import { createGustCone } from '../fx/gust-cone'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
@@ -51,17 +52,31 @@ function start(): void {
   const { renderer, scene: graph, camera, followSun, onResize } =
     createRenderer(canvas, profile, scene.elevation)
   const post = createPost(renderer, graph, camera, profile)
-  // `main.ts` subscribes the same way, and for the same reason: `createRenderer` already
-  // called `resize()` once during its own construction, before `post` existed to hear it, so
-  // `createPost`'s own initial sizing is the composer's only chance to be right until a real
-  // resize happens. Without this the composer can be stuck at whatever size — including a
-  // legitimately empty one, if the page had not finished laying out yet — that was current at
-  // that single moment, for the life of the bench.
+  // `main.ts` subscribes the same way, and for the same reason: `createRenderer` owns the one
+  // `resize` listener, so a second listener here would race it — the composer resizing before
+  // the renderer would size its targets to the previous frame's dimensions.
+  //
+  // This is no longer what keeps the composer correctly sized. `Post.render` re-checks its
+  // buffers against the renderer's drawing buffer every frame and re-sizes itself when they
+  // disagree, so a construction-time miss corrects itself on the next frame rather than
+  // waiting for a resize event that a player may never generate. This subscription is now the
+  // cheap path — it resizes once, on the event, instead of letting the next frame discover it.
   onResize((width, height) => post.setSize(width, height))
 
   const level = LEVELS.find((l) => l.id === scene.regionId)
   if (!level) { showFallback(`Bench scene "${scene.id}" names an unknown region.`); return }
-  graph.add(buildWorld(level).group)
+  const world = buildWorld(level)
+  graph.add(world.group)
+  /*
+   * Without this the bench has no shadows at all, and it took a review to notice: nothing in
+   * `src/world/` sets `castShadow` or `receiveShadow`, so the flags come entirely from this
+   * call, which `main.ts` makes and this file did not. Two things were broken by the omission.
+   * The `light` scene's comment claimed the shadow direction was in frame when no shadow was;
+   * and `shadowMapSize` — the most visible difference between the high and medium tiers, and
+   * the one §8 of the design note nominates as the way to tell them apart — was invisible to
+   * every bench shot, because a shadow map only shows up in a frame that has a shadow in it.
+   */
+  enableShadows(world.group)
 
   camera.position.copy(scene.camera.position)
   camera.lookAt(scene.camera.target)

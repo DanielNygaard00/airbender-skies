@@ -1,4 +1,5 @@
 import { Vector3 } from 'three'
+import { SUN_ELEVATION_DEGREES } from '../core/daylight'
 import { ARCHIPELAGO } from '../world/levels/archipelago'
 
 /**
@@ -28,7 +29,13 @@ export interface BenchScene {
   /** Which region to build. Must be an id in `LEVELS`. */
   regionId: string
   camera: { position: Vector3; target: Vector3 }
-  /** Sun elevation in degrees, fed to `daylightFor`. */
+  /**
+   * Sun elevation in degrees, fed to `daylightFor`.
+   *
+   * A scene meant to photograph the game's own hour takes `SUN_ELEVATION_DEGREES` rather than
+   * a literal. Both such scenes used to hand-round it to 57.9, which is the bench quietly
+   * agreeing to drift from the game the moment `SUN_DIRECTION` moves.
+   */
   elevation: number
   /** The effect to fire, or `null` for a scene that only shows the world and the light. */
   effect: BenchEffectId | null
@@ -55,14 +62,19 @@ export const BENCH_SCENES: readonly BenchScene[] = [
   {
     /**
      * The lighting shot: no effect at all, looking across the home island into the horizon
-     * band so the sky gradient, the fog and the shadow direction are all in frame at once.
+     * band so the sky gradient, the fog and the trees' cast shadows are all in frame at once.
      * This is the shot that says whether the pipeline changed the world's look, and it has
      * no effect in it precisely so nothing transient can be mistaken for the light.
+     *
+     * The shadows are in frame because `src/bench/main.ts` calls `enableShadows`, which it did
+     * not always do — and they are the reason this shot can tell the high tier from the medium
+     * one, since `shadowMapSize` is the tiers' most visible difference and it shows up nowhere
+     * else in a still frame.
      */
     id: 'light',
     regionId: ARCHIPELAGO_ID,
     camera: { position: new Vector3(40, 26, 60), target: new Vector3(0, 8, 0) },
-    elevation: 57.9,
+    elevation: SUN_ELEVATION_DEGREES,
     effect: null,
     fireAt: 0,
     duration: 1,
@@ -92,7 +104,7 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     id: 'gust',
     regionId: ARCHIPELAGO_ID,
     camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
-    elevation: 57.9,
+    elevation: SUN_ELEVATION_DEGREES,
     effect: 'gust',
     fireAt: 0.1,
     duration: 0.2,
@@ -103,8 +115,10 @@ export const BENCH_SCENES: readonly BenchScene[] = [
      * the registry. Same pose and region as `light`, and deliberately so: with an identical
      * frame the only thing that can differ between the two shots is the hour, so if `light`
      * and `golden-hour` render identically, `createRenderer`'s elevation argument is still
-     * wired to nothing. A low elevation rather than a token change from 57.9, so the two are
-     * unmistakably different lighting conditions side by side, not a rounding error.
+     * wired to nothing. A low elevation rather than a token step down from the shipped one, so
+     * the two are unmistakably different lighting conditions side by side, not a rounding
+     * error. A literal here and not `SUN_ELEVATION_DEGREES`, because differing from the game's
+     * hour is the entire point of this scene.
      */
     id: 'golden-hour',
     regionId: ARCHIPELAGO_ID,
