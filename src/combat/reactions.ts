@@ -35,3 +35,46 @@ export const SOURCE_ELEMENTS: Record<BendingSource, Element | null> = {
 export function elementOf(source: BendingSource): Element | null {
   return SOURCE_ELEMENTS[source]
 }
+
+/**
+ * What a pairing produces. `'none'` is a decision, not a hole.
+ *
+ * Two live reactions, and the shortness of that list is the constraint rather than an admission:
+ * the chain's finisher displaces, Steam damages, Mud holds. A third reaction that also damaged or
+ * also held would make the table longer without making the fight richer, and would give two
+ * mechanisms the same job.
+ */
+export type ReactionKind = 'none' | 'steam' | 'mud'
+
+/**
+ * The mark already on the soldier, against the element now landing.
+ *
+ * Two nested `Record`s over `Element`, so a fifth element fails to compile until every pairing
+ * with it — in both directions — has been ruled on. `LOOKS` in `element-radial.ts` and
+ * `WIND_LEGEND` in `wind.ts` use the same device for the same reason.
+ *
+ * **The table is directional.** A wet soldier hit by fire steams; a burning soldier hit by water
+ * does not. Sequence is the thing being rewarded, so a symmetric table would be rewarding a *set*
+ * of elements rather than an order.
+ *
+ * **The diagonal is `'none'` by rule**, stated here once rather than four times below: repetition
+ * is the chain's business, and paying for it twice would price one press twice.
+ *
+ * Two pairings were designed and rejected, and they are recorded in §4.2 of the design note so
+ * nobody re-proposes them blind. Dust (earth then air) needs a notion of a soldier whose aim is
+ * spoiled, which nothing in the game has, and inventing per-enemy perception state for one
+ * reaction is the status bag arriving through the back door. Backdraft (air then fire) would widen
+ * the burst's cone, and that cone's 30° half-angle *is* how §4.2's "only element with real
+ * single-target damage" is implemented — widening it dissolves the one property that makes fire
+ * fire.
+ */
+export const REACTIONS: Record<Element, Record<Element, ReactionKind>> = {
+  air: { air: 'none', water: 'none', earth: 'none', fire: 'none' },
+  water: { air: 'none', water: 'none', earth: 'mud', fire: 'steam' },
+  earth: { air: 'none', water: 'none', earth: 'none', fire: 'none' },
+  fire: { air: 'none', water: 'none', earth: 'none', fire: 'none' },
+}
+
+export function reactionFor(mark: Element, verb: Element): ReactionKind {
+  return REACTIONS[mark][verb]
+}
