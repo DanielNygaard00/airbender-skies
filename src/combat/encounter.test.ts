@@ -224,6 +224,7 @@ const C: CombatConfig = {
     thrustUpSpeed: 8,
     thrustForwardSpeed: 4,
   },
+  chain: { maxLinks: 3, windowSeconds: 0.9 },
 }
 
 const ORIGIN = new Vector3(0, 0, 0)

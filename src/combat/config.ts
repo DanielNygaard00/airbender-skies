@@ -717,6 +717,22 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     // a stalled wing comes out of the push flying.
     thrustForwardSpeed: 6,
   },
+  /**
+   * The chain, and why the window is three times the staff's.
+   *
+   * `DEFAULT_STAFF_CONFIG.continueSeconds` is 0.3, tuned for repeated presses of one key.
+   * Continuing a string across elements costs a radial flick or a number key *plus* a press, so a
+   * 0.3 window would make mixed strings impossible and quietly turn the chain into a staff-only
+   * mechanic. 0.9 is the seed and it is a guess: it has not been played.
+   *
+   * `maxLinks` matches `DEFAULT_STAFF_CONFIG.maxChain` at 3, not for symmetry but because three is
+   * the number of landings the staff already proved a player will commit to before standing still
+   * costs more than the payoff. Note what the cooldowns do to this: inside 0.9s no move can follow
+   * itself (the gust's 0.45 is the only one under half the window, and even it cannot reach three),
+   * so a single-element string is the light verb into that element's heavy verb, and a mixed string
+   * is the quicker route to a finisher without a line of code rewording variety directly.
+   */
+  chain: { maxLinks: 3, windowSeconds: 0.9 },
 }
 
 /**

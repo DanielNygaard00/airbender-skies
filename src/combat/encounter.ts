@@ -17,6 +17,7 @@ import {
 import {
   canFireBurst, fireBurstImpulse, fireBurstTargets, type FireConfig,
 } from './fire'
+import { type ChainConfig } from './chain'
 import type { Element } from '../elements/element'
 import { gustImpulse, gustTargets, type GustConfig } from './gust'
 import {
@@ -134,6 +135,7 @@ export interface CombatConfig {
   water: WaterConfig
   earth: EarthConfig
   fire: FireConfig
+  chain: ChainConfig
 }
 
 export interface EnemySpawn {
