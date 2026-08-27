@@ -90,6 +90,11 @@ const STYLE = `
   display: flex; gap: 7px; align-items: center; transition: opacity .2s; }
 .elements-badge-dot { width: 8px; height: 8px; border-radius: 50%; }
 .elements-badge-label { color: #f3f6fb; opacity: .8; }
+/* The chain count. Pips rather than a numeral, sized against the 12px badge label beside them: a
+   digit has to be read, and these only have to be seen -- a glance tells you "some" versus "none"
+   versus "about to finish" without the label ever pulling focus off what F and R currently do. */
+.elements-badge-pips { display: flex; gap: 3px; align-items: center; }
+.elements-badge-pip { width: 5px; height: 5px; border-radius: 50%; }
 
 /* The open state. Hidden with display rather than opacity: a radial at zero opacity would still
    have its wedges laid out over the screen, and there is nothing to fade toward when the widget
@@ -148,6 +153,7 @@ export function createElementRadial(parent: HTMLElement): ElementRadial {
     <div class="elements-badge">
       <span class="elements-badge-dot"></span>
       <span class="elements-badge-label"></span>
+      <span class="elements-badge-pips"></span>
     </div>
     <div class="elements-radial">
       <div class="elements-radial-disc"></div>
@@ -158,6 +164,7 @@ export function createElementRadial(parent: HTMLElement): ElementRadial {
   const badge = root.querySelector('.elements-badge') as HTMLElement
   const badgeDot = root.querySelector('.elements-badge-dot') as HTMLElement
   const badgeLabel = root.querySelector('.elements-badge-label') as HTMLElement
+  const badgePips = root.querySelector('.elements-badge-pips') as HTMLElement
   const radial = root.querySelector('.elements-radial') as HTMLElement
 
   radial.style.left = `${ANCHOR_X}%`
@@ -173,6 +180,23 @@ export function createElementRadial(parent: HTMLElement): ElementRadial {
    * second for a widget that changes one class.
    */
   const slots: HTMLElement[] = []
+
+  /**
+   * One pip per link, grown and reused the same way `slots` is, for the same reason: this is
+   * redrawn every frame regardless of whether the chain moved, and rebuilding the row's markup
+   * that often would churn the DOM for a widget that most frames leaves unchanged.
+   */
+  const pips: HTMLElement[] = []
+
+  function pipAt(index: number): HTMLElement {
+    const existing = pips[index]
+    if (existing) return existing
+    const pip = document.createElement('span')
+    pip.className = 'elements-badge-pip'
+    badgePips.append(pip)
+    pips[index] = pip
+    return pip
+  }
 
   function slotAt(index: number, count: number): HTMLElement {
     const existing = slots[index]
@@ -202,9 +226,11 @@ export function createElementRadial(parent: HTMLElement): ElementRadial {
       badge.style.display = ''
       radial.classList.toggle('is-open', model.open)
 
+      let activeColour = badgeDot.style.background
       for (const entry of model.slots) {
         const look = LOOKS[entry.element]
         if (entry.active) {
+          activeColour = look.colour
           badgeDot.style.background = look.colour
           badgeLabel.textContent = look.label
         }
@@ -216,6 +242,21 @@ export function createElementRadial(parent: HTMLElement): ElementRadial {
         slot.classList.toggle('is-active', entry.active)
         slot.classList.toggle('is-highlighted', entry.highlighted)
         slot.classList.toggle('is-locked', !entry.available)
+      }
+
+      // In the active element's own colour, computed above from the same pass that painted the
+      // badge dot: the pips are the chain, but they read as "mine" only if they wear the colour
+      // that already means the active element everywhere else on the badge.
+      for (let i = 0; i < model.links; i++) {
+        const pip = pipAt(i)
+        pip.style.background = activeColour
+        pip.style.display = ''
+      }
+      // Past the current count rather than removed, so the next longer string does not pay for
+      // rebuilding what a shorter one just hid -- the same reuse `pipAt` itself relies on.
+      for (let i = model.links; i < pips.length; i++) {
+        const pip = pips[i]
+        if (pip) pip.style.display = 'none'
       }
     },
 

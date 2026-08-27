@@ -319,6 +319,16 @@ export interface RadialModel {
   slots: readonly RadialSlot[]
   /** How many wedges there are, so the view can lay them out without importing the order. */
   count: number
+  /**
+   * Landings in the current string, from `chain.ts`.
+   *
+   * On the badge rather than in its own widget, because the badge is already the thing that says
+   * what F and R will do — so "what I am holding" and "how far along I am" read in one glance,
+   * which is the pairing a player actually needs while deciding whether to switch. A fourth
+   * concentric ring at the crosshair was the alternative and the crosshair cluster is already
+   * three rings deep; see this module's note on where the radial sits.
+   */
+  links: number
 }
 
 /**
@@ -329,11 +339,14 @@ export interface RadialModel {
  * the node environment, so every decision that could be wrong is made on this side of the
  * line and the view is left with a class toggle and a transform.
  */
-export function radialModel(state: ElementState, c: ElementConfig, act: Act): RadialModel {
+export function radialModel(
+  state: ElementState, c: ElementConfig, act: Act, links: number,
+): RadialModel {
   const highlighted = state.aim === null ? null : radialHighlight(state.aim, c)
   return {
     open: state.aim !== null,
     count: ELEMENT_ORDER.length,
+    links,
     slots: ELEMENT_ORDER.map((element, index) => ({
       element,
       index,

@@ -20,12 +20,22 @@ const THICKNESS = 0.35
 /** Opacity of a minimum-strength slam, so a weak one is still visible. */
 const FAINTEST = 0.25
 
-export function createShockwave(radius: number, strength: number): Effect {
+/** The Pressure Wave's own colour, and the default for a caller with nothing else to say. */
+const DEFAULT_TINT = 0xdff1ff
+
+/**
+ * `tint` defaults to the Pressure Wave's own colour rather than being required, so the one
+ * existing caller — the slam ring — did not have to change to keep its look the day a second
+ * caller arrived that needed a different one. See `main.ts`'s `REACTION_LOOKS`: a reaction has
+ * no notion of "strength" the way a slam does, so it is the colour, not the shape, that tells
+ * the player which one just fired.
+ */
+export function createShockwave(radius: number, strength: number, tint = DEFAULT_TINT): Effect {
   // A unit ring scaled at runtime. Rebuilding the geometry each frame to grow it
   // would allocate sixty times a second for something a scale already does.
   const geometry = new RingGeometry(1 - THICKNESS, 1, 48)
   const material = new MeshBasicMaterial({
-    color: 0xdff1ff,
+    color: tint,
     transparent: true,
     side: DoubleSide,
     // The ring sits on the ground and must not occlude what it overlaps.

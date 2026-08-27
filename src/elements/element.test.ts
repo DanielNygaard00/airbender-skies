@@ -425,29 +425,29 @@ describe('isElementAvailable', () => {
 
 describe('radialModel', () => {
   it('reports one slot per element, in order, with its clockwise index', () => {
-    const model = radialModel(restingElements(), C, ACT)
+    const model = radialModel(restingElements(), C, ACT, 0)
     expect(model.count).toBe(ELEMENT_ORDER.length)
     expect(model.slots.map((slot) => slot.element)).toEqual([...ELEMENT_ORDER])
     expect(model.slots.map((slot) => slot.index)).toEqual(ELEMENT_ORDER.map((_, i) => i))
   })
 
   it('marks exactly one slot active, and it is the selected one', () => {
-    const model = radialModel({ active: 'water', aim: null }, C, ACT)
+    const model = radialModel({ active: 'water', aim: null }, C, ACT, 0)
     expect(model.slots.filter((slot) => slot.active).map((s) => s.element)).toEqual(['water'])
   })
 
   it('is closed with no offset and open with one', () => {
-    expect(radialModel(restingElements(), C, ACT).open).toBe(false)
-    expect(radialModel(opened({ x: 0, y: -FAR }), C, ACT).open).toBe(true)
+    expect(radialModel(restingElements(), C, ACT, 0).open).toBe(false)
+    expect(radialModel(opened({ x: 0, y: -FAR }), C, ACT, 0).open).toBe(true)
   })
 
   it('highlights nothing inside the dead zone and the aimed slot outside it', () => {
     // The pair again, and it is the assertion that matters most for this function: a model that
     // never highlighted anything would look like a radial the mouse does not drive, and "no slot
     // is highlighted" alone passes for it.
-    const twitched = radialModel(opened({ x: 1, y: -2 }), C, ACT)
+    const twitched = radialModel(opened({ x: 1, y: -2 }), C, ACT, 0)
     expect(twitched.slots.filter((slot) => slot.highlighted)).toEqual([])
-    const flicked = radialModel(opened(flickAt(1)), C, ACT)
+    const flicked = radialModel(opened(flickAt(1)), C, ACT, 0)
     expect(flicked.slots.filter((slot) => slot.highlighted).map((s) => s.element))
       .toEqual([ELEMENT_ORDER[1]])
   })
@@ -460,15 +460,25 @@ describe('radialModel', () => {
       const radians = (degrees * Math.PI) / 180
       const aim = { x: Math.sin(radians) * FAR, y: -Math.cos(radians) * FAR }
       const expected = radialHighlight(aim, C)
-      const model = radialModel(opened(aim), C, ACT)
+      const model = radialModel(opened(aim), C, ACT, 0)
       const highlighted = model.slots.find((slot) => slot.highlighted)?.element ?? null
       expect(highlighted, `${degrees} degrees`).toBe(expected)
     }
   })
 
   it('reports availability per slot from the one predicate that owns it', () => {
-    for (const slot of radialModel(restingElements(), C, ACT).slots) {
+    for (const slot of radialModel(restingElements(), C, ACT, 0).slots) {
       expect(slot.available).toBe(isElementAvailable(slot.element, ACT))
     }
+  })
+
+  describe('the badge shows the string', () => {
+    it('carries the link count', () => {
+      expect(radialModel(restingElements(), C, ACT, 2).links).toBe(2)
+    })
+
+    it('carries a zero rather than hiding it, so the widget has one shape', () => {
+      expect(radialModel(restingElements(), C, ACT, 0).links).toBe(0)
+    })
   })
 })
