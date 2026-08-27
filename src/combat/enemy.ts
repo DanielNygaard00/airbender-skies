@@ -1,5 +1,6 @@
 import { MathUtils, Vector3 } from 'three'
 import { applyDamage, isDowned, type Health, type HealthConfig } from './health'
+import type { Element } from '../elements/element'
 
 /**
  * Spear infantry.
@@ -199,6 +200,20 @@ export interface Enemy {
    * landing on a frozen soldier must not refill the ice.
    */
   heldSeconds: number
+  /**
+   * What element last landed on this soldier, and for how much longer it counts.
+   *
+   * One field carrying one element, deliberately, for the reason `heldSeconds` is one field
+   * carrying both the grip and the freeze: a set of per-element statuses could disagree about
+   * what a soldier is, and nothing in the game needs a soldier to be wet *and* scorched. The
+   * newest blow owns the mark.
+   *
+   * Remaining time rather than elapsed, so expiry needs no config lookup and the countdown can
+   * sit beside the hold's at the top of `stepEnemy`. `null` rather than a zeroed record, so
+   * "unmarked" has exactly one representation and no caller has to decide whether 0 means
+   * expired.
+   */
+  mark: { element: Element; secondsLeft: number } | null
   /** Decaying horizontal push from a gust, a slam or a vortex. Horizontal only. */
   knockback: Vector3
   /** Ballistic vertical speed. Gravity acts on this; the ground snap ends it. */
@@ -296,6 +311,7 @@ export function spawnEnemy(
     health: { current: c.maxHealth, max: c.maxHealth, sinceHit: c.outOfCombatSeconds },
     downs: 0,
     heldSeconds: 0,
+    mark: null,
     knockback: new Vector3(),
     verticalVelocity: 0,
     grounded: true,
@@ -437,6 +453,23 @@ export function holdEnemy(enemy: Enemy, seconds: number): Enemy {
 }
 
 /**
+ * Write the mark, unless the soldier is already down.
+ *
+ * Refuses on a downed body for the reason `holdEnemy` does: section 4.6 makes downed a
+ * condition rather than a removal, and a reaction firing on something that cannot act is
+ * feedback for a fight that is over.
+ */
+export function markEnemy(enemy: Enemy, element: Element, seconds: number): Enemy {
+  if (isDowned(enemy.health) || !(seconds > 0)) return enemy
+  return { ...enemy, mark: { element, secondsLeft: seconds } }
+}
+
+/** Consume the mark. Separate from `markEnemy` so a reaction cannot accidentally re-mark. */
+export function clearMark(enemy: Enemy): Enemy {
+  return enemy.mark === null ? enemy : { ...enemy, mark: null }
+}
+
+/**
  * How far through pushing back up, 0 to 1. Zero when not rising.
  *
  * Fails closed on a non-positive `risingSeconds` rather than dividing by it: the result is
@@ -510,17 +543,25 @@ export function stepEnemy(
   c: EnemyConfig,
 ): EnemyStep {
   /**
-   * The hold counted down once, at the top, before any branch runs.
+   * The hold and the mark each counted down once, at the top, before any branch runs.
    *
-   * Every return below spreads `...enemy`, so decrementing here is what makes it impossible
-   * for one of the eight exits to forget the countdown — which is exactly the bug a per-branch
-   * decrement would eventually acquire, and it would present as a soldier frozen forever on one
-   * code path only. The parameter is shadowed rather than mutated because an `Enemy` is treated
-   * as immutable everywhere else in this module, and the clone is skipped entirely when nothing
-   * is held, so the ordinary frame allocates nothing extra.
+   * Every return below spreads `...enemy`, so decrementing here is what makes it impossible for
+   * one of the eight exits to forget either countdown — which is exactly the bug a per-branch
+   * decrement would eventually acquire, and it would present as a soldier frozen (or marked)
+   * forever on one code path only. The mark ages beside the hold for that same reason, rather
+   * than in its own branch somewhere below, where it would be a bug waiting for the ninth exit.
+   * The parameter is shadowed rather than mutated because an `Enemy` is treated as immutable
+   * everywhere else in this module, and the clone is skipped entirely when neither is active, so
+   * the ordinary frame allocates nothing extra.
    */
-  const enemy: Enemy = incoming.heldSeconds > 0
-    ? { ...incoming, heldSeconds: Math.max(0, incoming.heldSeconds - dt) }
+  const enemy: Enemy = incoming.heldSeconds > 0 || incoming.mark !== null
+    ? {
+        ...incoming,
+        heldSeconds: Math.max(0, incoming.heldSeconds - dt),
+        mark: incoming.mark === null || incoming.mark.secondsLeft <= dt
+          ? null
+          : { element: incoming.mark.element, secondsLeft: incoming.mark.secondsLeft - dt },
+      }
     : incoming
 
   // Already downed and below the floor: parked. Downing a body does not stop it falling,

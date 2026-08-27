@@ -78,3 +78,16 @@ export const REACTIONS: Record<Element, Record<Element, ReactionKind>> = {
 export function reactionFor(mark: Element, verb: Element): ReactionKind {
   return REACTIONS[mark][verb]
 }
+
+/**
+ * Tuning for the mark-and-reaction system.
+ *
+ * Its own interface rather than an inline `{ markSeconds: number }` on `CombatConfig`, because
+ * this block grows to four fields across the tasks that follow — declaring it here lets each of
+ * them extend one type in one place instead of hunting `CombatConfig` in `encounter.ts` for a
+ * block that actually belongs to this module.
+ */
+export interface ReactionConfig {
+  /** How long a mark counts, in seconds. */
+  markSeconds: number
+}

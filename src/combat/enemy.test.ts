@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
 import {
   spawnEnemy, stepEnemy, hitEnemy, holdEnemy, horizontalDistance, isHeld, isTargetable,
-  risingProgress, deflects, throughArmour, UNARMOURED,
+  risingProgress, deflects, throughArmour, UNARMOURED, markEnemy, clearMark,
   type Enemy, type EnemyConfig, type GroundHeightQuery,
 } from './enemy'
 import { isDowned } from './health'
@@ -1206,5 +1206,47 @@ describe('being held or frozen', () => {
     expect(Math.abs(after.heldSeconds - (4 - seconds))).toBeLessThanOrEqual(1 / 60 + 1e-9)
     // Never negative, so the expiry test cannot be reached from the wrong side.
     expect(settle(frozen, 10).heldSeconds).toBe(0)
+  })
+})
+
+describe('the mark', () => {
+  // Scoped to this block the way `adjacent()` is scoped to "being held or frozen" above --
+  // not a second shared factory, just this block's own fresh soldier.
+  const anEnemy = () => spawnEnemy('a', AT(0, 20), 'spear', C)
+
+  it('starts absent', () => {
+    expect(anEnemy().mark).toBeNull()
+  })
+
+  it('records the element that landed', () => {
+    const marked = markEnemy(anEnemy(), 'water', 2.5)
+    expect(marked.mark).toEqual({ element: 'water', secondsLeft: 2.5 })
+  })
+
+  it('is overwritten by a later element rather than accumulating', () => {
+    // One field, one element -- the precedent heldSeconds sets. A soldier is wet or scorched,
+    // not both, so the newest blow owns the mark.
+    const marked = markEnemy(markEnemy(anEnemy(), 'water', 2.5), 'fire', 2.5)
+    expect(marked.mark?.element).toBe('fire')
+  })
+
+  it('counts down on the same clock as the hold, and expires', () => {
+    // Two independent runs off the same starting mark, matching "expires after its own
+    // duration and not before" above, rather than one run reused across both checks.
+    const marked = markEnemy(anEnemy(), 'water', 0.5)
+    expect(settle(marked, 0.45).mark).not.toBeNull()
+    expect(settle(marked, 0.55).mark).toBeNull()
+  })
+
+  it('is cleared outright rather than left at zero', () => {
+    expect(clearMark(markEnemy(anEnemy(), 'water', 2.5)).mark).toBeNull()
+  })
+
+  it('refuses to mark a downed soldier', () => {
+    // holdEnemy refuses the same way. A mark on a body on the ground would let a reaction
+    // fire on something that cannot act, and section 4.6's downed state is a condition, not
+    // a target.
+    const downed = down(anEnemy())
+    expect(markEnemy(downed, 'water', 2.5).mark).toBeNull()
   })
 })

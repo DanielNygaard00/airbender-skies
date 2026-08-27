@@ -733,6 +733,18 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
    * is the quicker route to a finisher without a line of code rewording variety directly.
    */
   chain: { maxLinks: 3, windowSeconds: 0.9 },
+  reactions: {
+    /**
+     * How long a mark counts, in seconds.
+     *
+     * Longer than the chain's 0.9s window, so a mark outlives the string that made it and a
+     * player can come back to a wet soldier after dealing with someone else — the mark is a
+     * property of the fight, not of the combo. Shorter than the freeze's 3.2s, so being wet is
+     * never as durable as being frozen. Both bounds are the argument; 2.5 is the guess inside
+     * them.
+     */
+    markSeconds: 2.5,
+  },
 }
 
 /**
