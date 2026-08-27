@@ -8,8 +8,9 @@
  *
  * **A `Record<Quality, QualityProfile>` rather than a lookup with defaults**, so a fourth
  * tier fails to compile until every field is specified — the device `LOOKS` in
- * `element-radial.ts` and `WIND_LEGEND` in `wind.ts` already use, and cheaper than a test
- * that could be deleted.
+ * `element-radial.ts` and `WIND_LEGEND` in `ui/guide/reference.ts` already use, and cheaper
+ * than a test that could be deleted. (`wind.ts` only defines `WindKind`, the union the legend
+ * is keyed by; this comment named the wrong file, and two later comments copied it.)
  *
  * **The low tier bypasses the composer entirely rather than running an empty one.** An
  * `EffectComposer` with no effects still costs a render target and a fullscreen blit, which

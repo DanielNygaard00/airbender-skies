@@ -52,7 +52,8 @@ export type ReactionKind = 'none' | 'steam' | 'mud'
  *
  * Two nested `Record`s over `Element`, so a fifth element fails to compile until every pairing
  * with it — in both directions — has been ruled on. `LOOKS` in `element-radial.ts` and
- * `WIND_LEGEND` in `wind.ts` use the same device for the same reason.
+ * `WIND_LEGEND` in `ui/guide/reference.ts` use the same device for the same reason. (`wind.ts`
+ * only defines `WindKind`, which is the union the legend is keyed by.)
  *
  * **The table is directional.** A wet soldier hit by fire steams; a burning soldier hit by water
  * does not. Sequence is the thing being rewarded, so a symmetric table would be rewarding a *set*
