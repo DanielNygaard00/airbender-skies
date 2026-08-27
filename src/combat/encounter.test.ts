@@ -3826,6 +3826,8 @@ describe('the chain in the fight', () => {
   const gripAt = press({ gustPressed: true, element: 'water' })
   const burstAt = press({ gustPressed: true, element: 'fire' })
   const staffAt = press({ staffSwing: { index: 0, finisher: false } })
+  const freezeAt = press({ vortexReleased: true, element: 'water' })
+  const raiseAt = press({ vortexReleased: true, element: 'earth' })
   const idle = press({})
 
   /**
@@ -3848,6 +3850,21 @@ describe('the chain in the fight', () => {
     return found
   }
   const spearIn = (e: Encounter) => soldier(e, 'a')
+
+  /**
+   * A heavy and a spear, close enough together for one staff swing, one slam and one gust to
+   * catch both.
+   *
+   * The spear is what makes the finisher reachable at all, and that is the mechanic rather than a
+   * fixture convenience: the heavy deflects a gust, a deflected blow advances no string, so the
+   * third landing has to come from a soldier the gust can actually touch. Standing at 2.24 units
+   * they are inside the staff opener's 3.6 reach, the weakest slam's 4-unit radius and the
+   * gust's 12.
+   */
+  const pair = () => startEncounter([
+    { id: 'plate', position: new Vector3(-1, 0, -2), kind: 'heavy' },
+    { id: 'leather', position: new Vector3(1, 0, -2), kind: 'spear' },
+  ], C)
 
   it('starts a fresh fight with no string standing', () => {
     expect(near().chain.links).toBe(0)
@@ -3909,8 +3926,11 @@ describe('the chain in the fight', () => {
     const first = gustAt(near())
     const second = gripAt(first.encounter)
     const third = burstAt(second.encounter)
-    expect(third.encounter.chain.links).toBe(C.chain.maxLinks)
     expect(third.finisherThisFrame).toBe(true)
+    // Zero rather than `maxLinks`: the completing landing spends the string. This assertion read
+    // `toBe(C.chain.maxLinks)` while a finished string stood at the cap, which is the plateau
+    // `landChain` was changed to remove.
+    expect(third.encounter.chain.links).toBe(0)
 
     // Each set to exactly its own config value on the frame it fired, and never less.
     expect(first.encounter.gustCooldown).toBe(C.gust.cooldownSeconds)
@@ -3924,21 +3944,6 @@ describe('the chain in the fight', () => {
   })
 
   describe('the finisher against plate', () => {
-    /**
-     * A heavy and a spear, close enough together for one staff swing, one slam and one gust to
-     * catch both.
-     *
-     * The spear is what makes the finisher reachable at all, and that is the mechanic rather
-     * than a fixture convenience: the heavy deflects a gust, a deflected blow advances no
-     * string, so the third landing has to come from a soldier the gust can actually touch.
-     * Standing at 2.24 units they are inside the staff opener's 3.6 reach, the weakest slam's
-     * 4-unit radius and the gust's 12.
-     */
-    const pair = () => startEncounter([
-      { id: 'plate', position: new Vector3(-1, 0, -2), kind: 'heavy' },
-      { id: 'leather', position: new Vector3(1, 0, -2), kind: 'spear' },
-    ], C)
-
     it('moves a heavy with a finisher, which no gust can do alone', () => {
       // `armour.gust` is { damage: 0, knockback: 0 }, so a plain gust is deflected and skipped.
       // At the last link the knockback lands unarmoured — §4.4 gives the heavy knockback economy
@@ -3952,8 +3957,10 @@ describe('the chain in the fight', () => {
       const built = staffThenSlam(pair()).encounter
       const step = gustAt(built)
       const unpressed = press({})(built)
-      expect(step.encounter.chain.links).toBe(C.chain.maxLinks)
+      expect(built.chain.links).toBe(C.chain.maxLinks - 1)
       expect(step.finisherThisFrame).toBe(true)
+      // Spent, not standing at the cap — see the test below for why that matters.
+      expect(step.encounter.chain.links).toBe(0)
       const pushed = soldier(step.encounter, 'plate')
       const sliding = soldier(unpressed.encounter, 'plate')
       // Half the gust's own knockback as the floor rather than all of it: one frame of damping
@@ -4008,6 +4015,139 @@ describe('the chain in the fight', () => {
     it('shortens no cooldown to reach the heavy', () => {
       const step = threeLinkStringEndingInGust(pair())
       expect(step.encounter.gustCooldown).toBe(C.gust.cooldownSeconds)
+    })
+  })
+
+  it('spends the string, so the next finisher costs a whole string again', () => {
+    // The plateau this must not have, driven through the fight. While a finished string stood at
+    // `maxLinks`, every landing inside the 0.9s window both kept the window alive and re-qualified
+    // as a finisher — so a player with any soldier left to land on held a standing licence to
+    // ignore the whole armour table's knockback column.
+    //
+    // A grip and then staff swings, because both keep the target where the next blow can reach it:
+    // the grip pulls the soldier in and holds it, and the staff has no cooldown at all. A gust
+    // cannot be used here — the finishing one throws its target 12 units, past its own range, so
+    // the follow-up would reach nobody and the test would pass vacuously.
+    const first = gripAt(near())
+    const second = staffAt(first.encounter)
+    const third = staffAt(second.encounter)
+    const fourth = staffAt(third.encounter)
+
+    expect(first.encounter.chain.links).toBe(1)
+    expect(second.encounter.chain.links).toBe(C.chain.maxLinks - 1)
+    expect(second.finisherThisFrame).toBe(false)
+    // The third landing completes the string and spends it.
+    expect(third.finisherThisFrame).toBe(true)
+    expect(third.encounter.chain.links).toBe(0)
+    // And the fourth is the first link of a new one, not a second finisher.
+    expect(fourth.finisherThisFrame).toBe(false)
+    expect(fourth.encounter.chain.links).toBe(1)
+    // Not vacuous: every one of the four blows actually landed on the soldier.
+    expect(first.grippedThisFrame).toEqual(['a'])
+    for (const step of [second, third, fourth]) expect(step.staffHitThisFrame).toEqual(['a'])
+  })
+
+  /**
+   * What a finisher does to the three moves that cannot go through `resolveBlow`.
+   *
+   * Resolved per source on one criterion — whether the move carries an impulse for the finisher to
+   * take around the armour — because that is the only thing the finisher does. The grip and the
+   * pillar shove carry one; the freeze carries none. Every row here is pinned against an armour
+   * value this file's own fixture sets, so a config change cannot flip the behaviour silently.
+   */
+  describe('the finisher and the three moves that are not blows', () => {
+    const loneHeavyAt = (z: number) =>
+      startEncounter([{ id: 'plate', position: new Vector3(0, 0, z), kind: 'heavy' }], C)
+
+    it('takes a finisher grip around the row that resists being dragged', () => {
+      // The heavy's `grip` row is a partial resist, not a deflect — `{ damage: 1, knockback:
+      // 0.5 }` here, `{ damage: 1, knockback: 0 }` in the shipped config, argued there as "plate
+      // resists being dragged". The pull is a real impulse, so a finisher takes it around that
+      // row, which is the same trade the finisher gust makes against the same soldier's `gust` row.
+      //
+      // Measured as the pull each grip *adds*, against the same frame with nothing pressed, so the
+      // knockback the setup frames left on the body cancels out of both sides. The z component
+      // because the pull is inward, towards a player standing at the origin.
+      const added = (from: Encounter) =>
+        soldier(gripAt(from).encounter, 'plate').knockback.z
+        - soldier(press({})(from).encounter, 'plate').knockback.z
+      const plain = added(loneHeavyAt(-2))
+      const finishing = added(staffThenSlam(loneHeavyAt(-2)).encounter)
+      expect(plain).toBeGreaterThan(0)
+      // Exactly the armour row's reciprocal: the plain pull is scaled by 0.5, the finisher's is
+      // not scaled at all.
+      expect(finishing).toBeCloseTo(plain / C.enemies.heavy.armour.grip.knockback, 5)
+    })
+
+    it('takes a finisher shove around a pillar row that turns it away outright', () => {
+      // This fixture's heavy has `pillar: { damage: 0, knockback: 0 }` — a full deflect, which the
+      // shipped config does not have. A plain shove is skipped; the finisher is not, because the
+      // shove carries a real impulse for the finisher to take around that row.
+      //
+      // Three soldiers, and each has a job. A spear shares the pillar's footprint because a
+      // deflected blow builds no string, so the landing that completes it has to come from someone
+      // the shove can actually touch — it is also the positive control, since the shove reports no
+      // connect list of its own. A second spear stands near the player to take the two setup
+      // landings, and it is deliberately *not* one of the two under the rock: the staff's 3.6 reach
+      // cannot touch anything 5 units out, which is what keeps the pair under the footprint exactly
+      // where they were placed. Staff swings rather than a gust or a slam for that same reason —
+      // both of those fling their targets clear of the 1.2-unit footprint before the rock arrives.
+      const under = () => startEncounter([
+        { id: 'plate', position: new Vector3(-0.8, 0, -C.earth.raiseDistance), kind: 'heavy' },
+        { id: 'caught', position: new Vector3(0.8, 0, -C.earth.raiseDistance), kind: 'spear' },
+        { id: 'runt', position: new Vector3(0, 0, -1.5), kind: 'spear' },
+      ], C)
+      const built = staffAt(staffAt(under()).encounter).encounter
+      expect(built.chain.links).toBe(C.chain.maxLinks - 1)
+
+      const plain = raiseAt(under())
+      const finishing = raiseAt(built)
+      expect(plain.pillarRaised).not.toBeNull()
+      expect(finishing.pillarRaised).not.toBeNull()
+      expect(finishing.finisherThisFrame).toBe(true)
+
+      // The rock arrived and shoved the spear sharing its footprint, both times. Without this,
+      // every assertion below would pass for a pillar that came up beside all three soldiers.
+      expect(soldier(plain.encounter, 'caught').knockback.length()).toBeGreaterThan(0)
+      expect(soldier(finishing.encounter, 'caught').knockback.length()).toBeGreaterThan(0)
+
+      // Turned away and untouched without the string; shoved with it.
+      expect(plain.deflectedThisFrame).toEqual(['plate'])
+      expect(soldier(plain.encounter, 'plate').knockback.length()).toBe(0)
+      expect(finishing.deflectedThisFrame).toEqual([])
+      expect(soldier(finishing.encounter, 'plate').knockback.length()).toBeGreaterThan(0)
+    })
+
+    it('does not let a finisher freeze a soldier whose armour turns the freeze away', () => {
+      // The freeze carries no impulse at all — no damage and no knockback — so there is nothing
+      // for a finisher to unarmour. The only thing honouring the verdict could do is land a hold the
+      // armour refused, which overrides `deflects` rather than an impulse: an edit to the armour
+      // table, not a chain feature.
+      //
+      // Pinned against this fixture's `freeze: { damage: 0, knockback: 0 }` on the heavy, which is
+      // deliberately the opposite of what ships.
+      const built = staffThenSlam(pair()).encounter
+      expect(built.chain.links).toBe(C.chain.maxLinks - 1)
+      const step = freezeAt(built)
+      // The spear beside it is the positive control and the reason the string completes at all.
+      expect(step.frozenThisFrame).toEqual(['leather'])
+      expect(step.deflectedThisFrame).toEqual(['plate'])
+      expect(soldier(step.encounter, 'plate').stance).not.toBe('held')
+      expect(soldier(step.encounter, 'plate').heldSeconds).toBe(0)
+    })
+
+    it('reports no finisher for a frame a freeze completed the string on', () => {
+      // `finisherThisFrame` drives a flourish, so a frame that behaved like any other freeze must
+      // not raise it. The string is still spent, which is the cost of leading with ice.
+      const step = freezeAt(staffThenSlam(pair()).encounter)
+      expect(step.finisherThisFrame).toBe(false)
+      expect(step.encounter.chain.links).toBe(0)
+    })
+
+    it('still reports a finisher for a grip and a shove, which do act on it', () => {
+      // The control on the test above: the flag is suppressed for the one source that discards the
+      // verdict, not for every source that is not a blow.
+      expect(gripAt(staffThenSlam(loneHeavyAt(-2)).encounter).finisherThisFrame).toBe(true)
     })
   })
 

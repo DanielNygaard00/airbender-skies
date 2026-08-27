@@ -549,14 +549,8 @@ interface Blow {
    * did nothing. Kept as its own list rather than folded into `connected` with a flag,
    * because the feedback for the two is different in kind: one is a hit and one is a clang.
    *
-   * **Empty when the blow was a finisher**, and that is the finisher's whole payoff rather than a
-   * quirk of the bookkeeping: at the last link a soldier whose armour would have turned the blow
-   * away is not skipped, so it belongs on the connect list instead. See `resolveBlow`.
-   *
-   * Which means a finisher gust on a heavy *does* pay the gust's connect grant, where a plain one
-   * pays nothing. That is deliberate and it is not the "plate armour as a Focus battery" the
-   * split exists to prevent: something happened to the soldier this time, and the string that
-   * bought it took two other landings to build.
+   * Empty when the blow was a finisher — see `Reach.deflected`, which owns that rule for all
+   * three of the resolvers that apply it.
    */
   deflected: string[]
   /** Reactions this blow set off, in enemy order. Empty on almost every blow. */
@@ -580,9 +574,13 @@ interface Blow {
  * the comment on `resolveBlow` records that the four hand-rolled resolvers it replaced had
  * already drifted once.
  *
- * **The reaction lands after the blow rather than folded into it.** `hitEnemy` advances the
- * recovery ladder off the damage it is handed, so folding Steam's damage into the blow's own
- * `hitEnemy` call would let one press cross two rungs of that ladder invisibly.
+ * **The reaction lands after the blow rather than folded into it, because the two are armoured
+ * differently.** The blow's damage goes through `throughArmour` and Steam's deliberately does not
+ * — see `applyReaction`, and the heavy's `armour.burst` of `{ damage: 0.5, knockback: 0 }` for
+ * what Steam is bypassing. One `hitEnemy` call takes one damage figure, so a folded total would
+ * have to be armoured or unarmoured as a unit and one of the two halves would be wrong. Two calls
+ * is not a cost here: `hitEnemy` counts a rung only on a crossing, so the second call cannot
+ * invent one.
  */
 function markAndReact(
   enemy: Enemy,
@@ -605,6 +603,74 @@ function markAndReact(
   }
 }
 
+/** Who one of the player's moves reaches, and what the string says about it. */
+interface Reach {
+  /** Live soldiers the blow lands on, in enemy order. Membership is `landing` below. */
+  connected: string[]
+  /**
+   * Live soldiers whose armour turned the whole blow away, in enemy order.
+   *
+   * **Empty when the blow was a finisher**, and that is the finisher's whole payoff rather than a
+   * quirk of the bookkeeping: at the last link a soldier whose armour would have turned the blow
+   * away is not skipped, so it belongs on `connected` instead.
+   *
+   * Which means a finisher gust on a heavy *does* pay the gust's connect grant, where a plain one
+   * pays nothing. That is deliberate and it is not the "plate armour as a Focus battery" the split
+   * exists to prevent: something happened to the soldier this time, and the string that bought it
+   * took two other landings to build.
+   */
+  deflected: string[]
+  /** `connected` as a set, for the map that applies the blow. */
+  landing: ReadonlySet<string>
+  /** Whether this landing was the one that completed the string. */
+  finisher: boolean
+}
+
+/**
+ * Who one blow reaches, split by armour, with the string advanced and the finisher decided.
+ *
+ * Its own function rather than the top of `resolveBlow`, because three of the nine bending sources
+ * cannot go through `resolveBlow` at all — water's grip pulls and then holds, its freeze only
+ * holds, earth's pillar shoves from the rock rather than from the player — and two of those three
+ * still owe the finisher the same answer. Restating the catch-armour-and-decide split at each of
+ * them is exactly how `resolveBlow`'s own comment records the four original resolvers drifting.
+ *
+ * Reads `enemies` before anything is written, so "connected" means a live soldier took the blow
+ * rather than a body being shoved around the island.
+ */
+function reachedBy(
+  enemies: readonly Enemy[],
+  caught: ReadonlySet<string>,
+  source: BendingSource,
+  c: CombatConfig,
+  land: (connectedCount: number) => boolean,
+): Reach {
+  const reached = enemies.filter((enemy) => caught.has(enemy.id) && isTargetable(enemy))
+  const turned = reached.filter((enemy) => deflects(c.enemies[enemy.kind], source))
+  /**
+   * The string is advanced from the blows the armour let *through*, and the finisher is decided
+   * from the string as it stood *before* this landing — see `isFinisher` in `chain.ts`, which is
+   * read that way because the completing landing spends the string. So a deflect builds nothing,
+   * and the blow that completes a string is itself the finisher rather than the press after it.
+   */
+  const finisher = land(reached.length - turned.length)
+  /**
+   * Emptied rather than filtered per-enemy, because `deflects` is a whole-blow verdict: nothing is
+   * deflected once the blow is a finisher. The heavy's `armour.gust` is
+   * `{ damage: 0, knockback: 0 }`, so the ordinary path skips the target entirely — which would
+   * mean a finisher gust did nothing at all to the one soldier the finisher exists for. §4.4 gives
+   * the heavy a knockback economy and hands the currency to pressure; this is pressure spent.
+   */
+  const turnedAway = new Set<string>(finisher ? [] : turned.map((enemy) => enemy.id))
+  const connected = reached.filter((enemy) => !turnedAway.has(enemy.id)).map((enemy) => enemy.id)
+  return {
+    connected,
+    deflected: reached.filter((enemy) => turnedAway.has(enemy.id)).map((enemy) => enemy.id),
+    landing: new Set(connected),
+    finisher,
+  }
+}
+
 /**
  * Resolve one of the player's moves against everyone it caught.
  *
@@ -618,20 +684,20 @@ function markAndReact(
  * depends on the charge and the staff's on which swing it was, and both are per-target.
  * Everything the caller already computed stays in the caller's closure.
  *
- * Reads `enemies` before it writes, so "connected" means a live soldier took the blow
- * rather than a body being shoved around the island — the property the gust resolver's
- * original comment insisted on, now true for all four by construction.
+ * Who the blow reaches, and whether it is a finisher, comes from `reachedBy`, which reads
+ * `enemies` before anything is written — so "connected" means a live soldier took the blow rather
+ * than a body being shoved around the island, the property the gust resolver's original comment
+ * insisted on and now true for every source by construction.
  *
- * `land` is the fight's own chain, handed in as a callback rather than as a `ChainState` in and a
- * `ChainState` out. The awkward part of the chain is not the arithmetic but the *timing*: the
- * finisher has to be known before the blow is applied, and it cannot be known until the blow is
- * known to have connected. Passing the closure in lets this function compute who connected, ask
- * for the verdict, and then apply the blow **exactly once**. The two alternatives were both
- * worse: resolving the blow twice — once to learn who connected, then again with the finisher
- * known, discarding the first pass — invites a later reader to see a double application and is
- * one refactor away from being one; and predicting connection at the call site would duplicate
- * this function's catch-and-armour geometry at every one of the six call sites, which is the
- * duplication this function exists to have deleted.
+ * `land` is the fight's own chain, handed through as a callback rather than as a `ChainState` in
+ * and a `ChainState` out. The awkward part of the chain is not the arithmetic but the *timing*:
+ * the finisher has to be known before the blow is applied, and it cannot be known until the blow
+ * is known to have connected. Threading the closure through lets the split happen once and the
+ * blow be applied **exactly once**. The two alternatives were both worse: resolving the blow twice
+ * — once to learn who connected, then again with the finisher known, discarding the first pass —
+ * invites a later reader to see a double application and is one refactor away from being one; and
+ * predicting connection at the call site would duplicate the catch-and-armour geometry at every
+ * one of the six call sites, which is the duplication this function exists to have deleted.
  */
 function resolveBlow(
   enemies: readonly Enemy[],
@@ -643,48 +709,27 @@ function resolveBlow(
   land: (connectedCount: number) => boolean,
 ): Blow {
   const element = elementOf(source)
-  // Read before anything is written, per the rule above.
-  const reached = enemies.filter((enemy) => caught.has(enemy.id) && isTargetable(enemy))
-  const turned = reached.filter((enemy) => deflects(c.enemies[enemy.kind], source))
-  /**
-   * The string is advanced from the blows the armour let *through*, and the finisher is read off
-   * the result — so a deflect builds nothing, and the blow that completes a string is itself the
-   * finisher rather than the press after it.
-   */
-  const finisher = land(reached.length - turned.length)
-  /**
-   * **A finisher is not turned away.** The heavy's `armour.gust` is `{ damage: 0, knockback: 0 }`,
-   * so `deflects` is true and the ordinary path skips the target entirely — which would mean a
-   * finisher gust did nothing at all to the one soldier the finisher exists for. At the last link
-   * a deflected target takes zero damage *through* its armour and the full unarmoured impulse:
-   * §4.4 gives the heavy a knockback economy and hands the currency to pressure, and this is
-   * pressure spent.
-   *
-   * Emptied rather than filtered per-enemy, because `deflects` is a whole-blow verdict: nothing
-   * here is deflected once the blow is a finisher, so the id lists below are built from one set.
-   */
-  const turnedAway = new Set<string>(finisher ? [] : turned.map((enemy) => enemy.id))
-  const connected = reached.filter((enemy) => !turnedAway.has(enemy.id)).map((enemy) => enemy.id)
-  const deflected = reached.filter((enemy) => turnedAway.has(enemy.id)).map((enemy) => enemy.id)
+  const reach = reachedBy(enemies, caught, source, c, land)
   const reactions: { enemyId: string; kind: ReactionKind }[] = []
   return {
-    connected,
-    deflected,
+    connected: reach.connected,
+    deflected: reach.deflected,
     reactions,
     enemies: enemies.map((enemy) => {
-      if (!caught.has(enemy.id) || !isTargetable(enemy)) return enemy
       // A deflected blow is not merely reduced to nothing, it is skipped: `hitEnemy` also
       // interrupts a wind-up and resets the stance, and armour that stopped the blow has no
       // business also cancelling the swing it was in the middle of. A reaction is skipped with
       // it — a blow the plate stopped is not a blow that arrived, so it can ignite nothing.
-      if (turnedAway.has(enemy.id)) return enemy
+      if (!reach.landing.has(enemy.id)) return enemy
       const armour = c.enemies[enemy.kind].armour[source]
       const outcome = markAndReact(enemy, element, c.reactions, (target) => {
         const armoured = throughArmour(damage(target), impulse(target), armour)
         // The damage still goes through the armour on a finisher; only the impulse goes around
         // it. A finisher that also did full damage would make the chain the answer to plate's
         // health pool, which is the environment route's job.
-        return hitEnemy(target, armoured.damage, finisher ? impulse(target) : armoured.impulse)
+        return hitEnemy(
+          target, armoured.damage, reach.finisher ? impulse(target) : armoured.impulse,
+        )
       })
       if (outcome.kind !== 'none') reactions.push({ enemyId: enemy.id, kind: outcome.kind })
       return outcome.enemy
@@ -807,24 +852,40 @@ export function stepEncounter(
    */
   const reactionsThisFrame: { enemyId: string; kind: ReactionKind }[] = []
   /**
-   * A blow has landed on somebody: advance the string, and say whether this blow is the finisher.
+   * A blow has landed on somebody: advance the string, spending it if this was the landing that
+   * completed it, and say whether it was.
    *
    * One helper rather than the same three lines at each resolver, because the ordering is easy to
-   * get backwards: the chain is advanced first and the finisher is read from the result, so the
-   * blow that completes a three-link string is itself the finisher rather than the fourth press.
-   *
-   * It reports as well as decides, which is the second reason it is one function:
-   * `finisherThisFrame` is an or across every blow this frame, and a per-call-site assignment
-   * would have been an or somebody eventually wrote as an assignment.
+   * get backwards. **The verdict is read before the landing, not after** — `landChain` spends the
+   * string on the completing landing, so there is no post-landing state to read it off; see
+   * `isFinisher` in `chain.ts`. It still names the completing blow rather than the press after it.
    *
    * A landing rather than a press, and `connectedCount` is deliberately the count of soldiers the
    * *armour let through*: a blow a plate turned away entirely is the armour working, not pressure
    * applied, and `focus.ts` pays a gust on connect for the same reason.
+   *
+   * **It reports nothing.** `land` below is what every source that can act on the verdict calls;
+   * this one exists for the freeze, which cannot.
+   */
+  const advanceChain = (connectedCount: number): boolean => {
+    if (connectedCount === 0) return false
+    const finisher = isFinisher(chain, c.chain)
+    chain = landChain(chain, c.chain)
+    return finisher
+  }
+  /**
+   * The same, for the eight sources that will act on the verdict — and may therefore report it.
+   *
+   * `finisherThisFrame` drives a flourish, so only a frame that actually behaved like a finisher
+   * may raise it. The freeze advances the string through `advanceChain` and does not come through
+   * here, because a frame where a freeze completed a string behaved like any other frame and a
+   * flourish drawn over it would be feedback for nothing.
+   *
+   * The or lives here rather than at each call site for the reason the ordering does: an or
+   * restated at eight sites is an or somebody eventually writes as an assignment.
    */
   const land = (connectedCount: number): boolean => {
-    if (connectedCount === 0) return false
-    chain = landChain(chain, c.chain)
-    const finisher = isFinisher(chain, c.chain)
+    const finisher = advanceChain(connectedCount)
     if (finisher) finisherThisFrame = true
     return finisher
   }
@@ -890,31 +951,22 @@ export function stepEncounter(
       waterGripTargets(input.playerPosition, input.playerForward, enemies, c.water)
         .map((enemy) => enemy.id),
     )
-    // Read before the pull lands, so a connect means a live soldier was gripped rather than a
-    // body being dragged across the island — the same rule the other four resolvers apply.
-    // A soldier whose armour turns the grip away entirely is not a connect: it goes to the
-    // deflect list instead, the same split `resolveBlow` makes for the four air moves.
-    const gripHeld = (enemy: Enemy) =>
-      caught.has(enemy.id) && isTargetable(enemy) && !deflects(c.enemies[enemy.kind], 'grip')
-    grippedThisFrame = enemies.filter(gripHeld).map((enemy) => enemy.id)
-    deflectedThisFrame.push(...enemies
-      .filter((enemy) => caught.has(enemy.id) && isTargetable(enemy)
-        && deflects(c.enemies[enemy.kind], 'grip'))
-      .map((enemy) => enemy.id))
     /**
-     * A grip that took hold is a landing, so it builds the string — the same rule the six blows
-     * through `resolveBlow` follow, and the switch §4.2 wants a player to make mid-string.
+     * Through the shared `reachedBy` rather than a hand-rolled split, so a connect means a live
+     * soldier was gripped rather than a body being dragged across the island, and so this move
+     * gets the finisher rule on the same terms the six blows do.
      *
-     * **The verdict is deliberately discarded here, where the six blows honour it.** What a
-     * finisher buys is the impulse the armour's knockback fraction would have taken, and nothing
-     * in the shipped config turns a grip away at all (the heavy's row is 1 and 0). Honouring it
-     * would therefore only ever override an armour row no config uses — an edit to the armour
-     * table through the back door rather than a chain feature, and `deflects` is the authority on
-     * whether a hold takes at all.
+     * **The grip honours the verdict, and the reason is that it carries a real impulse.** The
+     * pull is `waterGripImpulse` at `pullSpeed`, and the heavy's `grip` row scales exactly that —
+     * `{ damage: 1, knockback: 0 }` in the shipped config, argued in `config.ts` as "plate resists
+     * being dragged". A finisher is the one thing that drags it anyway, which is the same trade
+     * the finisher gust makes against the same soldier's `gust` row.
      */
-    land(grippedThisFrame.length)
+    const reach = reachedBy(enemies, caught, 'grip', c, land)
+    grippedThisFrame = reach.connected
+    deflectedThisFrame.push(...reach.deflected)
     enemies = enemies.map((enemy) => {
-      if (!gripHeld(enemy)) return enemy
+      if (!reach.landing.has(enemy.id)) return enemy
       // Through `markAndReact` rather than marked by hand, so water's mark is written in the same
       // order every other source writes one: old mark read, blow applied, reaction resolved, new
       // mark written. A water verb can never fire a reaction — `REACTIONS[*].water` is 'none'
@@ -928,17 +980,16 @@ export function stepEncounter(
         // The impulse goes through armour, which is what makes the heavy's `grip` row mean
         // anything: at knockback 0 the water takes hold and the body does not move, so plate
         // resists being dragged while the hold still lands. Scaled rather than skipped, unlike a
-        // deflect — a partially-resisted pull is a shorter drag, not a cancelled move.
+        // deflect — a partially-resisted pull is a shorter drag, not a cancelled move. On a
+        // finisher the pull goes around the row entirely, per the block comment above.
         //
         // Pull first, hold second, and the order is load-bearing: `holdEnemy` resets
         // `stanceTime` and would otherwise be overwritten by `hitEnemy`'s own reset to
         // 'recover'. It also means the pull's impulse is already on the body when the hold
         // starts, which is what makes the yank visible rather than instantaneous.
-        const armoured = throughArmour(
-          0, waterGripImpulse(input.playerPosition, target.position, c.water),
-          c.enemies[target.kind].armour.grip,
-        )
-        const pulled = hitEnemy(target, armoured.damage, armoured.impulse)
+        const pull = waterGripImpulse(input.playerPosition, target.position, c.water)
+        const armoured = throughArmour(0, pull, c.enemies[target.kind].armour.grip)
+        const pulled = hitEnemy(target, armoured.damage, reach.finisher ? pull : armoured.impulse)
         return holdEnemy(pulled, c.water.gripHoldSeconds)
       })
       if (outcome.kind !== 'none') {
@@ -1121,9 +1172,23 @@ export function stepEncounter(
         .filter((enemy) => caught.has(enemy.id) && isTargetable(enemy)
           && deflects(c.enemies[enemy.kind], 'freeze'))
         .map((enemy) => enemy.id))
-      // A freeze that took is a landing, so it builds the string too. Its verdict is discarded
-      // for the reason the grip's is, above.
-      land(frozenThisFrame.length)
+      /**
+       * A freeze that took is a landing, so it builds the string too — and it is the one source
+       * that can never cash the string in.
+       *
+       * **Because it carries no impulse at all.** It applies no damage and no knockback, so there
+       * is nothing for a finisher to take around the armour: the only thing honouring the verdict
+       * could do here is land a hold the armour turned away outright, which is not unarmouring an
+       * impulse but overriding `deflects`' verdict on whether the move works — an edit to the
+       * armour table wearing a chain feature's clothes. The grip is the counter-example three
+       * blocks up: it carries a real pull, so it honours the verdict.
+       *
+       * `advanceChain` rather than `land`, so the frame reports no finisher: a freeze that
+       * completed a string behaved like any other freeze, and `finisherThisFrame` drives a
+       * flourish. The string is still spent by the completing landing, which is the cost of
+       * leading with ice — an order the player chooses.
+       */
+      advanceChain(frozenThisFrame.length)
       // No `hitEnemy` at all, unlike the grip: the freeze applies no impulse and no damage, so
       // there is nothing for it to deliver. `holdEnemy` does the interrupting on its own.
       // Passing a zero impulse through `hitEnemy` would work and would be worse — it would put
@@ -1188,33 +1253,34 @@ export function stepEncounter(
         // something: plate is shoved less far by ground coming up under it, and is not immune to
         // it the way it is to a gust. Scaled rather than skipped, unlike a deflect — a resisted
         // shove is a shorter stumble, not a cancelled move.
-        // Read before anything is applied, so the two lists are disjoint by construction — the
-        // same split `resolveBlow` makes, done by hand here because the shove's origin is the
-        // pillar rather than the player and there is no blow to resolve against a cone.
-        const underfoot = pillarShoveTargets(raised, enemies).filter(isTargetable)
-        const shoved = new Set(
-          underfoot
-            .filter((enemy) => !deflects(c.enemies[enemy.kind], 'pillar'))
-            .map((enemy) => enemy.id),
-        )
-        deflectedThisFrame.push(...underfoot
-          .filter((enemy) => deflects(c.enemies[enemy.kind], 'pillar'))
-          .map((enemy) => enemy.id))
-        // A shove that landed is a landing, so it builds the string. Its verdict is discarded
-        // for the reason the grip's and the freeze's are.
-        land(shoved.size)
-        if (shoved.size > 0) {
+        /**
+         * Through the shared `reachedBy`, so the two lists are disjoint by construction and this
+         * move gets the finisher rule on the same terms the six blows do. The `caught` set is
+         * built from `pillarShoveTargets` rather than a cone, because the shove's origin is the
+         * pillar rather than the player; `reachedBy` applies `isTargetable` itself.
+         *
+         * **The shove honours the verdict, and the reason is that it carries a real impulse.**
+         * `pillarShoveImpulse` at `raiseShoveSpeed` and `raiseLiftSpeed` is what the heavy's
+         * `pillar` row scales, so a finisher taking it around that row is the same trade the
+         * finisher gust and the finisher grip make.
+         */
+        const underfoot = new Set(pillarShoveTargets(raised, enemies).map((enemy) => enemy.id))
+        const reach = reachedBy(enemies, underfoot, 'pillar', c, land)
+        deflectedThisFrame.push(...reach.deflected)
+        if (reach.connected.length > 0) {
           enemies = enemies.map((enemy) => {
-            if (!shoved.has(enemy.id)) return enemy
+            if (!reach.landing.has(enemy.id)) return enemy
             // Marks *earth*, which is what lets rock arriving under a wet soldier's feet mud it —
             // the same pairing the Stone Throw fires, because the mark is written in the
             // element's name rather than the move's.
             const outcome = markAndReact(enemy, elementOf('pillar'), c.reactions, (target) => {
+              const shove = pillarShoveImpulse(raised, target.position, c.earth)
               const armoured = throughArmour(
-                0, pillarShoveImpulse(raised, target.position, c.earth),
-                c.enemies[target.kind].armour.pillar,
+                0, shove, c.enemies[target.kind].armour.pillar,
               )
-              return hitEnemy(target, armoured.damage, armoured.impulse)
+              return hitEnemy(
+                target, armoured.damage, reach.finisher ? shove : armoured.impulse,
+              )
             })
             if (outcome.kind !== 'none') {
               reactionsThisFrame.push({ enemyId: enemy.id, kind: outcome.kind })
