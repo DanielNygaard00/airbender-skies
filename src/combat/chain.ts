@@ -18,16 +18,26 @@
  * **Nothing here shortens a cooldown.** `encounter.ts` keeps its five cooldowns independent
  * precisely so switching element cannot launder one into another, so this module changes what a
  * blow does when it lands and never when it may be thrown. `encounter.test.ts` asserts it.
+ *
+ * **The finisher is punctuation, not a plateau.** `landChain` spends the string on the landing that
+ * completes it, so a finisher is a single blow and the next one costs three more landings. See that
+ * function for the balance defect the alternative — clamping at the cap — produced.
  */
 export interface ChainConfig {
-  /** Landings in one string. The last one is the finisher. */
+  /** Landings in one string. The last one is the finisher, and it spends the string. */
   maxLinks: number
   /** Grace after a landing during which the next one continues the string. */
   windowSeconds: number
 }
 
 export interface ChainState {
-  /** Landings in the current string, 0 to maxLinks. */
+  /**
+   * Landings in the current string, 0 to `maxLinks - 1`.
+   *
+   * Never `maxLinks`: the landing that would take it there is the finisher, and `landChain`
+   * spends the string on that landing rather than parking it at the cap. A completed string is a
+   * moment, not a state anybody holds.
+   */
   links: number
   /** Seconds since the last landing. Resets to 0 on each one. */
   sinceLink: number
@@ -52,18 +62,32 @@ export function stepChain(state: ChainState, dt: number, c: ChainConfig): ChainS
   return { links: state.links, sinceLink }
 }
 
-/** A blow landed. Clamped at the cap so a fourth landing cannot overflow the finisher. */
+/**
+ * A blow landed. **The landing that completes the string spends it**, returning a fresh chain.
+ *
+ * Consumed rather than clamped at the cap, and the difference is a balance rule rather than
+ * bookkeeping. Clamping left a finished string *standing*: every landing resets `sinceLink`, so
+ * any landing inside the window both kept the window alive and re-qualified as a finisher — and at
+ * the gust's 0.45 second cooldown, with any soldier in the fight to land on, that state never
+ * lapsed. A string a player could hold indefinitely is a permanent licence to ignore the whole
+ * armour table's knockback column at once, which is exactly what `config.ts` cuts the Stone
+ * Throw's knockback to 0.6 to prevent. Spending it makes the finisher punctuation: the next one
+ * costs three more landings.
+ */
 export function landChain(state: ChainState, c: ChainConfig): ChainState {
-  return { links: Math.min(state.links + 1, c.maxLinks), sinceLink: 0 }
+  return isFinisher(state, c) ? freshChain() : { links: state.links + 1, sinceLink: 0 }
 }
 
 /**
- * Whether the string is standing at its last link.
+ * Whether a landing on this string is the one that completes it.
  *
- * Read from the state after the landing rather than before it, so the blow that completes the
- * string is itself the finisher. Asking before would make the finisher the *fourth* press of a
- * three-link string, which is one more commitment than the config says a player will make.
+ * **Asked of the state before the landing, not after**, and that inversion is forced by
+ * `landChain` spending the string: a completed string is never a state anybody holds, so "standing
+ * at its last link" is no longer a question a persisted `ChainState` can answer. Read this way the
+ * answer is still about the completing blow rather than the press after it — a two-link string
+ * answers true, and the blow that lands on it is the finisher, which is the one commitment the
+ * config says a player makes.
  */
 export function isFinisher(state: ChainState, c: ChainConfig): boolean {
-  return state.links >= c.maxLinks
+  return state.links + 1 >= c.maxLinks
 }

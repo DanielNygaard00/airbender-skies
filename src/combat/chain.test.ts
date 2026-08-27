@@ -29,25 +29,58 @@ describe('the chain', () => {
     expect(advance(one, C.windowSeconds + 0.05).links).toBe(0)
   })
 
-  it('caps at maxLinks, and a further landing does not overflow it', () => {
+  it('spends the string on the landing that completes it', () => {
+    // Replaces an earlier test that asserted the string *capped* at maxLinks and that a further
+    // landing did not overflow it. That capped state was the balance defect: it reset `sinceLink`
+    // on every landing while still answering `isFinisher`, so a player who kept landing blows
+    // inside the window held a permanent finisher. See `landChain`.
     let s = freshChain()
-    for (let i = 0; i < C.maxLinks + 2; i++) s = landChain(s, C)
-    expect(s.links).toBe(C.maxLinks)
+    for (let i = 0; i < C.maxLinks - 1; i++) s = landChain(s, C)
+    expect(s.links).toBe(C.maxLinks - 1)
+    expect(landChain(s, C)).toEqual(freshChain())
   })
 
-  it('is a finisher only at the cap', () => {
+  it('never stands at the cap, however many blows land', () => {
+    // The other half of the claim above: there is no reachable state with a completed string in
+    // it, so nothing downstream can hold one.
+    let s = freshChain()
+    for (let i = 0; i < C.maxLinks * 3; i++) {
+      s = landChain(s, C)
+      expect(s.links).toBeLessThan(C.maxLinks)
+    }
+  })
+
+  it('is a finisher on exactly the completing landing', () => {
+    // Read *before* each landing, because `landChain` spends the string on the completing one and
+    // a completed string is therefore never a state to read it off. The loop walks the string up
+    // to one short of the cap, asserting the answer is no every time, then asserts it is yes for
+    // the landing that would complete it.
     let s = freshChain()
     for (let i = 0; i < C.maxLinks - 1; i++) {
-      s = landChain(s, C)
       expect(isFinisher(s, C)).toBe(false)
+      s = landChain(s, C)
     }
-    expect(isFinisher(landChain(s, C), C)).toBe(true)
+    expect(isFinisher(s, C)).toBe(true)
   })
 
   it('is not a finisher once the string has expired', () => {
+    // A string one landing short of the finisher, left to lapse. Previously this built a *whole*
+    // string and let it expire, which the consumption rule makes unbuildable — there is no
+    // completed string to age.
     let s = freshChain()
-    for (let i = 0; i < C.maxLinks; i++) s = landChain(s, C)
+    for (let i = 0; i < C.maxLinks - 1; i++) s = landChain(s, C)
+    expect(isFinisher(s, C)).toBe(true)
     expect(isFinisher(advance(s, C.windowSeconds + 0.05), C)).toBe(false)
+  })
+
+  it('makes the next finisher cost a whole string again', () => {
+    // The plateau's absence, stated end to end: spend a finisher, and the landing straight after
+    // it is the first link of a new string rather than another finisher.
+    let s = freshChain()
+    for (let i = 0; i < C.maxLinks - 1; i++) s = landChain(s, C)
+    s = landChain(s, C)
+    expect(isFinisher(s, C)).toBe(false)
+    expect(landChain(s, C).links).toBe(1)
   })
 
   it('carries no element, which is what makes a swap free', () => {
