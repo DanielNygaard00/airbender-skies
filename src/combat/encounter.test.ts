@@ -3982,10 +3982,30 @@ describe('the chain in the fight', () => {
         .toBeCloseTo(before.health.current, 10)
     })
 
-    it('reports the heavy as connected rather than deflected on the finishing frame', () => {
+    it('reports the heavy as deflected, not connected, on the frame it displaces it', () => {
+      // The Focus rule, which is the one thing the finisher must not touch. `hitThisFrame` is what
+      // `main.ts` hands `focus.ts` as `gustConnects`, at `gustConnectGain` 6 a name — so a heavy
+      // reported as connected pays 6 Focus for a blow that took zero health off it. The design
+      // note's Global Constraints say combos pay in mechanics and never in Focus; this asserts it.
+      //
+      // Both halves, because either alone passes for the wrong implementation: a heavy absent from
+      // both lists is a finisher that stopped displacing, and a heavy on both is the double-count
+      // this test exists to forbid.
       const step = threeLinkStringEndingInGust(pair())
-      expect(step.deflectedThisFrame).toEqual([])
-      expect(step.hitThisFrame.sort()).toEqual(['leather', 'plate'])
+      expect(step.hitThisFrame).toEqual(['leather'])
+      expect(step.deflectedThisFrame).toEqual(['plate'])
+
+      // And it still moved, which is what the finisher actually buys. Measured against the same
+      // frame with nothing pressed, because the two setup landings leave the plate already
+      // sliding — see the first test in this block for the full argument.
+      const built = staffThenSlam(pair()).encounter
+      const sliding = soldier(press({})(built).encounter, 'plate')
+      expect(soldier(step.encounter, 'plate').knockback.length() - sliding.knockback.length())
+        .toBeGreaterThan(C.gust.knockback / 2)
+      // Zero damage through the armour, so the connect list is not merely unpaid — there was
+      // nothing there to pay for.
+      expect(soldier(step.encounter, 'plate').health.current)
+        .toBeCloseTo(soldier(built, 'plate').health.current, 10)
     })
 
     it('leaves a plain gust deflected and unmoved, which is the control', () => {
@@ -4114,7 +4134,11 @@ describe('the chain in the fight', () => {
       // Turned away and untouched without the string; shoved with it.
       expect(plain.deflectedThisFrame).toEqual(['plate'])
       expect(soldier(plain.encounter, 'plate').knockback.length()).toBe(0)
-      expect(finishing.deflectedThisFrame).toEqual([])
+      // Still reported as a deflect on the finishing frame, and shoved anyway: the armour's
+      // verdict is what the feedback layer draws and what the meter is paid on, and the finisher
+      // widens only who the impulse reaches. The shove reports no connect list of its own, so the
+      // displacement is the only thing left to read.
+      expect(finishing.deflectedThisFrame).toEqual(['plate'])
       expect(soldier(finishing.encounter, 'plate').knockback.length()).toBeGreaterThan(0)
     })
 
@@ -4144,9 +4168,10 @@ describe('the chain in the fight', () => {
       expect(step.encounter.chain.links).toBe(0)
     })
 
-    it('still reports a finisher for a grip and a shove, which do act on it', () => {
+    it('still reports a finisher for a grip, which does act on it', () => {
       // The control on the test above: the flag is suppressed for the one source that discards the
-      // verdict, not for every source that is not a blow.
+      // verdict, not for every source that is not a blow. The pillar shove's own `finisherThisFrame`
+      // is asserted two tests up, where the fixture that gets a rock under a soldier already exists.
       expect(gripAt(staffThenSlam(loneHeavyAt(-2)).encounter).finisherThisFrame).toBe(true)
     })
   })
