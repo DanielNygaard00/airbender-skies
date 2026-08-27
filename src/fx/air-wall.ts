@@ -1,8 +1,9 @@
 import {
-  Color, CylinderGeometry, DoubleSide, Group, MathUtils, Mesh, ShaderMaterial, Vector3,
+  Color, CylinderGeometry, DoubleSide, Group, MathUtils, Mesh, Vector3,
   type Object3D,
 } from 'three'
 import type { AirWallConfig } from '../combat/air-wall'
+import { createEffectMaterial } from './effect-material'
 import { SECTOR_SEGMENTS } from './sector'
 import { safeScale } from './scale'
 
@@ -65,50 +66,30 @@ const FADE_OUT_SECONDS = 0.09
 /** How fast the streaks drift across the panel, in panel-widths per second. */
 const DRIFT_RATE = 7
 
-const VERTEX_SHADER = /* glsl */ `
-  varying vec2 vUv;
-  void main() {
-    vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`
-
 /**
- * The two trailing includes apply tone mapping and the output colour transform, so the panel
- * matches the terrain and sky it is drawn against instead of keeping its raw linear colour.
+ * What the shader itself is doing: `across` and `up` soften all four edges so the panel reads as a
+ * held patch of moving air rather than a cut-out rectangle, and `streak` runs a bright banding up
+ * it that drifts sideways with `time`. The drift is what says "air": a still panel of even alpha
+ * reads as glass, which is the wrong material for a move whose whole fiction is that it is a
+ * cushion of wind.
  *
- * Do NOT also include the matching `..._pars_fragment` chunks. The renderer already injects
- * those declarations for a `ShaderMaterial` whose `toneMapped` is left on, and adding them
- * again fails the compile with a wall of "redefinition" errors — which does not throw
- * anywhere visible, it just leaves the mesh undrawn. `src/core/sky.ts` carries the same
- * warning because it is the same trap, and there it cost a missing sky.
+ * The forbidden `..._pars_fragment` includes are no longer this file's problem to remember:
+ * `effect-material.ts` assembles the fragment and refuses a body containing one. This file was the
+ * reason that module exists, and migrating it was the test of whether the builder could express
+ * the one shader the project already had.
  *
- * What the shader itself is doing: `across` and `up` soften all four edges so the panel reads
- * as a held patch of moving air rather than a cut-out rectangle, and `streak` runs a bright
- * banding up it that drifts sideways with `time`. The drift is what says "air": a still panel
- * of even alpha reads as glass, which is the wrong material for a move whose whole fiction is
- * that it is a cushion of wind.
- *
- * The two falloff widths were cut from 0.18 and 0.22 after looking at the rendered panel over
- * the home island. At those values the softening ate 36% of the arc and 44% of the height, so
- * the barrier read visibly narrower and shorter than the volume that actually deflects — which
- * is the failure mode this codebase treats as a bug rather than a style choice, because a hit
- * landing outside the visible shape reads as a bug. 0.10 and 0.12 keep the shape from having
- * hard cut edges while leaving four fifths of it at full strength.
+ * The two falloff widths were cut from 0.18 and 0.22 after looking at the rendered panel over the
+ * home island. At those values the softening ate 36% of the arc and 44% of the height, so the
+ * barrier read visibly narrower and shorter than the volume that actually deflects — which is the
+ * failure mode this codebase treats as a bug rather than a style choice, because a hit landing
+ * outside the visible shape reads as a bug. 0.10 and 0.12 keep the shape from having hard cut
+ * edges while leaving four fifths of it at full strength.
  */
-const FRAGMENT_SHADER = /* glsl */ `
-  uniform vec3 tint;
-  uniform float alpha;
-  uniform float time;
-  varying vec2 vUv;
-  void main() {
+const FRAGMENT_BODY = /* glsl */ `
     float across = smoothstep(0.0, 0.10, vUv.x) * smoothstep(1.0, 0.90, vUv.x);
     float up = smoothstep(0.0, 0.12, vUv.y) * smoothstep(1.0, 0.88, vUv.y);
     float streak = 0.55 + 0.45 * sin(vUv.x * 38.0 + vUv.y * 6.0 - time);
     gl_FragColor = vec4(tint, alpha * across * up * streak);
-    #include <tonemapping_fragment>
-    #include <colorspace_fragment>
-  }
 `
 
 /**
@@ -140,19 +121,13 @@ export function createAirWallPanel(): AirWallPanel {
 
   let builtHalfAngle = Math.PI / 4
   let geometry = panelGeometry(builtHalfAngle)
-  const material = new ShaderMaterial({
-    uniforms: {
-      tint: { value: new Color(TINT) },
-      alpha: { value: 0 },
-      time: { value: 0 },
-    },
-    vertexShader: VERTEX_SHADER,
-    fragmentShader: FRAGMENT_SHADER,
-    transparent: true,
+  const material = createEffectMaterial({
+    body: FRAGMENT_BODY,
+    uniforms: { tint: new Color(TINT), alpha: 0, time: 0 },
     side: DoubleSide,
-    depthWrite: false,
-    // `depthTest` left ON, which is the deliberate departure from every other tell in this
-    // directory. They all set it false because a flat shape near the player's feet is buried
+    // `depthTest` left ON (the builder has no `depthTest` option, so its default stands), which
+    // is the deliberate departure from every other tell in this directory. They all set it
+    // false because a flat shape near the player's feet is buried
     // by terrain sloping up away from them — the defect that made the gust cone invisible in
     // play. This shape is not flat and is not near the ground: it stands `verticalReach` above
     // the player, so nothing buries it, and depth-testing earns something real instead. The
