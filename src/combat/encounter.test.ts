@@ -4360,3 +4360,80 @@ describe('reactions in the fight', () => {
     expect(spearIn(e).mark).toBeNull()
   })
 })
+
+/**
+ * The hold ceiling, driven through the fight on the shipped config.
+ *
+ * §9 of the design note names exactly this test — "the one that drives grip, freeze and Mud
+ * together and asserts the total never exceeds 3.2s" — and until now it did not exist.
+ * `reactions.test.ts` exercised `applyReaction` against a synthetic `ReactionConfig`, and the
+ * fight-level Mud test above runs on this file's fixture, whose `freezeHoldSeconds` is 3 while its
+ * `holdCeilingSeconds` is 3.2 — so nothing anywhere watched the real relationship between the two.
+ *
+ * `DEFAULT_COMBAT_CONFIG` rather than this file's `C` for that reason, and the same reason the
+ * "water against plate" and "earth against plate" blocks above name it: the claim is about the
+ * shipped numbers, so the shipped numbers are what it has to run on.
+ */
+describe('grip, freeze and Mud together, on the shipped config', () => {
+  const SHIPPED = DEFAULT_COMBAT_CONFIG
+  /**
+   * A lone heavy four units ahead, inside all three moves' reach.
+   *
+   * Inside the freeze's `range` 8, the grip's 10 and the stone's 12, and dead ahead of all three
+   * cones. A heavy rather than a spear because the stone has to land without downing it: one
+   * `stoneDamage` of 1.1 against `maxHealth` 4 leaves it at 2.9, clear of the first recovery rung
+   * at 2.4 — where a spear's 1.5 would be flat, and an untargetable soldier cannot be gripped,
+   * frozen or mudded at all. Its `grip`, `freeze` and `stone` rows are all partial rather than
+   * full deflects, so every one of the three moves lands.
+   */
+  const lone = () => ({
+    ...startEncounter([{ id: 'plate', position: new Vector3(0, 0, -4), kind: 'heavy' }], SHIPPED),
+    vortexHeldSeconds: 0,
+  })
+  const press = (over: Partial<EncounterInput>) => (from: Encounter) =>
+    stepEncounter(from, { ...defaults, ...over }, 1 / 60, SHIPPED, DEPS)
+  const held = (e: Encounter) => {
+    const found = e.enemies.find((enemy) => enemy.id === 'plate')
+    if (!found) throw new Error('no soldier named plate')
+    return found.heldSeconds
+  }
+
+  it('never holds a soldier past the freeze, however the three are stacked', () => {
+    // Freeze *first*, and the order is the whole test: `holdEnemy` takes `Math.max`, so a freeze
+    // arriving last can only overwrite whatever grip and Mud built. The dangerous direction is Mud
+    // landing on a clock the freeze has already put at the ceiling, because that is the one place
+    // an unguarded addition would push past it — 3.2 plus the grip's own 1.4.
+    //
+    // Then the grip, which marks *wet* and cannot itself react (water on water is the diagonal),
+    // and then the stone, which is the earth verb that fires Mud off that mark.
+    const frozen = press({ element: 'water', vortexReleased: true })(lone())
+    const gripped = press({ element: 'water', gustPressed: true })(frozen.encounter)
+    const mudded = press({ element: 'earth', gustPressed: true })(gripped.encounter)
+
+    // Not vacuous: all three actually landed on the same soldier, in that order.
+    expect(frozen.frozenThisFrame).toEqual(['plate'])
+    expect(gripped.grippedThisFrame).toEqual(['plate'])
+    expect(mudded.stoneHitThisFrame).toEqual(['plate'])
+    expect(mudded.reactionsThisFrame).toEqual([{ enemyId: 'plate', kind: 'mud' }])
+
+    // The freeze alone already stands at the ceiling, one frame's decay down — so Mud has no room
+    // above it, which is precisely the state the guard has to survive.
+    expect(held(frozen.encounter)).toBeCloseTo(SHIPPED.water.freezeHoldSeconds - 1 / 60, 6)
+    // And Mud did top the clock back up rather than doing nothing: without this the assertion
+    // below would pass against an `applyReaction` whose `'mud'` branch was deleted.
+    expect(held(mudded.encounter)).toBeGreaterThan(held(gripped.encounter))
+
+    // The assertion §9 asks for, checked on every frame from the freeze until the hold runs out
+    // rather than once at the end, because the peak is three frames in and a single final read
+    // would sample it long after it had decayed.
+    let encounter = mudded.encounter
+    let peak = Math.max(held(frozen.encounter), held(gripped.encounter), held(mudded.encounter))
+    for (let t = 0; t < SHIPPED.water.freezeHoldSeconds + 1; t += 1 / 60) {
+      encounter = press({})(encounter).encounter
+      peak = Math.max(peak, held(encounter))
+    }
+    expect(peak).toBeLessThanOrEqual(SHIPPED.water.freezeHoldSeconds)
+    // And it does run out, so the sweep above measured a hold that was actually decaying.
+    expect(held(encounter)).toBe(0)
+  })
+})

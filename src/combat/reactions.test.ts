@@ -178,3 +178,40 @@ describe('resolving a reaction', () => {
     expect(enemy.heldSeconds).toBeCloseTo(3.2, 5)
   })
 })
+
+/**
+ * The shipped tuning, pinned as relationships rather than as literals.
+ *
+ * Every magnitude in `reactions` is borrowed from a number the game already has, and `config.ts`
+ * states each borrowing in prose. Prose is not a guard: a retune of the lender leaves the borrower
+ * where it was and the comment still reads as though they agree. These are the same shape
+ * `water.test.ts`'s hold-duration block uses on the freeze and the grip.
+ */
+describe('the shipped reaction tuning', () => {
+  const R = DEFAULT_COMBAT_CONFIG.reactions
+
+  it('pins the hold ceiling to the freeze, so the two cannot drift', () => {
+    // The load-bearing guard of the whole step, and §9 of the design note names it as such. The
+    // freeze pays 35 Focus — §4.5's one sink — for the privilege of holding a soldier this long,
+    // so grip plus Mud reaching past it would make that sink pointless. Asserted as equality
+    // rather than `<=`: a ceiling *below* the freeze would be a second, quieter defect, because
+    // `applyReaction` never shortens a hold, so a lower ceiling would simply stop Mud doing
+    // anything to a frozen soldier while still reading as a guard.
+    //
+    // Raising `holdCeilingSeconds` to 4 used to be a silent change. It now fails here.
+    expect(R.holdCeilingSeconds).toBe(DEFAULT_COMBAT_CONFIG.water.freezeHoldSeconds)
+  })
+
+  it('borrows both magnitudes from the moves config.ts says they come from', () => {
+    // Steam is "a burst the plate cannot stop" rather than a new damage tier, and Mud is the
+    // grip's own hold added to the clock. Both claims are only true while these hold.
+    expect(R.steamDamage).toBe(DEFAULT_COMBAT_CONFIG.fire.burstDamage)
+    expect(R.mudHoldSeconds).toBe(DEFAULT_COMBAT_CONFIG.water.gripHoldSeconds)
+  })
+
+  it('lets a mark outlive the string that made it, and lapse before ice would', () => {
+    // The two bounds `config.ts` argues `markSeconds` between, so the guess stays inside them.
+    expect(R.markSeconds).toBeGreaterThan(DEFAULT_COMBAT_CONFIG.chain.windowSeconds)
+    expect(R.markSeconds).toBeLessThan(DEFAULT_COMBAT_CONFIG.water.freezeHoldSeconds)
+  })
+})
