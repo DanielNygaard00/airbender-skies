@@ -77,16 +77,17 @@ into a staff-only mechanic. The seed value is **0.9s**, to be retuned once playe
 
 **`maxLinks` is 3**, matching `DEFAULT_STAFF_CONFIG.maxChain`. Not for symmetry's sake: three is
 the number of landings the staff already proved a player will commit to before the risk of standing
-still outweighs the payoff, and a four-link string across two cooldowns would run past the 0.9s
-window on most pairings anyway.
+still outweighs the payoff. An earlier draft added that a four-link string "would run past the 0.9s
+window on most pairings anyway", which is not true and rests on the same misreading corrected
+below: the window is per-gap, not per-string, so a fourth link needs only a fourth gap under 0.9s.
 
 **The staff advances the chain but writes no mark.** It is not an element, so it has no pairing to
 look up and nothing to leave behind — `ReactionKind` is indexed by `Element`, and giving the staff a
 row would mean inventing a fifth element for a weapon the design document deliberately keeps
 separate from bending. A staff string ending in a bending finisher is the intended use.
 
-That window interacts with the real cooldowns, and the interaction is a design statement rather
-than an accident:
+That window meets the real cooldowns, and the first version of this section got the meeting
+backwards. The cooldowns, for reference:
 
 | move | cooldown |
 | --- | --- |
@@ -96,12 +97,57 @@ than an accident:
 | stone throw | 1.8s |
 | vortex | 3.5s |
 
-Inside a 0.9s window, no move can follow *itself*. A single-element string is therefore the light
-verb followed by that element's heavy verb — water's grip into its freeze, earth's stone into its
-pillar — because those are separate cooldowns. A mixed string can be much faster: gust into grip
-into burst is three landings inside about a second, and nothing about the cooldowns forbids it.
-So the cooldown table already makes variety the quicker route to a finisher without a single line
-of code rewarding variety directly. That is the mechanism doing the teaching.
+**The window is measured from each landing, not across the string.** `landChain` resets `sinceLink`
+on every landing, so what a string needs is a *gap* under 0.9s between consecutive landings — not a
+total under 0.9s, and not a cooldown under half of it. That distinction is what the original claim
+got wrong. For the grip, the burst, the stone and the vortex the conclusion survives on its own
+terms, because each of those cooldowns is *longer* than the whole window and a second landing is
+simply not available in time. For the gust it does not: 0.45s is exactly half of 0.9 rather than
+under it, so three gusts thrown on cooldown are two 0.45s gaps, which is a complete string.
+
+**And the staff, left out of that table entirely, is the source most able to self-chain.** At
+`swingSeconds` 0.26 an ordinary three-swing combo spans 0.52s, comfortably inside one window, so
+one combo is a finished string every time. The verb that needs no element switch and writes no mark
+turns out to be the cheapest route to the chain's reward — which is a real design question for the
+play-test, not a bug.
+
+**What actually gates a single-verb string is displacement.** Each landing's own knockback and lift
+put its target outside the next press's `range` and `verticalReach` for the next half-second, and
+that, rather than any cooldown, is why the gust cannot chain into itself. Variety is still the
+quicker route to a finisher without a line of code rewarding it directly, and the conclusion of the
+original paragraph survives — but the mechanism doing the teaching is the knockback column, so a
+retune has to be read against `range` and `verticalReach` rather than against the cooldown table.
+
+### 3.1 What the shipped numbers do, measured
+
+Everything above was argued from the config. The figures here were **measured**, by driving
+`stepEncounter` frame by frame on `DEFAULT_COMBAT_CONFIG` and reading the step's own reports — not
+predicted, and not played. They are what corrected the three claims above.
+
+- **Eight seconds of unbroken gust pressure on a lone spear: zero finishers.** Three gusts land in
+  those eight seconds. The first throws the soldier past the gust's own `range` of 12 — it ends the
+  run 20 units out — and the rest of the time it is walking back in. Displacement, not the 0.45s
+  cooldown, is what stops the gust chaining into itself.
+- **One ordinary three-swing staff combo: exactly one finisher, every combo.** Three landings in
+  0.52s, no element switch, no mark written.
+- **The worked example this note used to offer does not land.** "Gust into grip into burst is three
+  landings inside about a second" — the gust and the grip land, and the burst misses. The gust
+  throws a spear to 7.1 units by 0.17s after the press and 8.6 by 0.45s, against the burst's `range`
+  of 7. It only connects if all three presses fall inside about 0.08s of each other, which is not an
+  input a player produces. **This is the displacement gate acting on a mixed string too**, which is
+  the part the original claim missed.
+- **Two sequences that do work.** `grip → burst → stone` on a heavy: all three land, the stone is
+  the finisher, and the burst also steams the soldier the grip left wet. `staff, staff, gust` on a
+  heavy standing beside a spear: the spear is what makes the gust's third landing possible, and the
+  finisher displaces the heavy that a plain gust cannot touch.
+- **Reactions are rarer than the table suggests.** Ten seconds of grip and stone pressed on
+  cooldown — the ideal Mud loop, nothing wasted — fires **one** Mud on a spear and three on a heavy.
+  The spear is knocked down by the stone that muds it; the heavy is not, and the difference is
+  `armour.stone`'s knockback of 0.6.
+
+The through-line: **finishers and reactions are harder to reach than this note assumed**, and
+outside the staff the reason is always the same one — the game's own knockback moves the target out
+of the next press's reach. §9's risk list is corrected to match.
 
 **What the finisher does: its knockback ignores armour.** One rule for all four elements, no
 per-element table. §4.4 gives the heavy armoured soldier "knockback economy" to pressure and makes
@@ -141,8 +187,10 @@ above is what stops the enemy struct from becoming a status bag.
 
 **The table is exhaustive by type.** `Record<Element, Record<Element, ReactionKind>>` — sixteen
 cells, every one decided, with `'none'` an argued choice rather than a gap. This is the device
-`LOOKS` in `element-radial.ts`, `WIND_LEGEND` in `wind.ts` and the per-kind `armour` tables already
-use: a fifth element fails to compile until every pairing with it has been ruled on.
+`LOOKS` in `element-radial.ts`, `WIND_LEGEND` in `src/ui/guide/reference.ts` and the per-kind
+`armour` tables already use: a fifth element fails to compile until every pairing with it has been
+ruled on. (`wind.ts` defines `WindKind`, the union the legend is keyed by, and not the legend —
+three comments in the codebase named the wrong file and have been corrected.)
 
 ### 4.1 The table
 
@@ -265,6 +313,12 @@ Node-testable, and therefore tested:
   reaction shortens any of the five cooldowns.** A test that advances a full chain and then asserts
   every cooldown is unchanged is what stops a future contributor from paying the finisher out of
   the cooldown budget;
+- the Focus invariant, the same way: **a finisher adds nobody to the connect list that feeds the
+  meter.** §1's "combos pay in mechanics, never in Focus" is otherwise one line of bookkeeping away
+  from being false — a finisher on an armoured soldier displaces it and is still reported as a
+  deflect, so the meter never sees it;
+- the hold ceiling driven through `stepEncounter` on the shipped config, and the config-level
+  equality that keeps it pinned to the freeze — see §9;
 - the fire ruling: no reaction path produces player thrust.
 
 Not testable here, and therefore left to the play-test: whether a 0.9s window feels generous or
@@ -281,8 +335,15 @@ and why they wait.
 ## 9. Risks
 
 - **The finisher's armour bypass could trivialise the heavy.** It is displacement only, and it
-  costs three landings inside a 0.9s window while the heavy is hitting back. If it proves too
-  strong, the lever is `maxLinks` before the magnitude.
+  costs three landings inside a 0.9s window while the heavy is hitting back. This risk was written
+  the wrong way round: it named `maxLinks` as the lever to reach for before the magnitude, on the
+  assumption that finishers would prove too easy. §3.1 measured the opposite — of the two verbs
+  quick enough to build a string alone, the gust reaches no finisher at all under eight seconds of
+  unbroken pressure, and the staff reaches one per combo. So the likely lever is
+  **`windowSeconds` upward**, and `maxLinks` downward is
+  the lever to reach for only if the play-test contradicts the measurement. The magnitude still
+  comes last, because the finisher pays in displacement and a displacement it cannot deliver is
+  not a magnitude problem.
 - **Two reactions may feel thin for "combinations".** The table is the deliverable as much as the
   cells are: a third reaction is a one-cell change plus a resolver branch once an enemy has the
   state Dust needs.
@@ -291,7 +352,12 @@ and why they wait.
 - **Mud's ceiling is the load-bearing guard in this note.** If it is implemented as a plain
   addition, water plus earth becomes a lockdown loop that costs less than the freeze it outclasses.
   The test that matters is the one that drives grip, freeze and Mud together and asserts the total
-  never exceeds 3.2s.
+  never exceeds 3.2s. That test now exists — "never holds a soldier past the freeze, however the
+  three are stacked", in `encounter.test.ts`, on `DEFAULT_COMBAT_CONFIG` rather than on a fixture,
+  because the fixture's `freezeHoldSeconds` differs from the shipped one and a test that ran on it
+  would have watched two unrelated numbers. It is backed by a config-level assertion in
+  `reactions.test.ts` that `holdCeilingSeconds` *equals* `freezeHoldSeconds`, so the two cannot
+  drift apart in a later retune without a test going red.
 - **The window may not survive contact with the radial.** If flicking the radial mid-string eats
   more than 0.9s of real time, mixed strings will feel impossible even though the code allows them.
   Measured at the controls, not here.

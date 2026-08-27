@@ -718,7 +718,7 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
     thrustForwardSpeed: 6,
   },
   /**
-   * The chain, and why the window is three times the staff's.
+   * The chain: why the window is three times the staff's, and what actually gates a string.
    *
    * `DEFAULT_STAFF_CONFIG.continueSeconds` is 0.3, tuned for repeated presses of one key.
    * Continuing a string across elements costs a radial flick or a number key *plus* a press, so a
@@ -727,10 +727,28 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
    *
    * `maxLinks` matches `DEFAULT_STAFF_CONFIG.maxChain` at 3, not for symmetry but because three is
    * the number of landings the staff already proved a player will commit to before standing still
-   * costs more than the payoff. Note what the cooldowns do to this: inside 0.9s no move can follow
-   * itself (the gust's 0.45 is the only one under half the window, and even it cannot reach three),
-   * so a single-element string is the light verb into that element's heavy verb, and a mixed string
-   * is the quicker route to a finisher without a line of code rewording variety directly.
+   * costs more than the payoff.
+   *
+   * **The cooldowns do not stop every move following itself, and an earlier version of this
+   * comment said they did.** `stepChain` measures the window from each *landing* — `landChain`
+   * resets `sinceLink` — so what a string needs is a gap under 0.9s between consecutive landings,
+   * not a cooldown under half the window. For the grip, the burst, the stone and the vortex the
+   * old conclusion still holds, because each of those cooldowns is longer than the whole window.
+   * For the gust it does not: 0.45 is exactly half of 0.9 rather than under it, and three gusts on
+   * their cooldown are two 0.45s gaps, which is a complete string. Worse for the old claim, the
+   * staff was left out of it altogether and is the source most able to self-chain — at
+   * `swingSeconds` 0.26 an ordinary three-swing combo spans 0.52s, comfortably inside one window.
+   * Measured by driving `stepEncounter` on this config: exactly one finisher per staff combo,
+   * every combo. The verb that needs no element switch and writes no mark is the cheapest route to
+   * the chain's reward.
+   *
+   * **What does gate a single-verb string is displacement.** Each landing's own knockback and lift
+   * put its target outside the next press's `range` and `verticalReach` for the next half-second.
+   * Measured: eight seconds of unbroken gust pressure on a lone spear lands three gusts, produces
+   * no finisher at all, and ends with the soldier 20 units out against the gust's `range` of 12.
+   * So a mixed string is still the quicker route to a finisher, and still without a line of code
+   * rewarding variety directly — but the mechanism is the knockback column, not the cooldown
+   * column, and a retune of either has to be read against `range` and `verticalReach`.
    */
   chain: { maxLinks: 3, windowSeconds: 0.9 },
   reactions: {
