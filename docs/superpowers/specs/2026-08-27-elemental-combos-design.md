@@ -208,9 +208,12 @@ makes fire fire. If it ever lands, it should widen something other than the burs
 C ships the minimum legibility needed to play it, and no more. Three concrete pieces, each reusing
 something that exists:
 
-- **The mark** is a small pip on the soldier's own health bar (`src/combat/health-bar.ts`), tinted
-  with that element's colour from `LOOKS` in `element-radial.ts`. It sits where the player is
-  already looking when they decide who to hit next, and it costs no new widget.
+- **The mark** was to be a pip on the soldier's own health bar (`src/combat/health-bar.ts`), tinted
+  with that element's colour from `LOOKS`. **Deferred to step B while writing the plan**, and the
+  reason is worth keeping: `health-bar.ts` builds a three.js sprite, so a pip there is untestable
+  effect work whose value is entirely a matter of taste in play — exactly the kind of judgement
+  step B exists to make with the whole inventory in front of it. C ships without it, and the
+  play-test asks whether the badge alone was enough to predict a reaction.
 - **The chain** is a link count beside the element badge, which is already the widget that says
   what F and R will do — so "what I am holding" and "how far along I am" read in one glance.
 - **A reaction** reuses `src/fx/shockwave.ts`'s expanding ring, tinted per reaction. Placeholder by
