@@ -6,7 +6,10 @@ import {
 } from './encounter'
 import { isDowned } from './health'
 import { inCone } from './cone'
-import { deflects, horizontalDistance, UNARMOURED, type EnemyConfig } from './enemy'
+import {
+  deflects, horizontalDistance, markEnemy, UNARMOURED, type EnemyConfig,
+} from './enemy'
+import type { Element } from '../elements/element'
 import { gustTargets } from './gust'
 import { spawnProjectile } from './projectile'
 import { DEFAULT_COMBAT_CONFIG, DEFAULT_PATROL_CONFIG, HOME_PATROL } from './config'
@@ -3797,4 +3800,398 @@ describe('fire against plate', () => {
     // An explicit timeout because this runs the real config's soldier for up to 600 frames, and the
     // default per-test budget is 5 s. Measured at a few milliseconds.
   }, 20_000)
+})
+
+/**
+ * The chain and the reactions, wired into the fight.
+ *
+ * Both systems are unit-tested in `chain.test.ts` and `reactions.test.ts`; this block is only
+ * ever about the wiring — that the fight advances the string off a landing rather than a press,
+ * that a mark is written in the element that landed, and that a reaction is looked up against the
+ * mark the soldier was already carrying rather than the one the same blow leaves behind.
+ *
+ * Built on this file's existing fixtures throughout: `near()`, `defaults`, `DEPS` and `C`. The
+ * helpers below are one-frame presses over `stepEncounter`, the same shape `gustOnce` already has.
+ */
+describe('the chain in the fight', () => {
+  const empty = () => startEncounter([], C)
+  const loneHeavy = () =>
+    startEncounter([{ id: 'plate', position: new Vector3(0, 0, -2), kind: 'heavy' }], C)
+
+  /** One frame of the fight with one thing pressed. `gustOnce` for an arbitrary input. */
+  const press = (over: Partial<EncounterInput>) => (from: Encounter) =>
+    stepEncounter(from, { ...defaults, ...over }, 1 / 60, C, DEPS)
+
+  const gustAt = press({ gustPressed: true, element: 'air' })
+  const gripAt = press({ gustPressed: true, element: 'water' })
+  const burstAt = press({ gustPressed: true, element: 'fire' })
+  const staffAt = press({ staffSwing: { index: 0, finisher: false } })
+  const idle = press({})
+
+  /**
+   * A three-link string ending in a gust, in two frames.
+   *
+   * The first frame lands a staff swing and then a Pressure Wave — both resolve in one frame, and
+   * the staff resolves first, which is the order `stepEncounter` documents. Neither is an element
+   * whose mark can react with air, so the gust on the second frame is the third landing and
+   * nothing else. A weakest-possible slam (`strength: 0`) so the wave's own damage cannot down
+   * the soldier the gust still has to connect with.
+   */
+  const staffThenSlam = press({
+    staffSwing: { index: 0, finisher: false }, slam: { strength: 0 },
+  })
+  const threeLinkStringEndingInGust = (from: Encounter) => gustAt(staffThenSlam(from).encounter)
+
+  const soldier = (e: Encounter, id: string) => {
+    const found = e.enemies.find((enemy) => enemy.id === id)
+    if (!found) throw new Error(`no soldier named ${id}`)
+    return found
+  }
+  const spearIn = (e: Encounter) => soldier(e, 'a')
+
+  it('starts a fresh fight with no string standing', () => {
+    expect(near().chain.links).toBe(0)
+  })
+
+  it('advances on a blow that connects', () => {
+    expect(gustAt(near()).encounter.chain.links).toBe(1)
+  })
+
+  it('advances on a staff swing, because a landed blow is a landed blow', () => {
+    // The staff has no element and writes no mark (below), and it still builds the string:
+    // §4.2 keeps the weapon separate from bending, not separate from sequencing.
+    expect(staffAt(near()).encounter.chain.links).toBe(1)
+  })
+
+  it('does not advance on a blow that connects with nobody', () => {
+    expect(gustAt(empty()).encounter.chain.links).toBe(0)
+  })
+
+  it('does not advance on a blow the armour turns away entirely', () => {
+    // A deflected gust on a heavy is not pressure applied. It is the armour working.
+    const step = gustAt(loneHeavy())
+    expect(step.encounter.chain.links).toBe(0)
+    // Not vacuous: the gust did reach the soldier and was turned away, rather than missing.
+    expect(step.deflectedThisFrame).toEqual(['plate'])
+  })
+
+  it('does not advance on a blow the geometry missed', () => {
+    // The negative control on "a landing, not a press": the cooldown is spent either way.
+    const step = press({ gustPressed: true, playerForward: new Vector3(0, 0, 1) })(near())
+    expect(step.encounter.chain.links).toBe(0)
+    expect(step.encounter.gustCooldown).toBe(C.gust.cooldownSeconds)
+  })
+
+  it('survives an element switch, which is the whole point', () => {
+    let e = near()
+    e = gustAt(e).encounter // air
+    e = gripAt(e).encounter // water, no reset
+    expect(e.chain.links).toBe(2)
+  })
+
+  it('lets the window lapse whatever element is in hand', () => {
+    // The string is aged at the top of the step beside the five cooldowns and for the identical
+    // reason: a window that only ran while the element it started under was in hand would let a
+    // player park a two-link string by switching away.
+    let e = gustAt(near()).encounter
+    expect(e.chain.links).toBe(1)
+    for (let t = 0; t <= C.chain.windowSeconds + 0.1; t += 1 / 60) {
+      e = press({ element: 'water' })(e).encounter
+    }
+    expect(e.chain.links).toBe(0)
+  })
+
+  it('shortens no cooldown, however long the string', () => {
+    // The invariant `encounter.ts`'s independent cooldowns exist to protect. Stated as a test
+    // rather than a comment so a future contributor cannot pay the finisher out of the cooldown
+    // budget. Three landings on three consecutive frames, one per light-verb element, so the
+    // third is the finisher and all three cooldowns are running when it lands.
+    const first = gustAt(near())
+    const second = gripAt(first.encounter)
+    const third = burstAt(second.encounter)
+    expect(third.encounter.chain.links).toBe(C.chain.maxLinks)
+    expect(third.finisherThisFrame).toBe(true)
+
+    // Each set to exactly its own config value on the frame it fired, and never less.
+    expect(first.encounter.gustCooldown).toBe(C.gust.cooldownSeconds)
+    expect(second.encounter.waterGripCooldown).toBe(C.water.gripCooldownSeconds)
+    expect(third.encounter.fireBurstCooldown).toBe(C.fire.burstCooldownSeconds)
+    // And the finisher refunded nothing that was already running: each of the two older
+    // cooldowns is down by exactly the frames elapsed since it was set.
+    expect(third.encounter.gustCooldown).toBeCloseTo(C.gust.cooldownSeconds - 2 / 60, 10)
+    expect(third.encounter.waterGripCooldown)
+      .toBeCloseTo(C.water.gripCooldownSeconds - 1 / 60, 10)
+  })
+
+  describe('the finisher against plate', () => {
+    /**
+     * A heavy and a spear, close enough together for one staff swing, one slam and one gust to
+     * catch both.
+     *
+     * The spear is what makes the finisher reachable at all, and that is the mechanic rather
+     * than a fixture convenience: the heavy deflects a gust, a deflected blow advances no
+     * string, so the third landing has to come from a soldier the gust can actually touch.
+     * Standing at 2.24 units they are inside the staff opener's 3.6 reach, the weakest slam's
+     * 4-unit radius and the gust's 12.
+     */
+    const pair = () => startEncounter([
+      { id: 'plate', position: new Vector3(-1, 0, -2), kind: 'heavy' },
+      { id: 'leather', position: new Vector3(1, 0, -2), kind: 'spear' },
+    ], C)
+
+    it('moves a heavy with a finisher, which no gust can do alone', () => {
+      // `armour.gust` is { damage: 0, knockback: 0 }, so a plain gust is deflected and skipped.
+      // At the last link the knockback lands unarmoured — §4.4 gives the heavy knockback economy
+      // to pressure, and this is the third answer to it, earned by sequencing.
+      //
+      // Measured as the *difference* against the same frame with nothing pressed, not as
+      // `knockback.length() > 0`. The two frames that build the string land a staff swing and a
+      // slam, both of which the plate's armour lets partly through, so the soldier is already
+      // sliding when the gust arrives and a bare "was it pushed" would pass for a gust that was
+      // skipped exactly as before.
+      const built = staffThenSlam(pair()).encounter
+      const step = gustAt(built)
+      const unpressed = press({})(built)
+      expect(step.encounter.chain.links).toBe(C.chain.maxLinks)
+      expect(step.finisherThisFrame).toBe(true)
+      const pushed = soldier(step.encounter, 'plate')
+      const sliding = soldier(unpressed.encounter, 'plate')
+      // Half the gust's own knockback as the floor rather than all of it: one frame of damping
+      // has already run by the time either is read.
+      expect(pushed.knockback.length() - sliding.knockback.length())
+        .toBeGreaterThan(C.gust.knockback / 2)
+      // The lift too, which is a second, independent channel — `hitEnemy` writes it to its own
+      // field, so a knockback that arrived without it would mean the impulse was scaled.
+      expect(pushed.verticalVelocity).toBeGreaterThan(sliding.verticalVelocity)
+    })
+
+    it('still takes no health off the heavy, because the finisher is displacement', () => {
+      // Zero damage through its armour, the full impulse around it. A finisher that also did
+      // damage would make the chain the answer to plate's health pool, which is the environment
+      // route's job.
+      const step = threeLinkStringEndingInGust(pair())
+      const before = soldier(staffThenSlam(pair()).encounter, 'plate')
+      expect(soldier(step.encounter, 'plate').health.current)
+        .toBeCloseTo(before.health.current, 10)
+    })
+
+    it('reports the heavy as connected rather than deflected on the finishing frame', () => {
+      const step = threeLinkStringEndingInGust(pair())
+      expect(step.deflectedThisFrame).toEqual([])
+      expect(step.hitThisFrame.sort()).toEqual(['leather', 'plate'])
+    })
+
+    it('leaves a plain gust deflected and unmoved, which is the control', () => {
+      // Without this the assertions above would pass just as well for a gust that had stopped
+      // consulting the armour table at all.
+      const step = gustAt(pair())
+      expect(step.deflectedThisFrame).toEqual(['plate'])
+      expect(soldier(step.encounter, 'plate').knockback.length()).toBe(0)
+    })
+
+    it('applies the finishing blow exactly once', () => {
+      // The property the two-pass shape this task considered would have put at risk. Measured on
+      // a lone heavy with a Stone Throw, because the stone's damage row is 0.5 rather than 0 and
+      // the soldier is well clear of the health pool's clamp at zero — so one application and two
+      // are 0.5 apart rather than indistinguishable.
+      const lone = () =>
+        startEncounter([{ id: 'plate', position: new Vector3(0, 0, -2), kind: 'heavy' }], C)
+      const built = staffThenSlam(lone()).encounter
+      const before = soldier(built, 'plate').health.current
+      const step = press({ gustPressed: true, element: 'earth' })(built)
+      expect(step.finisherThisFrame).toBe(true)
+      expect(step.stoneHitThisFrame).toEqual(['plate'])
+      expect(before - soldier(step.encounter, 'plate').health.current)
+        .toBeCloseTo(C.earth.stoneDamage * C.enemies.heavy.armour.stone.damage, 10)
+    })
+
+    it('shortens no cooldown to reach the heavy', () => {
+      const step = threeLinkStringEndingInGust(pair())
+      expect(step.encounter.gustCooldown).toBe(C.gust.cooldownSeconds)
+    })
+  })
+
+  it('reports the finisher for the frame it landed on', () => {
+    expect(threeLinkStringEndingInGust(near()).finisherThisFrame).toBe(true)
+    expect(gustAt(near()).finisherThisFrame).toBe(false)
+    expect(idle(near()).finisherThisFrame).toBe(false)
+  })
+
+  it('reports no reactions on a frame that fired none', () => {
+    expect(gustAt(near()).reactionsThisFrame).toEqual([])
+    expect(idle(near()).reactionsThisFrame).toEqual([])
+  })
+
+  it('leaves the soldier it marked findable, so the fixtures above are not lying', () => {
+    // Guards the two helpers this whole block leans on: `near()`'s soldier is 'a', and one press
+    // does not remove it from the array.
+    expect(spearIn(gustAt(near()).encounter).id).toBe('a')
+  })
+})
+
+describe('reactions in the fight', () => {
+  const loneHeavy = () =>
+    startEncounter([{ id: 'plate', position: new Vector3(0, 0, -2), kind: 'heavy' }], C)
+  const press = (over: Partial<EncounterInput>) => (from: Encounter) =>
+    stepEncounter(from, { ...defaults, ...over }, 1 / 60, C, DEPS)
+
+  const gustAt = press({ gustPressed: true, element: 'air' })
+  const gripAt = press({ gustPressed: true, element: 'water' })
+  const burstAt = press({ gustPressed: true, element: 'fire' })
+  const stoneAt = press({ gustPressed: true, element: 'earth' })
+  const staffAt = press({ staffSwing: { index: 0, finisher: false } })
+  const freezeAt = press({ vortexReleased: true, element: 'water' })
+  const raiseAt = press({ vortexReleased: true, element: 'earth' })
+  /** A burst thrown at the opposite bearing: it fires, spends its charge, and reaches nobody. */
+  const burstAtNothing = press({
+    gustPressed: true, element: 'fire', playerForward: new Vector3(0, 0, 1),
+  })
+
+  const soldier = (e: Encounter, id: string) => {
+    const found = e.enemies.find((enemy) => enemy.id === id)
+    if (!found) throw new Error(`no soldier named ${id}`)
+    return found
+  }
+  const spearIn = (e: Encounter) => soldier(e, 'a')
+
+  /** `near()`'s soldier, already carrying a mark, so a pairing can be set up in one frame. */
+  const carrying = (element: Element, from = near()): Encounter => ({
+    ...from,
+    enemies: from.enemies.map((enemy) => markEnemy(enemy, element, C.reactions.markSeconds)),
+  })
+
+  it('marks a soldier with the element that landed', () => {
+    expect(spearIn(gustAt(near()).encounter).mark?.element).toBe('air')
+    expect(spearIn(burstAt(near()).encounter).mark?.element).toBe('fire')
+    expect(spearIn(stoneAt(near()).encounter).mark?.element).toBe('earth')
+  })
+
+  it('marks a soldier from water\'s two verbs, which are not blows', () => {
+    // Both leave a soldier *wet*: `reactions.ts` says a reaction that fired for the grip but not
+    // the freeze would be a distinction no player could see, and neither move goes through
+    // `resolveBlow`, so this is the wiring that claim depends on.
+    expect(spearIn(gripAt(near()).encounter).mark?.element).toBe('water')
+    expect(spearIn(freezeAt(near()).encounter).mark?.element).toBe('water')
+  })
+
+  it('writes no mark for a staff blow', () => {
+    expect(spearIn(staffAt(near()).encounter).mark).toBeNull()
+  })
+
+  it('writes no mark on a soldier the blow never reached', () => {
+    expect(spearIn(burstAtNothing(near()).encounter).mark).toBeNull()
+    expect(burstAtNothing(near()).burstFired).toBe(true)
+  })
+
+  it('fires steam when fire lands on a wet soldier', () => {
+    // Two frames of the real fight rather than a hand-written mark: this is the wiring test, and
+    // the grip is where a wet soldier actually comes from.
+    const step = burstAt(gripAt(near()).encounter)
+    expect(step.reactionsThisFrame).toEqual([{ enemyId: 'a', kind: 'steam' }])
+  })
+
+  it('puts a spear down with a steam it would have survived unlit', () => {
+    // What Steam is worth, and why the test above cannot also assert the new mark: 0.6 of burst
+    // against 1.5 of health leaves the soldier standing, and the extra 1.0 does not.
+    expect(isDowned(spearIn(burstAt(gripAt(near()).encounter).encounter).health)).toBe(true)
+    expect(isDowned(spearIn(burstAt(near()).encounter).health)).toBe(false)
+  })
+
+  it('writes no mark on a soldier its own blow put down', () => {
+    // `markEnemy` refuses a downed body, and the wiring inherits that rather than working around
+    // it: a mark on a soldier that cannot act is a reaction promised to a fight that is over.
+    expect(spearIn(burstAt(gripAt(near()).encounter).encounter).mark).toBeNull()
+  })
+
+  it('consumes the old mark and leaves its own in place of it', () => {
+    // On the heavy, because it is the soldier in this fixture that survives being steamed.
+    const step = burstAt(carrying('water', loneHeavy()))
+    expect(step.reactionsThisFrame).toEqual([{ enemyId: 'plate', kind: 'steam' }])
+    expect(soldier(step.encounter, 'plate').mark?.element).toBe('fire')
+  })
+
+  it('reads the old mark, not the one the same blow writes', () => {
+    // The ordering that makes cross-element reactions possible at all, isolated from the two
+    // frames the test above needs. If the mark were written before the lookup, this pairing
+    // would resolve fire against fire and `reactionFor` would return the diagonal's 'none'.
+    expect(burstAt(carrying('water')).reactionsThisFrame)
+      .toEqual([{ enemyId: 'a', kind: 'steam' }])
+  })
+
+  it('pays nothing for repetition, which is the chain\'s business', () => {
+    // The diagonal. Without this the test above would pass for an implementation that fired a
+    // reaction for every mark it found.
+    expect(burstAt(carrying('fire')).reactionsThisFrame).toEqual([])
+    expect(gustAt(carrying('air')).reactionsThisFrame).toEqual([])
+  })
+
+  it('does not fire on a soldier the blow never reached', () => {
+    expect(burstAtNothing(carrying('water')).reactionsThisFrame).toEqual([])
+  })
+
+  it('does not fire on a soldier the armour turned the blow away from', () => {
+    // The deflect gate sits in front of the reaction, the way it sits in front of `hitEnemy`: a
+    // blow the plate stopped is not a blow that arrived, so it cannot ignite anything either.
+    const wet = {
+      ...loneHeavy(),
+      enemies: loneHeavy().enemies.map((e) => markEnemy(e, 'water', C.reactions.markSeconds)),
+    }
+    expect(gustAt(wet).reactionsThisFrame).toEqual([])
+  })
+
+  it('skips the armour the blow itself went through, which is what a reaction is', () => {
+    // Steam does not go through `throughArmour`, and the heavy's `burst` row is the thing it is
+    // bypassing. Measured as the whole health lost minus the armoured burst's own share.
+    const step = burstAt(carrying('water', loneHeavy()))
+    const lost = C.enemies.heavy.maxHealth - soldier(step.encounter, 'plate').health.current
+    const armoured = C.fire.burstDamage * C.enemies.heavy.armour.burst.damage
+    expect(step.reactionsThisFrame).toEqual([{ enemyId: 'plate', kind: 'steam' }])
+    expect(lost - armoured).toBeCloseTo(C.reactions.steamDamage, 6)
+  })
+
+  it('muds a wet soldier that earth then lands on', () => {
+    const step = stoneAt(gripAt(near()).encounter)
+    expect(step.reactionsThisFrame).toEqual([{ enemyId: 'a', kind: 'mud' }])
+    // Held longer than the grip alone bought, and never past the ceiling.
+    const held = spearIn(step.encounter).heldSeconds
+    expect(held).toBeGreaterThan(C.water.gripHoldSeconds)
+    expect(held).toBeLessThanOrEqual(C.reactions.holdCeilingSeconds)
+    // And still held, rather than knocked out of the hold by the stone that muddied it.
+    expect(spearIn(step.encounter).stance).toBe('held')
+  })
+
+  it('muds from a pillar shove, which is not a blow either', () => {
+    // Earth's other verb, hand-rolled like water's two, and the last of the nine sources.
+    const at = new Vector3(0, 0, -C.earth.raiseDistance)
+    const wet = startEncounter([{ id: 'a', position: at, kind: 'spear' }], C)
+    const step = raiseAt(carrying('water', wet))
+    expect(step.pillarRaised).not.toBeNull()
+    expect(step.reactionsThisFrame).toEqual([{ enemyId: 'a', kind: 'mud' }])
+    expect(spearIn(step.encounter).mark?.element).toBe('earth')
+  })
+
+  it('reports one entry per soldier a burst steamed, in enemy order', () => {
+    // A list rather than a single reaction, because one burst can steam several wet soldiers at
+    // once — this fixture's 45-degree cone holds two, which the shipped 15 degrees cannot.
+    const two = startEncounter([
+      { id: 'left', position: new Vector3(-1, 0, -3), kind: 'spear' },
+      { id: 'right', position: new Vector3(1, 0, -3), kind: 'spear' },
+    ], C)
+    const wet = {
+      ...two,
+      enemies: two.enemies.map((e) => markEnemy(e, 'water', C.reactions.markSeconds)),
+    }
+    expect(burstAt(wet).reactionsThisFrame).toEqual([
+      { enemyId: 'left', kind: 'steam' },
+      { enemyId: 'right', kind: 'steam' },
+    ])
+  })
+
+  it('lets a mark lapse, so a reaction is a window rather than a flag', () => {
+    let e = gripAt(near()).encounter
+    for (let t = 0; t <= C.reactions.markSeconds + 0.1; t += 1 / 60) {
+      e = press({})(e).encounter
+    }
+    expect(spearIn(e).mark).toBeNull()
+  })
 })
