@@ -225,7 +225,7 @@ const C: CombatConfig = {
     thrustForwardSpeed: 4,
   },
   chain: { maxLinks: 3, windowSeconds: 0.9 },
-  reactions: { markSeconds: 2.5 },
+  reactions: { markSeconds: 2.5, steamDamage: 1.0, mudHoldSeconds: 1.4, holdCeilingSeconds: 3.2 },
 }
 
 const ORIGIN = new Vector3(0, 0, 0)

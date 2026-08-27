@@ -744,6 +744,23 @@ export const DEFAULT_COMBAT_CONFIG: CombatConfig = {
      * them.
      */
     markSeconds: 2.5,
+    /**
+     * Steam's damage: the Fire Burst's own `burstDamage` of 1.0, applied without the armour
+     * multiplier. Borrowed rather than invented so the figure needs no defence of its own — Steam
+     * is "a burst the plate cannot stop" rather than a new damage tier.
+     */
+    steamDamage: 1.0,
+    /** Mud's hold: the water grip's own `gripHoldSeconds`, added to whatever is on the clock. */
+    mudHoldSeconds: 1.4,
+    /**
+     * The hold ceiling: the freeze's own `freezeHoldSeconds`.
+     *
+     * The freeze pays 35 Focus — §4.5's one sink — for the privilege of holding a soldier this
+     * long. A free path past it would make that sink pointless, so grip, freeze and Mud together
+     * cannot exceed it. Not a tuning number: it is the same 3.2 the freeze uses, and it should
+     * move only if that one does.
+     */
+    holdCeilingSeconds: 3.2,
   },
 }
 

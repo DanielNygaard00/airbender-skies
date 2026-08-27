@@ -1,5 +1,6 @@
+import { Vector3 } from 'three'
 import type { Element } from '../elements/element'
-import type { BendingSource } from './enemy'
+import { hitEnemy, holdEnemy, type BendingSource, type Enemy } from './enemy'
 
 /**
  * Which element threw each blow.
@@ -90,4 +91,37 @@ export function reactionFor(mark: Element, verb: Element): ReactionKind {
 export interface ReactionConfig {
   /** How long a mark counts, in seconds. */
   markSeconds: number
+  /** Steam's damage. */
+  steamDamage: number
+  /** Mud's hold, added to whatever is already on the clock. */
+  mudHoldSeconds: number
+  /** No combination of grip, freeze and Mud may hold a soldier longer than this. */
+  holdCeilingSeconds: number
+}
+
+/** Reused rather than allocated per reaction: Steam shoves nobody, so the impulse is always zero. */
+const NO_IMPULSE = new Vector3()
+
+/**
+ * One reaction, resolved at once, leaving nothing behind.
+ *
+ * Reactions are expressed only in effects the game already has — damage through `hitEnemy`, hold
+ * through `holdEnemy` — because a reaction with its own lingering state would need its own field,
+ * and the one-field ruling on `Enemy.mark` is what keeps the struct from becoming a status bag.
+ *
+ * **Steam deliberately skips `throughArmour`.** That split is the reaction: `resolveBlow` puts
+ * every ordinary blow through the target's armour table first, and Steam is the one thing in the
+ * game that does not go through it. See the heavy's `armour.burst` of `{ damage: 0.5, knockback: 0 }`
+ * for what it is bypassing.
+ *
+ * **Mud goes through `holdEnemy` and never writes `heldSeconds` itself**, because `holdEnemy` is
+ * the only writer of that field and its `Math.max` is what guarantees nothing in the game can
+ * shorten ice. The ceiling is applied to the *sum* before the call, so a hold already past the
+ * ceiling is left exactly where it is rather than clamped down onto it.
+ */
+export function applyReaction(enemy: Enemy, kind: ReactionKind, c: ReactionConfig): Enemy {
+  if (kind === 'none') return enemy
+  if (kind === 'steam') return hitEnemy(enemy, c.steamDamage, NO_IMPULSE)
+  const total = Math.min(enemy.heldSeconds + c.mudHoldSeconds, c.holdCeilingSeconds)
+  return holdEnemy(enemy, total)
 }
