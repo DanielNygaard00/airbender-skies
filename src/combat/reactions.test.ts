@@ -160,4 +160,21 @@ describe('resolving a reaction', () => {
     const frozen = holdEnemy(anEnemy(), 5)
     expect(applyReaction(frozen, 'mud', R).heldSeconds).toBe(5)
   })
+
+  it('climbs toward the ceiling and is capped there, rather than starting already pinned to it', () => {
+    // The case above starts at the ceiling, so every one of its five iterations computes
+    // min(3.2 + 1.4, 3.2) = 3.2 and holdEnemy is a no-op each time — it catches the Math.min
+    // being deleted outright, but it never watches the value approach the ceiling and get capped,
+    // and it would still pass against a 'mud' branch that did nothing at all. This one starts
+    // unheld and applies Mud three times, so the middle step (1.4 -> 2.8) is a real, unclamped
+    // add, and only the third step (2.8 -> 3.2, not 4.2) is where the clamp actually does
+    // something.
+    let enemy = anEnemy()
+    enemy = applyReaction(enemy, 'mud', R)
+    expect(enemy.heldSeconds).toBeCloseTo(1.4, 5)
+    enemy = applyReaction(enemy, 'mud', R)
+    expect(enemy.heldSeconds).toBeCloseTo(2.8, 5)
+    enemy = applyReaction(enemy, 'mud', R)
+    expect(enemy.heldSeconds).toBeCloseTo(3.2, 5)
+  })
 })
