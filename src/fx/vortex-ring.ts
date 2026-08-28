@@ -23,7 +23,8 @@ import { safeScale } from './scale'
  * a `vUv.y`-based vignette on top, which reads as a static top/bottom-dark ring with bands
  * scanning horizontally, not as rotation. `RING_BODY` below re-derives an actual angle and
  * radius from the centred UV first (`p = vUv * 2 - 1`, `atan(p.y, p.x)`), which is what makes
- * `fract(angle - time * ...)` wrap continuously around a full turn.
+ * `fract(angle * 3.0 - time * 1.1)` wrap continuously around a full turn — three streaks per
+ * turn, which is what the `* 3.0` buys and what a paraphrase dropping it would hide.
  */
 const LIFETIME = 0.45
 const THICKNESS = 0.3
@@ -73,14 +74,29 @@ const TINT = 0x9fffff
  * mirror across the ring's two poles, per this file's own doc comment) with a true radial taper
  * across the ring's thickness — brightest toward the inner edge, fading toward the outer rim, so
  * the light itself leans the way the ring is pulling.
+ *
+ * **One radial factor, and the hard inner rim is the point.** Those Cartesian UVs make `radius`
+ * the true radius against an outer radius of 1, so with `THICKNESS` 0.3 the visible annulus spans
+ * 0.700 to 1.000 and nothing else. An earlier draft multiplied `lean` by a second factor,
+ * `smoothstep(0.35, 0.7, radius)`, which is identically 1.0 at every radius in that span: dead
+ * arithmetic that read as an inner feather and so invited a later reader to "complete" it. Deleted
+ * rather than retuned, because `lean` alone is the shape this ring wants — a hard full-brightness
+ * cut at the inner rim falling to 0.104 at the outer one is the sharp-front, soft-trail vocabulary
+ * `shockwave.ts` gives its outward front, mirrored for a ring travelling inward: the inner rim
+ * *is* this ring's leading edge. The rejected alternative was to feather it the way
+ * `vortex-charge.ts` had to for its much narrower band, which would blunt the one edge carrying
+ * the direction of travel, and would move pixels no play-test has asked to move.
+ *
+ * Named `lean` rather than `edge` (which `vortex-charge.ts` keeps, where the factor really is a
+ * two-sided edge feather) so the name says one-sided taper and not "the edge treatment".
  */
 const RING_BODY = /* glsl */ `
     vec2 p = vUv * 2.0 - 1.0;
     float radius = length(p);
     float angle = atan(p.y, p.x) / 6.2832 + 0.5;
     float streak = smoothstep(0.35, 1.0, fract(angle * 3.0 - time * 1.1));
-    float edge = smoothstep(0.35, 0.7, radius) * smoothstep(1.05, 0.8, radius);
-    gl_FragColor = vec4(tint, alpha * (0.35 + 0.65 * streak) * edge);
+    float lean = smoothstep(1.05, 0.8, radius);
+    gl_FragColor = vec4(tint, alpha * (0.35 + 0.65 * streak) * lean);
 `
 
 export function createVortexRing(origin: Vector3, radius: number): Effect {
