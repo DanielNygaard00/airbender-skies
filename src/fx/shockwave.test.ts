@@ -170,7 +170,7 @@ describe('the ring reads as a moving front, not a static hoop', () => {
     expect(material.fragmentShader).toContain('smoothstep(0.35, 0.75, radius)')
   })
 
-  it("still honours a caller's tint, because three callers mean three things", () => {
+  it("still honours a caller's tint, because two callers mean two things", () => {
     const material = ringMaterialOf(createShockwave(4, 1, 0x4a3423))
     const tint = material.uniforms.tint?.value
     expect(tint).toBeInstanceOf(Color)

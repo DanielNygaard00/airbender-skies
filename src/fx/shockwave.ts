@@ -11,11 +11,12 @@ import { safeScale } from './scale'
  * whole mechanic. So the ring carries the same information the damage does: a weak
  * slam is a faint ring, a full one is bright.
  *
- * **Three callers, three meanings, one shape.** The slam above is the original. `main.ts`'s
+ * **Two callers, two meanings, one shape.** The slam above is the original. `main.ts`'s
  * `REACTION_LOOKS` repoints a second caller at this same ring as an admitted placeholder for a
- * reaction burst, telling the two apart only by `tint`. A later move's finisher cue is a third.
- * None of that is this file's business to know about — the material stays tint-driven so a
- * caller says what it means with the one parameter it already had, not with a new mode flag.
+ * reaction burst, telling the two apart only by `tint`. Neither is this file's business to know
+ * about — the material stays tint-driven so a caller says what it means with the one parameter it
+ * already had, not with a new mode flag. A finisher cue would be a third caller on the same
+ * terms, but it is deferred to step B2 and does not exist, so this comment does not count it.
  */
 export type Shockwave = Effect
 

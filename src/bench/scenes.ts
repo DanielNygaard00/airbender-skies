@@ -31,11 +31,13 @@ export type BenchEffectId =
   | 'shockwave'
   | 'dash-trail'
   | 'slipstream'
-  // `steam`, `mud` and `finisher` do not exist yet — Tasks 8 and 9 build them. Registered here
-  // anyway, pointing at `createShockwave` in `./effects.ts` until those tasks repoint them, so
-  // `BENCH_EFFECTS` stays a total `Record` at every commit between here and there: an id added
-  // to this union without a scene, or a scene naming an id this union does not have, is a
-  // compile error rather than a bench shot of an effect nobody fires.
+  // `steam`, `mud` and `finisher` do not exist yet — they are deferred to step B2, along with
+  // water, earth and fire (§2 of `docs/superpowers/specs/2026-08-27-air-vfx-design.md` records
+  // why: the shapes they need were specified without reading their geometry, which had already
+  // cost this step two fix rounds). Registered here anyway, pointing at `createShockwave` in
+  // `./effects.ts` until B2 repoints them, so `BENCH_EFFECTS` stays a total `Record` in the
+  // meantime: an id added to this union without a scene, or a scene naming an id this union does
+  // not have, is a compile error rather than a bench shot of an effect nobody fires.
   | 'steam'
   | 'mud'
   | 'finisher'
@@ -246,13 +248,15 @@ export const BENCH_SCENES: readonly BenchScene[] = [
   },
   {
     /**
-     * Steam, Mud and the staff finisher do not have their own effects yet — Tasks 8 and 9 build
-     * them — so all three are wired to `./effects.ts`'s placeholder, which is `createShockwave`
-     * at a size closer to the reaction rings `main.ts` draws for Steam and Mud today
-     * (`REACTION_RING_RADIUS` 1.4, `REACTION_RING_STRENGTH` 0.85 — private to that file, so this
-     * scene cites rather than imports them) than to the Pressure Wave's own full-size ring. One
-     * scene stands in for all three ids; `shockwave`'s own `LIFETIME` of 0.4s and its half-life
-     * framing apply identically since they share the one placeholder factory.
+     * Steam, Mud and the staff finisher do not have their own effects yet — they are deferred to
+     * step B2 (see the `BenchEffectId` comment above, and §2 of
+     * `docs/superpowers/specs/2026-08-27-air-vfx-design.md`) — so all three are wired to
+     * `./effects.ts`'s placeholder, which is `createShockwave` at a size closer to the reaction
+     * rings `main.ts` draws for Steam and Mud today (`REACTION_RING_RADIUS` 1.4,
+     * `REACTION_RING_STRENGTH` 0.85 — private to that file, so this scene cites rather than
+     * imports them) than to the Pressure Wave's own full-size ring. `shockwave`'s own `LIFETIME`
+     * of 0.4s and its half-life framing apply to all three, since they share the one placeholder
+     * factory.
      */
     id: 'steam',
     regionId: ARCHIPELAGO_ID,

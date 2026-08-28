@@ -82,7 +82,7 @@ function ringAt(origin: Vector3, radius: number, strength: number): Effect {
  * 1.4, `REACTION_RING_STRENGTH` 0.85), not imported because those two constants are private to
  * that file. Copied rather than exported and reused, because exporting gameplay tuning for a
  * bench placeholder to read would be a bigger change than the placeholder itself, and `steam`,
- * `mud` and `finisher` are going away the moment Tasks 8 and 9 give them real effects.
+ * `mud` and `finisher` are going away the moment step B2 gives them real effects.
  */
 const PLACEHOLDER_RADIUS = 1.4
 const PLACEHOLDER_STRENGTH = 0.85
@@ -99,10 +99,11 @@ const PLACEHOLDER_STRENGTH = 0.85
  * The alternative was the `if (scene.effect === 'gust')` chain this replaces in `bench/main.ts`.
  * It worked for one effect and would have been nine unreachable branches at ten.
  *
- * `steam`, `mud` and `finisher` do not have factories yet — Tasks 8 and 9 build them — so all
- * three point at `ringAt` with the same placeholder size `createShockwave` gives Steam and Mud
- * in the shipped game today. That keeps this `Record` total at every commit between here and
- * those tasks, which is the property that turns a forgotten registration into a compile error.
+ * `steam`, `mud` and `finisher` do not have factories yet — they are deferred to step B2, per §2
+ * of `docs/superpowers/specs/2026-08-27-air-vfx-design.md` — so all three point at `ringAt` with
+ * the same placeholder size `createShockwave` gives Steam and Mud in the shipped game today. That
+ * keeps this `Record` total in the meantime, which is the property that turns a forgotten
+ * registration into a compile error.
  */
 export const BENCH_EFFECTS: Record<BenchEffectId, (origin: Vector3, forward: Vector3) => Effect> = {
   gust: (origin, forward) => createGustCone(origin, forward, DEFAULT_COMBAT_CONFIG.gust),
