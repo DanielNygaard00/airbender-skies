@@ -233,4 +233,25 @@ describe('the arc reads as moving air', () => {
   it('leaves the fill quiet, so the volume stays honest without hiding the world', () => {
     expect(FILL_OPACITY).toBeLessThan(0.5)
   })
+
+  it('keeps the arc tapered at its ends and its band travelling', () => {
+    // The three `toContain` calls pin the tuned `smoothstep` bounds literally — `sweep`'s
+    // 0.0–0.35 and 1.0–0.65 taper on the arc's two ends, and `band`'s 0.55–1.0 threshold on the
+    // travelling term — so reversing either taper call's edge order (which inverts that end's
+    // fade, brightening exactly the ends meant to fall away) or retuning any bound fails this
+    // test rather than only the arithmetic in a review comment. The fourth call pins that all
+    // three factors reach `gl_FragColor`, so computing one and discarding it fails too.
+    //
+    // What this does NOT claim to catch is a commutative rename: swapping which factor is called
+    // `sweep` and which `band` would pass here and would not change the rendered result either,
+    // since `sweep * band * grain` is a product whose multiplicands are interchangeable —
+    // `shockwave.test.ts` and both trail tests draw the identical distinction. And whether the
+    // result reads on screen as a pulse of air travelling out through the fill is not a question
+    // any node test can answer: only the bench shot can.
+    const material = arcMaterialOf(createGustCone(ORIGIN, FORWARD, C))
+    expect(material.fragmentShader).toContain('smoothstep(0.0, 0.35, vUv.x)')
+    expect(material.fragmentShader).toContain('smoothstep(1.0, 0.65, vUv.x)')
+    expect(material.fragmentShader).toContain('smoothstep(0.55, 1.0, travel)')
+    expect(material.fragmentShader).toContain('alpha * sweep * band * grain')
+  })
 })

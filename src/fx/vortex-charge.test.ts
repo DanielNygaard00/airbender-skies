@@ -118,4 +118,26 @@ describe('the charge tell reads as air gathering, not just a static ring', () =>
     expect(fragmentShader).toContain('atan(')
     expect(fragmentShader).not.toContain('vUv.x')
   })
+
+  it('keeps the edge feather at the bounds this ring was retuned to', () => {
+    // These bounds are the whole content of a fix round. Reusing `vortex-ring.ts`'s `(0.35, 0.7)`
+    // / `(1.05, 0.8)` verbatim left `edge` a near-flat 0.2–0.44 across this ring, because
+    // THICKNESS 0.06 puts its visible band at 0.94–1.000 rather than 0.700–1.000; `(0.91, 0.97)`
+    // / `(1.03, 0.97)` centre a feather of half-width 0.03 on each true edge instead. Pinned
+    // literally so a retune, or a reversal of either call's edge order — which would invert that
+    // rim's ramp and brighten the outside of the band rather than its centre — fails here rather
+    // than only in the arithmetic of a review comment. The third call pins that `edge` and `lead`
+    // both reach `gl_FragColor`, so computing one and discarding it fails too.
+    //
+    // Not claimed: a commutative rename of `edge` and `lead` passes this and changes nothing
+    // rendered, since the two are multiplied — the same limit `shockwave.test.ts` and both trail
+    // tests record. And whether the band reads as filling up on screen is a question only the
+    // bench shot can answer.
+    const tell = createVortexChargeTell()
+    tell.update(1 / 60, V.minChargeSeconds, V)
+    const { fragmentShader } = materialOf(tell)
+    expect(fragmentShader).toContain('smoothstep(0.91, 0.97, radius)')
+    expect(fragmentShader).toContain('smoothstep(1.03, 0.97, radius)')
+    expect(fragmentShader).toContain('alpha * (0.4 + 0.6 * lead) * edge')
+  })
 })

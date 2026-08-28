@@ -125,4 +125,38 @@ describe('the ring reads as air pulling in, not just a hoop shrinking', () => {
     expect(fragmentShader).toContain('atan(')
     expect(fragmentShader).not.toContain('vUv.x')
   })
+
+  it('keeps the streak threshold and the radial lean at their tuned bounds', () => {
+    // These bands were the subject of a fix round: the first draft of this shader scanned `vUv.x`
+    // and had to be re-derived in polar, and the retune is what that fix bought — so the two
+    // `toContain` calls pin the bounds literally. `streak`'s 0.35–1.0 sets how much of each of
+    // the three per-turn cycles is lit. `lean`'s 1.05–0.8 runs DOWNWARD on purpose: it is bright
+    // at the inner rim, the direction this ring travels, and falls to 0.104 at the outer one.
+    // Reversed to `smoothstep(0.8, 1.05, radius)` the ring leans outward instead — a closing ring
+    // lit like an expanding one, which is precisely the confusion with `shockwave.ts`'s outward
+    // front this file exists to avoid, and which every other test here passes through unnoticed.
+    // The third call pins that both factors reach `gl_FragColor`, so computing one and discarding
+    // it fails too.
+    //
+    // Not claimed: this cannot catch a commutative rename, since `(0.35 + 0.65 * streak) * lean`
+    // is a product and swapping the two names changes nothing rendered — the same limit
+    // `shockwave.test.ts` records for its own front/trail pair. Nor can it say whether the
+    // gradient reads as a pull on screen; no node test renders a frame, so that is the bench
+    // shot's job.
+    const { fragmentShader } = materialOf(createVortexRing(AT, 9))
+    expect(fragmentShader).toContain('smoothstep(0.35, 1.0, fract(angle * 3.0 - time * 1.1))')
+    expect(fragmentShader).toContain('smoothstep(1.05, 0.8, radius)')
+    expect(fragmentShader).toContain('alpha * (0.35 + 0.65 * streak) * lean')
+  })
+
+  it('carries no radial factor that is flat across the whole visible annulus', () => {
+    // `RingGeometry`'s Cartesian UVs make `radius` the true radius against an outer radius of 1,
+    // so with THICKNESS 0.3 the drawn band spans 0.700 to 1.000. An earlier draft multiplied in
+    // `smoothstep(0.35, 0.7, radius)`, which is 1.0 at every radius in that span — dead
+    // arithmetic that read as an inner feather and invited a later reader to widen it into a real
+    // one, softening the leading edge. Pinned by absence, because the value it contributed was
+    // exactly 1 and so nothing observable would have flagged its return.
+    const { fragmentShader } = materialOf(createVortexRing(AT, 9))
+    expect(fragmentShader).not.toContain('smoothstep(0.35, 0.7, radius)')
+  })
 })
