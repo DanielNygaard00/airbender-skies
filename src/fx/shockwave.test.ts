@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { Mesh, MeshBasicMaterial } from 'three'
+import { Color, Mesh, ShaderMaterial } from 'three'
 import { createShockwave } from './shockwave'
 
 function meshOf(wave: ReturnType<typeof createShockwave>): Mesh {
@@ -8,10 +8,17 @@ function meshOf(wave: ReturnType<typeof createShockwave>): Mesh {
   return object
 }
 
-function opacityOf(wave: ReturnType<typeof createShockwave>): number {
+/** The ring's own shader material. */
+function ringMaterialOf(wave: ReturnType<typeof createShockwave>): ShaderMaterial {
   const material = meshOf(wave).material
-  if (!(material instanceof MeshBasicMaterial)) throw new Error('expected a basic material')
-  return material.opacity
+  if (!(material instanceof ShaderMaterial)) throw new Error('expected the ring to carry a shader material')
+  return material
+}
+
+function opacityOf(wave: ReturnType<typeof createShockwave>): number {
+  const value = ringMaterialOf(wave).uniforms.alpha?.value
+  if (typeof value !== 'number') throw new Error('expected a numeric alpha uniform')
+  return value
 }
 
 describe('createShockwave', () => {
@@ -91,8 +98,7 @@ describe('createShockwave', () => {
     // this test; a bare "does not throw" would pass either way.
     const wave = createShockwave(10, 1)
     const mesh = meshOf(wave)
-    const material = mesh.material
-    if (!(material instanceof MeshBasicMaterial)) throw new Error('expected a basic material')
+    const material = ringMaterialOf(wave)
     const geometrySpy = vi.spyOn(mesh.geometry, 'dispose')
     const materialSpy = vi.spyOn(material, 'dispose')
 
@@ -100,5 +106,61 @@ describe('createShockwave', () => {
 
     expect(geometrySpy).toHaveBeenCalledTimes(1)
     expect(materialSpy).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('the ring reads as a moving front, not a static hoop', () => {
+  it('carries a time uniform, so the grain moves rather than the ring fading as a flat gradient', () => {
+    const material = ringMaterialOf(createShockwave(4, 1))
+    expect(material.uniforms.time).toBeDefined()
+  })
+
+  it('advances that uniform as the effect advances', () => {
+    // A time uniform nothing writes is a still gradient, which is the failure this test exists
+    // to catch: it looks like a shader effect and animates nothing.
+    const wave = createShockwave(4, 1)
+    const material = ringMaterialOf(wave)
+    const before = material.uniforms.time?.value
+    for (let t = 0; t < 0.1; t += 1 / 60) wave.advance(1 / 60)
+    expect(material.uniforms.time?.value).not.toBe(before)
+  })
+
+  it('keeps its default tint above the bloom threshold', () => {
+    // post.ts sets luminanceThreshold 0.82, measured on new Color(hex).r/g/b — the linear
+    // values bloom actually thresholds against, not hex-divided-by-255.
+    const material = ringMaterialOf(createShockwave(4, 1))
+    const tint = material.uniforms.tint?.value
+    expect(tint).toBeInstanceOf(Color)
+    if (tint instanceof Color) {
+      const luminance = 0.2126 * tint.r + 0.7152 * tint.g + 0.0722 * tint.b
+      expect(luminance).toBeGreaterThan(0.82)
+    }
+  })
+
+  it('peaks at full opacity for a full-strength slam, the value it shipped with', () => {
+    // Gameplay says no opacity constant moves. A full-strength slam's peak was `1` before this
+    // task (MathUtils.lerp(FAINTEST, 1, 1) === 1) and must still be `1` now that the peak drives
+    // a shader uniform instead of `material.opacity` directly.
+    expect(opacityOf(createShockwave(10, 1))).toBeCloseTo(1)
+  })
+
+  it('sharpens the leading edge and softens the trail', () => {
+    // A ring of even brightness reads as a hoop. A front moving through air is bright where it
+    // arrives and fading behind, which is also what distinguishes it from vortex-ring's closing
+    // ring at a glance — the outward half of the shared vocabulary. RingGeometry's own UVs are
+    // Cartesian, not polar (see vortex-ring.ts's doc comment for the full trap), so the radial
+    // term crossing the ring's thickness has to be re-derived from a centred UV rather than
+    // read straight off `vUv.y` — a bare `vUv.y` term would mirror across the ring's two poles
+    // instead of crossing the annulus from inner edge to outer.
+    const material = ringMaterialOf(createShockwave(4, 1))
+    expect(material.fragmentShader).toContain('atan(')
+    expect(material.fragmentShader).not.toContain('vUv.y')
+  })
+
+  it("still honours a caller's tint, because three callers mean three things", () => {
+    const material = ringMaterialOf(createShockwave(4, 1, 0x4a3423))
+    const tint = material.uniforms.tint?.value
+    expect(tint).toBeInstanceOf(Color)
+    if (tint instanceof Color) expect(tint.getHex()).toBe(0x4a3423)
   })
 })
