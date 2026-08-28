@@ -1,8 +1,9 @@
 import {
-  BoxGeometry, DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial, Vector3,
+  BoxGeometry, Color, Group, MathUtils, Mesh, Vector3,
 } from 'three'
 import type { GroundConfig } from '../core/types'
 import type { Effect } from './effect'
+import { createEffectMaterial } from './effect-material'
 import { safeScale } from './scale'
 
 /**
@@ -18,12 +19,39 @@ const LIFETIME = 0.3
 const HEIGHT = 0.5
 const WIDTH = 0.45
 const THICKNESS = 0.12
-const TINT = 0x7fe4ff
+
+/**
+ * The streak's own tint, bright enough on its own to clear `post.ts`'s bloom threshold.
+ *
+ * This trail has no quiet companion mesh the way `gust-cone.ts`'s fill-plus-arc pair does — it
+ * is the whole visible effect, so it has to carry the bloom itself. Air's canonical cyan,
+ * `0x7fe4ff`, measures `{ r: 0.212, g: 0.776, b: 1 }`, luminance ≈ 0.672 — well under the 0.82
+ * threshold on its own.
+ *
+ * Measured the way `post.ts`'s threshold actually reads it: `new Color(hex)` and
+ * `0.2126*c.r + 0.7152*c.g + 0.0722*c.b`, the linear values three's sRGB decoding produces —
+ * not hex-divided-by-255. Green carries the dominant weight in that formula (0.7152, against
+ * red's 0.2126), so the cheap way to clear the threshold is to raise green rather than lift
+ * every channel toward white — the same correction `gust-cone.ts`'s `ARC_TINT` records, and in
+ * fact the same resulting value: `0x99ffff` measures `{ r: 0.319, g: 1, b: 1 }`, luminance ≈
+ * 0.855, clearing 0.82 by ≈ 0.035 while red stays well below green and blue, so it still reads
+ * as the same cyan family, not as white.
+ */
+const TINT = 0x99ffff
+
 /** Length and opacity multipliers from the first dash of a chain to the last. */
 const FIRST_LENGTH = 0.8
 const LAST_LENGTH = 1.35
-const FIRST_OPACITY = 0.45
-const LAST_OPACITY = 0.85
+/**
+ * The streak's peak opacity at either end of the chain, before the shader's own streak-and-edge
+ * falloff take their bite.
+ *
+ * Exported so `dash-trail.test.ts` can pin them: this trail carries no separate quiet element
+ * the way `gust-cone.ts`'s fill does, so there is nothing else in this file for a "stays quiet"
+ * guard to check — the guard here is that gameplay opacity does not silently drift instead.
+ */
+export const FIRST_OPACITY = 0.45
+export const LAST_OPACITY = 0.85
 
 /**
  * The distance an impulse of `dashSpeed` covers while `easeHorizontal` bleeds it off at
@@ -47,6 +75,27 @@ const LAST_OPACITY = 0.85
 export function trailLength(c: GroundConfig): number {
   return c.dashSpeed / c.groundResponse
 }
+
+/**
+ * The streak's brightness, run along the trail's own length and broken up so it reads as a
+ * burst rather than a uniformly-lit slab.
+ *
+ * The streak is built from a `BoxGeometry`, and a box's UVs are per-face — each of its six
+ * faces carries its own independent 0..1 square, so `vUv.x` means a different axis depending
+ * on which face a fragment is on: a body written against it would run along the trail on two
+ * faces and across it on the other four. `vLocal.z`, `effect-material.ts`'s object-space
+ * varying, does not have that problem — it is the box's own length axis regardless of face, so
+ * `along01` (`vLocal.z + 0.5`, undoing the box's -0.5..0.5 span) is the coordinate this body
+ * actually needs. `along` fades both ends so the slab does not read as a hard-edged rectangle;
+ * `streak` is a travelling sine rather than a texture, the same cheap-hash convention
+ * `gust-cone.ts`'s `ARC_BODY` and `shockwave.ts`'s `RING_BODY` both use in place of one.
+ */
+const TRAIL_BODY = /* glsl */ `
+    float along01 = vLocal.z + 0.5;
+    float along = smoothstep(0.0, 0.25, along01) * smoothstep(1.0, 0.55, along01);
+    float streak = 0.7 + 0.3 * sin(along01 * 26.0 - time * 12.0);
+    gl_FragColor = vec4(tint, alpha * along * streak);
+`
 
 export function createDashTrail(
   origin: Vector3,
@@ -75,12 +124,14 @@ export function createDashTrail(
   // A unit-length slab along +Z, scaled to the covered distance — so the streak can be
   // stretched without rebuilding geometry, and so tests can read the length off the scale.
   const geometry = new BoxGeometry(WIDTH, THICKNESS, 1)
-  const material = new MeshBasicMaterial({
-    color: TINT, transparent: true, side: DoubleSide, depthWrite: false, opacity: peak,
-    // Drawn over the world, for the same reason as the gust cone: a low slab near the
-    // ground is buried by terrain that slopes up, which made it invisible in play.
-    depthTest: false,
+  const material = createEffectMaterial({
+    body: TRAIL_BODY,
+    uniforms: { tint: new Color(TINT), alpha: peak, time: 0 },
   })
+  // Every other flat tell in this directory sets this false for the same reason: a low slab
+  // near the ground is otherwise buried by terrain that slopes up. The builder has no
+  // `depthTest` option (`air-wall.ts` explains why), so it is set here directly instead.
+  material.depthTest = false
   const streak = new Mesh(geometry, material)
   streak.scale.z = safeScale(length)
   // Pushed forward by half its length so it starts at the origin rather than straddling it.
@@ -92,7 +143,11 @@ export function createDashTrail(
 
   function apply(): void {
     const progress = MathUtils.clamp(age / LIFETIME, 0, 1)
-    material.opacity = peak * (1 - progress)
+    material.uniforms.alpha!.value = peak * (1 - progress)
+    // Drives the streak in TRAIL_BODY. Raw elapsed age, not scaled here, because the shader's
+    // own `time * 12.0` already sets the travel speed — the same convention `gust-cone.ts`,
+    // `vortex-ring.ts` and `shockwave.ts` all use for their own time uniform.
+    material.uniforms.time!.value = age
   }
 
   apply()

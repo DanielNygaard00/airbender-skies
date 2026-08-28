@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { Mesh, Quaternion, Vector3 } from 'three'
-import { createDashTrail, trailLength } from './dash-trail'
+import {
+  Color, Mesh, Quaternion, ShaderMaterial, Vector3,
+} from 'three'
+import { createDashTrail, trailLength, FIRST_OPACITY, LAST_OPACITY } from './dash-trail'
 import { DEFAULT_GROUND_CONFIG, DEFAULT_COLLISION_CONFIG } from '../core/config'
 import { groundStep } from '../player/ground-move'
 import type { GroundConfig, InputState, PlayerState, TerrainQuery } from '../core/types'
@@ -91,10 +93,17 @@ function streak(trail: Effect): Mesh {
 
 const lengthOf = (trail: Effect) => streak(trail).scale.z
 
-function opacityOf(trail: Effect): number {
+/** The streak's own shader material. */
+function quadMaterialOf(trail: Effect): ShaderMaterial {
   const material = streak(trail).material
-  if (Array.isArray(material)) throw new Error('expected a single material')
-  return material.opacity
+  if (!(material instanceof ShaderMaterial)) throw new Error('expected the streak to carry a shader material')
+  return material
+}
+
+function opacityOf(trail: Effect): number {
+  const value = quadMaterialOf(trail).uniforms.alpha?.value
+  if (typeof value !== 'number') throw new Error('expected a numeric alpha uniform')
+  return value
 }
 
 describe('createDashTrail', () => {
@@ -189,6 +198,44 @@ describe('createDashTrail', () => {
   it('disposes without throwing', () => {
     const trail = createDashTrail(ORIGIN, HEADING, 1, DEFAULT_GROUND_CONFIG)
     expect(() => trail.dispose()).not.toThrow()
+  })
+})
+
+describe('the trail reads as moving air, not a static streak', () => {
+  it('carries a time uniform, so the streak moves rather than the trail fading as a flat gradient', () => {
+    const material = quadMaterialOf(createDashTrail(ORIGIN, HEADING, 1, DEFAULT_GROUND_CONFIG))
+    expect(material.uniforms.time).toBeDefined()
+  })
+
+  it('advances that uniform as the effect advances', () => {
+    // A time uniform nothing writes is a still gradient, which is the failure this test exists
+    // to catch: it looks like a shader effect and animates nothing.
+    const trail = createDashTrail(ORIGIN, HEADING, 1, DEFAULT_GROUND_CONFIG)
+    const material = quadMaterialOf(trail)
+    const before = material.uniforms.time?.value
+    for (let t = 0; t < 0.1; t += 1 / 60) trail.advance(1 / 60)
+    expect(material.uniforms.time?.value).not.toBe(before)
+  })
+
+  it('keeps a bright element above the bloom threshold', () => {
+    // post.ts sets luminanceThreshold 0.82, measured on new Color(hex).r/g/b — the linear
+    // values bloom actually thresholds against, not hex-divided-by-255.
+    const material = quadMaterialOf(createDashTrail(ORIGIN, HEADING, 1, DEFAULT_GROUND_CONFIG))
+    const tint = material.uniforms.tint?.value
+    expect(tint).toBeInstanceOf(Color)
+    if (tint instanceof Color) {
+      const luminance = 0.2126 * tint.r + 0.7152 * tint.g + 0.0722 * tint.b
+      expect(luminance).toBeGreaterThan(0.82)
+    }
+  })
+
+  it('keeps its peak opacities at the values it shipped with', () => {
+    // Task 4's mirrored guard pins a quiet companion element (a separate fill mesh) under
+    // 0.5. This trail has no such second element — FIRST_OPACITY and LAST_OPACITY are its
+    // only brightness knobs, and gameplay says no opacity constant moves, so this pins the
+    // literal shipped values rather than a threshold that was never true for them.
+    expect(FIRST_OPACITY).toBe(0.45)
+    expect(LAST_OPACITY).toBe(0.85)
   })
 })
 
