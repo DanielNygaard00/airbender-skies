@@ -105,7 +105,30 @@ describe('the trail reads as moving air, not a static streak', () => {
     // The Slipstream carries a brief invulnerability window. The dash does not, and the two
     // effects are otherwise the same shape — so the edge is the only thing telling a player
     // which one they just spent.
+    //
+    // A bare `toContain('lead')` only proves the identifier exists somewhere in the source; it
+    // would still pass if `lead`'s bounds were reversed (brightening the wrong end), retuned to
+    // anything at all, or computed and then never folded into `gl_FragColor`. The three
+    // `toContain` calls below pin the tuned bounds literally -- the fade's 0.0-0.2 and 1.0-0.6,
+    // and `lead`'s own 0.75-1.0 confining it to the far end (`along01` near 1, confirmed the
+    // leading edge by this file's own placement comment above `TRAIL_BODY`) -- and the fourth
+    // pins that `lead` is actually added into the alpha term that reaches `gl_FragColor`, not
+    // just computed and discarded. Reversing or retuning any bound, or dropping `lead` from the
+    // final expression, now fails this test.
+    //
+    // Swapping which factor is named `along` and which is named `streak` in the first product
+    // would NOT be caught here and would not change the rendered result either: `along *
+    // streak` is a product, so the two multiplicands are interchangeable regardless of their
+    // names -- `shockwave.test.ts`'s own front/trail guard draws the identical distinction for
+    // its ring.
+    //
+    // What this test does not establish is that the resulting bright band actually reads as a
+    // leading edge on screen, brighter than the dash trail's plain streak: no node test can
+    // render a frame, so that is left to the bench screenshot.
     const material = quadMaterialOf(createSlipstreamTrail(AT, NORTH, S))
-    expect(material.fragmentShader).toContain('lead')
+    expect(material.fragmentShader).toContain('smoothstep(0.0, 0.2, along01)')
+    expect(material.fragmentShader).toContain('smoothstep(1.0, 0.6, along01)')
+    expect(material.fragmentShader).toContain('smoothstep(0.75, 1.0, along01)')
+    expect(material.fragmentShader).toContain('alpha * (along * streak + lead * 0.8)')
   })
 })

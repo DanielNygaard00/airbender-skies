@@ -124,6 +124,10 @@ export function createDashTrail(
   // A unit-length slab along +Z, scaled to the covered distance — so the streak can be
   // stretched without rebuilding geometry, and so tests can read the length off the scale.
   const geometry = new BoxGeometry(WIDTH, THICKNESS, 1)
+  // `side` is left to the builder's default, deliberately: it defaults to DoubleSide, which is
+  // exactly what the original MeshBasicMaterial here set explicitly, so this is not an
+  // oversight -- contrast slipstream-trail.ts, which pins `side: FrontSide` because its
+  // original material relied on three's own default instead.
   const material = createEffectMaterial({
     body: TRAIL_BODY,
     uniforms: { tint: new Color(TINT), alpha: peak, time: 0 },

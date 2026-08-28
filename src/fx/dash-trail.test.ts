@@ -237,6 +237,28 @@ describe('the trail reads as moving air, not a static streak', () => {
     expect(FIRST_OPACITY).toBe(0.45)
     expect(LAST_OPACITY).toBe(0.85)
   })
+
+  it('fades both ends of the streak by the tuned bounds, not a uniform glow', () => {
+    // The two `toContain` calls below pin the tuned `smoothstep` bounds literally -- the
+    // trailing edge's 0.0-0.25 and the leading edge's 1.0-0.55 -- so reversing either call's
+    // edge order (which inverts that end's fade direction) or retuning either bound fails this
+    // test, not just the arithmetic in a review comment. The third call pins that `along` is
+    // actually multiplied into the term that reaches `gl_FragColor`, so computing it and
+    // discarding it -- rather than folding it into the output -- also fails.
+    //
+    // Swapping which factor is named `along` and which is named `streak` in that product would
+    // NOT be caught here and would not change the rendered result either: `along * streak` is a
+    // product, so the two multiplicands are interchangeable regardless of their names --
+    // `shockwave.test.ts`'s own front/trail guard draws the identical distinction for its ring.
+    //
+    // What this test does not establish is that the resulting gradient reads as a burst of
+    // moving air on screen: no node test can render a frame, so that is left to the bench
+    // screenshot.
+    const material = quadMaterialOf(createDashTrail(ORIGIN, HEADING, 1, DEFAULT_GROUND_CONFIG))
+    expect(material.fragmentShader).toContain('smoothstep(0.0, 0.25, along01)')
+    expect(material.fragmentShader).toContain('smoothstep(1.0, 0.55, along01)')
+    expect(material.fragmentShader).toContain('alpha * along * streak')
+  })
 })
 
 describe('the dash trail is as long as the dash', () => {
