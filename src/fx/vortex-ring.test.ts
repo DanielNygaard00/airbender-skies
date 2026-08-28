@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { Mesh, Vector3 } from 'three'
-import { createVortexRing } from './vortex-ring'
+import { Color, Mesh, ShaderMaterial, Vector3 } from 'three'
+import { createVortexRing, OPACITY } from './vortex-ring'
 import type { Effect } from './effect'
 
 const AT = new Vector3(3, 10, -4)
@@ -8,6 +8,13 @@ const AT = new Vector3(3, 10, -4)
 function mesh(effect: Effect): Mesh {
   if (!(effect.object instanceof Mesh)) throw new Error('expected a mesh')
   return effect.object
+}
+
+/** The ring's own shader material. */
+function materialOf(effect: Effect): ShaderMaterial {
+  const { material } = mesh(effect)
+  if (!(material instanceof ShaderMaterial)) throw new Error('expected the ring to carry a shader material')
+  return material
 }
 
 describe('createVortexRing', () => {
@@ -66,5 +73,50 @@ describe('createVortexRing', () => {
 
   it('disposes without throwing', () => {
     expect(() => createVortexRing(AT, 9).dispose()).not.toThrow()
+  })
+})
+
+describe('the ring reads as air pulling in, not just a hoop shrinking', () => {
+  it('carries a time uniform, so the streaks move rather than the ring fading as a flat gradient', () => {
+    const material = materialOf(createVortexRing(AT, 9))
+    expect(material.uniforms.time).toBeDefined()
+  })
+
+  it('advances that uniform as the effect advances', () => {
+    // A time uniform nothing writes is a still gradient, which is the failure this test exists
+    // to catch: it looks like a shader effect and animates nothing.
+    const ring = createVortexRing(AT, 9)
+    const material = materialOf(ring)
+    const before = material.uniforms.time?.value
+    for (let t = 0; t < 0.1; t += 1 / 60) ring.advance(1 / 60)
+    expect(material.uniforms.time?.value).not.toBe(before)
+  })
+
+  it('keeps a bright element above the bloom threshold', () => {
+    // post.ts sets luminanceThreshold 0.82, measured on new Color(hex).r/g/b — the linear
+    // values bloom actually thresholds against, not hex-divided-by-255.
+    const material = materialOf(createVortexRing(AT, 9))
+    const tint = material.uniforms.tint?.value
+    expect(tint).toBeInstanceOf(Color)
+    if (tint instanceof Color) {
+      const luminance = 0.2126 * tint.r + 0.7152 * tint.g + 0.0722 * tint.b
+      expect(luminance).toBeGreaterThan(0.82)
+    }
+  })
+
+  it('keeps its peak alpha at the value it shipped with', () => {
+    // Task 4's mirrored guard pins a quiet companion element (a separate fill mesh) under 0.5.
+    // This ring has no such second element — OPACITY is its only brightness knob, and it was
+    // already 0.75 before this task. Gameplay says no opacity constant moves, so this pins the
+    // literal shipped value rather than a threshold that was never true for it.
+    expect(OPACITY).toBe(0.75)
+  })
+
+  it('runs its streaks around the ring, not along its radius', () => {
+    // The ring closes inward; the streaks travel around it. Two axes, so the move reads as
+    // rotation pulling a group in rather than a hoop shrinking — the inward half of the
+    // outward-versus-inward contrast vortex-ring.ts and water-reach.ts share.
+    const material = materialOf(createVortexRing(AT, 9))
+    expect(material.fragmentShader).toContain('vUv.x')
   })
 })
