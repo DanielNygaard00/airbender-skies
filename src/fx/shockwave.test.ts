@@ -152,9 +152,22 @@ describe('the ring reads as a moving front, not a static hoop', () => {
     // term crossing the ring's thickness has to be re-derived from a centred UV rather than
     // read straight off `vUv.y` — a bare `vUv.y` term would mirror across the ring's two poles
     // instead of crossing the annulus from inner edge to outer.
+    //
+    // The two `toContain` calls below pin the tuned `smoothstep` bounds literally — the front's
+    // 0.55–1.0 and the trail's 0.35–0.75 — so reversing either call's edge order (which inverts
+    // that band's ramp direction, making the ring bright at the wrong radius) or retuning either
+    // bound fails this test, not just the arithmetic in a review comment. Swapping which formula
+    // is named `front` and which is named `trail` would NOT be caught here and would not actually
+    // change the rendered result either: `alpha * front * trail * grain` is a product, so the two
+    // multiplicands are interchangeable regardless of their names — verified directly by making
+    // that exact swap and confirming this suite still passes unchanged. What this test does not
+    // establish is that the resulting gradient reads as a moving front on screen: no node test
+    // can render a frame, so that is left to the bench screenshot.
     const material = ringMaterialOf(createShockwave(4, 1))
     expect(material.fragmentShader).toContain('atan(')
     expect(material.fragmentShader).not.toContain('vUv.y')
+    expect(material.fragmentShader).toContain('smoothstep(0.55, 1.0, radius)')
+    expect(material.fragmentShader).toContain('smoothstep(0.35, 0.75, radius)')
   })
 
   it("still honours a caller's tint, because three callers mean three things", () => {
