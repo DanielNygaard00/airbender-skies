@@ -130,11 +130,10 @@ export function createAirWallPanel(): AirWallPanel {
     body: FRAGMENT_BODY,
     uniforms: { tint: new Color(TINT), alpha: 0, time: 0 },
     side: DoubleSide,
-    // `depthTest` left ON (the builder has no `depthTest` option, so its default stands), which
-    // is the deliberate departure from every other tell in this directory. They all set it
-    // false because a flat shape near the player's feet is buried
-    // by terrain sloping up away from them — the defect that made the gust cone invisible in
-    // play. This shape is not flat and is not near the ground: it stands `verticalReach` above
+    // `depthTest` left ON — the builder's default, and the deliberate departure from every other
+    // tell in this directory. They all pass `depthTest: false` because a flat shape near the
+    // player's feet is buried by terrain sloping up away from them — the defect that made the
+    // gust cone invisible in play. This shape is not flat and is not near the ground: it stands `verticalReach` above
     // the player, so nothing buries it, and depth-testing earns something real instead. The
     // band is centred on the player's footing and so extends `verticalReach` *below* it, and
     // the depth test is exactly what keeps that underground half hidden by the ground it is

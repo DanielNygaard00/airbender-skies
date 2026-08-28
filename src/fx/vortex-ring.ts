@@ -88,11 +88,10 @@ export function createVortexRing(origin: Vector3, radius: number): Effect {
   const material = createEffectMaterial({
     body: RING_BODY,
     uniforms: { tint: new Color(TINT), alpha: OPACITY, time: 0 },
+    // Every other flat tell in this directory asks for this for the same reason: a ring drawn
+    // a little above the ground is otherwise buried by any slope.
+    depthTest: false,
   })
-  // Every other flat tell in this directory sets this false for the same reason: a ring near
-  // the ground is otherwise buried by any slope. The builder has no `depthTest` option
-  // (`air-wall.ts` explains why), so it is set here directly instead.
-  material.depthTest = false
   const mesh = new Mesh(geometry, material)
   mesh.rotation.x = -Math.PI / 2
   mesh.position.copy(origin)

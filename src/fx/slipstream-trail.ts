@@ -90,11 +90,11 @@ export function createSlipstreamTrail(
     // The original MeshBasicMaterial here never set `side`, so it rendered FrontSide (three's
     // own default) — pinned explicitly here to keep that same single wall per side.
     side: FrontSide,
+    // Every other flat tell in this directory asks for this for the same reason: a slab that
+    // runs along the ground for the length of a dodge is otherwise buried by terrain that
+    // slopes up anywhere along that length.
+    depthTest: false,
   })
-  // Every other flat tell in this directory sets this false for the same reason: a slab near
-  // the ground is otherwise buried by terrain that slopes up. The builder has no `depthTest`
-  // option (`air-wall.ts` explains why), so it is set here directly instead.
-  material.depthTest = false
   const mesh = new Mesh(geometry, material)
   // Copied before the offset, because the caller passes the player's live position.
   mesh.position.copy(origin)

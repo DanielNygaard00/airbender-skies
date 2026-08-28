@@ -97,6 +97,19 @@ describe('the material', () => {
     expect(createEffectMaterial({ body: BODY, uniforms: {}, side: FrontSide }).side).toBe(FrontSide)
   })
 
+  it('depth-tests by default and takes an override', () => {
+    // The default is three's own `true`, which `air-wall.ts` is the one caller to want: its shell
+    // extends as far below the player's footing as above it, and the depth test is what keeps
+    // that underground half hidden. The other five shader effects are flat shapes drawn just
+    // above the ground, which any upward slope puts in front of — the defect that made the gust
+    // cone invisible in play — so they pass `false`. Pinned in both directions because a default
+    // flipped to `false` would silently give `air-wall` its underground half back, and a
+    // dropped-through option would silently bury the other five.
+    expect(createEffectMaterial({ body: BODY, uniforms: {} }).depthTest).toBe(true)
+    expect(createEffectMaterial({ body: BODY, uniforms: {}, depthTest: false }).depthTest)
+      .toBe(false)
+  })
+
   it('leaves tone mapping on, which is what makes the injected declarations arrive', () => {
     expect(createEffectMaterial({ body: BODY, uniforms: {} }).toneMapped).toBe(true)
   })

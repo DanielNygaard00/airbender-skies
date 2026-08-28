@@ -91,11 +91,11 @@ export function createVortexChargeTell(): VortexChargeTell {
     uniforms: {
       tint: new Color(TINT), alpha: PEAK_OPACITY, time: 0, charge: 0,
     },
+    // Matches every other flat tell in this directory: a ring near the ground is otherwise
+    // buried by any slope. Worse here than for a one-shot effect — this tell is held for up to
+    // 1.2 seconds while the player waits on it.
+    depthTest: false,
   })
-  // Matches every other flat tell in this directory: a ring near the ground is otherwise
-  // buried by any slope. The builder has no `depthTest` option (`air-wall.ts` explains why),
-  // so it is set here directly instead.
-  material.depthTest = false
   const ring = new Mesh(geometry, material)
   ring.rotation.x = -Math.PI / 2
   ring.userData.excludeFromShadows = true

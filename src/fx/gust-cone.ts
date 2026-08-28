@@ -125,12 +125,12 @@ export function createGustCone(origin: Vector3, forward: Vector3, c: GustConfig)
   const arcMaterial = createEffectMaterial({
     body: ARC_BODY,
     uniforms: { tint: new Color(ARC_TINT), alpha: ARC_OPACITY, time: 0 },
+    // The same reason the fill above sets it: a flat shape near the player's feet is buried by
+    // terrain sloping up away from them, which is the defect that made this whole effect
+    // invisible in play. The arc is the element the player actually reads, so it is the worse
+    // half to lose.
+    depthTest: false,
   })
-  // Every other tell in this directory sets this false for the same reason: a flat shape near
-  // the player's feet is buried by terrain sloping up away from them, the defect that made the
-  // gust cone invisible in play before the fill got its own `depthTest: false`. The builder has
-  // no `depthTest` option (`air-wall.ts` explains why), so it is set here directly instead.
-  arcMaterial.depthTest = false
   const arc = new Mesh(arcGeometry, arcMaterial)
   arc.rotation.x = SECTOR_FLAT_ROTATION_X
   arc.userData.excludeFromShadows = true

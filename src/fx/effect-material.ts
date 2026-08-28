@@ -103,7 +103,25 @@ export function createEffectMaterial(opts: {
   body: string
   uniforms: EffectUniforms
   side?: Side
-  depthWrite?: boolean
+  /**
+   * Whether the effect is depth-tested against the world. Defaults to `true`, three's own default.
+   *
+   * An effect that overlays the world must not be occluded by it, and almost every effect in this
+   * directory is a flat shape drawn a metre or less above the player's feet — which ground sloping
+   * up away from them puts in front of, hiding the effect entirely. That is not hypothetical: it
+   * is the defect that made the gust cone invisible in play with its shape and tint both correct
+   * (see `depthTest` on the fill in `gust-cone.ts`), and it is why every flat `MeshBasicMaterial`
+   * effect in this directory passes `depthTest: false` too. So the five flat shader effects pass
+   * `false` here and pay for it with showing through a hill for the fifth of a second they live.
+   *
+   * The default is `true` rather than `false` because `air-wall.ts` is a deliberate exception and
+   * a real one: its shape is a tall curved shell, not a flat sheet, and it extends as far below
+   * the player's footing as above it — the depth test is exactly what keeps that underground half
+   * hidden by the ground it is under. `air-wall.ts`'s own comment carries that argument in full.
+   * Defaulting to `false` would make the one caller that wants depth-testing say so, which reads
+   * as an oversight in the file where the reasoning lives.
+   */
+  depthTest?: boolean
 }): ShaderMaterial {
   const wrapped: Record<string, { value: EffectUniformValue }> = {}
   for (const [name, value] of Object.entries(opts.uniforms)) wrapped[name] = { value }
@@ -115,7 +133,8 @@ export function createEffectMaterial(opts: {
     // what it is drawn over. `fog` is left off deliberately — an effect tinted toward the fog
     // colour at distance would fade exactly where a player most needs to see that a move landed.
     transparent: true,
-    depthWrite: opts.depthWrite ?? false,
+    depthWrite: false,
+    depthTest: opts.depthTest ?? true,
     side: opts.side ?? DoubleSide,
   })
 }

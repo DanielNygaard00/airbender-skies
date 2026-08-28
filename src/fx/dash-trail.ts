@@ -131,11 +131,11 @@ export function createDashTrail(
   const material = createEffectMaterial({
     body: TRAIL_BODY,
     uniforms: { tint: new Color(TINT), alpha: peak, time: 0 },
+    // Every other flat tell in this directory asks for this for the same reason: a slab this
+    // low — `HEIGHT` is 0.5 and `THICKNESS` 0.12 — is otherwise buried by terrain that slopes
+    // up, and it runs along the ground for metres, so it only has to meet one rise.
+    depthTest: false,
   })
-  // Every other flat tell in this directory sets this false for the same reason: a low slab
-  // near the ground is otherwise buried by terrain that slopes up. The builder has no
-  // `depthTest` option (`air-wall.ts` explains why), so it is set here directly instead.
-  material.depthTest = false
   const streak = new Mesh(geometry, material)
   streak.scale.z = safeScale(length)
   // Pushed forward by half its length so it starts at the origin rather than straddling it.
