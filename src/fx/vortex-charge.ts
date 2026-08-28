@@ -16,6 +16,14 @@ import { safeScale } from './scale'
  * one move, not two, and giving the charge a static ring while the fired ring spins would say
  * so. What is unique to the charge is the leading edge sharpening as `charge` climbs toward 1,
  * which is the thing a held vortex has that a fired one does not: a fill level.
+ *
+ * **`RingGeometry`'s own UVs are a trap here too**, and it is the same trap `vortex-ring.ts`
+ * documents at length: they are a Cartesian projection of each vertex
+ * (`uv = (position / outerRadius + 1) / 2`), not polar, so `vUv.x` alone does not run around the
+ * ring. An earlier draft drove the leading edge straight off `vUv.x` with no radial term at all,
+ * which puts the lit band at both the top and bottom of the ring at the same time, in lockstep —
+ * two mirrored bands, not one travelling edge. `CHARGE_BODY` below re-derives an actual angle and
+ * radius from the centred UV first, the same derivation `vortex-ring.ts` uses.
  */
 export interface VortexChargeTell {
   object: Object3D
@@ -48,18 +56,31 @@ export const PEAK_OPACITY = 0.55
 const TINT = 0x9fffff
 
 /**
- * The same rotation `vortex-ring.ts` uses, with a leading edge that sharpens as `charge` rises.
+ * The same polar derivation `vortex-ring.ts` uses, with a leading edge that sharpens as `charge`
+ * rises instead of a travelling streak.
  *
  * At `charge` 0 the lit band covers the last 15% of the loop; at `charge` 1 it covers the last
  * 35%, so the ring reads as filling up rather than merely spinning faster. `lead`'s width is
  * the tell for how close the hold is to full charge, which a uniform rotation speed alone would
  * not carry — the player would have to watch the radius grow instead, which is a much smaller
  * signal at low charge, right when knowing "not yet" matters most.
+ *
+ * `edge`'s thresholds are this ring's own, not copied from `vortex-ring.ts` unchanged: this
+ * ring's `THICKNESS` is 0.06 against the fired ring's 0.3, so in the recentred-UV radius the
+ * whole visible band sits between 0.94 and 1.0 rather than 0.7 and 1.0. Reusing the fired
+ * ring's `(0.35, 0.7)` / `(1.05, 0.8)` bands verbatim would land almost entirely outside that
+ * narrow window, leaving `edge` a near-flat 0.2–0.44 across the whole ring instead of an actual
+ * taper. `(0.91, 0.97)` / `(1.03, 0.97)` centres a feather of half-width 0.03 — half this ring's
+ * own thickness — on each true edge (0.94 and 1.0), so the band is brightest at its centre
+ * (`edge` ≈ 1 at radius 0.97) and tapers to half brightness at both the inner and outer rim.
  */
 const CHARGE_BODY = /* glsl */ `
-    float around = fract(vUv.x - time * 0.8);
-    float lead = smoothstep(1.0 - 0.15 - charge * 0.2, 1.0, around);
-    gl_FragColor = vec4(tint, alpha * (0.4 + 0.6 * lead));
+    vec2 p = vUv * 2.0 - 1.0;
+    float radius = length(p);
+    float angle = atan(p.y, p.x) / 6.2832 + 0.5;
+    float lead = smoothstep(1.0 - 0.15 - charge * 0.2, 1.0, fract(angle - time * 0.8));
+    float edge = smoothstep(0.91, 0.97, radius) * smoothstep(1.03, 0.97, radius);
+    gl_FragColor = vec4(tint, alpha * (0.4 + 0.6 * lead) * edge);
 `
 
 export function createVortexChargeTell(): VortexChargeTell {

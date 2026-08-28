@@ -15,6 +15,15 @@ import { safeScale } from './scale'
  * motion around the ring — streaks travelling along its circumference while the ring itself
  * travels inward — is what turns it into something that reads as a pull rather than a wipe,
  * the same two-axes trick `gust-cone.ts`'s travelling arc uses on its own outward sweep.
+ *
+ * **`RingGeometry`'s own UVs are a trap for exactly this.** They are not polar — three.js
+ * builds them as a Cartesian projection of each vertex, `uv = (position / outerRadius + 1) /
+ * 2` — so `vUv.x` alone does not run around the ring; it runs left-to-right across it like an
+ * ordinary quad. An earlier draft of this file drove the streak straight off `vUv.x` and wrote
+ * a `vUv.y`-based vignette on top, which reads as a static top/bottom-dark ring with bands
+ * scanning horizontally, not as rotation. `RING_BODY` below re-derives an actual angle and
+ * radius from the centred UV first (`p = vUv * 2 - 1`, `atan(p.y, p.x)`), which is what makes
+ * `fract(angle - time * ...)` wrap continuously around a full turn.
  */
 const LIFETIME = 0.45
 const THICKNESS = 0.3
@@ -56,16 +65,21 @@ const TINT = 0x9fffff
 /**
  * Streaks travelling around the circumference, with the ring's own inward scale left to `apply`.
  *
- * `vUv.x` runs around the ring rather than along its radius, so `around` is a band that
- * circles it while the mesh itself shrinks inward — two motions at once, which is what a pull
- * looks like and what a uniformly fading ring does not. The alternative was a purely radial
- * fade tied to the same shrink, which would say "this is getting smaller" and nothing about a
- * force acting on it.
+ * `angle`, derived from the UV recentred to `[-1, 1]`, runs 0 to 1 once around the full turn, so
+ * `fract(angle * 3.0 - time * 1.1)` wraps continuously and the streak genuinely travels the loop
+ * rather than scanning across a flat quad — the mesh shrinks inward while the streak circles it,
+ * two motions at once, which is what a pull looks like and what a uniformly fading ring does not.
+ * `radius`, the other half of the same polar derivation, replaces a `vUv.y` vignette (which would
+ * mirror across the ring's two poles, per this file's own doc comment) with a true radial taper
+ * across the ring's thickness — brightest toward the inner edge, fading toward the outer rim, so
+ * the light itself leans the way the ring is pulling.
  */
 const RING_BODY = /* glsl */ `
-    float around = fract(vUv.x * 3.0 - time * 1.1);
-    float streak = smoothstep(0.35, 1.0, around);
-    float edge = smoothstep(0.0, 0.4, vUv.y) * smoothstep(1.0, 0.6, vUv.y);
+    vec2 p = vUv * 2.0 - 1.0;
+    float radius = length(p);
+    float angle = atan(p.y, p.x) / 6.2832 + 0.5;
+    float streak = smoothstep(0.35, 1.0, fract(angle * 3.0 - time * 1.1));
+    float edge = smoothstep(0.35, 0.7, radius) * smoothstep(1.05, 0.8, radius);
     gl_FragColor = vec4(tint, alpha * (0.35 + 0.65 * streak) * edge);
 `
 

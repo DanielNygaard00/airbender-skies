@@ -112,11 +112,17 @@ describe('the ring reads as air pulling in, not just a hoop shrinking', () => {
     expect(OPACITY).toBe(0.75)
   })
 
-  it('runs its streaks around the ring, not along its radius', () => {
-    // The ring closes inward; the streaks travel around it. Two axes, so the move reads as
-    // rotation pulling a group in rather than a hoop shrinking — the inward half of the
-    // outward-versus-inward contrast vortex-ring.ts and water-reach.ts share.
-    const material = materialOf(createVortexRing(AT, 9))
-    expect(material.fragmentShader).toContain('vUv.x')
+  it('derives an angle from the recentred UV, rather than treating vUv.x as one', () => {
+    // No node test can confirm the streak reads as rotation on screen — only a rendered frame
+    // can, and this suite has none. What this pins instead is the derivation: RingGeometry's
+    // own UVs are a Cartesian projection (`uv = (position / outerRadius + 1) / 2`), not polar,
+    // so a body that scans `vUv.x` directly produces a band sweeping left-to-right across the
+    // ring like a shade being drawn, not a rotation — the exact defect this file's own doc
+    // comment records an earlier draft shipping. `atan` on a recentred UV is the one
+    // construction that wraps continuously around a full turn; this checks for its presence
+    // and the absence of a bare `vUv.x` term standing in for it.
+    const { fragmentShader } = materialOf(createVortexRing(AT, 9))
+    expect(fragmentShader).toContain('atan(')
+    expect(fragmentShader).not.toContain('vUv.x')
   })
 })

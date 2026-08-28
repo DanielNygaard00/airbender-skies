@@ -105,4 +105,17 @@ describe('the charge tell reads as air gathering, not just a static ring', () =>
     tell.update(1 / 60, V.maxChargeSeconds * 0.9, V)
     expect(materialOf(tell).uniforms.alpha?.value).toBeGreaterThan(Number(dim))
   })
+
+  it('derives an angle from the recentred UV, rather than treating vUv.x as one', () => {
+    // The same guard as vortex-ring.test.ts, for the same reason: RingGeometry's own UVs are a
+    // Cartesian projection, not polar, so a body that scans `vUv.x` directly puts the leading
+    // edge at the ring's top and bottom at once rather than travelling around it — the exact
+    // defect this file's own doc comment records an earlier draft shipping. No node test can
+    // confirm the edge reads as travelling on screen; this pins the derivation instead.
+    const tell = createVortexChargeTell()
+    tell.update(1 / 60, V.minChargeSeconds, V)
+    const { fragmentShader } = materialOf(tell)
+    expect(fragmentShader).toContain('atan(')
+    expect(fragmentShader).not.toContain('vUv.x')
+  })
 })
