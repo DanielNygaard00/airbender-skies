@@ -60,6 +60,14 @@ they are all air-adjacent or already half-built.
 
 **B2, later.** Water, earth and fire through the same capability, once air has proven it.
 
+**Scope narrowed during execution, on 2026-08-28, at the owner's call.** B1 ships the builder plus air's six effects and stops there. The three gaps §6 lists — real effects for Steam and Mud, the finisher's cue, and the mark's pip — move to B2.
+
+The reason is what the build taught rather than a change of mind. Three of the plan's shader bodies were geometrically wrong in the same way: they assumed a UV layout instead of reading the geometry. `RingGeometry` turned out to carry Cartesian UVs, which cost the vortex a fix round after it shipped a shader that scanned horizontally instead of rotating; `BoxGeometry` turned out to carry per-face UVs, caught before the trails were dispatched. The gust survived only because a bounded wedge happens to make the assumption true. Steam and Mud are *new* shapes whose geometry this note also specified without verifying, so the same error was likely a third time.
+
+Set against that, the three findings this step is carrying — the pale-terrain legibility problem in §4, the shockwave lying flat enough to be buried in curved ground, and the bench's trail scenes framed for a cone rather than a half-unit trail — are all **rule-level** questions. They want the owner's eyes on a finished air kit before four more effects inherit the same rule. Extending the branch would have delayed that feedback rather than informing it.
+
+So B2 inherits: water, earth and fire; Steam and Mud; the finisher's cue; the mark's pip; and whatever the play-test says about §4's rule.
+
 **Air first, and not because it is worst.** Air is the always-available element and the character's
 identity: §2 makes airbending locomotion the baseline movement layer, and §4.2 makes the airbending
 core the kit that is never taken away. Every other element is borrowed and situational. The gust is
