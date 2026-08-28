@@ -39,18 +39,31 @@ const ARC_OPACITY = 0.9
 const ARC_THICKNESS = 0.16
 const TINT = 0x7fe4ff
 /**
- * The arc's own tint — brighter than the fill's `TINT`, and deliberately so.
+ * The arc's own tint — brighter than the fill's `TINT`, but kept in the same cyan family
+ * rather than lifted toward white.
+ *
+ * `TINT` (`0x7fe4ff`) is `element-radial.ts`'s air badge colour too — "air takes the gust cone's
+ * cyan" is that file's own comment — so this hue is the project's canonical identity for air, not
+ * an incidental value the arc is free to wash out. An arc that reads as near-white breaks the
+ * thing the fill and arc are supposed to do together: read as one effect.
  *
  * Measured the way `post.ts`'s threshold actually reads it: `new Color(hex)` and
  * `0.2126*c.r + 0.7152*c.g + 0.0722*c.b`, on the same `Color` instance the material carries —
  * not hex-divided-by-255, which three's default sRGB-to-linear colour management makes wrong.
- * By that measurement `TINT` (`0x7fe4ff`) is `{ r: 0.212, g: 0.776, b: 1 }`, luminance ≈ 0.672 —
- * well under the 0.82 bloom threshold in `post.ts`, which is exactly why the fill alone was never
- * going to bloom or read as the bright element. `0xd6f7ff` measures `{ r: 0.672, g: 0.930, b: 1 }`,
- * luminance ≈ 0.880 — comfortably clear of 0.82, while `r` staying well below `g` and `b` keeps it
- * reading as the same cyan family as the fill rather than washing out to plain white.
+ * By that measurement `TINT` is `{ r: 0.212, g: 0.776, b: 1 }`, luminance ≈ 0.672 — well under the
+ * 0.82 bloom threshold, which is exactly why the fill alone was never going to bloom or read as
+ * the bright element.
+ *
+ * Green carries the dominant weight in that formula (0.7152, against red's 0.2126), so the cheap
+ * way to clear the threshold is to raise green, not to lift every channel toward white. Maxing
+ * `TINT`'s green and blue alone (`0x7fffff`) already clears it — `{ r: 0.212, g: 1, b: 1 }`,
+ * luminance ≈ 0.8325 — but only by 0.0125, thin against a threshold this value has to clear on
+ * every GPU it renders on. `0x99ffff` adds a modest bump to red as well — `0x7f` to `0x99`, still
+ * well short of a wash-out value like `0xd6` (84% of full red) — for real margin:
+ * `{ r: 0.319, g: 1, b: 1 }`, luminance ≈ 0.855, clearing 0.82 by ≈ 0.035 while red stays far
+ * enough below green and blue to read as the same cyan as `TINT`, not as white.
  */
-const ARC_TINT = 0xd6f7ff
+const ARC_TINT = 0x99ffff
 
 /**
  * The arc's brightness, swept along its length and broken up.
