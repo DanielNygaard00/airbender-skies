@@ -1,8 +1,9 @@
 import {
-  DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial, Vector3,
+  Color, DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial, Vector3,
 } from 'three'
 import type { GustConfig } from '../combat/gust'
 import type { Effect } from './effect'
+import { createEffectMaterial } from './effect-material'
 import { SECTOR_FLAT_ROTATION_X, sectorGeometry } from './sector'
 import { safeScale } from './scale'
 
@@ -37,6 +38,41 @@ const ARC_OPACITY = 0.9
 /** Arc thickness as a fraction of its own radius. */
 const ARC_THICKNESS = 0.16
 const TINT = 0x7fe4ff
+/**
+ * The arc's own tint — brighter than the fill's `TINT`, and deliberately so.
+ *
+ * Measured the way `post.ts`'s threshold actually reads it: `new Color(hex)` and
+ * `0.2126*c.r + 0.7152*c.g + 0.0722*c.b`, on the same `Color` instance the material carries —
+ * not hex-divided-by-255, which three's default sRGB-to-linear colour management makes wrong.
+ * By that measurement `TINT` (`0x7fe4ff`) is `{ r: 0.212, g: 0.776, b: 1 }`, luminance ≈ 0.672 —
+ * well under the 0.82 bloom threshold in `post.ts`, which is exactly why the fill alone was never
+ * going to bloom or read as the bright element. `0xd6f7ff` measures `{ r: 0.672, g: 0.930, b: 1 }`,
+ * luminance ≈ 0.880 — comfortably clear of 0.82, while `r` staying well below `g` and `b` keeps it
+ * reading as the same cyan family as the fill rather than washing out to plain white.
+ */
+const ARC_TINT = 0xd6f7ff
+
+/**
+ * The arc's brightness, swept along its length and broken up.
+ *
+ * `vUv.x` runs along the arc, so `sweep` is a bright band travelling around it while the mesh
+ * itself travels outward — two motions at once, which is what a gust of air looks like and what a
+ * uniformly fading ring does not. `grain` is a two-term hash rather than a texture: `ASSETS.md`
+ * would want a licence entry for a noise image, and this is four lines of arithmetic instead.
+ *
+ * The tint is brighter than the fill's and above `post.ts`'s 0.82 bloom threshold on purpose. The
+ * fill states the volume the move affects and must stay quiet enough to see the world through;
+ * everything the player actually reads is carried here. `gust-cone.ts`'s own history is the
+ * argument: the first tint measured fine and was invisible in play, and raising the *fill* is the
+ * fix that hides terrain and still does not bloom.
+ */
+const ARC_BODY = /* glsl */ `
+    float sweep = smoothstep(0.0, 0.35, vUv.x) * smoothstep(1.0, 0.65, vUv.x);
+    float travel = fract(vUv.x - time * 1.6);
+    float band = smoothstep(0.55, 1.0, travel);
+    float grain = 0.85 + 0.15 * sin(vUv.x * 90.0 + time * 9.0);
+    gl_FragColor = vec4(tint, alpha * sweep * band * grain);
+`
 
 export function createGustCone(origin: Vector3, forward: Vector3, c: GustConfig): Effect {
   const group = new Group()
@@ -73,10 +109,15 @@ export function createGustCone(origin: Vector3, forward: Vector3, c: GustConfig)
   // A unit arc scaled at runtime, so travelling outward costs a scale rather than a
   // geometry rebuild sixty times a second.
   const arcGeometry = sectorGeometry(c.halfAngle, 1 - ARC_THICKNESS, 1)
-  const arcMaterial = new MeshBasicMaterial({
-    color: TINT, transparent: true, side: DoubleSide, depthWrite: false,
-    opacity: ARC_OPACITY, depthTest: false,
+  const arcMaterial = createEffectMaterial({
+    body: ARC_BODY,
+    uniforms: { tint: new Color(ARC_TINT), alpha: ARC_OPACITY, time: 0 },
   })
+  // Every other tell in this directory sets this false for the same reason: a flat shape near
+  // the player's feet is buried by terrain sloping up away from them, the defect that made the
+  // gust cone invisible in play before the fill got its own `depthTest: false`. The builder has
+  // no `depthTest` option (`air-wall.ts` explains why), so it is set here directly instead.
+  arcMaterial.depthTest = false
   const arc = new Mesh(arcGeometry, arcMaterial)
   arc.rotation.x = SECTOR_FLAT_ROTATION_X
   arc.userData.excludeFromShadows = true
@@ -92,7 +133,11 @@ export function createGustCone(origin: Vector3, forward: Vector3, c: GustConfig)
     arc.scale.setScalar(safeScale(t * c.range))
     fillMaterial.opacity = FILL_OPACITY * (1 - t)
     // The arc brightens as it goes out, so the leading edge is what the eye follows.
-    arcMaterial.opacity = ARC_OPACITY * (1 - t * t)
+    arcMaterial.uniforms.alpha!.value = ARC_OPACITY * (1 - t * t)
+    // Drives the sweep in `ARC_BODY`. Raw elapsed age, not scaled here, because the shader's
+    // own `time * 1.6` already sets the travel speed — a second multiplier here would just be
+    // the same knob turned twice.
+    arcMaterial.uniforms.time!.value = age
   }
 
   apply()

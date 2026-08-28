@@ -1,18 +1,30 @@
 import { describe, it, expect } from 'vitest'
-import { Mesh, Quaternion, RingGeometry, Vector3 } from 'three'
-import { createGustCone } from './gust-cone'
+import {
+  Color, Mesh, Quaternion, RingGeometry, ShaderMaterial, Vector3,
+} from 'three'
+import { createGustCone, FILL_OPACITY } from './gust-cone'
 import { inGust } from '../combat/gust'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 import type { Effect } from './effect'
 
 const C = DEFAULT_COMBAT_CONFIG.gust
 const ORIGIN = new Vector3(3, 12, -7)
+const FORWARD = new Vector3(0, 0, 1)
 
 /** The filled sector, which carries the true radius. children[0] by construction. */
 function fill(cone: Effect): Mesh {
   const first = cone.object.children[0]
   if (!(first instanceof Mesh)) throw new Error('expected the fill sector as children[0]')
   return first
+}
+
+/** The travelling arc's shader material. children[1] by construction, the same order `fill` relies on. */
+function arcMaterialOf(cone: Effect): ShaderMaterial {
+  const second = cone.object.children[1]
+  if (!(second instanceof Mesh)) throw new Error('expected the leading arc as children[1]')
+  const { material } = second
+  if (!(material instanceof ShaderMaterial)) throw new Error('expected the arc to carry a shader material')
+  return material
 }
 
 function params(mesh: Mesh) {
@@ -187,5 +199,38 @@ describe('createGustCone', () => {
   it('disposes without throwing', () => {
     const cone = createGustCone(ORIGIN, new Vector3(0, 0, 1), C)
     expect(() => cone.dispose()).not.toThrow()
+  })
+})
+
+describe('the arc reads as moving air', () => {
+  it('carries a time uniform, so the brightness moves rather than the shape blinking', () => {
+    const material = arcMaterialOf(createGustCone(ORIGIN, FORWARD, C))
+    expect(material.uniforms.time).toBeDefined()
+  })
+
+  it('advances that uniform as the effect advances', () => {
+    // A time uniform nothing writes is a still gradient, which is the failure this test exists
+    // to catch: it looks like a shader effect and animates nothing.
+    const effect = createGustCone(ORIGIN, FORWARD, C)
+    const material = arcMaterialOf(effect)
+    const before = material.uniforms.time?.value
+    for (let t = 0; t < 0.1; t += 1 / 60) effect.advance(1 / 60)
+    expect(material.uniforms.time?.value).not.toBe(before)
+  })
+
+  it('keeps a bright element above the bloom threshold', () => {
+    // post.ts sets luminanceThreshold 0.82. The fill deliberately sits under it — the arc is
+    // what bloom bites on, and what makes the effect legible over pale terrain unbloomed.
+    const material = arcMaterialOf(createGustCone(ORIGIN, FORWARD, C))
+    const tint = material.uniforms.tint?.value
+    expect(tint).toBeInstanceOf(Color)
+    if (tint instanceof Color) {
+      const luminance = 0.2126 * tint.r + 0.7152 * tint.g + 0.0722 * tint.b
+      expect(luminance).toBeGreaterThan(0.82)
+    }
+  })
+
+  it('leaves the fill quiet, so the volume stays honest without hiding the world', () => {
+    expect(FILL_OPACITY).toBeLessThan(0.5)
   })
 })
