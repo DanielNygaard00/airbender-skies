@@ -68,9 +68,11 @@ const ARC_TINT = 0x99ffff
 /**
  * The arc's brightness, swept along its length and broken up.
  *
- * `vUv.x` runs along the arc, so `sweep` is a bright band travelling around it while the mesh
+ * `vUv.x` runs along the arc, so `band` is a bright band travelling around it while the mesh
  * itself travels outward — two motions at once, which is what a gust of air looks like and what a
- * uniformly fading ring does not. `grain` is a two-term hash rather than a texture: `ASSETS.md`
+ * uniformly fading ring does not. `band` is the traveller because `travel` carries the `time`
+ * term; `sweep` has no `time` in it at all and is a static taper that fades the arc's two ends,
+ * so adding one to `sweep` to make it match this sentence would destroy the taper. `grain` is a two-term hash rather than a texture: `ASSETS.md`
  * would want a licence entry for a noise image, and this is four lines of arithmetic instead.
  *
  * The tint is brighter than the fill's and above `post.ts`'s 0.82 bloom threshold on purpose. The
