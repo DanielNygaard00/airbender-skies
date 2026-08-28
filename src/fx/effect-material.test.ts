@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Color, DoubleSide, FrontSide, Vector2 } from 'three'
 import { describe, expect, it } from 'vitest'
 import {
@@ -118,5 +121,28 @@ describe('the material', () => {
     expect(() => createEffectMaterial({
       body: '#include <tonemapping_pars_fragment>', uniforms: {},
     })).toThrow(PARS_INCLUDE_MESSAGE)
+  })
+})
+
+describe('the directory-wide guard', () => {
+  it('is the only module in src/fx that constructs a ShaderMaterial', () => {
+    // The throw inside this module only protects code that goes THROUGH this module. The failure
+    // scenario is concrete and dated: step B2 re-authors twelve more effects, one of them
+    // hand-rolls its own `new ShaderMaterial` with a `..._pars_fragment` include in the body, the
+    // compile fails with redefinition errors that throw nowhere visible, the mesh draws nothing —
+    // which looks exactly like a correctly transparent effect — and every test in this suite
+    // stays green because the builder was never called. This reads the directory instead of a
+    // hand-kept list, so a new file is covered the moment it exists, the same reason
+    // `scale-wiring.test.ts` reads the listing for its `safeScale` table.
+    //
+    // A new effect that genuinely needs a material this builder cannot build should extend the
+    // builder and fail here until it does — that is the point, not an obstacle to route around.
+    const directory = fileURLToPath(new URL('.', import.meta.url))
+    const constructors = readdirSync(directory)
+      .filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'))
+      .filter((file) => readFileSync(join(directory, file), 'utf8').includes('new ShaderMaterial'))
+      .sort()
+
+    expect(constructors).toEqual(['effect-material.ts'])
   })
 })
