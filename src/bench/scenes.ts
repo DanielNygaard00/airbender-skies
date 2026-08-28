@@ -1,6 +1,7 @@
 import { Vector3 } from 'three'
 import { SUN_ELEVATION_DEGREES } from '../core/daylight'
 import { ARCHIPELAGO } from '../world/levels/archipelago'
+import { CANYON_COUNTRY } from '../world/levels/canyon-country'
 
 /**
  * Fixed camera poses that render the same frame every time.
@@ -22,7 +23,22 @@ import { ARCHIPELAGO } from '../world/levels/archipelago'
  * This is not a level, not a debug menu, and nothing gameplay runs in. The player, the
  * enemies and the input tracker do not exist here.
  */
-export type BenchEffectId = 'gust'
+export type BenchEffectId =
+  | 'gust'
+  | 'air-wall'
+  | 'vortex'
+  | 'vortex-charge'
+  | 'shockwave'
+  | 'dash-trail'
+  | 'slipstream'
+  // `steam`, `mud` and `finisher` do not exist yet — Tasks 8 and 9 build them. Registered here
+  // anyway, pointing at `createShockwave` in `./effects.ts` until those tasks repoint them, so
+  // `BENCH_EFFECTS` stays a total `Record` at every commit between here and there: an id added
+  // to this union without a scene, or a scene naming an id this union does not have, is a
+  // compile error rather than a bench shot of an effect nobody fires.
+  | 'steam'
+  | 'mud'
+  | 'finisher'
 
 export interface BenchScene {
   id: string
@@ -57,6 +73,7 @@ export interface BenchScene {
 // array index returns `T | undefined` even for a literal 0, and the archipelago is what the
 // bench is deliberately anchored to, not "whichever level happens to be first".
 const ARCHIPELAGO_ID = ARCHIPELAGO.id
+const CANYON_ID = CANYON_COUNTRY.id
 
 export const BENCH_SCENES: readonly BenchScene[] = [
   {
@@ -108,6 +125,162 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     effect: 'gust',
     fireAt: 0.1,
     duration: 0.2,
+  },
+  {
+    /**
+     * The gust again, over the canyon's slot floor rather than the home island's grass — the
+     * dark half of the legibility comparison the `gust` scene's own tint was retuned against.
+     * `FILL_OPACITY`'s comment in `gust-cone.ts` records the cyan being chosen so the fill
+     * separates from both the archipelago's pale terrain *and* the sky; nothing in the bench
+     * checked the other side of that claim until this scene existed, since every prior shot of
+     * an effect was taken over the same pale island. Same pose shape as `gust` — 10 up and 20
+     * back from the target — recentred on the narrows room, whose floor is the `rock` biome the
+     * canyon is built from.
+     *
+     * `groundHeightAt(0, -18)` measured 13.887 with the same probe technique the archipelago
+     * comment used, rounded to 13.9. `(10, -18)` and `(-10, -18)` returned heights above 42 in
+     * the same probe — the flank of a hoodoo wall rather than the floor — so the narrows'
+     * *centre* is the position on this room that is provably floor and not rock face.
+     */
+    id: 'gust-canyon',
+    regionId: CANYON_ID,
+    camera: { position: new Vector3(0, 23.9, 2), target: new Vector3(0, 13.9, -18) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'gust',
+    fireAt: 0.1,
+    duration: 0.2,
+  },
+  {
+    /**
+     * Air Wall. `createAirWallPanel` is a held state rather than a one-shot `Effect` — see its
+     * own doc comment — so `./effects.ts`'s `benchEffect` wraps it around a clock that holds the
+     * panel up for `DEFAULT_COMBAT_CONFIG.airWall.maxSeconds` (0.9s) before releasing it, which
+     * is the closest thing this effect has to a `LIFETIME`. `fireAt`/`duration` land the frozen
+     * frame 0.2s into that hold: past `FADE_IN_SECONDS` (0.05s, `air-wall.ts`), so the panel is
+     * at full opacity with its streaks visible, and well inside the 0.9s hold, so it is nowhere
+     * near the release that starts `FADE_OUT_SECONDS`.
+     */
+    id: 'air-wall',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'air-wall',
+    fireAt: 0.1,
+    duration: 0.3,
+  },
+  {
+    /**
+     * Vortex. `createVortexRing`'s `LIFETIME` is 0.45s (`vortex-ring.ts`), and the ring sweeps
+     * inward from the full radius to `END_FRACTION` of it — so a frame taken at half its life is
+     * the one where the sweep itself reads, rather than the frame at either end where the ring
+     * is either at rest or nearly gone. 0.1s in, frozen 0.22s later: age 0.22 against LIFETIME
+     * 0.45, the same near-half fraction the `gust` scene's own 0.1/0.22 uses.
+     */
+    id: 'vortex',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'vortex',
+    fireAt: 0.1,
+    duration: 0.32,
+  },
+  {
+    /**
+     * The Vortex's charge tell. `createVortexChargeTell` takes no origin at all in its own
+     * signature — it is parented to the avatar in the shipped game — so `./effects.ts` wraps it
+     * around a clock that reports `heldSeconds` up to `DEFAULT_COMBAT_CONFIG.vortex
+     * .maxChargeSeconds` (1.2s), which is this effect's `LIFETIME` in every sense that matters
+     * here: past it the tell would be reporting a charge beyond what the move can ever reach.
+     * Frozen at 0.6s in, half of 1.2s, so the ring reads as roughly half-charged rather than
+     * freshly opened or fully lit.
+     */
+    id: 'vortex-charge',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'vortex-charge',
+    fireAt: 0.2,
+    duration: 0.8,
+  },
+  {
+    /**
+     * The Pressure Wave's ring. `createShockwave`'s `LIFETIME` is 0.4s (`shockwave.ts`) and it
+     * takes no position of its own — every real caller sets `effect.object.position` after
+     * construction, which `./effects.ts` does too. Frozen at age 0.2s, exactly half of 0.4s, so
+     * the ring is mid-expansion rather than just born or nearly faded.
+     */
+    id: 'shockwave',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'shockwave',
+    fireAt: 0.1,
+    duration: 0.3,
+  },
+  {
+    /**
+     * The air-blast dash's streak. `createDashTrail`'s `LIFETIME` is 0.3s (`dash-trail.ts`).
+     * Frozen at age 0.15s, half of that, so the streak is mid-fade rather than at either end.
+     */
+    id: 'dash-trail',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'dash-trail',
+    fireAt: 0.05,
+    duration: 0.2,
+  },
+  {
+    /**
+     * The Slipstream dodge's streak. `createSlipstreamTrail`'s `LIFETIME` is 0.26s
+     * (`slipstream-trail.ts`). Frozen at age 0.13s, half of that, for the same mid-fade reason
+     * as `dash-trail`.
+     */
+    id: 'slipstream',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'slipstream',
+    fireAt: 0.05,
+    duration: 0.18,
+  },
+  {
+    /**
+     * Steam, Mud and the staff finisher do not have their own effects yet — Tasks 8 and 9 build
+     * them — so all three are wired to `./effects.ts`'s placeholder, which is `createShockwave`
+     * at a size closer to the reaction rings `main.ts` draws for Steam and Mud today
+     * (`REACTION_RING_RADIUS` 1.4, `REACTION_RING_STRENGTH` 0.85 — private to that file, so this
+     * scene cites rather than imports them) than to the Pressure Wave's own full-size ring. One
+     * scene stands in for all three ids; `shockwave`'s own `LIFETIME` of 0.4s and its half-life
+     * framing apply identically since they share the one placeholder factory.
+     */
+    id: 'steam',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'steam',
+    fireAt: 0.1,
+    duration: 0.3,
+  },
+  {
+    /** Mud's placeholder shot. See `steam`'s comment above — same factory, same reasoning. */
+    id: 'mud',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'mud',
+    fireAt: 0.1,
+    duration: 0.3,
+  },
+  {
+    /** The staff finisher's placeholder shot. See `steam`'s comment above. */
+    id: 'finisher',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'finisher',
+    fireAt: 0.1,
+    duration: 0.3,
   },
   {
     /**

@@ -4,10 +4,9 @@ import { profileFor, isQuality, DEFAULT_QUALITY } from '../core/quality'
 import { createRenderer, hasWebGL, showFallback, WEBGL_MESSAGE } from '../core/renderer'
 import { enableShadows } from '../core/sun'
 import { createEffectPool } from '../fx/effect-pool'
-import { createGustCone } from '../fx/gust-cone'
-import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 import { buildWorld } from '../world/world'
 import { LEVELS } from '../world/levels'
+import { benchEffect } from './effects'
 import { BENCH_SCENES, resolveBench } from './scenes'
 
 /**
@@ -89,13 +88,9 @@ function start(): void {
   function frame(): void {
     if (elapsed < scene.duration) {
       elapsed += STEP_SECONDS
-      if (!fired && scene.effect === 'gust' && elapsed >= scene.fireAt) {
+      if (!fired && scene.effect !== null && elapsed >= scene.fireAt) {
         fired = true
-        pool.add(createGustCone(
-          scene.camera.target.clone(),
-          new Vector3(0, 0, -1),
-          DEFAULT_COMBAT_CONFIG.gust,
-        ))
+        pool.add(benchEffect(scene.effect, scene.camera.target.clone(), new Vector3(0, 0, -1)))
       }
       pool.advance(STEP_SECONDS)
     }
