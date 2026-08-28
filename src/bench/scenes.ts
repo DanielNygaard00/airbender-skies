@@ -223,10 +223,29 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     /**
      * The air-blast dash's streak. `createDashTrail`'s `LIFETIME` is 0.3s (`dash-trail.ts`).
      * Frozen at age 0.15s, half of that, so the streak is mid-fade rather than at either end.
+     *
+     * **Its own pose, closer and off to the side, because this is not a cone.** The scenes above
+     * sit 10 up and 20 back — a pose framed for the gust's 12-unit wedge, which at ~22 units of
+     * throw fills a third of the frame. This streak is 3.2 units long, 0.45 wide and 0.12 thick
+     * (`WIDTH`, `THICKNESS` and the chain-1 length in `dash-trail.ts`), so at that distance it is
+     * a few pixels of haze: a shot that cannot support a judgement about how the effect reads,
+     * which is the only thing the bench is for. From 3.5 up and 5.6 to the side the streak
+     * crosses about a third of the frame instead, and it is nearly broadside — the effect is
+     * fired along -Z from `camera.target` (`bench/main.ts`), so a camera on +X sees its length
+     * rather than looking down the barrel of it.
+     *
+     * Looking down at 32 degrees rather than level, because at 0.12 thick this slab seen edge-on
+     * is a hairline; the 0.45-by-3.2 top face is the silhouette worth photographing. That is the
+     * opposite trade from `slipstream` below, whose slab is tall and wants a low camera, which is
+     * why these two scenes do not share a pose either.
+     *
+     * The target stays the measured ground height at the island centre, 11.9, for the reason the
+     * `gust` scene's comment gives at length. `groundHeightAt(5.5, 1)` measures 11.05 with the
+     * same scratch-probe technique, so the camera at 15.4 clears the terrain by 4.3 units.
      */
     id: 'dash-trail',
     regionId: ARCHIPELAGO_ID,
-    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    camera: { position: new Vector3(5.5, 15.4, 1), target: new Vector3(0, 11.9, 0) },
     elevation: SUN_ELEVATION_DEGREES,
     effect: 'dash-trail',
     fireAt: 0.05,
@@ -237,10 +256,28 @@ export const BENCH_SCENES: readonly BenchScene[] = [
      * The Slipstream dodge's streak. `createSlipstreamTrail`'s `LIFETIME` is 0.26s
      * (`slipstream-trail.ts`). Frozen at age 0.13s, half of that, for the same mid-fade reason
      * as `dash-trail`.
+     *
+     * **Low and to the side, which is neither the cone's pose nor `dash-trail`'s.** This slab is
+     * 6 units long (`speed` 30 by `durationSeconds` 0.2, from `DEFAULT_SLIPSTREAM_CONFIG`), 0.5
+     * wide and 1.5 tall, and unlike the dash streak it straddles the origin rather than running
+     * forward from it. Tall is the operative difference: a camera looking steeply down at a
+     * 1.5-unit wall photographs its 0.5-unit top and hides the streak-and-lead gradient that runs
+     * up it, so this one sits only 2 units above the target and 8 out, a 14-degree look-down that
+     * keeps the flank in frame. The 6-unit length crosses about half the frame at that range,
+     * against a tenth from the cone's 10-up-20-back pose.
+     *
+     * Placed on the -Z side, the direction the dodge travels, so the bright leading edge
+     * `TRAIL_BODY`'s `lead` term brightens is the near end rather than the far one — the whole
+     * point of that term is which way the dodge went, and a shot from behind reports it as the
+     * dimmer end.
+     *
+     * Target height 11.9 as above. `groundHeightAt(7, -4)` measures 11.15, so the camera at 13.9
+     * clears the terrain by 2.7 units — the thinnest margin of any bench scene, and deliberate:
+     * a low camera is the price of seeing a low effect's flank.
      */
     id: 'slipstream',
     regionId: ARCHIPELAGO_ID,
-    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    camera: { position: new Vector3(7, 13.9, -4), target: new Vector3(0, 11.9, 0) },
     elevation: SUN_ELEVATION_DEGREES,
     effect: 'slipstream',
     fireAt: 0.05,
