@@ -44,6 +44,15 @@ describe('the fragment source', () => {
     expect(source.match(/varying vec2 vUv;/g)).toHaveLength(1)
   })
 
+  it('declares the local-position varying exactly once', () => {
+    // A box or cylinder's UVs are per-face (or per-cap), not a single coordinate running along
+    // the shape's own axis — see the module comment. vLocal carries object-space position
+    // instead, and this pins that the builder declares it exactly once, the same guard the
+    // vUv assertion above already gives that varying.
+    const source = effectFragmentSource(BODY, {})
+    expect(source.match(/varying vec3 vLocal;/g)).toHaveLength(1)
+  })
+
   it('carries the body verbatim', () => {
     expect(effectFragmentSource(BODY, {})).toContain(BODY)
   })

@@ -34,11 +34,24 @@ export type EffectUniforms = Record<string, EffectUniformValue>
  * One shader rather than a parameter, because every effect in this directory is a flat piece of
  * geometry textured by its own surface coordinate — a sector, a ring, an arc, a quad. Nothing here
  * displaces a vertex, so a per-effect vertex shader would be a knob with one setting.
+ *
+ * **`vUv` is a surface coordinate, not an axis — a box or cylinder's own UVs do not survive the
+ * trip.** A `BoxGeometry` carries a full independent 0..1 UV square on each of its six faces, so
+ * `vUv.x` means a different axis depending on which face a fragment belongs to: a body written
+ * against it streaks along a shape's length on two faces and across it on the other four. This is
+ * the same class of trap `RingGeometry`'s Cartesian-not-polar UVs are for a ring (see
+ * `vortex-ring.ts`'s doc comment) — found the same way, by reading the geometry before trusting
+ * the UV. `vLocal` sidesteps it for box- and cylinder-shaped effects: it carries the raw
+ * object-space vertex position, which for a `BoxGeometry(w, h, 1)` runs the shape's own length as
+ * `vLocal.z` from -0.5 to 0.5 regardless of which face a fragment is on. An effect built on
+ * either geometry that wants "along its own axis" should read `vLocal`, not `vUv`.
  */
 const VERTEX_SHADER = /* glsl */ `
   varying vec2 vUv;
+  varying vec3 vLocal;
   void main() {
     vUv = uv;
+    vLocal = position;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `
@@ -77,6 +90,7 @@ export function effectFragmentSource(body: string, uniforms: EffectUniforms): st
   return /* glsl */ `
 ${uniformDeclarations(uniforms)}
   varying vec2 vUv;
+  varying vec3 vLocal;
   void main() {
 ${body}
     #include <tonemapping_fragment>
