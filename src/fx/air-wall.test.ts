@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { BufferAttribute, Mesh, ShaderMaterial, Vector3 } from 'three'
-import { createAirWallPanel } from './air-wall'
-import { PARS_INCLUDE_MESSAGE } from './effect-material'
+import { BufferAttribute, Color, Mesh, ShaderMaterial, Vector3 } from 'three'
+import { createAirWallPanel, FRAGMENT_BODY } from './air-wall'
+import { effectFragmentSource, type EffectUniforms } from './effect-material'
 import { airWallNormal, inAirWall } from '../combat/air-wall'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 
@@ -224,20 +224,29 @@ describe('the shader avoids the chunk trap', () => {
 
 describe('the panel material', () => {
   it('is built through the shared builder, so the include trap cannot reach it', () => {
-    // The invariant, asserted on the artefact rather than on the call: the builder is the only
-    // thing that appends these two includes, and it refuses the _pars_ form outright.
-    const material = panelMaterialOf(aWall())
-    expect(material.fragmentShader).toContain('#include <tonemapping_fragment>')
-    expect(material.fragmentShader).toContain('#include <colorspace_fragment>')
-    expect(material.fragmentShader).not.toContain('_pars_fragment')
-    expect(PARS_INCLUDE_MESSAGE.length).toBeGreaterThan(0)
+    // Asserted against the builder's own output rather than against substrings a hand-rolled
+    // `ShaderMaterial` could coincidentally also contain (the pre-migration shader did): the
+    // fragment source must be byte-identical to what `effectFragmentSource` produces for this
+    // body and uniform set, which only a material actually built through the shared builder can
+    // be.
+    const fx = aWall()
+    const material = panelMaterialOf(fx)
+    const uniforms: EffectUniforms = {
+      tint: material.uniforms.tint!.value as Color,
+      alpha: material.uniforms.alpha!.value as number,
+      time: material.uniforms.time!.value as number,
+    }
+    expect(material.fragmentShader).toBe(effectFragmentSource(FRAGMENT_BODY, uniforms))
+    fx.dispose()
   })
 
   it('keeps the drifting streak that makes the panel read as air rather than glass', () => {
     // air-wall.ts's own comment: "a still panel of even alpha reads as glass, which is the wrong
     // material for a move whose whole fiction is that it is a cushion of wind."
-    const material = panelMaterialOf(aWall())
+    const fx = aWall()
+    const material = panelMaterialOf(fx)
     expect(material.fragmentShader).toContain('streak')
     expect(material.uniforms.time).toBeDefined()
+    fx.dispose()
   })
 })

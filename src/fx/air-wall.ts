@@ -67,16 +67,21 @@ const FADE_OUT_SECONDS = 0.09
 const DRIFT_RATE = 7
 
 /**
- * What the shader itself is doing: `across` and `up` soften all four edges so the panel reads as a
- * held patch of moving air rather than a cut-out rectangle, and `streak` runs a bright banding up
- * it that drifts sideways with `time`. The drift is what says "air": a still panel of even alpha
- * reads as glass, which is the wrong material for a move whose whole fiction is that it is a
- * cushion of wind.
+ * The two trailing includes apply tone mapping and the output colour transform, so the panel
+ * matches the terrain and sky it is drawn against instead of keeping its raw linear colour.
+ * `effect-material.ts` appends them on this effect's behalf now, rather than this file writing
+ * them itself.
  *
  * The forbidden `..._pars_fragment` includes are no longer this file's problem to remember:
  * `effect-material.ts` assembles the fragment and refuses a body containing one. This file was the
  * reason that module exists, and migrating it was the test of whether the builder could express
  * the one shader the project already had.
+ *
+ * What the shader itself is doing: `across` and `up` soften all four edges so the panel reads as a
+ * held patch of moving air rather than a cut-out rectangle, and `streak` runs a bright banding up
+ * it that drifts sideways with `time`. The drift is what says "air": a still panel of even alpha
+ * reads as glass, which is the wrong material for a move whose whole fiction is that it is a
+ * cushion of wind.
  *
  * The two falloff widths were cut from 0.18 and 0.22 after looking at the rendered panel over the
  * home island. At those values the softening ate 36% of the arc and 44% of the height, so the
@@ -85,7 +90,7 @@ const DRIFT_RATE = 7
  * outside the visible shape reads as a bug. 0.10 and 0.12 keep the shape from having hard cut
  * edges while leaving four fifths of it at full strength.
  */
-const FRAGMENT_BODY = /* glsl */ `
+export const FRAGMENT_BODY = /* glsl */ `
     float across = smoothstep(0.0, 0.10, vUv.x) * smoothstep(1.0, 0.90, vUv.x);
     float up = smoothstep(0.0, 0.12, vUv.y) * smoothstep(1.0, 0.88, vUv.y);
     float streak = 0.55 + 0.45 * sin(vUv.x * 38.0 + vUv.y * 6.0 - time);
