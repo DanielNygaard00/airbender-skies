@@ -1,9 +1,10 @@
 import {
-  DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial, Vector3,
+  Color, DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial, Vector3,
 } from 'three'
 import type { FireConfig } from '../combat/fire'
 import { burstShape } from '../combat/fire'
 import type { Effect } from './effect'
+import { createEffectMaterial, POLAR_PREAMBLE } from './effect-material'
 import { SECTOR_FLAT_ROTATION_X, sectorGeometry } from './sector'
 
 /**
@@ -27,13 +28,17 @@ import { SECTOR_FLAT_ROTATION_X, sectorGeometry } from './sector'
  * read as "charged" instead of "this is the damage move". It is also hotter and far more saturated
  * than the health bar's pale salmon, which is the one other warm thing on screen.
  *
- * **Deliberately a `MeshBasicMaterial` and not a `ShaderMaterial`.** A shader is the obvious reach
- * for fire and it is the one thing this file must not do: a `ShaderMaterial` that includes the
- * `..._pars_fragment` chunks the renderer already injects fails to compile almost silently, and the
- * mesh then simply does not draw — which looks like a correctly transparent effect with the world
- * showing through, so it can read as success. Two real defects in the Air Wall's shader were
- * invisible to every test and found only by looking. There is no `ShaderMaterial` anywhere in
- * `src/fx/`, and a flame is not the effect to introduce one with.
+ * **The fill stays a `MeshBasicMaterial`; the arc now builds through `createEffectMaterial`.** The
+ * fill has nothing to animate beyond a fading opacity, so reaching for a shader there would be a
+ * knob with one setting. The arc needs one: its flicker and its collar (see `ARC_BODY`) are a
+ * function of radius and time that a flat-colour material cannot express, and a flame that held one
+ * flat brightness for its whole 0.16-second life would read as a coloured wedge rather than a
+ * blast. The trap that used to keep this whole file off `ShaderMaterial` — a fragment body that
+ * includes the `..._pars_fragment` chunks the renderer already injects fails to compile with
+ * redefinition errors that throw nowhere visible, and the mesh then simply does not draw, which
+ * looks like a correctly transparent effect with the world showing through — is
+ * `effect-material.ts`'s to guard against, not this file's; its own doc comment carries that
+ * argument in full, so it is not restated here.
  *
  * No `PointsMaterial` either, for the related reason `water-reach.ts` gives: points draw
  * screen-facing squares, so a spray of embers approaching a world unit across reads as a solid
@@ -79,6 +84,32 @@ const ARC_THICKNESS = 0.3
  */
 const ARC_START_FRACTION = 0.25
 
+/**
+ * Flicker along the burst's length, and a collar that does not widen it.
+ *
+ * Every term here varies with `radius` — along the cone — and none with the angular coordinate.
+ * That is deliberate: `burst.halfAngle` is `Math.PI / 12`, and §4.2's "only element with real
+ * single-target damage" is implemented as that narrowness rather than as a rule. A brightness term
+ * varying across the arc's width would read as a wider cone and undo it.
+ *
+ * **Where the flicker actually comes from.** The two frequencies do different jobs and only one of
+ * them flickers. `radius * 18.0` is spatial, and `radius` spans just 0.70..1.0 on this band
+ * (`sectorGeometry(halfAngle, 1 - ARC_THICKNESS, 1)` with `ARC_THICKNESS` 0.3), so it covers about
+ * 0.86 of a cycle — under one, deliberately. Several concentric bright bands across a thin annulus
+ * would read as ripples spreading on water, which is the wrong element entirely; what this buys
+ * instead is that the band is not uniformly lit along its thickness. The flickering is the temporal
+ * term: 120 rad/s is roughly three cycles inside the 0.16 s `LIFETIME`. It started at 30.0, which
+ * over the same life is three quarters of one cycle — a single slow brightness sweep that would
+ * have read as a moving stripe, exactly what this comment used to claim it avoided.
+ */
+const ARC_BODY = /* glsl */ `
+    float core = smoothstep(0.82, 0.93, radius);
+    float collar = smoothstep(0.72, 0.82, radius) * (1.0 - core);
+    float flicker = 0.72 + 0.28 * sin(radius * 18.0 - time * 120.0);
+    vec3 colour = mix(tint * 0.18, tint, core);
+    gl_FragColor = vec4(colour, alpha * max(core * flicker, collar * 0.5));
+`
+
 export function createFireBurst(origin: Vector3, forward: Vector3, c: FireConfig): Effect {
   const shape = burstShape(c)
   const group = new Group()
@@ -110,9 +141,14 @@ export function createFireBurst(origin: Vector3, forward: Vector3, c: FireConfig
   // A unit arc scaled at runtime, so travelling outward costs a scale rather than a geometry rebuild
   // sixty times a second.
   const arcGeometry = sectorGeometry(shape.halfAngle, 1 - ARC_THICKNESS, 1)
-  const arcMaterial = new MeshBasicMaterial({
-    color: ARC_TINT, transparent: true, side: DoubleSide, depthWrite: false,
-    opacity: ARC_OPACITY, depthTest: false,
+  const arcMaterial = createEffectMaterial({
+    body: POLAR_PREAMBLE + ARC_BODY,
+    uniforms: { tint: new Color(ARC_TINT), alpha: ARC_OPACITY, time: 0 },
+    // Same reason the fill above sets it: a flat shape near the player's feet is buried by
+    // terrain sloping up away from them, which is the defect that made this class of effect
+    // invisible in play. The arc is the element the player actually reads, so it is the worse
+    // half to lose.
+    depthTest: false,
   })
   const arc = new Mesh(arcGeometry, arcMaterial)
   arc.rotation.x = SECTOR_FLAT_ROTATION_X
@@ -135,7 +171,10 @@ export function createFireBurst(origin: Vector3, forward: Vector3, c: FireConfig
     fillMaterial.opacity = FILL_OPACITY * (1 - t)
     // Squared, so the arc holds its brightness through most of its travel and then goes quickly —
     // the leading edge is what the eye follows. Same curve as the gust's and the grip's.
-    arcMaterial.opacity = ARC_OPACITY * (1 - t * t)
+    arcMaterial.uniforms.alpha!.value = ARC_OPACITY * (1 - t * t)
+    // Drives ARC_BODY's flicker term. Raw elapsed age, not scaled here — the shader's own
+    // `time * 120.0` already sets the flicker speed.
+    arcMaterial.uniforms.time!.value = age
   }
 
   apply()

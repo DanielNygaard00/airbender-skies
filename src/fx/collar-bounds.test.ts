@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { Mesh, RingGeometry, ShaderMaterial, Vector3 } from 'three'
 import { createWaterReach } from './water-reach'
 import { createEarthReach } from './earth-reach'
+import { createFireBurst } from './fire-burst'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 
 const ORIGIN = new Vector3(0, 0, 0)
@@ -51,6 +52,10 @@ const COLLAR_CASES: CollarCase[] = [
   {
     name: 'earth-reach stone arc',
     arc: () => arcMeshOf(createEarthReach(ORIGIN, NORTH, DEFAULT_COMBAT_CONFIG.earth)),
+  },
+  {
+    name: 'fire-burst arc',
+    arc: () => arcMeshOf(createFireBurst(ORIGIN, NORTH, DEFAULT_COMBAT_CONFIG.fire)),
   },
 ]
 
