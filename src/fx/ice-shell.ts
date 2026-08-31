@@ -1,7 +1,8 @@
 import {
-  BackSide, MathUtils, Mesh, MeshBasicMaterial, OctahedronGeometry, Vector3,
+  BackSide, Color, MathUtils, Mesh, OctahedronGeometry, Vector3,
 } from 'three'
 import type { Effect } from './effect'
+import { createEffectMaterial } from './effect-material'
 import { safeScale } from './scale'
 
 /**
@@ -52,13 +53,58 @@ const PEAK_OPACITY = 0.42
 const FORM_SECONDS = 0.12
 const MELT_SECONDS = 0.25
 
+/**
+ * Facet brightness from object space, and the bright rim that carries the collar's contrast.
+ *
+ * An `OctahedronGeometry` has no UV worth reading, so `vLocal` is the only *object-space*
+ * coordinate available — and it is the right one for the faceting: how bright a facet is should
+ * depend on where that facet is, not on a texture coordinate. `facet` quantises the object-space
+ * direction into bands so adjacent faces differ, which is what makes it read as cut ice rather
+ * than a smooth blob.
+ *
+ * **Why the contrast is view-dependent and not object-space.** Task 2's collar earns its keep by
+ * putting a dark band immediately inside the effect's *visible boundary*, so the eye has an edge
+ * to catch regardless of what is behind it. On a flat ground wedge the boundary is a radius, so a
+ * band in object space is a band on screen. On a closed shell it is not: the boundary is wherever
+ * the surface turns edge-on to the viewer, and that is a fact about the view, not about the mesh.
+ * An earlier draft of this body darkened `length(vLocal.xz)` instead, which shades the shell's top
+ * and bottom tips — from any side view that is its *middle*, leaving the silhouette uniformly
+ * bright and the collar's whole argument unimplemented while the comment claimed a rim.
+ *
+ * So `grazing` is `1 - abs(n.z)` on the view-space normal: 0 where the surface faces the camera
+ * squarely, 1 at the silhouette. `abs` because the shell is `BackSide` and its rendered normals
+ * point away from the viewer. On a sphere of projected radius 1, the bounds below light the rim
+ * from about 0.76 out to the edge, which at this shell's 1.3 units is a broad rim rather than a
+ * hairline — chosen over a tighter band because a hairline on a 1.3-unit object at combat range
+ * is one pixel of anti-aliasing.
+ *
+ * No `time` uniform, deliberately. Ice holds a soldier still; a drifting shell would claim motion
+ * the move does not have.
+ */
+const SHELL_BODY = /* glsl */ `
+    vec3 n = normalize(vViewNormal);
+    float grazing = 1.0 - abs(n.z);
+    float core = smoothstep(0.35, 0.75, grazing);
+    float facet = 0.68 + 0.32 * fract(dot(normalize(vLocal), vec3(3.7, 2.3, 5.1)));
+    vec3 colour = mix(tint * 0.18, tint, core);
+    gl_FragColor = vec4(colour, alpha * max(core * facet, (1.0 - core) * 0.45));
+`
+
 export function createIceShell(position: Vector3, holdSeconds: number): Effect {
   // A unit octahedron scaled at runtime, so forming costs a scale rather than a rebuild. Detail 1
   // rather than 0: a bare octahedron is eight flat faces and reads as a crystal, but at this size
   // one subdivision is what stops it looking like a die.
   const geometry = new OctahedronGeometry(1, 1)
-  const material = new MeshBasicMaterial({
-    color: TINT, transparent: true, side: BackSide, depthWrite: false, opacity: 0,
+  const material = createEffectMaterial({
+    body: SHELL_BODY,
+    uniforms: { tint: new Color(TINT), alpha: 0 },
+    // Drawn from the inside, like `guard-shell.ts`'s sphere: rendering the near faces too would
+    // double what every pixel of the shell is looking through, a visible density change nothing
+    // here asks for. `depthTest` is left at the builder's own default of `true`: the shell is a
+    // closed volume around a soldier, extending as far below its footing as above it, and the
+    // depth test is what keeps that underground half hidden — the same reason `air-wall.ts` wants
+    // it on.
+    side: BackSide,
   })
 
   const mesh = new Mesh(geometry, material)
@@ -92,7 +138,7 @@ export function createIceShell(position: Vector3, holdSeconds: number): Effect {
     // that through anyway. If `RADIUS` ever becomes a parameter the floor starts mattering too,
     // and `safeScale` already covers that case.
     mesh.scale.setScalar(safeScale(RADIUS * MathUtils.lerp(0.6, 1, forming)))
-    material.opacity = PEAK_OPACITY * shown
+    material.uniforms.alpha!.value = PEAK_OPACITY * shown
   }
 
   apply()

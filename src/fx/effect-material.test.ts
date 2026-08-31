@@ -57,6 +57,16 @@ describe('the fragment source', () => {
     expect(source.match(/varying vec3 vLocal;/g)).toHaveLength(1)
   })
 
+  it('declares the view-space normal varying exactly once', () => {
+    // Added for ice-shell.ts's silhouette rim, the first body in this directory to need a
+    // normal. It must be declared in the fragment shader too, matching vUv and vLocal above:
+    // GLSL requires a varying used in the fragment stage to be declared there with the same
+    // name and type as the vertex stage, or the compile fails the same silent way the
+    // `..._pars_fragment` trap does.
+    const source = effectFragmentSource(BODY, {})
+    expect(source.match(/varying vec3 vViewNormal;/g)).toHaveLength(1)
+  })
+
   it('carries the body verbatim', () => {
     expect(effectFragmentSource(BODY, {})).toContain(BODY)
   })
@@ -112,6 +122,20 @@ describe('the material', () => {
     expect(createEffectMaterial({ body: BODY, uniforms: {} }).depthTest).toBe(true)
     expect(createEffectMaterial({ body: BODY, uniforms: {}, depthTest: false }).depthTest)
       .toBe(false)
+  })
+
+  it('declares and assigns all three varyings in the shared vertex shader', () => {
+    // No test previously pinned the vertex shader's exact text, since every effect before ice
+    // read vUv or vLocal only. This pins the full contract now that a third varying exists,
+    // so a future addition or a typo in the assignment shows up here rather than only as a
+    // shell that silently fails to compile.
+    const material = createEffectMaterial({ body: BODY, uniforms: {} })
+    expect(material.vertexShader).toContain('varying vec2 vUv;')
+    expect(material.vertexShader).toContain('varying vec3 vLocal;')
+    expect(material.vertexShader).toContain('varying vec3 vViewNormal;')
+    expect(material.vertexShader).toContain('vUv = uv;')
+    expect(material.vertexShader).toContain('vLocal = position;')
+    expect(material.vertexShader).toContain('vViewNormal = normalMatrix * normal;')
   })
 
   it('leaves tone mapping on, which is what makes the injected declarations arrive', () => {

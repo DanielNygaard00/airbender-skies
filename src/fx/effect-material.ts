@@ -45,13 +45,23 @@ export type EffectUniforms = Record<string, EffectUniformValue>
  * object-space vertex position, which for a `BoxGeometry(w, h, 1)` runs the shape's own length as
  * `vLocal.z` from -0.5 to 0.5 regardless of which face a fragment is on. An effect built on
  * either geometry that wants "along its own axis" should read `vLocal`, not `vUv`.
+ *
+ * **`vViewNormal` is a view-space normal, added for `ice-shell.ts`'s silhouette rim** — the first
+ * body in this directory to need one. `normalMatrix` is three's own built-in (the inverse-
+ * transpose of the model-view matrix), available in every `ShaderMaterial` vertex shader without
+ * being declared, so the assignment costs one line. It lives here rather than behind a second
+ * vertex shader for the same reason `vLocal` sits next to `vUv` instead of in a per-shape file: an
+ * unused varying costs nothing a profiler can find, whereas a second vertex shader would be a
+ * second place for the `vUv`/`vLocal` contract to drift.
  */
 const VERTEX_SHADER = /* glsl */ `
   varying vec2 vUv;
   varying vec3 vLocal;
+  varying vec3 vViewNormal;
   void main() {
     vUv = uv;
     vLocal = position;
+    vViewNormal = normalMatrix * normal;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `
@@ -125,6 +135,7 @@ export function effectFragmentSource(body: string, uniforms: EffectUniforms): st
 ${uniformDeclarations(uniforms)}
   varying vec2 vUv;
   varying vec3 vLocal;
+  varying vec3 vViewNormal;
   void main() {
 ${body}
     #include <tonemapping_fragment>
