@@ -1,8 +1,9 @@
 import {
-  DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial, Vector3,
+  Color, DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial, Vector3,
 } from 'three'
 import { stoneShape, type EarthConfig } from '../combat/earth'
 import type { Effect } from './effect'
+import { createEffectMaterial, POLAR_PREAMBLE } from './effect-material'
 import { SECTOR_FLAT_ROTATION_X, sectorGeometry } from './sector'
 
 /**
@@ -26,13 +27,20 @@ import { SECTOR_FLAT_ROTATION_X, sectorGeometry } from './sector'
  * The arc travels outward and does not close, unlike the grip's: a rock leaves and does not come
  * back, so the bright edge runs to the full reach and fades there.
  *
- * **Deliberately a `MeshBasicMaterial` and not a `ShaderMaterial`.** The argument is
- * `water-reach.ts`'s in full: a `ShaderMaterial` that includes the `..._pars_fragment` chunks the
- * renderer already injects fails to compile almost silently, and the mesh then simply does not
- * draw — which looks like a correctly transparent effect with the world showing through, so it
- * can read as success. There is no `ShaderMaterial` anywhere in `src/fx/` and this is not the
- * effect to introduce one with. No `PointsMaterial` either: points draw screen-facing squares, so
- * a spray of grit at anything approaching a world unit across reads as a block from close up.
+ * **The fill stays a `MeshBasicMaterial`; the arc now builds through `createEffectMaterial`.** The
+ * fill has nothing to animate beyond a fading opacity, so reaching for a shader there would be a
+ * knob with one setting. The arc needs one: its collar (see `ARC_BODY`) is a hard-edged function
+ * of radius that a flat-colour material cannot express, and earth is the element that most needs
+ * that hardness — §4.2 makes it "slow, committed, high payoff" and the only armour-breaker, and a
+ * soft edge would read as air. The trap that used to keep this whole file off `ShaderMaterial` — a
+ * fragment body that includes the `..._pars_fragment` chunks the renderer already injects fails to
+ * compile with redefinition errors that throw nowhere visible, and the mesh then simply does not
+ * draw, which looks like a correctly transparent effect with the world showing through — is
+ * `effect-material.ts`'s to guard against, not this file's; its own doc comment carries that
+ * argument in full, so it is not restated here.
+ *
+ * No `PointsMaterial` either: points draw screen-facing squares, so a spray of grit at anything
+ * approaching a world unit across reads as a block from close up.
  */
 const LIFETIME = 0.26
 
@@ -67,6 +75,35 @@ const ARC_THICKNESS = 0.16
  */
 const ARC_START_FRACTION = 0.2
 
+/**
+ * A hard-edged core with a tight collar, and grain along the arc instead of drift.
+ *
+ * Both bounds sit inside the arc band's own radius range — `sectorGeometry(halfAngle,
+ * 1 - ARC_THICKNESS, 1)` spans 0.84..1.0, so nothing below 0.84 exists to shade; `water-reach.ts`'s
+ * `ARC_BODY` comment carries that argument in full. Against water, earth's core ramps over 3/16 of
+ * the band (0.94..0.97) where water's takes 6/16, and its dark band is the thicker of the two: the
+ * collar plateau runs right up to the core rather than stopping short of it. Earth is §4.2's "slow,
+ * committed" element and the only armour-breaker, and a soft edge reads as air.
+ *
+ * The grain uses `vUv.x`, which is legitimate here because `stone.halfAngle` is `Math.PI / 9` and
+ * `sectorUvIsMonotone` holds comfortably. It is monotone but not linear: `RingGeometry`'s `uv.x`
+ * tracks `cos(theta)`, so across this 40-degree wedge it spans only about 0.33..0.67, and the
+ * `64.0` multiplier therefore buys roughly three and a half cycles across the arc rather than the
+ * ten a linear reading would suggest. `radius` still comes from the preamble.
+ *
+ * The grain does not scroll with `time` the way water's drift does. Rock thrown through the air is
+ * a solid object moving, not a medium flowing, so the band's brightness is fixed to the geometry
+ * and only its overall alpha rises and falls.
+ */
+const ARC_BODY = /* glsl */ `
+    float core = smoothstep(0.94, 0.97, radius);
+    float collar = smoothstep(0.85, 0.94, radius) * (1.0 - core);
+    float grain = 0.78 + 0.22 * sin(vUv.x * 64.0);
+    float pulse = 0.85 + 0.15 * sin(time * 22.0);
+    vec3 colour = mix(tint * 0.18, tint, core);
+    gl_FragColor = vec4(colour, alpha * pulse * max(core * grain, collar * 0.6));
+`
+
 export function createEarthReach(origin: Vector3, forward: Vector3, c: EarthConfig): Effect {
   const shape = stoneShape(c)
   const group = new Group()
@@ -98,9 +135,14 @@ export function createEarthReach(origin: Vector3, forward: Vector3, c: EarthConf
   // A unit arc scaled at runtime, so travelling costs a scale rather than a geometry rebuild sixty
   // times a second.
   const arcGeometry = sectorGeometry(shape.halfAngle, 1 - ARC_THICKNESS, 1)
-  const arcMaterial = new MeshBasicMaterial({
-    color: TINT, transparent: true, side: DoubleSide, depthWrite: false,
-    opacity: ARC_OPACITY, depthTest: false,
+  const arcMaterial = createEffectMaterial({
+    body: POLAR_PREAMBLE + ARC_BODY,
+    uniforms: { tint: new Color(TINT), alpha: ARC_OPACITY, time: 0 },
+    // Same reason the fill above sets it: a flat shape near the player's feet is buried by
+    // terrain sloping up away from them, which is the defect that made this class of effect
+    // invisible in play. The arc is the element the player actually reads, so it is the worse
+    // half to lose.
+    depthTest: false,
   })
   const arc = new Mesh(arcGeometry, arcMaterial)
   arc.rotation.x = SECTOR_FLAT_ROTATION_X
@@ -122,7 +164,10 @@ export function createEarthReach(origin: Vector3, forward: Vector3, c: EarthConf
     fillMaterial.opacity = FILL_OPACITY * (1 - t)
     // Squared, so the arc holds its brightness through most of its travel and then goes quickly —
     // the leading edge is what the eye follows. Same curve as the gust's and the grip's.
-    arcMaterial.opacity = ARC_OPACITY * (1 - t * t)
+    arcMaterial.uniforms.alpha!.value = ARC_OPACITY * (1 - t * t)
+    // Drives ARC_BODY's pulse term. Raw elapsed age, not scaled here — the shader's own
+    // `time * 22.0` already sets the pulse speed.
+    arcMaterial.uniforms.time!.value = age
   }
 
   apply()

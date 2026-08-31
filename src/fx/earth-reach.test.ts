@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { Mesh, Vector3, type Material } from 'three'
+import {
+  Mesh, MeshBasicMaterial, ShaderMaterial, Vector3, type Material,
+} from 'three'
 import { createEarthReach } from './earth-reach'
 import { inStoneThrow, stoneShape } from '../combat/earth'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
@@ -22,6 +24,13 @@ function arcOf(effect: { object: { children: unknown[] } }): Mesh {
 }
 
 const opacityOf = (mesh: Mesh): number => (mesh.material as Material & { opacity: number }).opacity
+
+/** The arc's shader material, built through `createEffectMaterial` for its collar. */
+function arcMaterialOf(effect: ReturnType<typeof createEarthReach>): ShaderMaterial {
+  const { material } = arcOf(effect)
+  if (!(material instanceof ShaderMaterial)) throw new Error('expected the arc to carry a shader material')
+  return material
+}
 
 describe('createEarthReach', () => {
   it('draws the sector at the volume that actually bites', () => {
@@ -166,20 +175,24 @@ describe('createEarthReach', () => {
     expect(effect.object.position.y).toBeGreaterThan(5)
   })
 
-  it('uses a MeshBasicMaterial for every part, and no shader of its own', () => {
+  it('keeps the fill flat-coloured and gives the arc a shader for its collar, never a PointsMaterial', () => {
     // **The structural assertion, and it guards a failure mode that looks like success.** A
     // `ShaderMaterial` including the `..._pars_fragment` chunks the renderer already injects fails
     // to compile almost silently and the mesh then does not draw — which reads as a correctly
-    // transparent effect with the world showing through. And no `PointsMaterial`, whose
-    // screen-facing squares read as blocks at melee range. Both are asserted the same way
-    // `water-reach.test.ts` asserts them.
+    // transparent effect with the world showing through. That trap is no longer avoided by staying
+    // off `ShaderMaterial` altogether — the arc's collar needs one — it is handled instead by
+    // building through `createEffectMaterial`, which is the one place in `src/fx/` allowed to
+    // construct one. And no `PointsMaterial` anywhere, whose screen-facing squares read as blocks
+    // at melee range. Asserted the same way `water-reach.test.ts` asserts them.
     const effect = createEarthReach(ORIGIN, NORTH, R)
     expect(effect.object.children.length).toBeGreaterThan(0)
+    expect(fillOf(effect).material).toBeInstanceOf(MeshBasicMaterial)
+    expect(arcOf(effect).material).toBeInstanceOf(ShaderMaterial)
     for (const child of effect.object.children) {
       expect(child).toBeInstanceOf(Mesh)
       const material = (child as Mesh).material as Material
-      expect(material.type).toBe('MeshBasicMaterial')
       expect(material.transparent).toBe(true)
+      expect(material.type).not.toBe('PointsMaterial')
     }
   })
 
@@ -201,5 +214,30 @@ describe('createEarthReach', () => {
     }
     effect.dispose()
     expect(disposals).toBe(effect.object.children.length * 2)
+  })
+})
+
+describe('the stone\'s arc reads as mass', () => {
+  it('draws the hardest collar of the six, because earth is the heavy element', () => {
+    // §4.2 makes earth "slow, committed, high payoff" and the only armour-breaker. A soft edge
+    // would read as air, so earth's core ramps over 3/16 of the band where water's takes 6/16,
+    // and its dark band is the thicker of the two: the collar plateau runs right up to the core.
+    const material = arcMaterialOf(createEarthReach(ORIGIN, NORTH, R))
+    expect(material.fragmentShader).toContain('smoothstep(0.94, 0.97, radius)')
+    expect(material.fragmentShader).toContain('smoothstep(0.85, 0.94, radius)')
+    expect(material.fragmentShader).toContain('mix(tint * 0.18, tint, core)')
+  })
+
+  it('grains along the arc rather than drifting, because rock does not flow', () => {
+    const material = arcMaterialOf(createEarthReach(ORIGIN, NORTH, R))
+    expect(material.fragmentShader).toContain('vUv.x')
+  })
+
+  it('advances time', () => {
+    const effect = createEarthReach(ORIGIN, NORTH, R)
+    const material = arcMaterialOf(effect)
+    const before = material.uniforms.time?.value
+    for (let t = 0; t < 0.1; t += 1 / 60) effect.advance(1 / 60)
+    expect(material.uniforms.time?.value).not.toBe(before)
   })
 })
