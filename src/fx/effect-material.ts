@@ -56,6 +56,37 @@ const VERTEX_SHADER = /* glsl */ `
   }
 `
 
+/**
+ * The three lines a ring- or wedge-shaped effect needs before it can talk about radius or angle.
+ *
+ * `vortex-ring.ts`, `vortex-charge.ts` and `shockwave.ts` each hand-copied these, which is three
+ * chances to get the constant wrong and one place the next author will not look. Prepend it to a
+ * body instead: `body: POLAR_PREAMBLE + MY_BODY`.
+ *
+ * **Why it is needed at all.** `RingGeometry`'s UVs are Cartesian — three computes
+ * `uv = (position / radius + 1) / 2` — so `vUv.x` does not run around the circumference and
+ * `vUv.y` does not cross the thickness. `p` recovers `position / outerRadius` exactly, which makes
+ * `radius` the true normalised radius and `angle` a continuous 0..1 turn whose wrap coincides with
+ * `atan`'s branch cut, so `fract` leaves no seam.
+ *
+ * **Which coordinate to reach for, by geometry.** This table is the knowledge three wrong shader
+ * bodies bought:
+ *
+ * | Geometry | Use |
+ * | --- | --- |
+ * | `RingGeometry` (full ring) | this preamble; never bare `vUv` axes |
+ * | `sectorGeometry` (bounded wedge) | `vUv.x` along the arc, but only while the half-angle stays at or under a quarter turn — see `sectorUvIsMonotone` in `sector.ts`. `radius` from this preamble is valid for a wedge too |
+ * | `BoxGeometry` | `vLocal`; UVs are per face, so `vUv.x` means a different axis depending on which face a fragment is on |
+ * | `OctahedronGeometry` | `vLocal`; there is no useful UV |
+ * | `CylinderGeometry` | side-face `vUv` genuinely is (around, up), as `air-wall.ts` uses |
+ * | `SphereGeometry` | `vUv` is (azimuth, polar) |
+ */
+export const POLAR_PREAMBLE = /* glsl */ `
+    vec2 p = vUv * 2.0 - 1.0;
+    float radius = length(p);
+    float angle = atan(p.y, p.x) / 6.2832 + 0.5;
+`
+
 /** Matched against a body to catch the trap. The `_pars_` is the whole signal. */
 const FORBIDDEN = '_pars_fragment'
 

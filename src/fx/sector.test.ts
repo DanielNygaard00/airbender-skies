@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { SECTOR_FLAT_ROTATION_X, sectorGeometry, sectorTheta } from './sector'
+import { SECTOR_FLAT_ROTATION_X, sectorGeometry, sectorTheta, sectorUvIsMonotone } from './sector'
 import { inCone, type ConeShape } from '../combat/cone'
+import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 
 const ORIGIN = new Vector3(0, 0, 0)
 const FORWARD = new Vector3(0, 0, 1)
@@ -105,5 +106,29 @@ describe('the geometry', () => {
     }
     expect(closest).toBeCloseTo(0.84, 5)
     ring.dispose()
+  })
+})
+
+describe('when a sector\'s uv.x runs monotonically along its arc', () => {
+  it('holds at and below a quarter turn, and fails above it', () => {
+    // sectorTheta centres every wedge on local +Z with thetaStart = -PI/2 - halfAngle. cos is
+    // monotone on [-PI, 0], and both wedge edges sit inside that only while halfAngle <= PI/2.
+    expect(sectorUvIsMonotone(Math.PI / 2)).toBe(true)
+    expect(sectorUvIsMonotone(Math.PI / 2 + 0.01)).toBe(false)
+    expect(sectorUvIsMonotone(Math.PI / 12)).toBe(true)
+  })
+
+  it('holds for every sector this step paints', () => {
+    const c = DEFAULT_COMBAT_CONFIG
+    for (const halfAngle of [
+      c.water.grip.halfAngle, c.water.freeze.halfAngle,
+      c.earth.stone.halfAngle, c.fire.burst.halfAngle,
+    ]) expect(sectorUvIsMonotone(halfAngle)).toBe(true)
+  })
+
+  it('fails for the staff finisher, which is the one config in the game that breaks it', () => {
+    // Math.PI / 1.9 is about 94.7 degrees. staff-arc-fx belongs to a later step; this test is
+    // what stops that step from reaching for vUv.x along the arc and shipping a wrong gradient.
+    expect(sectorUvIsMonotone(DEFAULT_COMBAT_CONFIG.staffArc.finisher.halfAngle)).toBe(false)
   })
 })

@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { Color, DoubleSide, FrontSide, Vector2 } from 'three'
 import { describe, expect, it } from 'vitest'
 import {
-  createEffectMaterial, effectFragmentSource, PARS_INCLUDE_MESSAGE, uniformDeclarations,
+  createEffectMaterial, effectFragmentSource, PARS_INCLUDE_MESSAGE, POLAR_PREAMBLE,
+  uniformDeclarations,
 } from './effect-material'
 
 const BODY = 'gl_FragColor = vec4(tint, alpha);'
@@ -144,5 +145,31 @@ describe('the directory-wide guard', () => {
       .sort()
 
     expect(constructors).toEqual(['effect-material.ts'])
+  })
+})
+
+describe('the polar preamble', () => {
+  it('derives radius and angle from the recentred uv', () => {
+    expect(POLAR_PREAMBLE).toContain('vec2 p = vUv * 2.0 - 1.0')
+    expect(POLAR_PREAMBLE).toContain('float radius = length(p)')
+    expect(POLAR_PREAMBLE).toContain('atan(p.y, p.x)')
+  })
+
+  it('normalises the angle to 0..1, so fract wraps continuously', () => {
+    // vortex-ring's fix depended on this: an angle in radians makes fract's wrap land
+    // somewhere other than the atan branch cut, which puts a visible seam in the band.
+    expect(POLAR_PREAMBLE).toContain('6.2832')
+  })
+
+  it('is a body fragment, not a whole shader', () => {
+    // It is prepended to a caller's body, so it must not open a main() or declare a varying
+    // the builder already declares.
+    expect(POLAR_PREAMBLE).not.toContain('void main')
+    expect(POLAR_PREAMBLE).not.toContain('varying')
+  })
+
+  it('passes the builder\'s own refusal, so it can be prepended safely', () => {
+    expect(() => effectFragmentSource(POLAR_PREAMBLE + 'gl_FragColor = vec4(0.0);', {}))
+      .not.toThrow()
   })
 })
