@@ -88,9 +88,10 @@ const GRIP_END_FRACTION = 0.15
  * band, not a disc, and `POLAR_PREAMBLE`'s `radius` normalises by the *outer* radius. Bounds chosen
  * in a 0..1 space would all fall below the band's inner edge, leaving `core` saturated at 1 and
  * `collar` at 0 everywhere: a collar that compiles, draws nothing, and looks exactly like the
- * uniform arc it replaced. Every bound here is a fraction of the band's own 0.16 of radius — the
- * core ramps over the outer 6/16 and the collar fills the 5/16 just inside it, with the innermost
- * sliver left to fade so the band has a soft inner edge instead of a cut.
+ * uniform arc it replaced. Every bound here is a fraction of the band's own 0.16 of radius: the
+ * innermost 1/16 (0.84..0.85) is left to fade so the band has a soft inner edge instead of a cut,
+ * the collar fills the next 5/16 (0.85..0.90), the core ramps over the 6/16 after that
+ * (0.90..0.96), and the outermost 4/16 (0.96..1.0) is fully lit.
  *
  * `travel` is 0 for the freeze and 1 for the grip, which is how one body serves both verbs without
  * a second shader: multiplied into the drift term it makes the freeze's arc snap and hold.
