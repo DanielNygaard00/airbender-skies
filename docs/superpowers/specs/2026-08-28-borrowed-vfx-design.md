@@ -18,7 +18,7 @@ everything B2 touches, read from the modules:
 | `sectorGeometry` (bounded wedge on `RingGeometry`) | water-reach, earth-reach, fire-burst | `vUv.x` along the arc — **but see the 90° caveat** |
 | `BoxGeometry` | fire-thrust | `vLocal` (per-face UVs; B1 added the varying) |
 | `OctahedronGeometry` | ice-shell | `vLocal` — no useful UV |
-| `CylinderGeometry` | pillar-view | side-face `vUv` is genuinely (around, up), as `air-wall` uses |
+| `CylinderGeometry` | — | side-face `vUv` is genuinely (around, up), as `air-wall` uses. No B2 effect needs it |
 
 **The 90° caveat, and the one config that breaks it.** `sectorTheta` centres every wedge on local
 +Z with `thetaStart = -π/2 - halfAngle`, so `vUv.x` is monotone along the arc **iff halfAngle ≤ 90°**
@@ -50,9 +50,9 @@ quiet enough to see the world through.
 **No tint moves.** B1 spent the red-channel headroom raising green five times; the four air tints now
 differ only in red. Raising anything further makes the palette worse without fixing the problem.
 
-**The rule is validated on one effect before the other seven.** `water-reach` goes first, is shot on
+**The rule is validated on one effect before the other six.** `water-reach` goes first, is shot on
 the grass scene and the canyon scene, and the result decides whether the rule ships. If the rim does
-not separate on pale ground, one effect is wasted rather than eight.
+not separate on pale ground, one effect is wasted rather than seven — six others plus the gate itself.
 
 ## 3. What each effect gets
 
@@ -65,11 +65,18 @@ pushing, inward means dragging, no travel means holding.**
 | `water-reach` | water | grip's arc still travels inward, freeze's still snaps and holds; both gain the rim and a slow drift that reads as water rather than glass |
 | `ice-shell` | water | per-facet brightness varied from `vLocal` and held — ice is still, so nothing travels, and an octahedron has no useful UV |
 | `earth-reach` | earth | stone's arc gains grain and a hard rim; earth reads as mass, so its edge is the sharpest of the six |
-| `pillar-view` | earth | brightness rises up the column as it raises, then holds |
 | `fire-burst` | fire | the cone's bright core flickers along its length; the narrowest sector in the game stays narrow |
 | `fire-thrust` | fire | streaks along `vLocal.z`, brightest at the nozzle end |
 | `steam` (new) | reaction | rising, widening, dissipating column — replaces C's placeholder ring |
 | `mud` (new) | reaction | low dark spatter that lands and stays — **the one effect exempt from the rim rule**, because wet earth has no bright element and nothing above the bloom threshold |
+
+**`pillar-view` is excluded, and the reason is a ruling.** It was in an earlier draft of this table.
+It uses `MeshLambertMaterial`: opaque, lit, depth-tested world geometry, and its own comment says an
+object that stops arrows "must not be the one thing in the game you can see through a hill." The
+builder makes transparent, unlit, non-depth-writing overlays — putting the pillar through it would
+strip its lighting and make hard cover see-through. A raised pillar is world geometry that happens
+to be spawned by a move; its look is a material-and-lighting question, not an effect-shader one, and
+it does not belong to this arc.
 
 ## 4. Where knowledge gets encoded
 
@@ -87,7 +94,7 @@ Node-testable, therefore tested: the polar preamble's output; the rim band's lit
 per effect, in the shape `shockwave.test.ts` established, so a reversal or retune fails; `time`
 uniforms advancing; the sector monotonicity bound as an assertion over the shipped half-angles, so a
 config edit past 90° fails a test rather than silently breaking an effect; the directory guard from
-B1 still passing with eight more effects through the builder.
+B1 still passing with seven more effects through the builder.
 
 Verified by screenshot: whether the rim separates on pale *and* dark ground. Both scenes exist.
 
@@ -107,7 +114,7 @@ assets. No post-processing changes. Not the finisher cue, the mark pip, or the s
 - **The owner has not played B1.** B2's most important input is missing, and the rim rule is a
   hypothesis standing in for it. If the play-test contradicts it, B2's later effects revise cheaply
   because the rule lives in one place per effect.
-- **Eight effects is a wide step.** Each is independent and separately shot, so the plan can stop
+- **Seven effects is a wide step.** Each is independent and separately shot, so the plan can stop
   after any of them with the branch coherent.
 - **A fifth geometry surprise.** Four found so far, all by reading first. §1's table is the defence;
   anything not in it gets read before it gets specified.
