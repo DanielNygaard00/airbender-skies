@@ -46,11 +46,29 @@ describe('mud', () => {
       .not.toContain('mix(tint * 0.18, tint, core)')
   })
 
-  it('spatters a whole number of lobes, so the disc has no radial seam', () => {
+  it('wobbles the outline by a whole number of lobes, so the silhouette has no radial seam', () => {
     // `angle` is a normalised turn, so a bare `7.0` would be seven radians across the whole
     // circumference: 1.11 cycles, and a hard discontinuity where the wrap fails to meet itself.
+    // This is the term that perturbs `edge`'s bound — the lobes belong to the silhouette now, not
+    // to an alpha term painted across the whole disc.
     expect(discMaterialOf(createMud(new Vector3())).fragmentShader)
       .toContain('angle * 6.2832 * 7.0')
+  })
+
+  it('bands the interior by a whole number of turns too, so it has no radial seam either', () => {
+    // Same wrap requirement as the lobe term above, for the interior `blob` term.
+    expect(discMaterialOf(createMud(new Vector3())).fragmentShader)
+      .toContain('angle * 6.2832 * 5.0')
+  })
+
+  it('wobbles the silhouette rather than painting stripes across it', () => {
+    // The shot this replaces showed a symmetrical seven-petalled flower: `blob` modulated alpha
+    // across the whole disc while `edge` stayed a mathematically exact circle, so the unevenness
+    // landed as radial spokes instead of in the outline. The fix moves the lobe term into `edge`'s
+    // own bound, so the silhouette itself is what wobbles.
+    const { fragmentShader } = discMaterialOf(createMud(new Vector3()))
+    expect(fragmentShader).toContain('float lobe =')
+    expect(fragmentShader).toContain('smoothstep(lobe, lobe * 0.75, radius)')
   })
 })
 

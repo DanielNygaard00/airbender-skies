@@ -120,26 +120,50 @@ const PEAK_OPACITY = 0.8
 const RING_SEGMENTS = 48
 
 /**
- * `blob` breaks the disc's brightness into an uneven scatter of lobes rather than a perfect
- * painted circle, which is what actually thrown mud looks like. `edge` fades the outermost sliver
- * of the disc so it does not end in a hard-edged cutout.
+ * **What the bench shot showed, and why the first version was wrong.** The original body
+ * modulated `blob` — an alpha term — across the *whole disc* at ±0.45, while `edge` stayed a
+ * mathematically exact circle (`smoothstep(1.0, 0.75, radius)`, the same bound at every angle).
+ * The unevenness landed exactly where it could least help: inside the shape, as seven dark radial
+ * wedges converging on the centre, and was completely absent from the one place a spatter actually
+ * is uneven — its outline. Photographed at bench scale it reads as a symmetrical seven-petalled
+ * flower or asterisk, not as thrown mud. A comment on that version claimed the `sin` term "makes
+ * the rim uneven" — it did not; the rim was a perfect circle throughout. Rejected rather than
+ * amended, because the defect is structural (alpha modulation on a fixed silhouette can only ever
+ * produce spokes), not a matter of retuning the amplitude or frequency.
  *
- * **Why the frequency is written as `angle * 6.2832 * 7.0` and not a bare `angle * 7.0`.**
+ * **The fix: put the lobes in the silhouette, and keep the interior non-radial.** `lobe` is the
+ * old `sin` term remapped to 0..1 and then to a radius multiplier between 0.82 and 1.0 — seven
+ * bumps around the rim. `edge` reads `smoothstep(lobe, lobe * 0.75, radius)`: the reversed-edge
+ * idiom `air-wall.ts`, `dash-trail.ts` and `gust-cone.ts` already use (first bound greater than the
+ * second, so the shape is solid up to the smaller bound and fades out by the larger one), except
+ * here both bounds are themselves a function of `angle` via `lobe`, so the fade band — and the
+ * silhouette it produces — physically wobbles in and out with the same seven-lobe rhythm instead
+ * of sitting on a fixed radius. `blob` still gives the interior a little unevenness so it does not
+ * read as a flat painted fill, but at a much gentler ±0.22 and, critically, its phase now depends
+ * on `radius * 9.0` as well as `angle` — so a band of constant brightness is a spiral, not a
+ * straight line from the centre, which is what stops the interior from reading as spokes the way
+ * the rejected version did.
+ *
+ * **Why both frequencies are written as `angle * 6.2832 * N` and not bare `angle * N`.**
  * `POLAR_PREAMBLE`'s `angle` is a normalised turn — it runs 0..1 once around the disc, not 0..2π
- * (see that preamble's own doc comment). So a bare `sin(angle * 7.0)` would be seven *radians*
- * across the whole circumference — 1.11 cycles — which both fails to give seven lobes and, worse,
- * does not meet itself at the wrap: `sin(0)` is `0` and `sin(7)` is `0.657`, so the disc would
- * carry a hard radial discontinuity down one side, the first thing the eye finds on an otherwise
+ * (see that preamble's own doc comment). A bare `sin(angle * 7.0)` would be seven *radians* across
+ * the whole circumference — 1.11 cycles — which both fails to give seven lobes and, worse, does
+ * not meet itself at the wrap: `sin(0)` is `0` and `sin(7)` is `0.657`, so the disc would carry a
+ * hard radial discontinuity down one side, the first thing the eye finds on an otherwise
  * rotationally symmetric shape. Multiplying by a whole turn first (`6.2832`, spelled out because
- * GLSL ES 1.00 has no built-in `PI`) makes the `7.0` mean seven whole lobes and makes the whole
- * expression periodic in `angle`, so the wrap is seamless. `steam.ts`'s wisp term had the identical
- * bug for the identical reason on a cylinder's `vUv.x`. Pinned in `mud.test.ts` as the whole
- * expression, not just the `7.0`, so a later retune cannot reintroduce the seam by rounding it to
- * a value that looks equivalent.
+ * GLSL ES 1.00 has no built-in `PI`) makes the multiplier mean that many whole lobes and keeps the
+ * whole expression periodic in `angle`, so the wrap is seamless — for `lobe`'s `7.0` and for
+ * `blob`'s `5.0` alike. The `radius * 9.0` term added to `blob`'s phase carries no such
+ * requirement: `radius` never wraps, so it has nothing to be periodic against. `steam.ts`'s wisp
+ * term had the identical whole-turn bug for the identical reason on a cylinder's `vUv.x` — this is
+ * the second time it has been caught in this plan. Pinned in `mud.test.ts` as the whole
+ * expressions, not just the bare multipliers, so a later retune cannot reintroduce a seam by
+ * rounding to a value that looks equivalent.
  */
 const SPATTER_BODY = /* glsl */ `
-    float blob = 0.55 + 0.45 * sin(angle * 6.2832 * 7.0) * smoothstep(0.2, 1.0, radius);
-    float edge = smoothstep(1.0, 0.75, radius);
+    float lobe = 1.0 - 0.18 * (0.5 + 0.5 * sin(angle * 6.2832 * 7.0));
+    float edge = smoothstep(lobe, lobe * 0.75, radius);
+    float blob = 0.78 + 0.22 * sin(angle * 6.2832 * 5.0 + radius * 9.0);
     gl_FragColor = vec4(tint, alpha * edge * blob);
 `
 
