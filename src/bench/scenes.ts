@@ -31,6 +31,7 @@ export type BenchEffectId =
   | 'shockwave'
   | 'dash-trail'
   | 'slipstream'
+  | 'water-grip'
   // `steam`, `mud` and `finisher` do not exist yet — they are deferred to step B2, along with
   // water, earth and fire (§2 of `docs/superpowers/specs/2026-08-27-air-vfx-design.md` records
   // why: the shapes they need were specified without reading their geometry, which had already
@@ -151,6 +152,61 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     effect: 'gust',
     fireAt: 0.1,
     duration: 0.2,
+  },
+  {
+    /**
+     * The Water Grip's collar gate. Task 2 gave `water-reach.ts`'s arc a dark collar between its
+     * bright core and its outer edge — `ARC_BODY`'s comment there argues the reason at length:
+     * B1's rule that every bright element clears `post.ts`'s 0.82 bloom threshold cannot answer
+     * whether an effect separates from the ground it is drawn over, because contrast is a
+     * difference and a threshold is a level. This is the shot that answers it: whether the dark
+     * band inside the arc's bright core actually reads against grass, which is the pale half of
+     * the comparison the gust's own tint was retuned against.
+     *
+     * **Same pose as `gust`, copied field for field rather than tuned.** With an identical frame
+     * the only thing that can differ between the two shots is the effect, so the collar can be
+     * judged against the flat arc it replaced rather than against a differently-framed picture of
+     * it. The rejected alternative was framing water's shorter 10-unit reach (`grip.range` in
+     * `DEFAULT_COMBAT_CONFIG.water`, against the gust's 12) more tightly, which would have made
+     * the two shots incomparable — a bigger arc in frame is not evidence of a better collar, it is
+     * evidence of a different camera. See `gust`'s own comment for why this pose and this target
+     * height are what they are; nothing about that argument changes for a narrower cone.
+     *
+     * `createWaterReach`'s `LIFETIME` is 0.3s (`water-reach.ts`), longer than the gust's 0.22s —
+     * a different number from a different effect, not something copied along with the pose.
+     * `fireAt: 0.1, duration: 0.22` freezes the frame at age 0.12s, 40% through that 0.3s life:
+     * `lookFor`'s grip arc lerps its reach from `1` down to `GRIP_END_FRACTION` (0.15) over the
+     * full life, so at t=0.4 the arc sits at roughly two-thirds of the full reach — visibly
+     * mid-pull rather than freshly opened at full reach or already collapsed onto the caster,
+     * either of which would leave nothing to compare.
+     */
+    id: 'water',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'water-grip',
+    fireAt: 0.1,
+    duration: 0.22,
+  },
+  {
+    /**
+     * The Water Grip's collar gate again, over the canyon's rock floor — the dark half of the
+     * comparison, the same role the canyon plays for `gust-canyon` above. Same pose as
+     * `gust-canyon`, copied for the identical reason `water`'s comment gives against `gust`: the
+     * only thing that can differ between this shot and `gust-canyon`'s is the effect, so the
+     * collar is judged against the flat arc it replaced rather than against a repositioned camera.
+     *
+     * `fireAt`/`duration` match `water`'s for the same timing argument given there: age 0.12s
+     * against `createWaterReach`'s 0.3s `LIFETIME`, the grip's arc partway through its inward
+     * travel.
+     */
+    id: 'water-canyon',
+    regionId: CANYON_ID,
+    camera: { position: new Vector3(0, 23.9, 2), target: new Vector3(0, 13.9, -18) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'water-grip',
+    fireAt: 0.1,
+    duration: 0.22,
   },
   {
     /**

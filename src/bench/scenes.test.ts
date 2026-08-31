@@ -48,6 +48,25 @@ describe('bench scenes', () => {
     expect(resolveBench('?region=canyon-country')).toBeNull()
   })
 
+  it('shoots water-grip from the same poses as the gust, so the collar gate compares against an identical frame', () => {
+    // `water` and `water-canyon` exist to compare the grip's collar against the gust's flat
+    // arc, not against a differently-framed picture of it — see the scenes' own doc comments.
+    // A hand-edit to either pose would silently break that comparison without failing any
+    // other check here, since a pose is just as "finite and non-degenerate" moved a metre as
+    // it was before.
+    const gust = BENCH_SCENES.find((s) => s.id === 'gust')!
+    const water = BENCH_SCENES.find((s) => s.id === 'water')!
+    expect(water.camera.position.equals(gust.camera.position)).toBe(true)
+    expect(water.camera.target.equals(gust.camera.target)).toBe(true)
+    expect(water.elevation).toBe(gust.elevation)
+
+    const gustCanyon = BENCH_SCENES.find((s) => s.id === 'gust-canyon')!
+    const waterCanyon = BENCH_SCENES.find((s) => s.id === 'water-canyon')!
+    expect(waterCanyon.camera.position.equals(gustCanyon.camera.position)).toBe(true)
+    expect(waterCanyon.camera.target.equals(gustCanyon.camera.target)).toBe(true)
+    expect(waterCanyon.elevation).toBe(gustCanyon.elevation)
+  })
+
   it('warns and returns nothing for an unknown id', () => {
     // Falls back to nothing rather than to a default scene: a mistyped bench id should say
     // so, and silently rendering a different scene is how a screenshot gets filed against

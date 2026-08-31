@@ -9,6 +9,7 @@ import { createShockwave } from '../fx/shockwave'
 import { createSlipstreamTrail } from '../fx/slipstream-trail'
 import { createVortexChargeTell } from '../fx/vortex-charge'
 import { createVortexRing } from '../fx/vortex-ring'
+import { createWaterReach } from '../fx/water-reach'
 import type { BenchEffectId } from './scenes'
 
 /**
@@ -122,6 +123,12 @@ export const BENCH_EFFECTS: Record<BenchEffectId, (origin: Vector3, forward: Vec
   'dash-trail': (origin, forward) => createDashTrail(origin, forward, 1, DEFAULT_GROUND_CONFIG),
   slipstream: (origin, forward) => (
     createSlipstreamTrail(origin, forward, DEFAULT_SLIPSTREAM_CONFIG)
+  ),
+  // The grip, not the freeze: `water` and `water-canyon` exist to shoot the collar on the arc
+  // that travels, per Task 2's `ARC_BODY` comment in `water-reach.ts` — a still freeze arc would
+  // pin the collar at one radius forever rather than showing it survive the travel.
+  'water-grip': (origin, forward) => (
+    createWaterReach(origin, forward, 'grip', DEFAULT_COMBAT_CONFIG.water)
   ),
   steam: (origin) => ringAt(origin, PLACEHOLDER_RADIUS, PLACEHOLDER_STRENGTH),
   mud: (origin) => ringAt(origin, PLACEHOLDER_RADIUS, PLACEHOLDER_STRENGTH),
