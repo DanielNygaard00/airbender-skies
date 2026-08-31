@@ -313,7 +313,9 @@ Then **stop and report**. Say explicitly that the collar is unverified on screen
 
 **Geometry:** `OctahedronGeometry` — **no useful UV**, so use `vLocal`. Do not use `POLAR_PREAMBLE` here; it is for ring and wedge shapes.
 
-**What stays:** `CENTRE_Y` 0.95, `RADIUS` 1.3, `TINT` `0xcfeeff`, `PEAK_OPACITY` 0.42, `FORM_SECONDS` 0.12, `MELT_SECONDS` 0.25.
+**What stays:** `CENTRE_Y` 0.95, `RADIUS` 1.3, `TINT` `0xcfeeff`, `PEAK_OPACITY` 0.42, `FORM_SECONDS` 0.12, `MELT_SECONDS` 0.25 — and **`side: BackSide`**, which the current `MeshBasicMaterial` sets and which `createEffectMaterial` will silently replace with its `DoubleSide` default unless the call passes it. Pass it. Rendering the near faces as well as the far ones doubles what every pixel of the shell is looking through, which is a visible change to the effect's density that nothing in this task asked for. `depthTest` is *not* passed: it defaults to `true`, and a closed shell around a soldier wants the depth test for the same reason `air-wall.ts` does — its lower half is below the soldier's footing and should stay hidden by the ground it is under.
+
+**This effect does not register in `src/fx/collar-bounds.test.ts`.** That guard checks `smoothstep(_, _, radius)` bounds against a `RingGeometry`'s band. The shell has no band and no radius bound — its contrast is view-dependent, per below.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -332,9 +334,22 @@ describe('the shell reads as faceted ice', () => {
     expect(material.uniforms.time).toBeUndefined()
   })
 
-  it('draws the collar on its rim', () => {
+  it('puts its bright edge on the silhouette, where the surface turns away', () => {
+    // The collar's actual claim is internal contrast at the effect's *boundary*. On a closed
+    // shell the boundary is wherever the surface goes edge-on to the viewer, which is a
+    // view-space fact and not an object-space one — so this reads the view normal, not vLocal.
     const material = shellMaterialOf(createIceShell(ORIGIN))
+    expect(material.fragmentShader).toContain('vViewNormal')
+    expect(material.fragmentShader).toContain('1.0 - abs(n.z)')
     expect(material.fragmentShader).toContain('mix(tint * 0.18, tint, core)')
+  })
+
+  it('keeps the shell BackSide, so it does not double its own density', () => {
+    expect(shellMaterialOf(createIceShell(ORIGIN)).side).toBe(BackSide)
+  })
+
+  it('stays depth-tested, because its lower half is under the ground', () => {
+    expect(shellMaterialOf(createIceShell(ORIGIN)).depthTest).toBe(true)
   })
 })
 ```
@@ -348,24 +363,52 @@ Expected: FAIL — no `uniforms` on a `MeshBasicMaterial`.
 
 ```ts
 /**
- * Facet brightness from object space, and the collar on the silhouette's edge.
+ * Facet brightness from object space, and the bright rim that carries the collar's contrast.
  *
- * An `OctahedronGeometry` has no UV worth reading, so `vLocal` is the only coordinate available —
- * and it is the right one anyway: a facet's brightness should depend on where the facet is, not on
- * a texture coordinate. `facet` quantises the object-space normal direction into bands so adjacent
- * faces differ, which is what makes it read as cut ice rather than a smooth blob.
+ * An `OctahedronGeometry` has no UV worth reading, so `vLocal` is the only *object-space*
+ * coordinate available — and it is the right one for the faceting: how bright a facet is should
+ * depend on where that facet is, not on a texture coordinate. `facet` quantises the object-space
+ * direction into bands so adjacent faces differ, which is what makes it read as cut ice rather
+ * than a smooth blob.
+ *
+ * **Why the contrast is view-dependent and not object-space.** Task 2's collar earns its keep by
+ * putting a dark band immediately inside the effect's *visible boundary*, so the eye has an edge
+ * to catch regardless of what is behind it. On a flat ground wedge the boundary is a radius, so a
+ * band in object space is a band on screen. On a closed shell it is not: the boundary is wherever
+ * the surface turns edge-on to the viewer, and that is a fact about the view, not about the mesh.
+ * An earlier draft of this body darkened `length(vLocal.xz)` instead, which shades the shell's top
+ * and bottom tips — from any side view that is its *middle*, leaving the silhouette uniformly
+ * bright and the collar's whole argument unimplemented while the comment claimed a rim.
+ *
+ * So `grazing` is `1 - abs(n.z)` on the view-space normal: 0 where the surface faces the camera
+ * squarely, 1 at the silhouette. `abs` because the shell is `BackSide` and its rendered normals
+ * point away from the viewer. On a sphere of projected radius 1, the bounds below light the rim
+ * from about 0.76 out to the edge, which at this shell's 1.3 units is a broad rim rather than a
+ * hairline — chosen over a tighter band because a hairline on a 1.3-unit object at combat range
+ * is one pixel of anti-aliasing.
  *
  * No `time` uniform, deliberately. Ice holds a soldier still; a drifting shell would claim motion
  * the move does not have.
  */
 const SHELL_BODY = /* glsl */ `
-    vec3 n = normalize(vLocal);
-    float facet = 0.68 + 0.32 * fract(dot(n, vec3(3.7, 2.3, 5.1)));
-    float core = smoothstep(0.25, 0.6, length(vLocal.xz));
+    vec3 n = normalize(vViewNormal);
+    float grazing = 1.0 - abs(n.z);
+    float core = smoothstep(0.35, 0.75, grazing);
+    float facet = 0.68 + 0.32 * fract(dot(normalize(vLocal), vec3(3.7, 2.3, 5.1)));
     vec3 colour = mix(tint * 0.18, tint, core);
-    gl_FragColor = vec4(colour, alpha * facet);
+    gl_FragColor = vec4(colour, alpha * max(core * facet, (1.0 - core) * 0.45));
 `
 ```
+
+**This task also adds one varying to `src/fx/effect-material.ts`'s vertex shader**, since no shader in the directory has needed a normal before:
+
+```glsl
+  varying vec3 vViewNormal;
+  ...
+    vViewNormal = normalMatrix * normal;
+```
+
+Keep `vUv` and `vLocal` exactly as they are. Extend the builder's own doc comment to say what the varying is for and why it lives in the shared vertex shader rather than in a second one: an unused varying costs nothing a profiler can find, whereas a second vertex shader would be a second place for the `vUv`/`vLocal` contract to drift. Add a `effect-material.test.ts` case pinning that all three varyings are declared and assigned. **Check whether any existing test pins the vertex shader's exact text** — if one does, update it rather than working around it, and say so in your report.
 
 - [ ] **Step 4: Run and commit**
 
