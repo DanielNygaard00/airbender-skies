@@ -37,6 +37,7 @@ import { boostedCombatConfig, surgeWind, refillBreath } from './focus/effects'
 import { waveRadius } from './combat/pressure-wave'
 import { detectSlam, applyBounce, touchedDown } from './player/slam'
 import { createShockwave } from './fx/shockwave'
+import { createSteam } from './fx/steam'
 import { createEffectPool } from './fx/effect-pool'
 import { createGustCone } from './fx/gust-cone'
 import { createStaffArc } from './fx/staff-arc-fx'
@@ -264,10 +265,17 @@ const REACTION_RING_STRENGTH = 0.85
  * sees it. The entry still has to hold a colour because the Record is total, and reusing the
  * shockwave's own default rather than inventing a meaningful-looking one is the honest way to
  * spend a value nothing will ever render.
+ *
+ * **`steam`'s entry is no longer read.** Steam fired the ring like every other reaction until
+ * Task 7 gave it `createSteam`'s own rising column instead, and that module owns the tint as its
+ * own `TINT` constant now — its doc comment carries the "pale and warm" argument this entry used
+ * to carry here. The entry survives anyway, unchanged, because this `Record` is total over
+ * `ReactionKind` and `'mud'` still needs the type to compile; deleting it would need deleting the
+ * type's totality along with it, for a value that costs nothing left as it is.
  */
 const REACTION_LOOKS: Record<ReactionKind, number> = {
   // Pale and warm: this is water flashing off against heat, and the burst's own orange-red
-  // would read as fire itself rather than as water leaving.
+  // would read as fire itself rather than as water leaving. Vestigial — see the comment above.
   steam: 0xffdfae,
   // Dark and brown: earth compacted wet around a soldier's feet, pushed well away from the
   // sandstone `earth-reach.ts` already uses so the two effects do not read as the same material.
@@ -1796,18 +1804,25 @@ function start(): void {
       const at = positionOf(id)
       if (at) effects.add(createIceShell(at, fightConfig.water.freezeHoldSeconds))
     }
-    // One ring per reaction, at the same pre-restore position the bursts above use and for the
+    // One effect per reaction, at the same pre-restore position the bursts above use and for the
     // identical reason: a Steam or Mud that fires on the frame the last soldier goes down and
     // the patrol restores must still land on the soldier that earned it, not on a fresh spawn.
+    // Steam gets its own rising column (`createSteam`, Task 7) rather than the shared ring — see
+    // that module's own doc comment for why one ring could not go on meaning Pressure Wave, the
+    // Vortex, the chain finisher, Steam and Mud at once. Mud stays on the ring until Task 8 gives
+    // it a shape of its own.
     for (const reaction of fight.reactionsThisFrame) {
       const at = positionOf(reaction.enemyId)
-      if (at) {
-        const ring = createShockwave(
-          REACTION_RING_RADIUS, REACTION_RING_STRENGTH, REACTION_LOOKS[reaction.kind],
-        )
-        ring.object.position.copy(at)
-        effects.add(ring)
+      if (!at) continue
+      if (reaction.kind === 'steam') {
+        effects.add(createSteam(at))
+        continue
       }
+      const ring = createShockwave(
+        REACTION_RING_RADIUS, REACTION_RING_STRENGTH, REACTION_LOOKS[reaction.kind],
+      )
+      ring.object.position.copy(at)
+      effects.add(ring)
     }
     if (bursts.hits.length > 0) combatAudio.impact()
     if (bursts.downs.length > 0) combatAudio.down()

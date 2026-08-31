@@ -32,13 +32,14 @@ export type BenchEffectId =
   | 'dash-trail'
   | 'slipstream'
   | 'water-grip'
-  // `steam`, `mud` and `finisher` do not exist yet — they are deferred to step B2, along with
-  // water, earth and fire (§2 of `docs/superpowers/specs/2026-08-27-air-vfx-design.md` records
-  // why: the shapes they need were specified without reading their geometry, which had already
-  // cost this step two fix rounds). Registered here anyway, pointing at `createShockwave` in
-  // `./effects.ts` until B2 repoints them, so `BENCH_EFFECTS` stays a total `Record` in the
-  // meantime: an id added to this union without a scene, or a scene naming an id this union does
-  // not have, is a compile error rather than a bench shot of an effect nobody fires.
+  // `mud` and `finisher` do not have their own effects yet — deferred, along with water, earth
+  // and fire once were (§2 of `docs/superpowers/specs/2026-08-27-air-vfx-design.md` records why:
+  // the shapes they needed were specified without reading their geometry, which had already cost
+  // this step two fix rounds). Registered here anyway, pointing at `createShockwave` in
+  // `./effects.ts` until their own tasks repoint them, so `BENCH_EFFECTS` stays a total `Record`
+  // in the meantime: an id added to this union without a scene, or a scene naming an id this
+  // union does not have, is a compile error rather than a bench shot of an effect nobody fires.
+  // `steam` used to be a third name on this list; Task 7 gave it `createSteam`, so it no longer is.
   | 'steam'
   | 'mud'
   | 'finisher'
@@ -341,15 +342,10 @@ export const BENCH_SCENES: readonly BenchScene[] = [
   },
   {
     /**
-     * Steam, Mud and the staff finisher do not have their own effects yet — they are deferred to
-     * step B2 (see the `BenchEffectId` comment above, and §2 of
-     * `docs/superpowers/specs/2026-08-27-air-vfx-design.md`) — so all three are wired to
-     * `./effects.ts`'s placeholder, which is `createShockwave` at a size closer to the reaction
-     * rings `main.ts` draws for Steam and Mud today (`REACTION_RING_RADIUS` 1.4,
-     * `REACTION_RING_STRENGTH` 0.85 — private to that file, so this scene cites rather than
-     * imports them) than to the Pressure Wave's own full-size ring. `shockwave`'s own `LIFETIME`
-     * of 0.4s and its half-life framing apply to all three, since they share the one placeholder
-     * factory.
+     * Steam has its own effect now — `createSteam`'s rising column, wired in `./effects.ts` — so
+     * unlike Mud and the staff finisher below it no longer shares `ringAt`'s placeholder. This
+     * shot is otherwise unchanged: same camera, same `fireAt` and `duration`, so a diff between
+     * this scene's frames before and after Task 7 is a diff of the effect alone.
      */
     id: 'steam',
     regionId: ARCHIPELAGO_ID,
@@ -360,7 +356,12 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     duration: 0.3,
   },
   {
-    /** Mud's placeholder shot. See `steam`'s comment above — same factory, same reasoning. */
+    /**
+     * Mud's placeholder shot: `ringAt` at the size `main.ts`'s still-private
+     * `REACTION_RING_RADIUS`/`REACTION_RING_STRENGTH` give the reaction ring it still draws for
+     * Mud, deferred until Mud gets its own effect. Steam, just above, no longer shares this
+     * placeholder — see its own comment.
+     */
     id: 'mud',
     regionId: ARCHIPELAGO_ID,
     camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
@@ -370,7 +371,7 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     duration: 0.3,
   },
   {
-    /** The staff finisher's placeholder shot. See `steam`'s comment above. */
+    /** The staff finisher's placeholder shot. See `mud`'s comment above — same factory, same reasoning. */
     id: 'finisher',
     regionId: ARCHIPELAGO_ID,
     camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
