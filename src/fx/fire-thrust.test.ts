@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Mesh, Vector3, type Material } from 'three'
+import { Mesh, ShaderMaterial, Vector3, type Material } from 'three'
 import { createFireThrust, plumeLength } from './fire-thrust'
 import { fireThrustImpulse } from '../combat/fire'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
@@ -7,7 +7,13 @@ import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 const F = DEFAULT_COMBAT_CONFIG.fire
 const ORIGIN = new Vector3(0, 0, 0)
 const NORTH = new Vector3(0, 0, -1)
-/** The impulse the shipped config actually produces, so nothing here invents a vector. */
+/**
+ * The impulse the shipped config actually produces, so nothing here invents a vector.
+ *
+ * Doubles as the brief's `FORWARD`: `createFireThrust` takes an impulse rather than a unit
+ * forward, and a zero or non-finite one leaves the group unrotated by design, so this is a real
+ * vector the game would actually hand over rather than a placeholder heading.
+ */
 const IMPULSE = fireThrustImpulse(NORTH, F)
 
 function plumeOf(effect: { object: { children: unknown[] } }): Mesh {
@@ -16,7 +22,20 @@ function plumeOf(effect: { object: { children: unknown[] } }): Mesh {
   return plume
 }
 
-const opacityOf = (mesh: Mesh): number => (mesh.material as Material & { opacity: number }).opacity
+/** The plume's shader material, built through `createEffectMaterial` for its streak and collar. */
+function plumeMaterialOf(effect: { object: { children: unknown[] } }): ShaderMaterial {
+  const { material } = plumeOf(effect)
+  if (!(material instanceof ShaderMaterial)) throw new Error('expected the plume to carry a shader material')
+  return material
+}
+
+const opacityOf = (mesh: Mesh): number => {
+  const { material } = mesh
+  if (!(material instanceof ShaderMaterial)) throw new Error('expected a shader material')
+  const value = material.uniforms.alpha?.value
+  if (typeof value !== 'number') throw new Error('expected a numeric alpha uniform')
+  return value
+}
 
 describe('createFireThrust', () => {
   it('points the plume against the impulse', () => {
@@ -120,14 +139,44 @@ describe('createFireThrust', () => {
     expect(impulse.toArray()).toEqual([0, 9, -6])
   })
 
-  it('uses no ShaderMaterial and no PointsMaterial', () => {
-    // The same two traps the cone effects avoid, asserted the same way. A flame is the effect most
-    // likely to attract a shader, and a shader that duplicates the renderer's injected chunks fails to
-    // compile nearly silently — leaving a resource spend with no feedback at all.
+  it('gives the plume a shader for its streak, built through createEffectMaterial, never a PointsMaterial', () => {
+    // The trap that used to keep this file off `ShaderMaterial` — a fragment body that includes
+    // the `..._pars_fragment` chunks the renderer already injects fails to compile with
+    // redefinition errors that throw nowhere visible, and the mesh then simply does not draw,
+    // which reads as a correctly transparent effect — is no longer avoided by staying off
+    // `ShaderMaterial` altogether; it is handled instead by building through
+    // `createEffectMaterial`, the one place in `src/fx/` allowed to construct one. And no
+    // `PointsMaterial` anywhere, whose screen-facing squares are the wrong shape for a plume this
+    // close to the camera.
     const effect = createFireThrust(ORIGIN, IMPULSE)
     for (const child of effect.object.children) {
       expect(child).toBeInstanceOf(Mesh)
-      expect(((child as Mesh).material as Material).type).toBe('MeshBasicMaterial')
+      const material = (child as Mesh).material as Material
+      expect(material).toBeInstanceOf(ShaderMaterial)
+      expect(material.type).not.toBe('PointsMaterial')
     }
+  })
+})
+
+describe('the plume streaks along its own axis', () => {
+  it('reads object space, because a box\'s uvs are per face', () => {
+    const material = plumeMaterialOf(createFireThrust(ORIGIN, IMPULSE))
+    expect(material.fragmentShader).toContain('vLocal.z + 0.5')
+    expect(material.fragmentShader).not.toContain('vUv.x')
+  })
+
+  it('is brightest at the nozzle and collared away from it', () => {
+    const material = plumeMaterialOf(createFireThrust(ORIGIN, IMPULSE))
+    expect(material.fragmentShader).toContain('smoothstep(0.45, 0.05, along01)')
+    expect(material.fragmentShader).toContain('smoothstep(0.80, 0.45, along01)')
+    expect(material.fragmentShader).toContain('mix(tint * 0.18, tint, core)')
+  })
+
+  it('advances time', () => {
+    const effect = createFireThrust(ORIGIN, IMPULSE)
+    const material = plumeMaterialOf(effect)
+    const before = material.uniforms.time?.value
+    for (let t = 0; t < 0.08; t += 1 / 60) effect.advance(1 / 60)
+    expect(material.uniforms.time?.value).not.toBe(before)
   })
 })
