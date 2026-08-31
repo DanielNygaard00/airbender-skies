@@ -32,14 +32,15 @@ export type BenchEffectId =
   | 'dash-trail'
   | 'slipstream'
   | 'water-grip'
-  // `mud` and `finisher` do not have their own effects yet — deferred, along with water, earth
-  // and fire once were (§2 of `docs/superpowers/specs/2026-08-27-air-vfx-design.md` records why:
-  // the shapes they needed were specified without reading their geometry, which had already cost
-  // this step two fix rounds). Registered here anyway, pointing at `createShockwave` in
-  // `./effects.ts` until their own tasks repoint them, so `BENCH_EFFECTS` stays a total `Record`
-  // in the meantime: an id added to this union without a scene, or a scene naming an id this
-  // union does not have, is a compile error rather than a bench shot of an effect nobody fires.
-  // `steam` used to be a third name on this list; Task 7 gave it `createSteam`, so it no longer is.
+  // `finisher` does not have its own effect yet — deferred, along with water, earth and fire once
+  // were (§2 of `docs/superpowers/specs/2026-08-27-air-vfx-design.md` records why: the shapes
+  // they needed were specified without reading their geometry, which had already cost this step
+  // two fix rounds). Registered here anyway, pointing at `createShockwave` in `./effects.ts`
+  // until its own task repoints it, so `BENCH_EFFECTS` stays a total `Record` in the meantime: an
+  // id added to this union without a scene, or a scene naming an id this union does not have, is
+  // a compile error rather than a bench shot of an effect nobody fires.
+  // `steam` and `mud` used to share that same deferred slot; Task 7 gave `steam` `createSteam`
+  // and Task 8 gave `mud` `createMud`, so neither is deferred any more.
   | 'steam'
   | 'mud'
   | 'finisher'
@@ -357,10 +358,10 @@ export const BENCH_SCENES: readonly BenchScene[] = [
   },
   {
     /**
-     * Mud's placeholder shot: `ringAt` at the size `main.ts`'s still-private
-     * `REACTION_RING_RADIUS`/`REACTION_RING_STRENGTH` give the reaction ring it still draws for
-     * Mud, deferred until Mud gets its own effect. Steam, just above, no longer shares this
-     * placeholder — see its own comment.
+     * Mud has its own effect now — `createMud`'s flat spatter, wired in `./effects.ts` — so like
+     * Steam just above it no longer shares `ringAt`'s placeholder. This shot is otherwise
+     * unchanged: same camera, same `fireAt` and `duration`, so a diff between this scene's frames
+     * before and after Task 8 is a diff of the effect alone.
      */
     id: 'mud',
     regionId: ARCHIPELAGO_ID,
@@ -371,7 +372,11 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     duration: 0.3,
   },
   {
-    /** The staff finisher's placeholder shot. See `mud`'s comment above — same factory, same reasoning. */
+    /**
+     * The staff finisher's placeholder shot: `ringAt` at `PLACEHOLDER_RADIUS`/
+     * `PLACEHOLDER_STRENGTH` in `./effects.ts`, deferred until the finisher gets its own effect.
+     * Steam and Mud, just above, no longer share this placeholder — see their own comments.
+     */
     id: 'finisher',
     regionId: ARCHIPELAGO_ID,
     camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },

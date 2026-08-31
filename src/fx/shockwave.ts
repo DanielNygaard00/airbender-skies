@@ -11,12 +11,15 @@ import { safeScale } from './scale'
  * whole mechanic. So the ring carries the same information the damage does: a weak
  * slam is a faint ring, a full one is bright.
  *
- * **Two callers, two meanings, one shape.** The slam above is the original. `main.ts`'s
- * `REACTION_LOOKS` repoints a second caller at this same ring as an admitted placeholder for a
- * reaction burst, telling the two apart only by `tint`. Neither is this file's business to know
- * about — the material stays tint-driven so a caller says what it means with the one parameter it
- * already had, not with a new mode flag. A finisher cue would be a third caller on the same
- * terms, but it is deferred to step B2 and does not exist, so this comment does not count it.
+ * **Once shared by three callers; now the slam's alone.** Steam and Mud both fired this same
+ * ring as an admitted placeholder for a reaction burst, telling the two apart from the slam and
+ * from each other only by `tint` — `main.ts`'s `REACTION_LOOKS` held that tint table until Task 8
+ * deleted it. Task 7 gave Steam its own rising column and Task 8 gives Mud its own flat spatter,
+ * so the slam above is this module's only caller today. The material stays tint-driven anyway
+ * rather than losing the parameter now that nothing else calls it: a chain finisher is still a
+ * deferred third caller on the same terms — deferred to step B2 and does not exist yet, so this
+ * comment does not count it — and a caller saying what it means with a parameter it already has
+ * is cheaper than reintroducing one the day that finisher lands.
  */
 export type Shockwave = Effect
 
@@ -75,11 +78,11 @@ const RING_BODY = /* glsl */ `
 `
 
 /**
- * `tint` defaults to the Pressure Wave's own colour rather than being required, so the one
- * existing caller — the slam ring — did not have to change to keep its look the day a second
- * caller arrived that needed a different one. See `main.ts`'s `REACTION_LOOKS`: a reaction has
- * no notion of "strength" the way a slam does, so it is the colour, not the shape, that tells
- * the player which one just fired.
+ * `tint` defaults to the Pressure Wave's own colour rather than being required, so the slam ring
+ * did not have to change to keep its look the day Steam and Mud arrived as second and third
+ * callers wanting their own colours instead — see the module comment above for why both have
+ * since left. A reaction has no notion of "strength" the way a slam does, so for the time those
+ * two did call this it was the colour, not the shape, that told the player which one just fired.
  */
 export function createShockwave(radius: number, strength: number, tint = DEFAULT_TINT): Effect {
   // A unit ring scaled at runtime. Rebuilding the geometry each frame to grow it

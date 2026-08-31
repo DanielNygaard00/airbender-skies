@@ -37,9 +37,11 @@ import { safeScale } from './scale'
  * **The tint is `main.ts`'s own `0xffdfae`, moved house.** Argued there as "pale and warm: this
  * is water flashing off against heat, and the burst's own orange-red would read as fire itself
  * rather than as water leaving" — that reasoning does not change by changing which file owns the
- * literal, so it is not re-derived here, only carried forward. `main.ts`'s `REACTION_LOOKS` keeps
- * an entry for `'steam'` because the `Record` is total over `ReactionKind` and `'mud'` still
- * needs the type to compile, but nothing reads that entry any more: this module is the live copy.
+ * literal, so it is not re-derived here, only carried forward. `main.ts`'s `REACTION_LOOKS` — the
+ * `Record<ReactionKind, number>` that entry used to live in, kept total only because `'mud'`
+ * still needed the type to compile — is gone as of Task 8, once Mud got its own tint the same
+ * way this module got Steam's; this module was already the live copy before that, so the deletion
+ * changes nothing here.
  *
  * **Steam is vapour, so it has no collar.** Every arc in this directory that reaches for a shader
  * pairs a bright core with a dark collar just inside it (`water-reach.ts`'s `ARC_BODY`,

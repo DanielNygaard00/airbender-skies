@@ -55,11 +55,11 @@ describe('steam', () => {
 })
 
 describe("steam's own tuning, pinned so a retune is a visible edit", () => {
-  it("takes its tint from main.ts's own REACTION_LOOKS entry, pale and warm rather than fiery", () => {
+  it("takes its tint from main.ts's own former REACTION_LOOKS entry, pale and warm rather than fiery", () => {
     // `0xffdfae`, argued in `main.ts` as water flashing off against heat — the burst's own
-    // orange-red would read as fire itself rather than as water leaving. This module now owns
-    // the live copy; `main.ts`'s only survives because `REACTION_LOOKS` is total over
-    // `ReactionKind` and `'mud'` still needs the type to compile.
+    // orange-red would read as fire itself rather than as water leaving. This module owns the
+    // live copy; `main.ts`'s `REACTION_LOOKS` itself is gone as of Task 8, once `mud.ts` got its
+    // own tint the same way and neither reaction needed the shared table any more.
     const material = columnMaterialOf(createSteam(new Vector3()))
     expect(material.uniforms.tint?.value).toEqual(new Color(0xffdfae))
   })

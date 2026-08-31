@@ -5,6 +5,7 @@ import { createAirWallPanel } from '../fx/air-wall'
 import { createDashTrail } from '../fx/dash-trail'
 import type { Effect } from '../fx/effect'
 import { createGustCone } from '../fx/gust-cone'
+import { createMud } from '../fx/mud'
 import { createShockwave } from '../fx/shockwave'
 import { createSlipstreamTrail } from '../fx/slipstream-trail'
 import { createSteam } from '../fx/steam'
@@ -80,14 +81,15 @@ function ringAt(origin: Vector3, radius: number, strength: number): Effect {
 }
 
 /**
- * Sized like the reaction ring `main.ts` still draws for Mud today (`REACTION_RING_RADIUS` 1.4,
- * `REACTION_RING_STRENGTH` 0.85), not imported because those two constants are private to that
- * file. Copied rather than exported and reused, because exporting gameplay tuning for a bench
- * placeholder to read would be a bigger change than the placeholder itself, and `mud` and
- * `finisher` are going away the moment their own tasks give them real effects.
+ * Sized like the reaction ring `main.ts` drew for every reaction before Task 7 and Task 8 gave
+ * Steam and Mud each their own shape (`1.4` and `0.85` — the values `REACTION_RING_RADIUS` and
+ * `REACTION_RING_STRENGTH` held before both were deleted along with the ring reactions used).
+ * Copied rather than exported and reused, because exporting gameplay tuning for a bench
+ * placeholder to read would be a bigger change than the placeholder itself, and `finisher` is
+ * going away the moment its own task gives it a real effect.
  *
- * `steam` no longer uses this: Task 7 gave it `createSteam`, so this pair now sizes only `mud`
- * and `finisher`'s placeholder shots.
+ * Neither `steam` nor `mud` uses this any more: Task 7 gave `steam` `createSteam` and Task 8 gave
+ * `mud` `createMud`, so this pair now sizes only `finisher`'s placeholder shot.
  */
 const PLACEHOLDER_RADIUS = 1.4
 const PLACEHOLDER_STRENGTH = 0.85
@@ -104,11 +106,12 @@ const PLACEHOLDER_STRENGTH = 0.85
  * The alternative was the `if (scene.effect === 'gust')` chain this replaces in `bench/main.ts`.
  * It worked for one effect and would have been nine unreachable branches at ten.
  *
- * `mud` and `finisher` do not have factories yet — they are deferred, per §2 of
- * `docs/superpowers/specs/2026-08-27-air-vfx-design.md` — so both point at `ringAt` with the
- * placeholder size `createShockwave` still gives Mud in the shipped game today. That keeps this
- * `Record` total in the meantime, which is the property that turns a forgotten registration into
- * a compile error. `steam` no longer shares that placeholder: Task 7 gave it `createSteam`.
+ * `finisher` does not have a factory yet — deferred, per §2 of
+ * `docs/superpowers/specs/2026-08-27-air-vfx-design.md` — so it points at `ringAt` with the
+ * placeholder size `createShockwave` once gave every reaction. That keeps this `Record` total in
+ * the meantime, which is the property that turns a forgotten registration into a compile error.
+ * Neither `steam` nor `mud` shares that placeholder any more: Task 7 gave `steam` `createSteam`
+ * and Task 8 gave `mud` `createMud`.
  */
 export const BENCH_EFFECTS: Record<BenchEffectId, (origin: Vector3, forward: Vector3) => Effect> = {
   gust: (origin, forward) => createGustCone(origin, forward, DEFAULT_COMBAT_CONFIG.gust),
@@ -135,7 +138,7 @@ export const BENCH_EFFECTS: Record<BenchEffectId, (origin: Vector3, forward: Vec
     createWaterReach(origin, forward, 'grip', DEFAULT_COMBAT_CONFIG.water)
   ),
   steam: (origin) => createSteam(origin),
-  mud: (origin) => ringAt(origin, PLACEHOLDER_RADIUS, PLACEHOLDER_STRENGTH),
+  mud: (origin) => createMud(origin),
   finisher: (origin) => ringAt(origin, PLACEHOLDER_RADIUS, PLACEHOLDER_STRENGTH),
 }
 
