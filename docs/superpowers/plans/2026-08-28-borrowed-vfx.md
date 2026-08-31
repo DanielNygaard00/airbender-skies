@@ -468,10 +468,18 @@ Expected: FAIL — no `uniforms`.
 /**
  * A hard-edged core with a tight collar, and grain along the arc instead of drift.
  *
- * The collar's bounds are 0.08 apart against water's 0.16 — earth is §4.2's "slow, committed"
- * element and the only armour-breaker, and a soft edge reads as air. The grain uses `vUv.x`, which
- * is legitimate here because `stone.halfAngle` is `Math.PI / 9` and `sectorUvIsMonotone` holds
- * comfortably; `radius` still comes from the preamble.
+ * Both bounds sit inside the arc band's own radius range — `sectorGeometry(halfAngle,
+ * 1 - ARC_THICKNESS, 1)` spans 0.84..1.0, so nothing below 0.84 exists to shade; `water-reach.ts`'s
+ * `ARC_BODY` comment carries that argument in full. Against water, earth's core ramps over 3/16 of
+ * the band (0.94..0.97) where water's takes 6/16, and its dark band is the thicker of the two: the
+ * collar plateau runs right up to the core rather than stopping short of it. Earth is §4.2's "slow,
+ * committed" element and the only armour-breaker, and a soft edge reads as air.
+ *
+ * The grain uses `vUv.x`, which is legitimate here because `stone.halfAngle` is `Math.PI / 9` and
+ * `sectorUvIsMonotone` holds comfortably. It is monotone but not linear: `RingGeometry`'s `uv.x`
+ * tracks `cos(theta)`, so across this 40-degree wedge it spans only about 0.33..0.67, and the
+ * `64.0` multiplier therefore buys roughly three and a half cycles across the arc rather than the
+ * ten a linear reading would suggest. `radius` still comes from the preamble.
  *
  * The grain does not scroll with `time` the way water's drift does. Rock thrown through the air is
  * a solid object moving, not a medium flowing, so the band's brightness is fixed to the geometry
