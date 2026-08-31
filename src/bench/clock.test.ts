@@ -73,16 +73,19 @@ describe('runFixedClock', () => {
     }
   })
 
-  it('bounds the loop instead of hanging on a nonsense duration', () => {
+  it('throws instead of hanging or silently truncating on a nonsense duration', () => {
+    // Infinity keeps `elapsed < duration` true forever, so the loop can only ever stop by
+    // hitting the iteration cap — exactly the case a bench must not paper over with a
+    // plausible-looking short frame. The test returning at all (rather than timing out) is
+    // most of the boundedness proof; the throw is the assertion that it did not then lie about
+    // what happened.
     const fire = vi.fn()
     const advance = vi.fn()
-    // Infinity keeps `elapsed < duration` true forever; a while loop on that condition alone
-    // would never return. The test passing at all (rather than timing out) is most of the
-    // proof; the explicit upper bound pins the boundedness down as a real assertion too.
-    const advances = runFixedClock(0, Infinity, STEP, fire, advance)
+    expect(() => runFixedClock(0, Infinity, STEP, fire, advance)).toThrow(/10000-step bound/)
+    // Fired and advanced plenty before giving up — this is not a scene that never ran, it is
+    // one that ran to the cap and still had `duration` left to go.
     expect(fire).toHaveBeenCalledTimes(1)
-    expect(advances).toBeLessThan(20_000)
-    expect(advance.mock.calls.length).toBe(advances)
+    expect(advance.mock.calls.length).toBeGreaterThan(9_000)
   })
 
   it('does not spin on other nonsense durations either', () => {

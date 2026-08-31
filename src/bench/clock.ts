@@ -37,17 +37,20 @@ export function runFixedClock(
   // needs one increment more than the exact division implies: see the `gust` and
   // `dash-trail` cases in `clock.test.ts`). `Math.min` against `MAX_SANE_STEPS` then turns a
   // duration that is `Infinity`, absurdly large, or (via `elapsed < duration` short-circuiting
-  // on the comparison itself) `NaN` or negative into a bounded number of iterations instead of
-  // an unbounded one — the same shape `effect-pool.ts`'s `add` uses to bound its eviction
-  // count by what is actually there rather than trusting its `cap` argument. No real scene
-  // comes close to the cap: the longest today, `vortex-charge`, needs 48 steps.
+  // on the comparison itself) `NaN` or negative into a bounded number of iterations. Same
+  // spirit as `effect-pool.ts`'s `add` bounding its eviction count rather than trusting its
+  // `cap` argument, but a different technique, not the same shape: `add`'s bound is derived
+  // purely from real state (`live.length`), with no ceiling of its own, while this one combines
+  // a duration-derived estimate with `MAX_SANE_STEPS`, a hardcoded ceiling `add` never needed.
+  // No real scene comes close to it: the longest today, `vortex-charge`, needs 48 steps.
   const MAX_SANE_STEPS = 10_000
   const maxSteps = Math.min(Math.ceil(duration / step) + 8, MAX_SANE_STEPS)
 
   let elapsed = 0
   let fired = false
   let advances = 0
-  for (let i = 0; i < maxSteps && elapsed < duration; i++) {
+  let i = 0
+  for (; i < maxSteps && elapsed < duration; i++) {
     elapsed += step
     if (!fired && fireAt !== null && elapsed >= fireAt) {
       fired = true
@@ -55,6 +58,18 @@ export function runFixedClock(
     }
     advance(step)
     advances++
+  }
+  // Hitting the cap before `elapsed` ever reaches `duration` means the loop stopped for a
+  // reason unrelated to the scene finishing. Returning `advances` here anyway would hand back a
+  // plausible-looking short frame with nothing to say it was cut off — the exact
+  // invisible-failure-reads-as-success trap this bench exists to catch, relocated into its own
+  // clock. A bench that refuses to lie is worth more than one that always returns something.
+  if (i === maxSteps && elapsed < duration) {
+    throw new Error(
+      `runFixedClock hit its ${MAX_SANE_STEPS}-step bound (${maxSteps} for this call) with `
+      + `elapsed only ${elapsed} of duration ${duration} at step ${step}. The scene's duration `
+      + 'is likely Infinity, NaN, or otherwise absurd rather than a real scene length.',
+    )
   }
   return advances
 }
