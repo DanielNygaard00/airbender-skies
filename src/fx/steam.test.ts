@@ -52,6 +52,17 @@ describe('steam', () => {
     const material = columnMaterialOf(createSteam(new Vector3()))
     expect(material.fragmentShader).toContain('vUv.x * 6.2832 * 3.0')
   })
+
+  it('fades toward the silhouette, so the sides are not a hard-edged tube', () => {
+    // The shot showed straight vertical sides and a readable curved bottom rim: nothing in the
+    // body varied with the viewer, so the geometry's own outline drew at full strength. `soft`
+    // reads the same `vViewNormal` measurement `ice-shell.ts`'s `grazing` does, with the opposite
+    // sign — ice brightens at the silhouette because it has a rim, steam fades there because
+    // vapour has no edge at all.
+    const material = columnMaterialOf(createSteam(new Vector3()))
+    expect(material.fragmentShader).toContain('abs(normalize(vViewNormal).z)')
+    expect(material.fragmentShader).toContain('smoothstep(0.0, 0.55, facing)')
+  })
 })
 
 describe("steam's own tuning, pinned so a retune is a visible edit", () => {

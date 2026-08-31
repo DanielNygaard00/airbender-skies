@@ -153,11 +153,51 @@ const RADIAL_SEGMENTS = 18
  * turns" reading survives in the source, not just in a comment beside it — and pinned in
  * `steam.test.ts` as the literal expression rather than as `18.8496`, so a later author cannot
  * rewrite it into that same rounding mistake.
+ *
+ * **What the bench shot showed, and `soft`, added to fix it.** `up` and `wisp` were both working —
+ * the top of the column visibly faded and the surface visibly shimmered — but the photograph still
+ * showed a pale, unmistakably solid cylinder: dead-straight vertical sides and a cleanly curved
+ * bottom rim, exactly the outline of the geometry itself. Nothing in the body varied with the
+ * *viewer*, only with position on the surface, so wherever the shape's own edge fell, the shader
+ * drew right up to it at full strength. Vapour has no edge; a cylinder does, and that is what was
+ * showing through.
+ *
+ * `soft` reads the same measurement `ice-shell.ts`'s `SHELL_BODY` reads off `vViewNormal` — a
+ * view-space normal's `z` tells a fragment how face-on it sits to the camera, `0` at the
+ * silhouette and `±1` dead centre — but applies the opposite sign. The shell *brightens* toward
+ * the silhouette (`grazing = 1.0 - abs(n.z)`, rising toward the edge) because ice has a rim worth
+ * lighting. Steam has no rim to light; the fix needs the alpha to fall to nothing at exactly the
+ * silhouette, which is `facing = abs(n.z)` — `1` facing the camera, `0` at the edge — fed straight
+ * into `smoothstep(0.0, 0.55, facing)` with no inversion. Same varying, same measurement, opposite
+ * sign: one element has a rim, the other has no edge at all.
+ *
+ * **`abs`, checked rather than copied.** `ice-shell.ts` needs `abs` because it renders `BackSide`
+ * only, so every fragment the camera sees is the far inner surface, whose outward normal points
+ * *away* from the camera — without `abs` that whole visible surface would read as edge-on. Steam's
+ * cylinder passes no `side` to `createEffectMaterial`, so it renders at the builder's own default,
+ * `DoubleSide` — both the near wall of the tube (facing the camera, `n.z` runs 0..1) and, since the
+ * column is transparent and open-ended, the far wall seen through it (facing away, `n.z` runs
+ * -1..0) are drawn. `abs` is still correct here, for a different reason than the shell's: without
+ * it, `smoothstep(0.0, 0.55, facing)` would clamp every far-wall fragment (negative `n.z`) to `0`
+ * and erase that whole half of the tube outright, rather than fading it toward its own silhouette
+ * the same way the near wall fades toward its own. With `abs`, both walls fade symmetrically at
+ * the true edges — the two points around the circumference where the surface actually turns
+ * edge-on to the camera — which is where the hard line was.
+ *
+ * The lower bound stays `0.0`, not moved: `facing` is genuinely `0` only at the silhouette itself,
+ * so a fade starting anywhere higher would clip a sliver of the visible tube for no reason. The
+ * upper bound (`0.55`) is the one number here that is a visual judgement rather than a derived
+ * fact — checked by eye against `up` and `wisp` so the column still reads as substantial through
+ * its front-facing arc rather than thinning into a ghost; moved from `ice-shell.ts`'s own bounds
+ * (`0.35`/`0.75`, tuned for a much larger radius) since the two shapes have no reason to share a
+ * number.
  */
 const COLUMN_BODY = /* glsl */ `
     float up = smoothstep(1.0, 0.45, vUv.y);
     float wisp = 0.6 + 0.4 * sin(vUv.x * 6.2832 * 3.0 + time * 3.0);
-    gl_FragColor = vec4(tint, alpha * up * wisp);
+    float facing = abs(normalize(vViewNormal).z);
+    float soft = smoothstep(0.0, 0.55, facing);
+    gl_FragColor = vec4(tint, alpha * up * wisp * soft);
 `
 
 export function createSteam(at: Vector3): Effect {
