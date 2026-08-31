@@ -802,8 +802,15 @@ describe('mud', () => {
   })
 
   it('carries no collar, because a dark effect needs no dark rim', () => {
-    expect(columnMaterialOf(createMud(new Vector3())).fragmentShader)
+    expect(discMaterialOf(createMud(new Vector3())).fragmentShader)
       .not.toContain('mix(tint * 0.18, tint, core)')
+  })
+
+  it('spatters a whole number of lobes, so the disc has no radial seam', () => {
+    // `angle` is a normalised turn, so a bare `7.0` would be seven radians across the whole
+    // circumference: 1.11 cycles, and a hard discontinuity where the wrap fails to meet itself.
+    expect(discMaterialOf(createMud(new Vector3())).fragmentShader)
+      .toContain('angle * 6.2832 * 7.0')
   })
 })
 ```
@@ -819,13 +826,21 @@ A flat disc close to the ground on a `RingGeometry` with inner radius 0 — so `
 
 ```ts
 const SPATTER_BODY = /* glsl */ `
-    float blob = 0.55 + 0.45 * sin(angle * 7.0) * smoothstep(0.2, 1.0, radius);
+    float blob = 0.55 + 0.45 * sin(angle * 6.2832 * 7.0) * smoothstep(0.2, 1.0, radius);
     float edge = smoothstep(1.0, 0.75, radius);
     gl_FragColor = vec4(tint, alpha * edge * blob);
 `
 ```
 
-The `sin(angle * 7.0)` is what makes the rim uneven, so it reads as thrown mud rather than a painted circle — and `angle` comes from the preamble because a bare UV axis would mirror it.
+The `sin` term is what makes the rim uneven, so it reads as thrown mud rather than a painted circle — and `angle` comes from the preamble because a bare UV axis would mirror it.
+
+**Why the frequency is `6.2832 * 7.0` and not `7.0`.** `POLAR_PREAMBLE`'s `angle` is a normalised turn: it runs 0..1 around the disc, not 0..2π. So a bare `sin(angle * 7.0)` is seven *radians* across the whole circumference — 1.11 cycles — which both fails to give seven lobes and, worse, does not meet itself at the wrap: `sin(0)` is 0 and `sin(7)` is 0.657, so the disc carries a hard radial discontinuity down one side. Multiplying by a turn first makes the seven literal mean seven lobes and makes the pattern periodic in `angle`, so the wrap is seamless. Task 7's wisp had the identical bug for the identical reason on a cylinder's `vUv.x`. Pin the whole expression in the test, not just the `7.0`.
+
+**`depthTest: false`**, like every other flat ground effect in this directory: a spatter lying on ground that slopes up away from the player is otherwise hidden by it. `createEffectMaterial` defaults to `true`, so pass it.
+
+**The disc's own dimensions and timings are yours to choose** — a lifetime, a starting and held radius, a spread duration, a peak opacity — argued in comments and pinned in tests the way Task 7's steam did. Keep it shorter-lived than the hold it is reporting.
+
+**One thing to get right when `REACTION_LOOKS` goes.** Its doc comment records that `'none'` can never reach the reaction loop, because every push onto `reactionsThisFrame` inside `stepEncounter` is guarded by `if (outcome.kind !== 'none')` — the `Record` still carried a `none` entry only because it had to be total. Once the table is deleted, the loop branches on `reaction.kind` directly, and a two-armed branch over a three-member union either needs a third arm that can never run or loses the compile-time totality the `Record` was providing. Keep that totality: branch so that adding a fourth `ReactionKind` fails to compile here rather than silently drawing nothing, and say in a comment which device you used and why `'none'` is unreachable. Do not reach for a bare `else` that swallows an unknown kind.
 
 - [ ] **Step 4: Rewire and clean up**
 
