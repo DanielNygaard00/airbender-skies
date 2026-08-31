@@ -62,6 +62,16 @@ const TINT = 0xffdfae
  * ring it replaces (`shockwave.ts`'s own `LIFETIME` of 0.4) reads as a blink rather than a rise —
  * short enough that it clears well inside a couple of seconds, so a second Steam landing on the
  * same soldier never finds an old column still hanging in the air over them.
+ *
+ * **Checked against the reaction system's own numbers, not only against the visible climb.** The
+ * brief's constraint is that the column must not outlive the reaction that spawned it, and that
+ * system has real durations to hold this against: `ReactionConfig.markSeconds` is 2.5 and
+ * `ReactionConfig.mudHoldSeconds` is 1.4 (both in `DEFAULT_COMBAT_CONFIG.reactions`,
+ * `src/combat/config.ts` — cited by value, not imported, since a comment can quote a constant
+ * without this module taking a dependency on `src/combat/`). `1.1` sits under both: a soldier
+ * stays wet for the full 2.5 seconds a mark counts, and Mud's own hold adds 1.4 on top of
+ * whatever is already on the clock, so the column is gone while the mark it reports is still on
+ * the soldier and before the sibling reaction it is tuned alongside has even finished landing.
  */
 const LIFETIME = 1.1
 

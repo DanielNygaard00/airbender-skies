@@ -129,6 +129,15 @@ describe("steam's own tuning, pinned so a retune is a visible edit", () => {
     expect(geometry.parameters.openEnded).toBe(true)
   })
 
+  it('cuts the tube into eighteen radial segments', () => {
+    // Pinned per the brief's own rule — every tuned constant gets a test, so a later retune of
+    // the segment count is a visible edit rather than a silent one, the same as the radii and
+    // the lifetime above.
+    const { geometry } = meshOf(createSteam(new Vector3()))
+    if (!(geometry instanceof CylinderGeometry)) throw new Error('expected a CylinderGeometry')
+    expect(geometry.parameters.radialSegments).toBe(18)
+  })
+
   it('casts no shadow', () => {
     expect(meshOf(createSteam(new Vector3())).userData.excludeFromShadows).toBe(true)
   })
