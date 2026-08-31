@@ -22,8 +22,17 @@ interface CollarCase {
 /**
  * Every effect whose arc draws `water-reach.ts`'s collar pattern — `POLAR_PREAMBLE` feeding a
  * body with a bright `core` and a dark `collar`, each a `smoothstep(_, _, radius)` — registers
- * itself here. Task 2 (`water-reach.ts`) is the first; Tasks 4, 5 and 6 register theirs as they
- * land, each with its own arc's own thickness.
+ * itself here. Task 2 (`water-reach.ts`) is the first; Tasks 4 and 5 register theirs as they land,
+ * each with its own arc's own thickness.
+ *
+ * A box- or shell-shaped effect has no radius band to check and so does not belong here: this
+ * suite's whole method is reading a `RingGeometry`'s `innerRadius`/`outerRadius` and comparing it
+ * against the shader's `radius`-driven `smoothstep` bounds, and neither term exists for a shape
+ * with no ring geometry and no `POLAR_PREAMBLE`. That is why Task 3's ice shell and Task 6's fire
+ * thrust are absent by design rather than by omission — the ice shell shades a silhouette rim off
+ * `vViewNormal`, and the fire thrust's plume shades `along01` off `vLocal.z` on a `BoxGeometry`,
+ * so both carry the same bright-core-and-collar idea expressed against a coordinate this suite
+ * has no geometry to check it against.
  *
  * **What this catches that the literal-pinning tests in each effect's own `*.test.ts` cannot.**
  * Those tests (`toContain('smoothstep(0.90, 0.96, radius)')` and similar) prove a gradient was

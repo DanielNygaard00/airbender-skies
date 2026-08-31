@@ -75,16 +75,31 @@ const PEAK_OPACITY = 0.85
  * mid-plume rather than the other way round. Writing them ascending would have lit the plume's far
  * tip and darkened the hand it leaves, which is a picture of something being sucked in.
  *
- * **The two frequencies in `lick` do different jobs, and only the temporal one has to stay under a
- * cycle.** `along01 * 30.0` is spatial and `along01` spans a full 0..1 across the whole plume, so it
- * covers 30 / (2π) ≈ 4.77 cycles along the length — richer than the burst arc's `ARC_BODY`, whose
- * `radius * 18.0` only crosses a 0.70..1.0 band and so covers under one. That is deliberate here: a
- * thin jet reads as fire when it is broken into several bright ropes along its own length, where the
- * burst's wide annulus would have turned the same treatment into visible ripples. `time * 36.0` is
- * temporal, and over the 0.14 s `LIFETIME` it advances 36 * 0.14 = 5.04 rad, or 5.04 / (2π) ≈ 0.80 of
- * one cycle — under one, on purpose: the plume lives too briefly for the ropes to visibly slide past
- * each other, so what reads on screen is a single flicker rather than a scroll, the same shape
- * `ARC_BODY`'s own comment argues for at its 120 rad/s.
+ * **The two frequencies in `lick` do different jobs, and under-one-cycle travel is right here for
+ * the opposite reason it was wrong for `fire-burst.ts`'s `ARC_BODY`.** `along01 * 30.0` is spatial
+ * and `along01` spans a full 0..1 across the whole plume, so it covers 30 / (2π) ≈ 4.77 cycles along
+ * the length — the same idiom `dash-trail.ts`'s `TRAIL_BODY` already ships (`along01 * 26.0` across
+ * its own full 0..1 length, ≈ 4.14 cycles): a rich standing pattern of several bright ropes at once,
+ * not a single band. `time * 36.0` is temporal, and over the 0.14 s `LIFETIME` it advances
+ * 36 * 0.14 = 5.04 rad, ≈ 0.80 of one cycle — sub-one-cycle travel, same regime as `dash-trail.ts`'s
+ * own `time * 12.0` over its 0.3 s `LIFETIME` (12 * 0.3 = 3.6 rad, ≈ 0.57 of one cycle), already
+ * shipped on the same `BoxGeometry`/`vLocal.z` idiom. Because several ropes already exist along the
+ * length, sliding that whole pattern by most of one band period over the life reads as the ropes
+ * *travelling* down the plume — legible motion, because there is spatial structure for it to move
+ * across; this term does not produce a flicker, it produces travel.
+ *
+ * Contrast `ARC_BODY`, where the identical under-one-cycle arithmetic was the defect, not the fix.
+ * Its spatial term, `radius * 18.0`, only crosses a thin 0.70..1.0 annulus and so covers ≈ 0.86 of
+ * one cycle — effectively a single band, with no companion band for it to slide past. A single band
+ * has no motion to travel *as*; its only visible behaviour is its own brightness rising and falling
+ * in place, which is a flicker, not travel. `ARC_BODY`'s comment records that its temporal rate
+ * started at 30 rad/s, which over its 0.16 s `LIFETIME` is 30 * 0.16 / (2π) ≈ 0.75 of one cycle — under
+ * one, and because the sole band never finished even one full rise-and-fall before the effect ended,
+ * that read as "a single slow brightness sweep... exactly what this comment used to claim it
+ * avoided," fixed by raising the rate to 120 rad/s (≈ 3.06 cycles over the same life). Same
+ * arithmetic, opposite consequence, because the spatial term differs in kind: a rich pattern here
+ * turns sub-one-cycle temporal motion into travel; a single band there turns the same regime into an
+ * unfinished flicker.
  */
 const PLUME_BODY = /* glsl */ `
     float along01 = vLocal.z + 0.5;
