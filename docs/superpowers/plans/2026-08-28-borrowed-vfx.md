@@ -21,6 +21,7 @@
 - **No tint moves.** B1 spent the red-channel headroom raising green five times and the four air tints now differ only in red. The collar is what buys legibility here, not brightness.
 - **The collar rule replaces B1's threshold rule.** Every bright element draws a darker band immediately outside its core, so the contrast is internal and ground-independent. B1's "clear 0.82 luminance" is retired — do not add new luminance assertions, and do not delete B1's existing ones (they still describe B1's effects truthfully).
 - **`pillar-view` is out of scope** and must not be touched: it is opaque, lit, depth-tested world geometry, and the builder makes transparent unlit overlays.
+- **Collar bounds live in the mesh's own radius range, not in 0..1** — every arc in this plan is a `sectorGeometry(halfAngle, 1 - ARC_THICKNESS, 1)` band, so `POLAR_PREAMBLE`'s `radius` spans `1 - ARC_THICKNESS`..1 and nothing below that inner edge exists to shade. Before writing a `smoothstep` against `radius`, read the effect's `ARC_THICKNESS` and place both bounds inside the band: water and earth run 0.84..1.0, fire 0.70..1.0. A bound below the inner edge saturates `core` and zeroes `collar`, which draws the old flat arc and passes every test that only pins literals.
 - **Tuned constants are pinned in tests** — exact `toContain` on each literal `smoothstep` bound plus the `gl_FragColor` expression, in the shape `shockwave.test.ts:156-170` and both trail tests already use, with a comment saying what only a bench shot can answer.
 - **Do not assert a mechanism you have not verified.** B1's one Critical finding was a comment claiming rotation while the implementer's own report doubted the UV mapping.
 - Nothing may touch `src/focus/`, `src/combat/`, any cooldown, or `src/core/post.ts`.
@@ -212,8 +213,8 @@ describe('the arc carries its own collar', () => {
     // luminance cannot separate a bright element from a bright ground. A collar drawn dark works
     // over pale grass and dark rock alike, because the contrast is inside the effect.
     const material = arcMaterialOf(createWaterReach(ORIGIN, FORWARD, 'grip', C))
-    expect(material.fragmentShader).toContain('smoothstep(0.62, 0.78, radius)')
-    expect(material.fragmentShader).toContain('smoothstep(0.46, 0.62, radius)')
+    expect(material.fragmentShader).toContain('smoothstep(0.90, 0.96, radius)')
+    expect(material.fragmentShader).toContain('smoothstep(0.85, 0.90, radius)')
     expect(material.fragmentShader).toContain('mix(tint * 0.18, tint, core)')
   })
 
@@ -264,15 +265,22 @@ Expected: FAIL — the arc's material is a `MeshBasicMaterial` with no `uniforms
  * headroom five times and its four air tints now differ only in red.
  *
  * `radius` comes from `POLAR_PREAMBLE` and is the true normalised radius even on a bounded wedge.
- * The core sits in the outer part of the arc band's own `ARC_THICKNESS`, the collar immediately
- * inside it, so both fit the geometry that already exists and no mesh grows.
+ *
+ * **Why the bounds start at 0.85 and not at zero.** The arc is `sectorGeometry(halfAngle,
+ * 1 - ARC_THICKNESS, 1)`, so its fragments only ever span radius 0.84..1.0 — the mesh is a thin
+ * band, not a disc, and `POLAR_PREAMBLE`'s `radius` normalises by the *outer* radius. Bounds chosen
+ * in a 0..1 space would all fall below the band's inner edge, leaving `core` saturated at 1 and
+ * `collar` at 0 everywhere: a collar that compiles, draws nothing, and looks exactly like the
+ * uniform arc it replaced. Every bound here is a fraction of the band's own 0.16 of radius — the
+ * core ramps over the outer 6/16 and the collar fills the 5/16 just inside it, with the innermost
+ * sliver left to fade so the band has a soft inner edge instead of a cut.
  *
  * `travel` is 0 for the freeze and 1 for the grip, which is how one body serves both verbs without
  * a second shader: multiplied into the drift term it makes the freeze's arc snap and hold.
  */
 const ARC_BODY = /* glsl */ `
-    float core = smoothstep(0.62, 0.78, radius);
-    float collar = smoothstep(0.46, 0.62, radius) * (1.0 - core);
+    float core = smoothstep(0.90, 0.96, radius);
+    float collar = smoothstep(0.85, 0.90, radius) * (1.0 - core);
     float drift = 0.86 + 0.14 * sin(angle * 40.0 - time * travel * 5.0);
     vec3 colour = mix(tint * 0.18, tint, core);
     gl_FragColor = vec4(colour, alpha * max(core * drift, collar * 0.55));
@@ -383,10 +391,11 @@ git commit -m "Cut the ice shell into facets from object space, and rim its silh
 describe('the stone\'s arc reads as mass', () => {
   it('draws the hardest collar of the six, because earth is the heavy element', () => {
     // §4.2 makes earth "slow, committed, high payoff" and the only armour-breaker. A soft edge
-    // would read as air. The collar's inner bound sits closer to its core than water's.
+    // would read as air, so earth's core ramps over 3/16 of the band where water's takes 6/16,
+    // and its dark band is the thicker of the two: the collar plateau runs right up to the core.
     const material = arcMaterialOf(createEarthReach(ORIGIN, FORWARD, C))
-    expect(material.fragmentShader).toContain('smoothstep(0.66, 0.74, radius)')
-    expect(material.fragmentShader).toContain('smoothstep(0.52, 0.66, radius)')
+    expect(material.fragmentShader).toContain('smoothstep(0.94, 0.97, radius)')
+    expect(material.fragmentShader).toContain('smoothstep(0.85, 0.94, radius)')
     expect(material.fragmentShader).toContain('mix(tint * 0.18, tint, core)')
   })
 
@@ -426,8 +435,8 @@ Expected: FAIL — no `uniforms`.
  * and only its overall alpha rises and falls.
  */
 const ARC_BODY = /* glsl */ `
-    float core = smoothstep(0.66, 0.74, radius);
-    float collar = smoothstep(0.52, 0.66, radius) * (1.0 - core);
+    float core = smoothstep(0.94, 0.97, radius);
+    float collar = smoothstep(0.85, 0.94, radius) * (1.0 - core);
     float grain = 0.78 + 0.22 * sin(vUv.x * 64.0);
     float pulse = 0.85 + 0.15 * sin(time * 22.0);
     vec3 colour = mix(tint * 0.18, tint, core);
@@ -467,8 +476,8 @@ describe('the burst flickers without widening', () => {
 
   it('draws its collar', () => {
     const material = arcMaterialOf(createFireBurst(ORIGIN, FORWARD, C))
-    expect(material.fragmentShader).toContain('smoothstep(0.58, 0.72, radius)')
-    expect(material.fragmentShader).toContain('smoothstep(0.40, 0.58, radius)')
+    expect(material.fragmentShader).toContain('smoothstep(0.82, 0.93, radius)')
+    expect(material.fragmentShader).toContain('smoothstep(0.72, 0.82, radius)')
   })
 
   it('advances time', () => {
@@ -501,8 +510,8 @@ Expected: FAIL — no `uniforms`.
  * and at this rate the band count reads as flame rather than as a moving stripe.
  */
 const ARC_BODY = /* glsl */ `
-    float core = smoothstep(0.58, 0.72, radius);
-    float collar = smoothstep(0.40, 0.58, radius) * (1.0 - core);
+    float core = smoothstep(0.82, 0.93, radius);
+    float collar = smoothstep(0.72, 0.82, radius) * (1.0 - core);
     float flicker = 0.72 + 0.28 * sin(radius * 18.0 - time * 30.0);
     vec3 colour = mix(tint * 0.18, tint, core);
     gl_FragColor = vec4(colour, alpha * max(core * flicker, collar * 0.5));
