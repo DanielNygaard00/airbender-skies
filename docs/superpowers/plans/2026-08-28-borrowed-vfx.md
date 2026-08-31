@@ -525,6 +525,13 @@ describe('the burst flickers without widening', () => {
     expect(material.fragmentShader).toContain('mix(tint * 0.18, tint, core)')
   })
 
+  it('flickers fast enough to flicker inside a 0.16 second life', () => {
+    // 120 rad/s is about three cycles across LIFETIME. At the 30.0 this started as, the whole
+    // burst showed three quarters of one cycle — a single slow brightness sweep, not a flicker.
+    const material = arcMaterialOf(createFireBurst(ORIGIN, FORWARD, C))
+    expect(material.fragmentShader).toContain('time * 120.0')
+  })
+
   it('draws its collar', () => {
     const material = arcMaterialOf(createFireBurst(ORIGIN, FORWARD, C))
     expect(material.fragmentShader).toContain('smoothstep(0.82, 0.93, radius)')
@@ -557,13 +564,20 @@ Expected: FAIL — no `uniforms`.
  * single-target damage" is implemented as that narrowness rather than as a rule. A brightness term
  * varying across the arc's width would read as a wider cone and undo it.
  *
- * `18.0` is a high frequency against the 0.16 s lifetime: fire flickers faster than water drifts,
- * and at this rate the band count reads as flame rather than as a moving stripe.
+ * **Where the flicker actually comes from.** The two frequencies do different jobs and only one of
+ * them flickers. `radius * 18.0` is spatial, and `radius` spans just 0.70..1.0 on this band
+ * (`sectorGeometry(halfAngle, 1 - ARC_THICKNESS, 1)` with `ARC_THICKNESS` 0.3), so it covers about
+ * 0.86 of a cycle — under one, deliberately. Several concentric bright bands across a thin annulus
+ * would read as ripples spreading on water, which is the wrong element entirely; what this buys
+ * instead is that the band is not uniformly lit along its thickness. The flickering is the temporal
+ * term: 120 rad/s is roughly three cycles inside the 0.16 s `LIFETIME`. It started at 30.0, which
+ * over the same life is three quarters of one cycle — a single slow brightness sweep that would
+ * have read as a moving stripe, exactly what this comment used to claim it avoided.
  */
 const ARC_BODY = /* glsl */ `
     float core = smoothstep(0.82, 0.93, radius);
     float collar = smoothstep(0.72, 0.82, radius) * (1.0 - core);
-    float flicker = 0.72 + 0.28 * sin(radius * 18.0 - time * 30.0);
+    float flicker = 0.72 + 0.28 * sin(radius * 18.0 - time * 120.0);
     vec3 colour = mix(tint * 0.18, tint, core);
     gl_FragColor = vec4(colour, alpha * max(core * flicker, collar * 0.5));
 `
