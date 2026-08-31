@@ -303,18 +303,66 @@ export const BENCH_SCENES: readonly BenchScene[] = [
   },
   {
     /**
-     * Fire Thrust's plume, the same shared frame and the same reason again — a thrust has no
-     * ground reach of its own to be judged against the terrain, but a still frame comparable to
-     * every other effect here is worth exactly as much for a resource tell as for a hit volume.
+     * Fire Thrust's plume. **The second scene in this group that does not share the common
+     * frame, for the same kind of reason `ice-shell`'s own comment gives, not the same reach.**
+     * `earth-reach` and `fire-burst` above legitimately share `gust`'s pose because all three draw
+     * a ground-scale wedge the shared 22-unit throw was framed for. The plume is not that: it is a
+     * `WIDTH`/`THICKNESS` 0.34 slab (`fire-thrust.ts`), closer in scale to `ice-shell`'s 1.3-unit
+     * shell than to a 12-unit cone. **The wide pose was actually shot and checked, not assumed
+     * bad:** at `gust`'s frame it measured as a pale sliver a few pixels across, near the bottom
+     * edge of the frame — indistinguishable from nothing, which defeats the one job this scene has
+     * (fire's own doc comment: the plume is the *only* feedback a thrust gives when nobody is
+     * looking at the HUD, so a bench shot that cannot show it is a bench shot that cannot catch a
+     * silent shader failure here).
      *
-     * `createFireThrust`'s `LIFETIME` is 0.14s (`fire-thrust.ts`). `fireAt: 0.05, duration: 0.12`
-     * freezes the frame at age 0.07s, half that life — the plume stretched and thinning partway
-     * through its fade rather than freshly lit at full width or already down to a sliver, the same
-     * mid-life target as the two scenes above.
+     * **Which way the plume actually points, worked out rather than assumed.** `./effects.ts`
+     * calls `createFireThrust(origin, fireThrustImpulse(forward, DEFAULT_COMBAT_CONFIG.fire))`
+     * with the bench's own fixed `forward` of `(0, 0, -1)` (`bench/main.ts`). `fireThrustImpulse`
+     * (`combat/fire.ts`) returns `(0, thrustUpSpeed, 0)` plus the flattened `forward` scaled by
+     * `thrustForwardSpeed` — `thrustUpSpeed` 9 and `thrustForwardSpeed` 6
+     * (`DEFAULT_COMBAT_CONFIG.fire`) — so the impulse here is `(0, 9, -6)`, length
+     * `sqrt(81 + 36) ≈ 10.82` (the "10.8 m/s" `fire-thrust.ts`'s own comment already cites).
+     * `createFireThrust` draws the plume along the *negation* of that impulse (its own comment:
+     * "drawn opposite the push"), so the exhaust direction is `(0, -9, 6)` — normalised, mostly
+     * down and a lesser amount toward `+Z`. A pose built on the impulse itself rather than its
+     * negation would point the camera at empty air on the wrong side of the origin, the same
+     * failure this comment's own heading warns against.
+     *
+     * **How long the plume actually is, including the stretch.** `plumeLength` is
+     * `impulse.length() * PLUME_SECONDS` = `10.82 * 0.12 ≈ 1.30` at birth, and `apply()` lerps a
+     * stretch factor from `1` up to `1.6` over the life — so the plume can be as long as
+     * `1.30 * 1.6 ≈ 2.08` by the time it fades out. At this scene's own frozen age (0.07s, half of
+     * the 0.14s `LIFETIME` — see below), the stretch is `1.3`, so the drawn length is
+     * `1.30 * 1.3 ≈ 1.69`. The pose is built for the larger, once-over-the-life figure (~2.1) so a
+     * later retune of `fireAt`/`duration` toward the end of the life does not immediately outgrow
+     * the frame.
+     *
+     * **The pose itself: closer, and off to the side rather than down the barrel.** The plume's
+     * travel has no `X` component at all (the bench's fixed `forward` is pure `-Z`), so a camera
+     * offset mostly along `X` views its `Y`/`Z` descent broadside instead of foreshortening it
+     * toward a point — the same fix `dash-trail`'s own comment makes for a streak that travels
+     * along `-Z`, applied to a different plane here because the plume's own travel is diagonal in
+     * `Y`/`Z` rather than flat along `Z`. Position `(4.5, 13.8, 0)` against target `(0, 11.9, 0)`
+     * is a `~4.9`-unit throw (`sqrt(4.5² + 1.9²)`) at a `~21°` look-down — close to `ice-shell`'s
+     * own shallow `~23°`, and close enough at this range that a ~2-unit plume reads as a shape
+     * rather than a smudge, the same test `ice-shell`'s own comment applies to its shell.
+     *
+     * **The target is `gust`'s own point, kept rather than moved.** Every ground scene's target
+     * is `(0, 11.9, 0)`, the archipelago's true measured surface height at its centre (see
+     * `gust`'s own comment for how 11.9 was taken and why it is not the HUD's 14).
+     * `createFireThrust` adds its own `HEIGHT` of 0.95 above whatever origin it is given, the same
+     * number `ice-shell.ts`'s `CENTRE_Y` uses, so keeping the target at the bare ground height —
+     * rather than adding that 0.95 in a second time on top of it, which `ice-shell`'s own target
+     * does for its differently-shaped subject — lands the plume's nozzle at exactly 11.9 + 0.95 =
+     * 12.85 without double-counting the factory's own offset. The plume's own vertical span (the
+     * nozzle at 12.85 descending toward roughly 11.4 at its far tip) sits close enough to that
+     * target height that the shallow camera above still keeps the whole thing in frame; only
+     * `camera` changes here, so `fireAt` and `duration` still land the frozen frame at age 0.07s,
+     * the same mid-life point the scene always froze at.
      */
     id: 'fire-thrust',
     regionId: ARCHIPELAGO_ID,
-    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    camera: { position: new Vector3(4.5, 13.8, 0), target: new Vector3(0, 11.9, 0) },
     elevation: SUN_ELEVATION_DEGREES,
     effect: 'fire-thrust',
     fireAt: 0.05,
