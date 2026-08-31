@@ -132,10 +132,30 @@ const PEAK_OPACITY = 0.5
 const RADIAL_SEGMENTS = 18
 
 /**
- * `up` fades the column from solid at the base to nothing by the top, so the shape ends in a soft
- * wisp instead of a cut-off cylinder cap — `1.0` down to `0.45` rather than down to `0.0` so the
- * fade is doing most of its work in the top half, where a real puff of vapour actually thins out,
- * instead of smearing evenly along the whole height.
+ * `up` fades the column from solid in its lower body to nothing by the top, so the shape ends in
+ * a soft wisp instead of a cut-off cylinder cap — `1.0` down to `0.45` rather than down to `0.0`
+ * so the fade is doing most of its work in the top half, where a real puff of vapour actually
+ * thins out, instead of smearing evenly along the whole height.
+ *
+ * **A band, not a one-sided falloff, and the bench shot is why.** `up` used to be that single
+ * `smoothstep(1.0, 0.45, vUv.y)` term alone, which is `1` for every fragment below `vUv.y` 0.45
+ * regardless of where the object itself has travelled — and this column rises (`RISE_DISTANCE`,
+ * below). By mid-life the photograph showed exactly that: a crisp horizontal cut hanging in open
+ * air at the column's base, with the cylinder's bottom rim clearly readable as a curve. Vapour
+ * that has already left the ground has no bottom edge, so the shape needs to fade in near its own
+ * base too, the same double-`smoothstep` band `air-wall.ts`'s `up` term and `gust-cone.ts`'s
+ * `sweep` term both already use for a shape that must not show either of its own cut edges.
+ *
+ * **`0.08`, not a matching `0.45`.** The two ends of the column are not the same kind of edge.
+ * The top is where the puff genuinely runs out over its whole climb, so it earns the wide,
+ * gradual `0.45` band it already had. The base is not steam thinning — it is the plume having
+ * already detached from the point it left, which happens fast, so tightness is the point:
+ * `0.08` is barely a twelfth of the top band's width, spending almost none of the column's height
+ * to erase the rim rather than making the whole base look like it fades in gradually from
+ * halfway up the shape. Loose enough that the render's antialiasing still has a fragment or two
+ * to blend across so the rim never reappears as a one-pixel hard edge; tight enough that at any
+ * radius this column is drawn (`START_RADIUS` through `END_RADIUS`) the base still reads as
+ * "vapour that just left", not as a column whose foot has been sanded off.
  *
  * `wisp` breaks up the column's brightness around its circumference and drifts it with `time`, the
  * same job `air-wall.ts`'s `streak` term does for its panel — a still, evenly-lit tube reads as a
@@ -193,7 +213,7 @@ const RADIAL_SEGMENTS = 18
  * number.
  */
 const COLUMN_BODY = /* glsl */ `
-    float up = smoothstep(1.0, 0.45, vUv.y);
+    float up = smoothstep(0.0, 0.08, vUv.y) * smoothstep(1.0, 0.45, vUv.y);
     float wisp = 0.6 + 0.4 * sin(vUv.x * 6.2832 * 3.0 + time * 3.0);
     float facing = abs(normalize(vViewNormal).z);
     float soft = smoothstep(0.0, 0.55, facing);

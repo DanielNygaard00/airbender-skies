@@ -40,9 +40,17 @@ describe('steam', () => {
     expect(alive).toBe(false)
   })
 
-  it('fades from the top, so the column has no hard cut', () => {
+  it('fades at both the base and the top, so a risen column has no hard cut at either end', () => {
+    // The bench shot showed the top fade working — the column visibly thinned near its crown —
+    // but the base stayed a crisp horizontal cut hanging in mid-air once the column had risen off
+    // the ground, because a one-sided falloff draws every fragment below `vUv.y` 0.45 at full
+    // strength regardless of how far the whole object has climbed. The base band (0.0 to 0.08) is
+    // far tighter than the top's (1.0 to 0.45) because steam detaches from its source quickly,
+    // where it thins gradually as it climbs.
     const material = columnMaterialOf(createSteam(new Vector3()))
-    expect(material.fragmentShader).toContain('smoothstep(1.0, 0.45, vUv.y)')
+    expect(material.fragmentShader).toContain(
+      'smoothstep(0.0, 0.08, vUv.y) * smoothstep(1.0, 0.45, vUv.y)',
+    )
   })
 
   it('wisps a whole number of turns, so the column has no seam', () => {
