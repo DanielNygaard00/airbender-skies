@@ -59,9 +59,12 @@ const VERTEX_SHADER = /* glsl */ `
 /**
  * The three lines a ring- or wedge-shaped effect needs before it can talk about radius or angle.
  *
- * `vortex-ring.ts`, `vortex-charge.ts` and `shockwave.ts` each hand-copied these, which is three
- * chances to get the constant wrong and one place the next author will not look. Prepend it to a
- * body instead: `body: POLAR_PREAMBLE + MY_BODY`.
+ * `vortex-ring.ts` and `vortex-charge.ts` each hand-copied these three lines exactly, which is
+ * two chances to get the constant wrong and one place the next author will not look. `shockwave.ts`
+ * hand-copied a near variant — same first two lines, but `float around = atan(p.y, p.x)` in raw
+ * radians, because it never wraps with `fract` and so never needed the turn normalisation;
+ * substituting this preamble there would change `around`'s scale, so it is not a drop-in for that
+ * shape of body. Prepend it to a body instead: `body: POLAR_PREAMBLE + MY_BODY`.
  *
  * **Why it is needed at all.** `RingGeometry`'s UVs are Cartesian — three computes
  * `uv = (position / radius + 1) / 2` — so `vUv.x` does not run around the circumference and
