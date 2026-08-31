@@ -597,7 +597,11 @@ git commit -m "Flicker the burst along its length only, so the narrow cone stays
 
 **Files:** Modify `src/fx/fire-thrust.ts`; test `src/fx/fire-thrust.test.ts`.
 
-**Geometry:** `BoxGeometry` — **per-face UVs**, so use `vLocal`. `vLocal.z` runs -0.5..0.5 along the plume; normalise with `float along01 = vLocal.z + 0.5;` as both trails do. **Establish which end is the nozzle** by reading how the mesh is placed rather than assuming, and say in your report which you found.
+**Geometry:** `BoxGeometry(WIDTH, THICKNESS, 1)` — a unit-length slab along +Z, **per-face UVs**, so use `vLocal`. `vLocal.z` runs -0.5..0.5 along the plume; normalise with `float along01 = vLocal.z + 0.5;` as both trails do.
+
+**The nozzle is at `along01` 0**, and this has been read off the code rather than assumed: the group is aimed *against* the impulse so its +Z is where the fire goes, and `apply()` sets `plume.position.z = (length * stretch) / 2` — its own comment says "pushed forward by half its length so it starts at the wing rather than straddling it". So the box's near face, object-space z = -0.5, sits at the wing. The bands below are therefore written descending, which mirrors them onto the nozzle end. Confirm this yourself before implementing; if the placement has changed, mirror them back and say so.
+
+A `smoothstep` whose first edge exceeds its second is established practice in this directory — `air-wall.ts:94-95`, `dash-trail.ts:95` and `gust-cone.ts:85` all use `smoothstep(1.0, x, …)` to fade toward an edge — so mirroring the bands is idiomatic here and needs no `1.0 -` dance.
 
 **What stays:** `LIFETIME` 0.14, `PLUME_SECONDS` 0.12, `HEIGHT` 0.95, `WIDTH` 0.34, `THICKNESS` 0.34, `TINT` `0xffd9a0`, `PEAK_OPACITY` 0.85. Also: this effect is the fire thrust, and the owner's standing rule is that **fire may thrust in the air, never paid in Breath, never on the ground** — nothing visual here may imply otherwise, and nothing in this task touches that logic.
 
@@ -613,7 +617,8 @@ describe('the plume streaks along its own axis', () => {
 
   it('is brightest at the nozzle and collared away from it', () => {
     const material = plumeMaterialOf(createFireThrust(ORIGIN, FORWARD))
-    expect(material.fragmentShader).toContain('smoothstep(0.55, 0.95, along01)')
+    expect(material.fragmentShader).toContain('smoothstep(0.45, 0.05, along01)')
+    expect(material.fragmentShader).toContain('smoothstep(0.80, 0.45, along01)')
     expect(material.fragmentShader).toContain('mix(tint * 0.18, tint, core)')
   })
 
@@ -641,20 +646,27 @@ Expected: FAIL — no `uniforms`.
  * `vLocal.z` rather than `vUv`: a `BoxGeometry` carries a full 0..1 UV square on each of its six
  * faces, so `vUv.x` means a different axis depending on which face a fragment belongs to, and a
  * gradient written against it would streak along the plume on two faces and across it on four.
- * Object-space z is face-independent. Which end is the nozzle was read from the mesh's placement,
- * not assumed.
+ * Object-space z is face-independent.
+ *
+ * **Which end is the nozzle was read from the placement, not assumed.** The group is aimed against
+ * the impulse so its +Z is where the fire goes, and `apply()` pushes the slab forward by half its
+ * length "so it starts at the wing rather than straddling it" — so the box's near face, object-space
+ * z = -0.5, is the wing, and `along01` 0 is the nozzle. Both bands are therefore written with their
+ * edges descending, which is what puts the bright core at the nozzle and the dark collar in the
+ * mid-plume rather than the other way round. Writing them ascending would have lit the plume's far
+ * tip and darkened the hand it leaves, which is a picture of something being sucked in.
  */
 const PLUME_BODY = /* glsl */ `
     float along01 = vLocal.z + 0.5;
-    float core = smoothstep(0.55, 0.95, along01);
-    float collar = smoothstep(0.20, 0.55, along01) * (1.0 - core);
+    float core = smoothstep(0.45, 0.05, along01);
+    float collar = smoothstep(0.80, 0.45, along01) * (1.0 - core);
     float lick = 0.7 + 0.3 * sin(along01 * 30.0 - time * 36.0);
     vec3 colour = mix(tint * 0.18, tint, core);
     gl_FragColor = vec4(colour, alpha * max(core * lick, collar * 0.5));
 `
 ```
 
-If the nozzle turns out to be at `along01` near 0, mirror the two `smoothstep` bands rather than negating the term, and pin the mirrored literals in the test.
+The bands above are already mirrored for a nozzle at `along01` 0. If the placement turns out otherwise, mirror them back rather than negating the term, and pin whichever literals you ship.
 
 - [ ] **Step 4: Run and commit**
 
