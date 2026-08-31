@@ -67,6 +67,21 @@ describe('bench scenes', () => {
     expect(waterCanyon.elevation).toBe(gustCanyon.elevation)
   })
 
+  it('shoots the three ground effects from the same pose as the gust, so nothing but the effect differs', () => {
+    // `earth-reach`, `fire-burst` and `fire-thrust` all reuse `gust`'s camera and elevation
+    // verbatim, for the reason `water`'s own comment argues against `gust`: with an identical
+    // frame the only thing that can differ between two shots is the effect. A hand-edit to any
+    // of these poses would silently break that comparison without failing any other check here,
+    // the same trap the water/gust case above guards against.
+    const gust = BENCH_SCENES.find((s) => s.id === 'gust')!
+    for (const id of ['earth-reach', 'fire-burst', 'fire-thrust']) {
+      const scene = BENCH_SCENES.find((s) => s.id === id)!
+      expect(scene.camera.position.equals(gust.camera.position)).toBe(true)
+      expect(scene.camera.target.equals(gust.camera.target)).toBe(true)
+      expect(scene.elevation).toBe(gust.elevation)
+    }
+  })
+
   it('warns and returns nothing for an unknown id', () => {
     // Falls back to nothing rather than to a default scene: a mistyped bench id should say
     // so, and silently rendering a different scene is how a screenshot gets filed against

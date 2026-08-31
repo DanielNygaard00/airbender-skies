@@ -1,10 +1,15 @@
 import { Vector3 } from 'three'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 import { DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG } from '../core/config'
+import { fireThrustImpulse } from '../combat/fire'
 import { createAirWallPanel } from '../fx/air-wall'
 import { createDashTrail } from '../fx/dash-trail'
 import type { Effect } from '../fx/effect'
+import { createEarthReach } from '../fx/earth-reach'
+import { createFireBurst } from '../fx/fire-burst'
+import { createFireThrust } from '../fx/fire-thrust'
 import { createGustCone } from '../fx/gust-cone'
+import { createIceShell } from '../fx/ice-shell'
 import { createMud } from '../fx/mud'
 import { createShockwave } from '../fx/shockwave'
 import { createSlipstreamTrail } from '../fx/slipstream-trail'
@@ -136,6 +141,26 @@ export const BENCH_EFFECTS: Record<BenchEffectId, (origin: Vector3, forward: Vec
   // pin the collar at one radius forever rather than showing it survive the travel.
   'water-grip': (origin, forward) => (
     createWaterReach(origin, forward, 'grip', DEFAULT_COMBAT_CONFIG.water)
+  ),
+  // `createIceShell` also takes a `holdSeconds`, not just a position — the shell's own doc
+  // comment in `ice-shell.ts` explains why the lifetime *is* the mechanic: it is on screen for
+  // exactly as long as the hold that made it lasts. `forward` goes unused here for the same
+  // reason it does on `vortex` above: a shell around a body has no direction of its own.
+  // `gripHoldSeconds` (1.4s) rather than `freezeHoldSeconds` (3.2s) because it is the shorter of
+  // the two holds the game applies, so the bench's own `MAX_SANE_STEPS`-guarded clock (see
+  // `clock.ts`) has less life to run past `duration` on a scene mistuned to outlive it.
+  'ice-shell': (origin) => createIceShell(origin, DEFAULT_COMBAT_CONFIG.water.gripHoldSeconds),
+  'earth-reach': (origin, forward) => createEarthReach(origin, forward, DEFAULT_COMBAT_CONFIG.earth),
+  'fire-burst': (origin, forward) => createFireBurst(origin, forward, DEFAULT_COMBAT_CONFIG.fire),
+  // `createFireThrust` takes an impulse, not a unit forward — its own doc comment says the
+  // plume's length comes from the impulse it is drawn for rather than from a constant, so the
+  // bench has to hand it a real one rather than inventing a magnitude. `fireThrustImpulse` is the
+  // one function that turns a heading into that impulse, and it needs nothing the bench cannot
+  // supply: the bench's own `forward` and the shipped `DEFAULT_COMBAT_CONFIG.fire`, the same two
+  // arguments `main.ts` passes at the real call site. No wrapper needed — the shapes already
+  // line up.
+  'fire-thrust': (origin, forward) => (
+    createFireThrust(origin, fireThrustImpulse(forward, DEFAULT_COMBAT_CONFIG.fire))
   ),
   steam: (origin) => createSteam(origin),
   mud: (origin) => createMud(origin),

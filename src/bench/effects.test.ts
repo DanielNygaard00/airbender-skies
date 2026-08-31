@@ -33,4 +33,30 @@ describe('the bench effect registry', () => {
       effect.dispose()
     }
   })
+
+  it('keeps every scene\'s frozen frame inside its effect\'s lifetime', () => {
+    // `scenes.test.ts`'s own `fireAt < duration` check knows nothing about a real effect's real
+    // lifetime — it would pass just as happily for a scene tuned to freeze on a corpse, exactly
+    // the failure `fireAt`'s own doc comment on `BenchScene` warns about. This drives each
+    // scene's own effect for `duration - fireAt` seconds, the effect's age at the moment the
+    // bench stops, and requires `advance` still report the effect alive there: every real effect
+    // returns `age < LIFETIME`, and the two held-state wrappers in this file return their own
+    // equivalent (`held < maxChargeSeconds`, `up || panel.object.visible`) — `false` in either
+    // case means the frame the bench would freeze on shows nothing.
+    const STEP = 1 / 240
+    for (const scene of BENCH_SCENES) {
+      if (scene.effect === null) continue
+      const effect = benchEffect(scene.effect, ORIGIN, FORWARD)
+      const life = scene.duration - scene.fireAt
+      let alive = true
+      let elapsed = 0
+      while (elapsed < life) {
+        const dt = Math.min(STEP, life - elapsed)
+        alive = effect.advance(dt)
+        elapsed += dt
+      }
+      expect(alive).toBe(true)
+      effect.dispose()
+    }
+  })
 })

@@ -32,13 +32,20 @@ export type BenchEffectId =
   | 'dash-trail'
   | 'slipstream'
   | 'water-grip'
-  // `finisher` does not have its own effect yet — deferred, along with water, earth and fire once
-  // were (§2 of `docs/superpowers/specs/2026-08-27-air-vfx-design.md` records why: the shapes
-  // they needed were specified without reading their geometry, which had already cost this step
-  // two fix rounds). Registered here anyway, pointing at `createShockwave` in `./effects.ts`
-  // until its own task repoints it, so `BENCH_EFFECTS` stays a total `Record` in the meantime: an
-  // id added to this union without a scene, or a scene naming an id this union does not have, is
-  // a compile error rather than a bench shot of an effect nobody fires.
+  | 'ice-shell'
+  | 'earth-reach'
+  | 'fire-burst'
+  | 'fire-thrust'
+  // `finisher` is the only id left in this union without its own effect — deferred per §2 of
+  // `docs/superpowers/specs/2026-08-27-air-vfx-design.md`, which records why: the shapes they
+  // needed were specified without reading their geometry, which had already cost this step two
+  // fix rounds. Water, earth and fire were once deferred behind that same shape, alongside
+  // `finisher`; all three elements now have real factories — `water-grip` (and the shell it and
+  // the freeze share, `ice-shell`) first, then `earth-reach`, `fire-burst` and `fire-thrust` here.
+  // `finisher` is registered anyway, pointing at `createShockwave` in `./effects.ts` until its own
+  // task repoints it, so `BENCH_EFFECTS` stays a total `Record` in the meantime: an id added to
+  // this union without a scene, or a scene naming an id this union does not have, is a compile
+  // error rather than a bench shot of an effect nobody fires.
   // `steam` and `mud` used to share that same deferred slot; Task 7 gave `steam` `createSteam`
   // and Task 8 gave `mud` `createMud`, so neither is deferred any more.
   | 'steam'
@@ -209,6 +216,109 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     effect: 'water-grip',
     fireAt: 0.1,
     duration: 0.22,
+  },
+  {
+    /**
+     * The ice on a held soldier, closer than every ground effect above because it is not one.
+     * `createIceShell`'s own doc comment gives its scale: a 1.3-unit octahedron centred on a
+     * body, against the gust's 12-unit, 120-degree wedge the shared pose above is framed for. At
+     * 20 units back that shell would be a few pixels of haze — the same "cannot support a
+     * judgement about how the effect reads" argument `dash-trail`'s comment makes against the
+     * cone pose, for a subject smaller still.
+     *
+     * **The one scene in this group that does not share the common frame, and deliberately so.**
+     * Every scene from `gust` through `water-canyon` above argues for an identical pose precisely
+     * because the effects it compares are all the same size and shape — a wedge is a wedge is a
+     * wedge, so the only honest way to compare their tints is to hold the camera still. A shell
+     * around a body is a different kind of subject, and forcing it into that same frame would not
+     * buy a fair comparison; it would make the shot illegible instead. So this scene keeps the
+     * region and the centre — the archipelago, the same spot every scene above stands over — and
+     * moves only the camera, close enough that a 1.3-unit shell reads as a shape rather than a
+     * smudge.
+     *
+     * Position and target sit 3.5 and 3.2 units out respectively rather than 20, at a shallow
+     * 23-degree look-down close to `gust`'s own. Target height is 12.85: the archipelago's
+     * measured ground height of 11.9 (see `gust`'s own comment for how that number was taken)
+     * plus `CENTRE_Y`'s 0.95 (`ice-shell.ts`), the shell's own offset for a body whose origin is
+     * at its feet — so the camera centres on the shell, not on the ground underneath it.
+     *
+     * `fireAt`/`duration` land the frozen frame at age 0.4s. `createIceShell` also takes a
+     * `holdSeconds`, a second parameter this task's own brief did not carry — `./effects.ts`
+     * reaches `DEFAULT_COMBAT_CONFIG.water.gripHoldSeconds` (1.4s) for it, the shorter of the two
+     * holds the game applies. The shell's own `FORM_SECONDS` (0.12) and `MELT_SECONDS` (0.25)
+     * bound the two moments a frozen frame has to avoid: 0.4s is comfortably past the 0.12s
+     * form-in, so the shell is at full size and full opacity, and comfortably short of the 1.4s
+     * hold ending — the melt does not start until the hold itself is over — so nothing here is
+     * fading either. Fully formed and not yet melting, which is the one moment worth a still
+     * frame.
+     */
+    id: 'ice-shell',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 14.35, 3.5), target: new Vector3(0, 12.85, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'ice-shell',
+    fireAt: 0.1,
+    duration: 0.5,
+  },
+  {
+    /**
+     * Stone Throw's arc, in the shared frame `water`'s own comment argues for at length: with an
+     * identical pose the only thing that can differ between this shot and `gust`'s or `water`'s
+     * is the effect, so earth's collar (`ARC_BODY` in `earth-reach.ts`) is judged against the
+     * same island rather than against a differently-framed picture of it.
+     *
+     * `createEarthReach`'s `LIFETIME` is 0.26s (`earth-reach.ts`). `fireAt: 0.1, duration: 0.23`
+     * freezes the frame at age 0.13s, half the life — the arc mid-travel outward rather than
+     * still clipped near the caster or already faded at the far edge, the same mid-life target
+     * every cone scene above picks for the same reason.
+     */
+    id: 'earth-reach',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'earth-reach',
+    fireAt: 0.1,
+    duration: 0.23,
+  },
+  {
+    /**
+     * Fire Burst's arc, the same shared frame and the same reason `earth-reach`'s comment gives
+     * just above.
+     *
+     * `createFireBurst`'s `LIFETIME` is 0.16s (`fire-burst.ts`) — the shortest-lived effect in the
+     * game, per that file's own comment. `fireAt: 0.05, duration: 0.13` freezes the frame at age
+     * 0.08s, half that life, the same mid-travel target as `earth-reach` and every cone above it.
+     * `fireAt` is 0.05 rather than the 0.1 the wider cones use only because a burst this short
+     * would leave the frozen frame too close to the end of its life on the wider cones' own
+     * `fireAt` — 0.1 would leave just 0.06s of the 0.16s life to land a frame in, still legal but
+     * tighter than it needs to be.
+     */
+    id: 'fire-burst',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'fire-burst',
+    fireAt: 0.05,
+    duration: 0.13,
+  },
+  {
+    /**
+     * Fire Thrust's plume, the same shared frame and the same reason again — a thrust has no
+     * ground reach of its own to be judged against the terrain, but a still frame comparable to
+     * every other effect here is worth exactly as much for a resource tell as for a hit volume.
+     *
+     * `createFireThrust`'s `LIFETIME` is 0.14s (`fire-thrust.ts`). `fireAt: 0.05, duration: 0.12`
+     * freezes the frame at age 0.07s, half that life — the plume stretched and thinning partway
+     * through its fade rather than freshly lit at full width or already down to a sliver, the same
+     * mid-life target as the two scenes above.
+     */
+    id: 'fire-thrust',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'fire-thrust',
+    fireAt: 0.05,
+    duration: 0.12,
   },
   {
     /**
