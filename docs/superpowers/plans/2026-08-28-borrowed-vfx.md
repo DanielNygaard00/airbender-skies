@@ -719,6 +719,14 @@ describe('steam', () => {
     const material = columnMaterialOf(createSteam(new Vector3()))
     expect(material.fragmentShader).toContain('smoothstep(1.0, 0.45, vUv.y)')
   })
+
+  it('wisps a whole number of turns, so the column has no seam', () => {
+    // vUv.x wraps all the way around the cylinder. A frequency that is not a whole number of
+    // cycles leaves a stationary vertical seam down one side, which on a rotationally symmetric
+    // shape is the first thing the eye finds.
+    const material = columnMaterialOf(createSteam(new Vector3()))
+    expect(material.fragmentShader).toContain('vUv.x * 6.2832 * 3.0')
+  })
 })
 ```
 
@@ -734,12 +742,16 @@ An `Effect` in the shape `src/fx/effect.ts` defines: owns its geometry and mater
 ```ts
 const COLUMN_BODY = /* glsl */ `
     float up = smoothstep(1.0, 0.45, vUv.y);
-    float wisp = 0.6 + 0.4 * sin(vUv.x * 18.0 + time * 3.0);
+    float wisp = 0.6 + 0.4 * sin(vUv.x * 6.2832 * 3.0 + time * 3.0);
     gl_FragColor = vec4(tint, alpha * up * wisp);
 `
 ```
 
-Steam is vapour, so it has no collar: there is no bright core to rim, and the shape's own silhouette against the ground is what reads. Say that in the comment — it is a deliberate exception to a global constraint and a reader will otherwise think it was missed.
+**Why the wisp's frequency is written as a multiple of a turn.** `vUv.x` wraps from 1 back to 0 all the way around the cylinder, so any frequency that is not a whole number of cycles leaves the pattern not meeting itself — a stationary vertical seam down one side of the column, which on a rotationally symmetric shape is the one artifact the eye reads immediately. `6.2832 * 3.0` is exactly three turns; a bare `18.0` would have been 2.87, and the quarter-cycle mismatch is the seam. `POLAR_PREAMBLE`'s own comment makes the same argument about its `angle` wrap coinciding with `atan`'s branch cut. Pin the expression in the test, not just the numbers, so the next author cannot round it to 18.
+
+**Steam is vapour, so it has no collar.** There is no bright core to rim, and the shape's own silhouette against the ground is what reads. Say that in the comment — it is a deliberate exception to a global constraint and a reader will otherwise think it was missed. It also means this module does **not** register in `src/fx/collar-bounds.test.ts`.
+
+**The timings and dimensions are yours to choose**, since this module is new: a lifetime, a starting radius, a rise speed, a widening factor, a peak opacity. Argue each in a comment the way the neighbouring effect modules argue theirs, keep the lifetime short enough that the column does not outlive the reaction that spawned it, and pin each constant in a test so a later retune is a visible edit rather than a silent one.
 
 - [ ] **Step 4: Rewire**
 
