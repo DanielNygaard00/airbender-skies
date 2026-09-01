@@ -1,11 +1,12 @@
 import {
   BoxGeometry, BufferAttribute, BufferGeometry, CapsuleGeometry, ConeGeometry, DoubleSide, Group,
-  Mesh, MeshBasicMaterial, MeshLambertMaterial, TorusGeometry,
+  MathUtils, Mesh, MeshBasicMaterial, MeshLambertMaterial, TorusGeometry,
   type Object3D, type Quaternion,
 } from 'three'
 import { isDowned } from './health'
 import { createHealthBar } from './health-bar'
 import type { Enemy, EnemyConfig, EnemyKind } from './enemy'
+import type { Element } from '../elements/element'
 
 /**
  * A soldier, as primitives.
@@ -110,6 +111,80 @@ function createLaneGeometry(length: number): BufferGeometry {
 }
 
 /**
+ * How far above the feet the mark pip sits: above `health-bar.ts`'s own bar, which stands at
+ * height 2, so the two never share a band and the bar's own read is undisturbed.
+ */
+const MARK_PIP_HEIGHT_ABOVE_FEET = 2.3
+const MARK_PIP_SIZE = 0.16
+/**
+ * Below this many seconds left, the pip's opacity starts dropping toward `MARK_PIP_FADE_FLOOR`.
+ *
+ * A fixed window rather than a fraction of the mark's total duration, because `sync` is only
+ * ever handed `secondsLeft` -- `EnemyConfig` carries none of `ReactionConfig.markSeconds`, and
+ * the brief that set this task rules out changing `sync`'s signature to thread it through. A
+ * fixed window still tells the two tactical facts the brief asks for apart: a mark with plenty
+ * left reads at full strength the whole time it has left, and only the stretch closest to
+ * expiry dims -- which is the "about to expire" moment that matters, read off the one number
+ * this view actually has.
+ */
+const MARK_PIP_FADE_WINDOW = 1
+/** Never fades all the way to invisible: a dim mark is still a mark, not a hidden one. */
+const MARK_PIP_FADE_FLOOR = 0.35
+
+/**
+ * The pip's colour per element, carrying over the identity the player already learned from the
+ * elements radial rather than inventing a second set.
+ *
+ * These are the exact three.js-number renderings `aim-tell.ts` (`TINT = 0x7fe4ff`),
+ * `water-reach.ts` (`GRIP_TINT = 0x2fb8d8`), `earth-reach.ts` (`TINT = 0xd9a066`) and
+ * `fire-burst.ts` (`FILL_TINT = 0xff5a2d`) already carry for `src/ui/element-radial.ts`'s own
+ * `LOOKS` table -- air's `#7fe4ff`, water's `#2fb8d8`, earth's `#d9a066` and fire's `#ff5a2d`,
+ * with fire deliberately pushed toward red and away from amber so it never joins the gold
+ * "charged" family. `LOOKS` is not exported, and it holds CSS strings for the HUD's DOM rather
+ * than three.js hex numbers for a `Mesh` material, so there is no single symbol this file and
+ * that one could both import without either exporting a HUD-only table out of its module or
+ * building a shared number/string pair nothing else needs. Reusing the *numbers* already proven
+ * equal to `LOOKS` -- rather than re-deriving four hex literals from the CSS strings by hand,
+ * which risks a transcription slip -- is the same trade every one of those `src/fx` tints
+ * already makes, so this table makes it too instead of inventing a fifth notation.
+ *
+ * A `Record<Element, ...>`, for `element.ts`'s own reason: appending to `Element` must fail
+ * this table's typecheck until the new element is given a pip colour, the same guarantee
+ * `BASE_COLOUR` and `WIND_UP_PITCH` above already carry.
+ */
+const MARK_COLOUR: Record<Element, number> = {
+  air: 0x7fe4ff,
+  water: 0x2fb8d8,
+  earth: 0xd9a066,
+  fire: 0xff5a2d,
+}
+
+/**
+ * A small filled chevron, billboarded like the health bar rather than laid flat on the ground
+ * like `createLaneGeometry`'s wedge -- this shape has to read face-on at fight distance, not
+ * foreshortened by the shallow camera angle the way a flat ground shape would be.
+ *
+ * A chevron rather than a bar or a dot, for `aim-tell.ts`'s `createChevronGeometry` reason: it
+ * carries its own silhouette rather than leaning on hue alone, so the mark still reads if the
+ * colour is hard to place at distance or the soldier is lit oddly -- the same argument
+ * `aim-tell.ts` makes against a bar (foreshortens into a line) or a dot (says nothing). Built in
+ * the local XY plane, where `createHealthBar`'s `PlaneGeometry`s also live, so copying
+ * `cameraQuaternion` whole turns it to face the camera the same way the bar already does.
+ */
+function createMarkPipGeometry(size: number): BufferGeometry {
+  const geometry = new BufferGeometry()
+  const halfWidth = size * 0.6
+  const tailY = -size * 0.4
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([
+    0, size, 0,
+    -halfWidth, tailY, 0,
+    halfWidth, tailY, 0,
+  ]), 3))
+  geometry.computeVertexNormals()
+  return geometry
+}
+
+/**
  * The prop each kind carries, and the node name other code finds it by.
  *
  * A Record of factories rather than a chain of `if (kind === ...)` with a fallthrough, and the
@@ -204,6 +279,18 @@ export function createEnemyView(kind: EnemyKind, c: EnemyConfig): EnemyView {
   const healthBar = createHealthBar()
   object.add(healthBar.object)
 
+  const pipGeometry = createMarkPipGeometry(MARK_PIP_SIZE)
+  // Colour and opacity are written per-mark in `sync`, below; white and opaque here are inert
+  // defaults that are never actually seen, since the pip starts hidden and only the branch that
+  // finds a mark ever turns it on.
+  const pipMaterial = new MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false })
+  const pip = new Mesh(pipGeometry, pipMaterial)
+  pip.name = 'mark-pip'
+  pip.position.y = MARK_PIP_HEIGHT_ABOVE_FEET
+  pip.visible = false
+  pip.userData.excludeFromShadows = true
+  object.add(pip)
+
   return {
     object,
     sync(enemy: Enemy, cameraQuaternion: Quaternion, rising: number): void {
@@ -222,6 +309,35 @@ export function createEnemyView(kind: EnemyKind, c: EnemyConfig): EnemyView {
         // Aimed from `facing`, the same horizontal heading the rig turns by and the same one
         // the release is thrown along, so the drawn lane and the thrown net agree.
         lane.rotation.y = Math.atan2(enemy.facing.x, enemy.facing.z)
+      }
+
+      /**
+       * Computed here, above every early return below, for the lane's own reason: deciding
+       * visibility in one place is what keeps every branch of `sync` from having to remember
+       * a stale mark. `!isDowned` is doing real work here, not standing in for a case that
+       * cannot happen -- `markEnemy` refuses to *write* a mark on a downed body, but nothing
+       * clears an *existing* one when a soldier goes down (`hitEnemy` leaves `mark` untouched,
+       * and `markAndReact` in encounter.ts only clears it when the blow that downs the soldier
+       * is itself the one that fires a reaction). So a mark struck moments before a knockdown
+       * can still be sitting in `enemy.mark` afterwards, ageing down on its own schedule, and
+       * this check is the only thing standing between that stale data and a pip drawn on a
+       * body that cannot act on it.
+       *
+       * Costs nothing when `mark` is null: only this one boolean is written, and the colour,
+       * opacity and billboard work below never runs -- the same shape `avatar-aura.ts` and
+       * `guard-shell.ts` use to skip themselves entirely while invisible.
+       */
+      pip.visible = enemy.mark !== null && !isDowned(enemy.health)
+      if (enemy.mark) {
+        pipMaterial.color.setHex(MARK_COLOUR[enemy.mark.element])
+        // A fixed fade window rather than a fraction of the mark's total duration -- see
+        // `MARK_PIP_FADE_WINDOW`'s own comment for why `sync` has no total to divide by here.
+        pipMaterial.opacity = MathUtils.clamp(
+          enemy.mark.secondsLeft / MARK_PIP_FADE_WINDOW, MARK_PIP_FADE_FLOOR, 1,
+        )
+        // Copied whole, not yaw-only, for the health bar's own reason: the camera looks down
+        // at the soldier, and a yaw-only pip would lean away from it.
+        pip.quaternion.copy(cameraQuaternion)
       }
 
       if (enemy.stance === 'rising') {
