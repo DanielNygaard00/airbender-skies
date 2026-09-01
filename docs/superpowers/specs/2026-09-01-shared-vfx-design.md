@@ -50,8 +50,9 @@ quarter turn. It exists because `staffArc.finisher.halfAngle` is `Math.PI / 1.9`
 wedge, and for a second, independent reason: the wedge crosses `atan`'s branch cut.
 
 `sectorTheta` centres every wedge on local +Z with `thetaStart = -π/2 - halfAngle`. For the
-finisher that is −184.7°, which is outside `atan2`'s (−π, π] range, so the vertices near that
-edge come back as *positive* angles near +π. Measured over the real geometry:
+finisher that is −184.7°, which is outside the two-argument arctangent's (−π, π] range, so
+the vertices near that edge come back as *positive* angles near +π. Measured over the real
+geometry:
 
 | Wedge | half-angle | `POLAR_PREAMBLE` `angle` range | largest gap in the sorted values |
 | --- | --- | --- | --- |
@@ -66,10 +67,12 @@ run its gradient backwards on one side of it. `vUv.x` is no better: it saturates
 
 **The fix is a coordinate measured from the wedge's own centre, not from the authored axis.**
 Since every wedge is centred on local +Z, which is authored −Y, the signed offset from that
-centre is `atan2(p.x, -p.y)`. Measured over the same three geometries it returns exactly
-−halfAngle .. +halfAngle, continuously, in all three cases including the 94.7° one:
+centre is `atan(p.x, -p.y)`. GLSL spells the two-argument form `atan(y, x)` and has no
+`atan2`, so the numerator is `p.x` and the denominator `-p.y`. Measured over the same three
+geometries it returns exactly −halfAngle .. +halfAngle, continuously, in all three cases
+including the 94.7° one:
 
-| Wedge | `atan2(p.x, -p.y)` |
+| Wedge | `atan(p.x, -p.y)` |
 | --- | --- |
 | `gust` | −60.0° .. +60.0° |
 | `staffArc.opener` | −81.8° .. +81.8° |
