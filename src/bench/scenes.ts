@@ -430,62 +430,83 @@ export const BENCH_SCENES: readonly BenchScene[] = [
      * can differ between the two shots is the swing itself, so the wider wedge is the thing
      * worth seeing rather than a differently-framed picture of it.
      *
-     * **Not the shared `gust` pose.** `staffArc`'s two ranges (`DEFAULT_COMBAT_CONFIG.staffArc`:
-     * opener 3.6, finisher 4.2) are both far short of the 12-unit wedge that pose was framed
-     * for, and `sectorGeometry(shape.halfAngle, 0, 1)` makes this the one wedge in the arc that
-     * is a filled *disc* rather than a band, so unlike `earth-reach` and `fire-burst` sharing
-     * `gust`'s frame verbatim, framing tighter here is not a comparison broken, because nothing
-     * upstream of this scene shares that frame with the staff.
+     * **Not the shared `gust` pose, but the same angle — and the angle, not just the frustum
+     * margin, is what this scene was originally shot and found wrong on.** A first pass at this
+     * pose sat 1.9 up and 11 back from the target: inside the frustum on paper, but at
+     * `atan(1.9 / 11) ≈ 9.8` degrees of look-down a flat horizontal sector reads almost edge-on
+     * — a sliver, not a wedge, the exact failure `gust`'s own scene comment names in its first
+     * sentence: shot from above and behind "so the ... wedge reads as a wedge instead of edge-on".
+     * Fitting inside `BASE_FOV`'s half-height answers whether the shape is in frame; it says
+     * nothing about whether a *flat* shape is foreshortened to nothing once it is. Both shots
+     * came back empty on the first take, which is what caught this.
      *
-     * **The pose, worked out for the finisher's own reach rather than assumed.** Because the
-     * fill is an apex-centred disc, every point it draws sits within exactly `shape.range` of
-     * the apex regardless of `halfAngle` — a bounding sphere, the same simplification
-     * `impact-hit`'s own comment uses for a burst's `radius`. `createStaffArc` adds its own
-     * `HEIGHT` of 1 above whatever origin it is given (`staff-arc-fx.ts`), so against this
-     * scene's target of `(0, 11.9, 0)` — the bare measured ground height `gust`'s own comment
-     * takes and explains — the finisher's centre sits at `(0, 12.9, 0)`, radius 4.2.
+     * **The fix holds `gust`'s own look-down angle and scales its distance to the subject.**
+     * `gust` sits 10 up and 20 back from its target — `atan(10 / 20) = 26.565` degrees — and that
+     * angle is what makes a *flat ground wedge* read as a wedge rather than a line; nothing about
+     * it depends on `gust`'s own 12-unit range. The staff's own reach (opener 3.6, finisher 4.2,
+     * `DEFAULT_COMBAT_CONFIG.staffArc`) is a fraction of that, so this pose keeps the ratio —
+     * `up : back = 1 : 2`, the same `26.565`-degree look-down — and scales the distance down to
+     * the subject instead: **5 up, 10 back.**
      *
-     * At `(0, 13.8, 11)`: distance to that centre is `sqrt(11² + 0.9²) ≈ 11.04`; the camera's
-     * axis toward the scene's own target sits `≈5.12` degrees off the vector to the centre; the
-     * finisher's own half-angular radius from the camera is `asin(4.2 / 11.04) ≈ 22.37` degrees
-     * — for a far edge at `5.12 + 22.37 ≈ 27.49` degrees off-axis, inside `BASE_FOV` 70's
-     * 35-degree half-height (`mapping.ts`) with about 7.5 degrees to spare. The opener's shorter
-     * 3.6 reach frames with more room still (half-angular radius `≈19.04` degrees), never less —
-     * which is the whole point of sizing the shared pose to the wider of the two swings.
+     * **The distance, worked out for the finisher's own reach rather than assumed.** Because the
+     * fill is an apex-centred disc (`sectorGeometry(shape.halfAngle, 0, 1)`), every point it
+     * draws sits within exactly `shape.range` of the apex regardless of `halfAngle` — a bounding
+     * sphere, the same simplification `impact-hit`'s own comment uses for a burst's `radius`.
+     * `createStaffArc` adds its own `HEIGHT` of 1 above whatever origin it is given
+     * (`staff-arc-fx.ts`), so against this scene's target of `(0, 11.9, 0)` — the bare measured
+     * ground height `gust`'s own comment takes and explains — the finisher's centre sits at
+     * `(0, 12.9, 0)`, radius 4.2.
      *
-     * **Timing, landed through the real clock rather than assumed from `duration - fireAt`.**
-     * `src/bench/effects.test.ts` runs every scene through `runFixedClock` (`./clock.ts`) for
-     * the reason its own comment gives: the fixed step never divides a scene's own numbers
-     * evenly, so the naive subtraction is not the age the bench actually freezes on.
-     * `fireAt: 0.07, duration: 0.14` lands a real age of `0.083333` s against `staff-arc-fx.ts`'s
-     * 0.16 s `LIFETIME` — 52 per cent through the swing's life, with 0.076667 s (48 per cent) of
-     * margin before it would read as already faded. `staff-finisher` below lands at the same
-     * real age, sharing this scene's `fireAt`/`duration` along with its pose, since `LIFETIME`
-     * does not depend on which shape was handed to it.
+     * At `(0, 16.9, 10)` — `11.9 + 5` up, `10` back, the `26.565`-degree angle above — distance to
+     * that centre is `sqrt(10² + 4²) ≈ 10.77`; the camera's axis toward the scene's own target
+     * sits `≈4.76` degrees off the vector to the centre; the finisher's own half-angular radius
+     * from the camera is `asin(4.2 / 10.77) ≈ 22.95` degrees — for a far edge at
+     * `4.76 + 22.95 ≈ 27.72` degrees off-axis, inside `BASE_FOV` 70's 35-degree half-height
+     * (`mapping.ts`) with about 7.3 degrees to spare, at the correct look-down angle this time.
+     * The opener's shorter 3.6 reach frames with more room still (half-angular radius `≈19.53`
+     * degrees, total `≈24.29`, `≈10.7` degrees to spare) — never less, which is the whole point
+     * of sizing the shared pose to the wider of the two swings.
+     *
+     * **Timing, landed through the real clock rather than assumed from `duration - fireAt`, and
+     * moved earlier in the swing's life for a second reason this scene was reshot.** A swing is
+     * an instant, and its readable moment is at the start, not the middle: the first pass froze
+     * at 52 per cent through `LIFETIME`, where `FILL_OPACITY * (1 - t)` had already faded from
+     * 0.55 to roughly 0.29 — half-gone on top of a near-edge-on angle left nothing to
+     * photograph either way. `src/bench/effects.test.ts` runs every scene through `runFixedClock`
+     * (`./clock.ts`) for the reason its own comment gives: the fixed step never divides a scene's
+     * own numbers evenly, so the naive subtraction is not the age the bench actually freezes on.
+     * `fireAt: 0.02, duration: 0.05` lands a real age of `0.033333` s against `staff-arc-fx.ts`'s
+     * 0.16 s `LIFETIME` — 20.8 per cent through the swing's life, where `FILL_OPACITY * (1 - t)`
+     * is `0.55 * (1 - 0.2083) ≈ 0.435` — still close to its peak brightness, with 0.126667 s
+     * (79 per cent) of margin before it would read as already faded. `staff-finisher` below
+     * lands at the same real age, sharing this scene's `fireAt`/`duration` along with its pose,
+     * since `LIFETIME` does not depend on which shape was handed to it.
      */
     id: 'staff-opener',
     regionId: ARCHIPELAGO_ID,
-    camera: { position: new Vector3(0, 13.8, 11), target: new Vector3(0, 11.9, 0) },
+    camera: { position: new Vector3(0, 16.9, 10), target: new Vector3(0, 11.9, 0) },
     elevation: SUN_ELEVATION_DEGREES,
     effect: 'staff-opener',
-    fireAt: 0.07,
-    duration: 0.14,
+    fireAt: 0.02,
+    duration: 0.05,
   },
   {
     /**
      * The staff's finisher, from the identical pose and timing `staff-opener` above uses — see
-     * its own comment for why the pose is sized to this swing's own 4.2 reach and for the real
-     * frozen age both scenes land on. Copied field for field rather than tuned, the same
-     * discipline `water`'s own comment argues for against `gust`: a hand-edit to either pose
-     * would silently break the comparison the shared frame exists to make.
+     * its own comment for why the pose holds `gust`'s 26.565-degree look-down angle rather than
+     * its distance, for why that angle (not just the frustum margin) is what the first take of
+     * this scene got wrong, and for the real frozen age both scenes land on. Copied field for
+     * field rather than tuned, the same discipline `water`'s own comment argues for against
+     * `gust`: a hand-edit to either pose would silently break the comparison the shared frame
+     * exists to make.
      */
     id: 'staff-finisher',
     regionId: ARCHIPELAGO_ID,
-    camera: { position: new Vector3(0, 13.8, 11), target: new Vector3(0, 11.9, 0) },
+    camera: { position: new Vector3(0, 16.9, 10), target: new Vector3(0, 11.9, 0) },
     elevation: SUN_ELEVATION_DEGREES,
     effect: 'staff-finisher',
-    fireAt: 0.07,
-    duration: 0.14,
+    fireAt: 0.02,
+    duration: 0.05,
   },
   {
     /**
