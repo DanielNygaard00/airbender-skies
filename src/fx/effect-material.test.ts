@@ -5,7 +5,7 @@ import { Color, DoubleSide, FrontSide, Vector2 } from 'three'
 import { describe, expect, it } from 'vitest'
 import {
   createEffectMaterial, effectFragmentSource, PARS_INCLUDE_MESSAGE, POLAR_PREAMBLE,
-  uniformDeclarations,
+  uniformDeclarations, WEDGE_PREAMBLE, WEDGE_UNIFORM_MESSAGE,
 } from './effect-material'
 
 const BODY = 'gl_FragColor = vec4(tint, alpha);'
@@ -195,5 +195,50 @@ describe('the polar preamble', () => {
   it('passes the builder\'s own refusal, so it can be prepended safely', () => {
     expect(() => effectFragmentSource(POLAR_PREAMBLE + 'gl_FragColor = vec4(0.0);', {}))
       .not.toThrow()
+  })
+})
+
+describe('WEDGE_PREAMBLE', () => {
+  it('measures across the wedge from its own centre, not from the authored axis', () => {
+    // GLSL has no `atan2`; the two-argument form is `atan(y, x)`, which is how
+    // POLAR_PREAMBLE spells its own call. So the centred coordinate is `atan(p.x, -p.y)`:
+    // numerator p.x, denominator -p.y.
+    expect(WEDGE_PREAMBLE).toContain('atan(p.x, -p.y)')
+    // Not atan(p.y, p.x): that is POLAR_PREAMBLE's coordinate, and on a wedge whose start
+    // edge passes -180 degrees it returns two disjoint clusters rather than a run.
+    expect(WEDGE_PREAMBLE).not.toContain('atan(p.y, p.x)')
+  })
+
+  it('normalises across to -1..1 against a halfAngle uniform', () => {
+    expect(WEDGE_PREAMBLE).toContain('float across = atan(p.x, -p.y) / halfAngle;')
+  })
+
+  it('still gives radius, since a wedge has one', () => {
+    expect(WEDGE_PREAMBLE).toContain('float radius = length(p);')
+  })
+
+  it('assembles into a legal body when halfAngle is supplied', () => {
+    // effectFragmentSource's uniforms parameter is required, not defaulted (see the same
+    // pattern in the polar preamble's own "passes the builder's own refusal" test above).
+    expect(() => effectFragmentSource(WEDGE_PREAMBLE + 'gl_FragColor = vec4(tint, alpha * across);', {}))
+      .not.toThrow()
+  })
+})
+
+describe('a wedge body without its halfAngle uniform', () => {
+  it('is refused, because the shader would fail to compile where nothing can see it', () => {
+    // The silent-shader trap in a new costume: a body referencing an undeclared uniform does
+    // not throw, it fails to link, and the mesh then simply does not draw.
+    expect(() => createEffectMaterial({
+      body: WEDGE_PREAMBLE + 'gl_FragColor = vec4(tint, alpha * across);',
+      uniforms: { tint: new Color(0xffffff), alpha: 1 },
+    })).toThrow(WEDGE_UNIFORM_MESSAGE)
+  })
+
+  it('is accepted once halfAngle is there', () => {
+    expect(() => createEffectMaterial({
+      body: WEDGE_PREAMBLE + 'gl_FragColor = vec4(tint, alpha * across);',
+      uniforms: { tint: new Color(0xffffff), alpha: 1, halfAngle: Math.PI / 3 },
+    })).not.toThrow()
   })
 })

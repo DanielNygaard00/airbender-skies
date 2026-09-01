@@ -88,11 +88,12 @@ const VERTEX_SHADER = /* glsl */ `
  * | Geometry | Use |
  * | --- | --- |
  * | `RingGeometry` (full ring) | this preamble; never bare `vUv` axes |
- * | `sectorGeometry` (bounded wedge) | `vUv.x` along the arc, but only while the half-angle stays at or under a quarter turn — see `sectorUvIsMonotone` in `sector.ts`. `radius` from this preamble is valid for a wedge too |
+ * | `sectorGeometry` (bounded wedge) | `WEDGE_PREAMBLE`'s `across`, not `vUv.x` and not this preamble's `angle`. `vUv.x` is only monotone along the arc while the half-angle stays at or under a quarter turn — see `sectorUvIsMonotone` in `sector.ts` — and `angle` wraps at `atan`'s branch cut, which a wedge wider than a quarter turn crosses. `radius` from this preamble is valid for a wedge too |
  * | `BoxGeometry` | `vLocal`; UVs are per face, so `vUv.x` means a different axis depending on which face a fragment is on |
  * | `OctahedronGeometry` | `vLocal`; UVs exist (`PolyhedronGeometry`'s `generateUVs` derives them from spherical azimuth/inclination) but carry pole and seam artefacts, so they are not useful here |
  * | `CylinderGeometry` | side-face `vUv` genuinely is (around, up), as `air-wall.ts` uses |
- * | `SphereGeometry` | `vUv` is (azimuth, polar) |
+ * | `SphereGeometry` | `vUv` is (azimuth, polar); a shell wanting its own silhouette instead wants `vViewNormal`, as `ice-shell.ts` does |
+ * | hand-built `BufferGeometry` | check what attributes it actually sets before trusting anything derived from them — `aim-tell.ts`'s `createChevronGeometry` sets only `position`, so `vUv` reads as zero across the whole mesh and only `vLocal` means anything; a body written against `vUv` there is uniformly flat and looks deliberate |
  */
 export const POLAR_PREAMBLE = /* glsl */ `
     vec2 p = vUv * 2.0 - 1.0;
@@ -108,6 +109,42 @@ export const PARS_INCLUDE_MESSAGE =
   'injects those declarations, and including them again fails the compile with redefinition ' +
   'errors that throw nowhere visible, leaving the mesh undrawn. Remove the include; the builder ' +
   'appends tonemapping_fragment and colorspace_fragment itself.'
+
+/**
+ * The coordinates a bounded wedge needs: how far out, and how far across from its own centre.
+ *
+ * **Why not `POLAR_PREAMBLE` here.** That preamble's `angle` is measured from the authored +X
+ * axis and wraps at `atan`'s branch cut. `sectorTheta` centres every wedge on local +Z by
+ * setting `thetaStart = -PI/2 - halfAngle`, so a wedge wider than a quarter turn has a start
+ * edge past -180 degrees — outside the two-argument arctangent's range — and its fragments come back split into two
+ * clusters at opposite ends of 0..1. Measured on the real geometry, `staffArc.finisher` at 94.7
+ * degrees spans 0.0088..0.9978 with a 0.4737 gap in the middle, against the 60-degree gust's
+ * contiguous 0.0833..0.4167. A gradient written against `angle` there seams down the middle of
+ * the swing and reverses on one side of it. `vUv.x` is no better: it saturates to the full
+ * 0.0000..1.0000 on that wedge, which is `sectorUvIsMonotone`'s bound failing in practice.
+ *
+ * `atan(p.x, -p.y)` measures from authored -Y, which *is* the wedge's centre, so it returns
+ * -halfAngle..+halfAngle continuously for any half-angle short of a half turn. Dividing by the
+ * `halfAngle` uniform makes `across` run -1 at one edge to +1 at the other whatever the wedge's
+ * width, so a body's bounds mean the same thing on a 20-degree cone and a 95-degree sweep.
+ *
+ * The rejected alternative was keeping `sectorUvIsMonotone` as the guard and simply refusing to
+ * write angular terms on wide wedges. That leaves the staff finisher — the widest sweep in the
+ * game and the one that most wants a gradient along its arc — permanently unpaintable, to
+ * protect a coordinate that was never the right one.
+ */
+export const WEDGE_PREAMBLE = /* glsl */ `
+    vec2 p = vUv * 2.0 - 1.0;
+    float radius = length(p);
+    float across = atan(p.x, -p.y) / halfAngle;
+`
+
+/** Matched against a body so a missing `halfAngle` is a throw rather than a mesh that never draws. */
+export const WEDGE_MARKER = 'atan(p.x, -p.y) / halfAngle'
+
+export const WEDGE_UNIFORM_MESSAGE =
+  'A body using WEDGE_PREAMBLE must declare a `halfAngle` uniform: without it the shader fails '
+  + 'to link and the mesh silently does not draw.'
 
 function glslType(value: EffectUniformValue): 'float' | 'vec2' | 'vec3' {
   if (value instanceof Color) return 'vec3'
@@ -168,6 +205,13 @@ export function createEffectMaterial(opts: {
    */
   depthTest?: boolean
 }): ShaderMaterial {
+  // The same failure mode as the `_pars_fragment` trap above, wearing a different costume: a
+  // body that reads `halfAngle` without an owner also fails to link rather than throwing
+  // anywhere visible, and the mesh silently does not draw. Construction time is the only place
+  // a test can see either failure, since neither one raises inside the browser's own compile.
+  if (opts.body.includes(WEDGE_MARKER) && !('halfAngle' in opts.uniforms)) {
+    throw new Error(WEDGE_UNIFORM_MESSAGE)
+  }
   const wrapped: Record<string, { value: EffectUniformValue }> = {}
   for (const [name, value] of Object.entries(opts.uniforms)) wrapped[name] = { value }
   return new ShaderMaterial({
