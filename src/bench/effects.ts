@@ -1,14 +1,22 @@
 import { Vector3 } from 'three'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 import { DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG } from '../core/config'
+import { fireThrustImpulse } from '../combat/fire'
 import { createAirWallPanel } from '../fx/air-wall'
 import { createDashTrail } from '../fx/dash-trail'
 import type { Effect } from '../fx/effect'
+import { createEarthReach } from '../fx/earth-reach'
+import { createFireBurst } from '../fx/fire-burst'
+import { createFireThrust } from '../fx/fire-thrust'
 import { createGustCone } from '../fx/gust-cone'
+import { createIceShell } from '../fx/ice-shell'
+import { createMud } from '../fx/mud'
 import { createShockwave } from '../fx/shockwave'
 import { createSlipstreamTrail } from '../fx/slipstream-trail'
+import { createSteam } from '../fx/steam'
 import { createVortexChargeTell } from '../fx/vortex-charge'
 import { createVortexRing } from '../fx/vortex-ring'
+import { createWaterReach } from '../fx/water-reach'
 import type { BenchEffectId } from './scenes'
 
 /**
@@ -78,11 +86,15 @@ function ringAt(origin: Vector3, radius: number, strength: number): Effect {
 }
 
 /**
- * Sized like the reaction rings `main.ts` draws for Steam and Mud today (`REACTION_RING_RADIUS`
- * 1.4, `REACTION_RING_STRENGTH` 0.85), not imported because those two constants are private to
- * that file. Copied rather than exported and reused, because exporting gameplay tuning for a
- * bench placeholder to read would be a bigger change than the placeholder itself, and `steam`,
- * `mud` and `finisher` are going away the moment step B2 gives them real effects.
+ * Sized like the reaction ring `main.ts` drew for every reaction before Task 7 and Task 8 gave
+ * Steam and Mud each their own shape (`1.4` and `0.85` — the values `REACTION_RING_RADIUS` and
+ * `REACTION_RING_STRENGTH` held before both were deleted along with the ring reactions used).
+ * Copied rather than exported and reused, because exporting gameplay tuning for a bench
+ * placeholder to read would be a bigger change than the placeholder itself, and `finisher` is
+ * going away the moment its own task gives it a real effect.
+ *
+ * Neither `steam` nor `mud` uses this any more: Task 7 gave `steam` `createSteam` and Task 8 gave
+ * `mud` `createMud`, so this pair now sizes only `finisher`'s placeholder shot.
  */
 const PLACEHOLDER_RADIUS = 1.4
 const PLACEHOLDER_STRENGTH = 0.85
@@ -99,11 +111,12 @@ const PLACEHOLDER_STRENGTH = 0.85
  * The alternative was the `if (scene.effect === 'gust')` chain this replaces in `bench/main.ts`.
  * It worked for one effect and would have been nine unreachable branches at ten.
  *
- * `steam`, `mud` and `finisher` do not have factories yet — they are deferred to step B2, per §2
- * of `docs/superpowers/specs/2026-08-27-air-vfx-design.md` — so all three point at `ringAt` with
- * the same placeholder size `createShockwave` gives Steam and Mud in the shipped game today. That
- * keeps this `Record` total in the meantime, which is the property that turns a forgotten
- * registration into a compile error.
+ * `finisher` does not have a factory yet — deferred, per §2 of
+ * `docs/superpowers/specs/2026-08-27-air-vfx-design.md` — so it points at `ringAt` with the
+ * placeholder size `createShockwave` once gave every reaction. That keeps this `Record` total in
+ * the meantime, which is the property that turns a forgotten registration into a compile error.
+ * Neither `steam` nor `mud` shares that placeholder any more: Task 7 gave `steam` `createSteam`
+ * and Task 8 gave `mud` `createMud`.
  */
 export const BENCH_EFFECTS: Record<BenchEffectId, (origin: Vector3, forward: Vector3) => Effect> = {
   gust: (origin, forward) => createGustCone(origin, forward, DEFAULT_COMBAT_CONFIG.gust),
@@ -123,8 +136,34 @@ export const BENCH_EFFECTS: Record<BenchEffectId, (origin: Vector3, forward: Vec
   slipstream: (origin, forward) => (
     createSlipstreamTrail(origin, forward, DEFAULT_SLIPSTREAM_CONFIG)
   ),
-  steam: (origin) => ringAt(origin, PLACEHOLDER_RADIUS, PLACEHOLDER_STRENGTH),
-  mud: (origin) => ringAt(origin, PLACEHOLDER_RADIUS, PLACEHOLDER_STRENGTH),
+  // The grip, not the freeze: `water` and `water-canyon` exist to shoot the collar on the arc
+  // that travels, per Task 2's `ARC_BODY` comment in `water-reach.ts` — a still freeze arc would
+  // pin the collar at one radius forever rather than showing it survive the travel.
+  'water-grip': (origin, forward) => (
+    createWaterReach(origin, forward, 'grip', DEFAULT_COMBAT_CONFIG.water)
+  ),
+  // `createIceShell` also takes a `holdSeconds`, not just a position — the shell's own doc
+  // comment in `ice-shell.ts` explains why the lifetime *is* the mechanic: it is on screen for
+  // exactly as long as the hold that made it lasts. `forward` goes unused here for the same
+  // reason it does on `vortex` above: a shell around a body has no direction of its own.
+  // `gripHoldSeconds` (1.4s) rather than `freezeHoldSeconds` (3.2s) because it is the shorter of
+  // the two holds the game applies, so the bench's own `MAX_SANE_STEPS`-guarded clock (see
+  // `clock.ts`) has less life to run past `duration` on a scene mistuned to outlive it.
+  'ice-shell': (origin) => createIceShell(origin, DEFAULT_COMBAT_CONFIG.water.gripHoldSeconds),
+  'earth-reach': (origin, forward) => createEarthReach(origin, forward, DEFAULT_COMBAT_CONFIG.earth),
+  'fire-burst': (origin, forward) => createFireBurst(origin, forward, DEFAULT_COMBAT_CONFIG.fire),
+  // `createFireThrust` takes an impulse, not a unit forward — its own doc comment says the
+  // plume's length comes from the impulse it is drawn for rather than from a constant, so the
+  // bench has to hand it a real one rather than inventing a magnitude. `fireThrustImpulse` is the
+  // one function that turns a heading into that impulse, and it needs nothing the bench cannot
+  // supply: the bench's own `forward` and the shipped `DEFAULT_COMBAT_CONFIG.fire`, the same two
+  // arguments `main.ts` passes at the real call site. No wrapper needed — the shapes already
+  // line up.
+  'fire-thrust': (origin, forward) => (
+    createFireThrust(origin, fireThrustImpulse(forward, DEFAULT_COMBAT_CONFIG.fire))
+  ),
+  steam: (origin) => createSteam(origin),
+  mud: (origin) => createMud(origin),
   finisher: (origin) => ringAt(origin, PLACEHOLDER_RADIUS, PLACEHOLDER_STRENGTH),
 }
 

@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { Color, DoubleSide, FrontSide, Vector2 } from 'three'
 import { describe, expect, it } from 'vitest'
 import {
-  createEffectMaterial, effectFragmentSource, PARS_INCLUDE_MESSAGE, uniformDeclarations,
+  createEffectMaterial, effectFragmentSource, PARS_INCLUDE_MESSAGE, POLAR_PREAMBLE,
+  uniformDeclarations,
 } from './effect-material'
 
 const BODY = 'gl_FragColor = vec4(tint, alpha);'
@@ -54,6 +55,16 @@ describe('the fragment source', () => {
     // vUv assertion above already gives that varying.
     const source = effectFragmentSource(BODY, {})
     expect(source.match(/varying vec3 vLocal;/g)).toHaveLength(1)
+  })
+
+  it('declares the view-space normal varying exactly once', () => {
+    // Added for ice-shell.ts's silhouette rim, the first body in this directory to need a
+    // normal. It must be declared in the fragment shader too, matching vUv and vLocal above:
+    // GLSL requires a varying used in the fragment stage to be declared there with the same
+    // name and type as the vertex stage, or the compile fails the same silent way the
+    // `..._pars_fragment` trap does.
+    const source = effectFragmentSource(BODY, {})
+    expect(source.match(/varying vec3 vViewNormal;/g)).toHaveLength(1)
   })
 
   it('carries the body verbatim', () => {
@@ -113,6 +124,20 @@ describe('the material', () => {
       .toBe(false)
   })
 
+  it('declares and assigns all three varyings in the shared vertex shader', () => {
+    // No test previously pinned the vertex shader's exact text, since every effect before ice
+    // read vUv or vLocal only. This pins the full contract now that a third varying exists,
+    // so a future addition or a typo in the assignment shows up here rather than only as a
+    // shell that silently fails to compile.
+    const material = createEffectMaterial({ body: BODY, uniforms: {} })
+    expect(material.vertexShader).toContain('varying vec2 vUv;')
+    expect(material.vertexShader).toContain('varying vec3 vLocal;')
+    expect(material.vertexShader).toContain('varying vec3 vViewNormal;')
+    expect(material.vertexShader).toContain('vUv = uv;')
+    expect(material.vertexShader).toContain('vLocal = position;')
+    expect(material.vertexShader).toContain('vViewNormal = normalMatrix * normal;')
+  })
+
   it('leaves tone mapping on, which is what makes the injected declarations arrive', () => {
     expect(createEffectMaterial({ body: BODY, uniforms: {} }).toneMapped).toBe(true)
   })
@@ -144,5 +169,31 @@ describe('the directory-wide guard', () => {
       .sort()
 
     expect(constructors).toEqual(['effect-material.ts'])
+  })
+})
+
+describe('the polar preamble', () => {
+  it('derives radius and angle from the recentred uv', () => {
+    expect(POLAR_PREAMBLE).toContain('vec2 p = vUv * 2.0 - 1.0')
+    expect(POLAR_PREAMBLE).toContain('float radius = length(p)')
+    expect(POLAR_PREAMBLE).toContain('atan(p.y, p.x)')
+  })
+
+  it('normalises the angle to 0..1, so fract wraps continuously', () => {
+    // vortex-ring's fix depended on this: an angle in radians makes fract's wrap land
+    // somewhere other than the atan branch cut, which puts a visible seam in the band.
+    expect(POLAR_PREAMBLE).toContain('6.2832')
+  })
+
+  it('is a body fragment, not a whole shader', () => {
+    // It is prepended to a caller's body, so it must not open a main() or declare a varying
+    // the builder already declares.
+    expect(POLAR_PREAMBLE).not.toContain('void main')
+    expect(POLAR_PREAMBLE).not.toContain('varying')
+  })
+
+  it('passes the builder\'s own refusal, so it can be prepended safely', () => {
+    expect(() => effectFragmentSource(POLAR_PREAMBLE + 'gl_FragColor = vec4(0.0);', {}))
+      .not.toThrow()
   })
 })

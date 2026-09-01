@@ -25,7 +25,6 @@ import { windSampler, stillAir, type WindSample } from './world/wind'
 import { createWindTell } from './world/wind-tell'
 import { openAirTest } from './world/island'
 import { startEncounter, stepEncounter } from './combat/encounter'
-import type { ReactionKind } from './combat/reactions'
 import { risingProgress } from './combat/enemy'
 import { DEFAULT_COMBAT_CONFIG, DEFAULT_PATROL_CONFIG, HOME_PATROL } from './combat/config'
 import { fullHealth, isDowned } from './combat/health'
@@ -37,6 +36,8 @@ import { boostedCombatConfig, surgeWind, refillBreath } from './focus/effects'
 import { waveRadius } from './combat/pressure-wave'
 import { detectSlam, applyBounce, touchedDown } from './player/slam'
 import { createShockwave } from './fx/shockwave'
+import { createSteam } from './fx/steam'
+import { createMud } from './fx/mud'
 import { createEffectPool } from './fx/effect-pool'
 import { createGustCone } from './fx/gust-cone'
 import { createStaffArc } from './fx/staff-arc-fx'
@@ -245,34 +246,6 @@ const LIGHT_VERB_PREVIEWS: Record<
     ready: canBurst(fight, charges, c.fire),
     shape: burstShape(c.fire),
   }),
-}
-
-/** Radius and peak brightness of the ring marking a reaction. Both fixed rather than drawn from
- * anything in `Enemy` or `ReactionConfig`: unlike the Pressure Wave, Steam and Mud are binary
- * events with no notion of a "strength" to scale against, so there is nothing to vary. */
-const REACTION_RING_RADIUS = 1.4
-const REACTION_RING_STRENGTH = 0.85
-
-/**
- * The colour that says which reaction just fired, since `createShockwave`'s ring has nothing
- * else free to vary it by. A `Record<ReactionKind, ...>` rather than a lookup with a fallback,
- * so a third reaction fails to compile here until it is given one — the same device `LOOKS`
- * above and `REACTIONS` in `reactions.ts` use over the identical concern.
- *
- * `'none'` can never actually reach this table: every push onto `reactionsThisFrame` inside
- * `stepEncounter` is guarded by `if (outcome.kind !== 'none')`, so the ring loop below never
- * sees it. The entry still has to hold a colour because the Record is total, and reusing the
- * shockwave's own default rather than inventing a meaningful-looking one is the honest way to
- * spend a value nothing will ever render.
- */
-const REACTION_LOOKS: Record<ReactionKind, number> = {
-  // Pale and warm: this is water flashing off against heat, and the burst's own orange-red
-  // would read as fire itself rather than as water leaving.
-  steam: 0xffdfae,
-  // Dark and brown: earth compacted wet around a soldier's feet, pushed well away from the
-  // sandstone `earth-reach.ts` already uses so the two effects do not read as the same material.
-  mud: 0x4a3423,
-  none: 0xdff1ff,
 }
 
 function start(): void {
@@ -1796,17 +1769,39 @@ function start(): void {
       const at = positionOf(id)
       if (at) effects.add(createIceShell(at, fightConfig.water.freezeHoldSeconds))
     }
-    // One ring per reaction, at the same pre-restore position the bursts above use and for the
+    // One effect per reaction, at the same pre-restore position the bursts above use and for the
     // identical reason: a Steam or Mud that fires on the frame the last soldier goes down and
     // the patrol restores must still land on the soldier that earned it, not on a fresh spawn.
+    // Steam and Mud each own their own shape now (`createSteam`, Task 7; `createMud`, Task 8) —
+    // see either module's own doc comment for why one shared ring could not go on meaning
+    // Pressure Wave, the Vortex, the chain finisher, Steam and Mud all at once.
+    //
+    // A `switch` rather than the `REACTION_LOOKS` Record this replaced: with `REACTION_LOOKS`
+    // gone, nothing else keeps this call site total over `ReactionKind`, so the `default` arm
+    // below assigns `reaction.kind` to a variable typed `never` — an exhaustiveness check that
+    // fails to compile the moment `ReactionKind` grows a fourth member and this switch has not
+    // grown a matching case, catching the mistake here rather than at runtime, where an
+    // unhandled kind would silently draw nothing. `'none'` gets its own case rather than being
+    // folded into `default`, because it is not actually reachable here: every push onto
+    // `reactionsThisFrame` inside `stepEncounter` (`src/combat/encounter.ts`) is guarded by
+    // `if (outcome.kind !== 'none')`. Spelling that case out, empty, says so explicitly rather
+    // than leaving a later reader to wonder whether it was forgotten.
     for (const reaction of fight.reactionsThisFrame) {
       const at = positionOf(reaction.enemyId)
-      if (at) {
-        const ring = createShockwave(
-          REACTION_RING_RADIUS, REACTION_RING_STRENGTH, REACTION_LOOKS[reaction.kind],
-        )
-        ring.object.position.copy(at)
-        effects.add(ring)
+      if (!at) continue
+      switch (reaction.kind) {
+        case 'steam':
+          effects.add(createSteam(at))
+          break
+        case 'mud':
+          effects.add(createMud(at))
+          break
+        case 'none':
+          break
+        default: {
+          const exhaustive: never = reaction.kind
+          throw new Error(`Unhandled reaction kind: ${String(exhaustive)}`)
+        }
       }
     }
     if (bursts.hits.length > 0) combatAudio.impact()

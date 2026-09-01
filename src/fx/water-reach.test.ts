@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { Mesh, Vector3, type Material } from 'three'
+import {
+  Mesh, MeshBasicMaterial, ShaderMaterial, Vector3, type Material,
+} from 'three'
 import { createWaterReach } from './water-reach'
 import { freezeShape, gripShape, inIceLock, inWaterGrip } from '../combat/water'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
@@ -22,6 +24,20 @@ function arcOf(effect: { object: { children: unknown[] } }): Mesh {
 }
 
 const opacityOf = (mesh: Mesh): number => (mesh.material as Material & { opacity: number }).opacity
+
+/** The arc's shader material, built through `createEffectMaterial` for its collar. */
+function arcMaterialOf(effect: ReturnType<typeof createWaterReach>): ShaderMaterial {
+  const { material } = arcOf(effect)
+  if (!(material instanceof ShaderMaterial)) throw new Error('expected the arc to carry a shader material')
+  return material
+}
+
+/** The filled sector's own material, which stays a quiet `MeshBasicMaterial`. */
+function fillMaterialOf(effect: ReturnType<typeof createWaterReach>): MeshBasicMaterial {
+  const { material } = fillOf(effect)
+  if (!(material instanceof MeshBasicMaterial)) throw new Error('expected the fill to carry a basic material')
+  return material
+}
 
 describe('createWaterReach', () => {
   it('draws the sector at the volume that actually bites', () => {
@@ -185,19 +201,60 @@ describe('createWaterReach', () => {
     expect(origin.toArray()).toEqual([1, 2, 3])
   })
 
-  it('uses no ShaderMaterial and no PointsMaterial', () => {
-    // Both traps, asserted structurally. A `ShaderMaterial` that duplicates the renderer's injected
-    // `..._pars_fragment` chunks fails to compile nearly silently and the mesh simply does not
-    // draw, which looks like a correctly transparent effect. And `PointsMaterial` draws
-    // screen-facing squares, so anything approaching a world unit reads as a white block up close —
-    // which a melee-range water effect certainly would.
+  it('keeps the fill flat-coloured and gives the arc a shader for its collar, never a PointsMaterial', () => {
+    // The `PointsMaterial` trap stays real regardless: points draw screen-facing squares, so
+    // anything approaching a world unit reads as a white block up close, which a melee-range water
+    // effect certainly would. The `ShaderMaterial` trap is no longer avoided by staying off
+    // `ShaderMaterial` altogether — the arc's collar needs one — it is handled instead by building
+    // through `createEffectMaterial`, which is the one place in `src/fx/` allowed to construct one.
     for (const move of ['grip', 'freeze'] as const) {
       const effect = createWaterReach(ORIGIN, NORTH, move, W)
+      expect(fillOf(effect).material).toBeInstanceOf(MeshBasicMaterial)
+      expect(arcOf(effect).material).toBeInstanceOf(ShaderMaterial)
       for (const child of effect.object.children) {
         expect(child).toBeInstanceOf(Mesh)
         const material = (child as Mesh).material as Material
-        expect(material.type).toBe('MeshBasicMaterial')
+        expect(material.type).not.toBe('PointsMaterial')
       }
     }
+  })
+})
+
+describe('the arc carries its own collar', () => {
+  it('draws a darker band inside the bright core', () => {
+    // The rule B1's threshold rule failed to deliver: contrast is a difference, and an absolute
+    // luminance cannot separate a bright element from a bright ground. A collar drawn dark works
+    // over pale grass and dark rock alike, because the contrast is inside the effect.
+    const material = arcMaterialOf(createWaterReach(ORIGIN, NORTH, 'grip', W))
+    expect(material.fragmentShader).toContain('smoothstep(0.90, 0.96, radius)')
+    expect(material.fragmentShader).toContain('smoothstep(0.85, 0.90, radius)')
+    expect(material.fragmentShader).toContain('mix(tint * 0.18, tint, core)')
+  })
+
+  it('derives radius from the preamble rather than a bare uv axis', () => {
+    const material = arcMaterialOf(createWaterReach(ORIGIN, NORTH, 'grip', W))
+    expect(material.fragmentShader).toContain('float radius = length(p)')
+    expect(material.fragmentShader).not.toContain('vUv.y')
+  })
+
+  it('advances time, so the drift is real rather than a still gradient', () => {
+    const effect = createWaterReach(ORIGIN, NORTH, 'grip', W)
+    const material = arcMaterialOf(effect)
+    const before = material.uniforms.time?.value
+    for (let t = 0; t < 0.1; t += 1 / 60) effect.advance(1 / 60)
+    expect(material.uniforms.time?.value).not.toBe(before)
+  })
+
+  it('leaves the freeze static, because nothing is being moved', () => {
+    // water-reach.ts's own vocabulary: outward travel pushes, inward drags, no travel holds.
+    const material = arcMaterialOf(createWaterReach(ORIGIN, NORTH, 'freeze', W))
+    expect(material.uniforms.travel?.value).toBe(0)
+  })
+
+  it('keeps the fill quiet and flat', () => {
+    // FILL_OPACITY is not exported from water-reach.ts, and this task does not add an export
+    // just for the test — checked against the literal 0.34 the brief and the module agree on.
+    expect(fillMaterialOf(createWaterReach(ORIGIN, NORTH, 'grip', W)).opacity)
+      .toBeCloseTo(0.34, 5)
   })
 })

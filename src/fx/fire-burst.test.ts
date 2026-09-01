@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { Mesh, Vector3, type Material } from 'three'
+import {
+  Mesh, MeshBasicMaterial, ShaderMaterial, Vector3, type Material,
+} from 'three'
 import { createFireBurst } from './fire-burst'
 import { burstShape, inFireBurst } from '../combat/fire'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
@@ -22,6 +24,13 @@ function arcOf(effect: { object: { children: unknown[] } }): Mesh {
 }
 
 const opacityOf = (mesh: Mesh): number => (mesh.material as Material & { opacity: number }).opacity
+
+/** The arc's shader material, built through `createEffectMaterial` for its flicker and collar. */
+function arcMaterialOf(effect: ReturnType<typeof createFireBurst>): ShaderMaterial {
+  const { material } = arcOf(effect)
+  if (!(material instanceof ShaderMaterial)) throw new Error('expected the arc to carry a shader material')
+  return material
+}
 
 describe('createFireBurst', () => {
   it('draws the sector at the volume that actually bites', () => {
@@ -155,16 +164,55 @@ describe('createFireBurst', () => {
     expect(origin.toArray()).toEqual([1, 2, 3])
   })
 
-  it('uses no ShaderMaterial and no PointsMaterial', () => {
-    // Both traps, asserted structurally, and fire is the effect most likely to attract a shader. One
-    // that duplicates the renderer's injected `..._pars_fragment` chunks fails to compile nearly
-    // silently and the mesh simply does not draw, which reads as a tastefully transparent flame. And
-    // `PointsMaterial` draws screen-facing squares, so embers approaching a world unit across read as
-    // solid blocks at the range this move is thrown at.
+  it('keeps the fill flat-coloured and gives the arc a shader for its flicker, never a PointsMaterial', () => {
+    // **The structural assertion, and it guards a failure mode that looks like success.** A
+    // `ShaderMaterial` including the `..._pars_fragment` chunks the renderer already injects fails
+    // to compile almost silently and the mesh then does not draw — which reads as a correctly
+    // transparent effect with the world showing through. That trap is no longer avoided by staying
+    // off `ShaderMaterial` altogether — the arc's flicker and collar need one — it is handled
+    // instead by building through `createEffectMaterial`, which is the one place in `src/fx/`
+    // allowed to construct one. And no `PointsMaterial` anywhere, whose screen-facing squares read
+    // as solid blocks at the range this move is thrown at.
     const effect = createFireBurst(ORIGIN, NORTH, F)
+    expect(effect.object.children.length).toBeGreaterThan(0)
+    expect(fillOf(effect).material).toBeInstanceOf(MeshBasicMaterial)
+    expect(arcOf(effect).material).toBeInstanceOf(ShaderMaterial)
     for (const child of effect.object.children) {
       expect(child).toBeInstanceOf(Mesh)
-      expect(((child as Mesh).material as Material).type).toBe('MeshBasicMaterial')
+      const material = (child as Mesh).material as Material
+      expect(material.transparent).toBe(true)
+      expect(material.type).not.toBe('PointsMaterial')
     }
+  })
+})
+
+describe('the burst flickers without widening', () => {
+  it('flickers along its length rather than across its width', () => {
+    // The 15-degree half-angle is how "the only element with real single-target damage" is
+    // implemented. A term varying across the arc's width would read as a wider cone.
+    const material = arcMaterialOf(createFireBurst(ORIGIN, NORTH, F))
+    expect(material.fragmentShader).toContain('radius * 18.0')
+    expect(material.fragmentShader).toContain('mix(tint * 0.18, tint, core)')
+  })
+
+  it('flickers fast enough to flicker inside a 0.16 second life', () => {
+    // 120 rad/s is about three cycles across LIFETIME. At the 30.0 this started as, the whole
+    // burst showed three quarters of one cycle — a single slow brightness sweep, not a flicker.
+    const material = arcMaterialOf(createFireBurst(ORIGIN, NORTH, F))
+    expect(material.fragmentShader).toContain('time * 120.0')
+  })
+
+  it('draws its collar', () => {
+    const material = arcMaterialOf(createFireBurst(ORIGIN, NORTH, F))
+    expect(material.fragmentShader).toContain('smoothstep(0.82, 0.93, radius)')
+    expect(material.fragmentShader).toContain('smoothstep(0.72, 0.82, radius)')
+  })
+
+  it('advances time', () => {
+    const effect = createFireBurst(ORIGIN, NORTH, F)
+    const material = arcMaterialOf(effect)
+    const before = material.uniforms.time?.value
+    for (let t = 0; t < 0.08; t += 1 / 60) effect.advance(1 / 60)
+    expect(material.uniforms.time?.value).not.toBe(before)
   })
 })

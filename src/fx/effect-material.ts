@@ -45,15 +45,59 @@ export type EffectUniforms = Record<string, EffectUniformValue>
  * object-space vertex position, which for a `BoxGeometry(w, h, 1)` runs the shape's own length as
  * `vLocal.z` from -0.5 to 0.5 regardless of which face a fragment is on. An effect built on
  * either geometry that wants "along its own axis" should read `vLocal`, not `vUv`.
+ *
+ * **`vViewNormal` is a view-space normal, added for `ice-shell.ts`'s silhouette rim** — the first
+ * body in this directory to need one. `normalMatrix` is three's own built-in (the inverse-
+ * transpose of the model-view matrix), available in every `ShaderMaterial` vertex shader without
+ * being declared, so the assignment costs one line. It lives here rather than behind a second
+ * vertex shader for the same reason `vLocal` sits next to `vUv` instead of in a per-shape file: an
+ * unused varying costs nothing a profiler can find, whereas a second vertex shader would be a
+ * second place for the `vUv`/`vLocal` contract to drift.
  */
 const VERTEX_SHADER = /* glsl */ `
   varying vec2 vUv;
   varying vec3 vLocal;
+  varying vec3 vViewNormal;
   void main() {
     vUv = uv;
     vLocal = position;
+    vViewNormal = normalMatrix * normal;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
+`
+
+/**
+ * The three lines a ring- or wedge-shaped effect needs before it can talk about radius or angle.
+ *
+ * `vortex-ring.ts` and `vortex-charge.ts` each hand-copied these three lines exactly, which is
+ * two chances to get the constant wrong and one place the next author will not look. `shockwave.ts`
+ * hand-copied a near variant — same first two lines, but `float around = atan(p.y, p.x)` in raw
+ * radians, because it never wraps with `fract` and so never needed the turn normalisation;
+ * substituting this preamble there would change `around`'s scale, so it is not a drop-in for that
+ * shape of body. Prepend it to a body instead: `body: POLAR_PREAMBLE + MY_BODY`.
+ *
+ * **Why it is needed at all.** `RingGeometry`'s UVs are Cartesian — three computes
+ * `uv = (position / radius + 1) / 2` — so `vUv.x` does not run around the circumference and
+ * `vUv.y` does not cross the thickness. `p` recovers `position / outerRadius` exactly, which makes
+ * `radius` the true normalised radius and `angle` a continuous 0..1 turn whose wrap coincides with
+ * `atan`'s branch cut, so `fract` leaves no seam.
+ *
+ * **Which coordinate to reach for, by geometry.** This table is the knowledge three wrong shader
+ * bodies bought:
+ *
+ * | Geometry | Use |
+ * | --- | --- |
+ * | `RingGeometry` (full ring) | this preamble; never bare `vUv` axes |
+ * | `sectorGeometry` (bounded wedge) | `vUv.x` along the arc, but only while the half-angle stays at or under a quarter turn — see `sectorUvIsMonotone` in `sector.ts`. `radius` from this preamble is valid for a wedge too |
+ * | `BoxGeometry` | `vLocal`; UVs are per face, so `vUv.x` means a different axis depending on which face a fragment is on |
+ * | `OctahedronGeometry` | `vLocal`; UVs exist (`PolyhedronGeometry`'s `generateUVs` derives them from spherical azimuth/inclination) but carry pole and seam artefacts, so they are not useful here |
+ * | `CylinderGeometry` | side-face `vUv` genuinely is (around, up), as `air-wall.ts` uses |
+ * | `SphereGeometry` | `vUv` is (azimuth, polar) |
+ */
+export const POLAR_PREAMBLE = /* glsl */ `
+    vec2 p = vUv * 2.0 - 1.0;
+    float radius = length(p);
+    float angle = atan(p.y, p.x) / 6.2832 + 0.5;
 `
 
 /** Matched against a body to catch the trap. The `_pars_` is the whole signal. */
@@ -91,6 +135,7 @@ export function effectFragmentSource(body: string, uniforms: EffectUniforms): st
 ${uniformDeclarations(uniforms)}
   varying vec2 vUv;
   varying vec3 vLocal;
+  varying vec3 vViewNormal;
   void main() {
 ${body}
     #include <tonemapping_fragment>

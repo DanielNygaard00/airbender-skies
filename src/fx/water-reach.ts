@@ -1,10 +1,11 @@
 import {
-  DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial, Vector3,
+  Color, DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial, Vector3,
 } from 'three'
 import type { WaterConfig } from '../combat/water'
 import { freezeShape, gripShape } from '../combat/water'
 import type { ConeShape } from '../combat/cone'
 import type { Effect } from './effect'
+import { createEffectMaterial, POLAR_PREAMBLE } from './effect-material'
 import { SECTOR_FLAT_ROTATION_X, sectorGeometry } from './sector'
 import { safeScale } from './scale'
 
@@ -23,12 +24,15 @@ import { safeScale } from './scale'
  * deliberately so the vocabulary is one vocabulary and not two. A freeze's arc does not travel at
  * all: it snaps to full reach and holds, because nothing is being moved.
  *
- * **Deliberately a `MeshBasicMaterial` and not a `ShaderMaterial`.** Nothing here needs a custom
- * shader, and the cost of reaching for one is out of proportion to the benefit: a `ShaderMaterial`
- * that includes the `..._pars_fragment` chunks the renderer already injects fails to compile
- * almost silently, and the mesh then simply does not draw — which looks like a correctly
- * transparent effect with the world showing through, so it can read as success. There is no
- * `ShaderMaterial` anywhere in `src/fx/`, and this is not the effect to introduce one with.
+ * **The fill stays a `MeshBasicMaterial`; the arc now builds through `createEffectMaterial`.** The
+ * fill has nothing to animate beyond a fading opacity, so reaching for a shader there would be a
+ * knob with one setting. The arc needs one: its dark collar (see `ARC_BODY`) is a function of
+ * radius and angle that a flat-colour material cannot express. The trap that used to keep this
+ * whole file off `ShaderMaterial` — a fragment body that includes the `..._pars_fragment` chunks
+ * the renderer already injects fails to compile with redefinition errors that throw nowhere
+ * visible, and the mesh then simply does not draw, which looks like a correctly transparent effect
+ * with the world showing through — is `effect-material.ts`'s to guard against, not this file's;
+ * its own doc comment carries that argument in full, so it is not restated here.
  *
  * There is no `PointsMaterial` here either, for the related reason: points draw screen-facing
  * squares, so a spray of droplets at anything approaching a world unit across reads as a white
@@ -65,6 +69,53 @@ const ARC_THICKNESS = 0.16
  * `END_FRACTION`.
  */
 const GRIP_END_FRACTION = 0.15
+
+/**
+ * The arc's bright core and the dark collar just inside it.
+ *
+ * **Why a collar rather than a brighter tint.** B1's rule was that every bright element clears
+ * `post.ts`'s 0.82 bloom threshold. It is wrong in kind: contrast is a difference and 0.82 is a
+ * level, so no absolute brightness separates an effect from a *bright* ground — measured twice on
+ * the bench, where B1's cyan read on the canyon's rock and washed out on the island's grass. The
+ * collar draws a dark band instead, so the contrast is internal and the ground behind it stops
+ * mattering. The rejected alternative was raising the tint again: B1 already spent the red-channel
+ * headroom five times and its four air tints now differ only in red.
+ *
+ * `radius` comes from `POLAR_PREAMBLE` and is the true normalised radius even on a bounded wedge.
+ *
+ * **Why the bounds start at 0.85 and not at zero.** The arc is `sectorGeometry(halfAngle,
+ * 1 - ARC_THICKNESS, 1)`, so its fragments only ever span radius 0.84..1.0 — the mesh is a thin
+ * band, not a disc, and `POLAR_PREAMBLE`'s `radius` normalises by the *outer* radius. Bounds chosen
+ * in a 0..1 space would all fall below the band's inner edge, leaving `core` saturated at 1 and
+ * `collar` at 0 everywhere: a collar that compiles, draws nothing, and looks exactly like the
+ * uniform arc it replaced. Every bound here is a fraction of the band's own 0.16 of radius: the
+ * innermost 1/16 (0.84..0.85) is left to fade so the band has a soft inner edge instead of a cut,
+ * the collar fills the next 5/16 (0.85..0.90), the core ramps over the 6/16 after that
+ * (0.90..0.96), and the outermost 4/16 (0.96..1.0) is fully lit.
+ *
+ * `travel` is 0 for the freeze and 1 for the grip, which is how one body serves both verbs without
+ * a second shader: multiplied into the drift term it makes the freeze's arc snap and hold.
+ *
+ * **The grip's own drift predates this codebase's later criterion for legible sub-one-cycle
+ * motion, and does not meet it either.** `angle`'s spatial term (`angle * 40.0`) covers about
+ * 40 / 6 / (2π) ≈ 1.06 cycles across the grip's 60-degree wedge — `angle` is a full 0..1 turn of
+ * the *whole* circle, so a 60-degree (1/6-turn) wedge only ever sees 1/6 of that 40.0 argument's
+ * range. The temporal term (`time * travel * 5.0`) over the 0.3s `LIFETIME` advances
+ * 5 * 0.3 / (2π) ≈ 0.24 of one cycle — sub-one-cycle, and against a spatial pattern with only
+ * about one cycle of its own rather than the several `fire-thrust.ts`'s `lick` slides its
+ * temporal motion across. By that criterion this is closer to a flicker than to travel. Left as
+ * shipped anyway: the amplitude is small (±0.14) and it photographed as the arc gently rippling
+ * rather than flickering on the `water` bench scene, and closing the gap with the criterion —
+ * raising the spatial multiplier, the way `fire-burst.ts`'s own retune did — is a tuning decision
+ * for the owner's play-test, which this branch's no-tint/no-gameplay-number rule excludes.
+ */
+const ARC_BODY = /* glsl */ `
+    float core = smoothstep(0.90, 0.96, radius);
+    float collar = smoothstep(0.85, 0.90, radius) * (1.0 - core);
+    float drift = 0.86 + 0.14 * sin(angle * 40.0 - time * travel * 5.0);
+    vec3 colour = mix(tint * 0.18, tint, core);
+    gl_FragColor = vec4(colour, alpha * max(core * drift, collar * 0.55));
+`
 
 interface Look {
   shape: ConeShape
@@ -116,9 +167,16 @@ export function createWaterReach(
   // A unit arc scaled at runtime, so travelling costs a scale rather than a geometry rebuild
   // sixty times a second.
   const arcGeometry = sectorGeometry(look.shape.halfAngle, 1 - ARC_THICKNESS, 1)
-  const arcMaterial = new MeshBasicMaterial({
-    color: look.tint, transparent: true, side: DoubleSide, depthWrite: false,
-    opacity: ARC_OPACITY, depthTest: false,
+  const arcMaterial = createEffectMaterial({
+    body: POLAR_PREAMBLE + ARC_BODY,
+    uniforms: {
+      tint: new Color(look.tint), alpha: ARC_OPACITY, time: 0, travel: move === 'grip' ? 1 : 0,
+    },
+    // Same reason the fill above sets it: a flat shape near the player's feet is buried by
+    // terrain sloping up away from them, which is the defect that made this class of effect
+    // invisible in play. The arc is the element the player actually reads, so it is the worse
+    // half to lose.
+    depthTest: false,
   })
   const arc = new Mesh(arcGeometry, arcMaterial)
   arc.rotation.x = SECTOR_FLAT_ROTATION_X
@@ -139,7 +197,10 @@ export function createWaterReach(
     fillMaterial.opacity = FILL_OPACITY * (1 - t)
     // Squared, so the arc holds its brightness through most of its travel and then goes
     // quickly — the leading edge is what the eye follows. Same curve as the gust's.
-    arcMaterial.opacity = ARC_OPACITY * (1 - t * t)
+    arcMaterial.uniforms.alpha!.value = ARC_OPACITY * (1 - t * t)
+    // Drives ARC_BODY's drift term. Raw elapsed age, not scaled here, because the shader's own
+    // `time * travel * 5.0` already sets the travel speed.
+    arcMaterial.uniforms.time!.value = age
   }
 
   apply()

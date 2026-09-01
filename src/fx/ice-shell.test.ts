@@ -1,17 +1,31 @@
 import { describe, it, expect } from 'vitest'
-import { Mesh, Vector3, type Material } from 'three'
+import {
+  BackSide, Mesh, ShaderMaterial, Vector3, type Material,
+} from 'three'
 import { createIceShell } from './ice-shell'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 
 const W = DEFAULT_COMBAT_CONFIG.water
 const AT = new Vector3(3, 0, -4)
+const ORIGIN = new Vector3(0, 0, 0)
 
 const meshOf = (effect: { object: unknown }): Mesh => {
   if (!(effect.object instanceof Mesh)) throw new Error('expected the shell to be a Mesh')
   return effect.object
 }
-const opacityOf = (effect: { object: unknown }): number =>
-  (meshOf(effect).material as Material & { opacity: number }).opacity
+
+/** The shell's shader material, built through `createEffectMaterial` for its facets and rim. */
+function shellMaterialOf(effect: ReturnType<typeof createIceShell>): ShaderMaterial {
+  const { material } = meshOf(effect)
+  if (!(material instanceof ShaderMaterial)) throw new Error('expected the shell to carry a shader material')
+  return material
+}
+
+// The shell's brightness is driven by the shader's own `alpha` uniform rather than by the
+// material's base `opacity`, since a `ShaderMaterial`'s body controls `gl_FragColor.a` directly —
+// `material.opacity` is never read by `SHELL_BODY` and would be a silent no-op to write.
+const opacityOf = (effect: ReturnType<typeof createIceShell>): number =>
+  shellMaterialOf(effect).uniforms.alpha!.value as number
 
 /** Run an effect for `seconds` at 60 Hz, reporting whether it was still alive at the end. */
 function run(effect: ReturnType<typeof createIceShell>, seconds: number): boolean {
@@ -108,11 +122,58 @@ describe('createIceShell', () => {
     expect(material.transparent).toBe(true)
   })
 
-  it('uses a plain MeshBasicMaterial', () => {
-    // Not a ShaderMaterial: one that duplicates the renderer's injected `..._pars_fragment` chunks
-    // fails to compile nearly silently and the mesh simply does not draw, which looks like a
-    // correctly transparent shell with the enemy showing through — indistinguishable from success
-    // for an effect that is *supposed* to show the enemy through it.
-    expect((meshOf(createIceShell(AT, 1)).material as Material).type).toBe('MeshBasicMaterial')
+  it('carries a shader material for its facets and rim, built through createEffectMaterial', () => {
+    // No longer a `MeshBasicMaterial`: an octahedron's UV carries pole and seam artefacts and is
+    // not useful here, so the faceting and the silhouette rim (`SHELL_BODY`) are real
+    // per-fragment math a flat-colour material cannot
+    // express. `effect-material.ts` is the only module in `src/fx/` allowed to build the
+    // `ShaderMaterial` this now needs, and it is what guards against the `..._pars_fragment`
+    // trap — a body duplicating those chunks fails to compile nearly silently, and the mesh
+    // simply does not draw, which looks like a correctly transparent shell with the enemy
+    // showing through.
+    expect(meshOf(createIceShell(AT, 1)).material).toBeInstanceOf(ShaderMaterial)
+  })
+})
+
+describe('the shell reads as faceted ice', () => {
+  it('varies brightness per facet from object space, since an octahedron\'s uv is not useful here', () => {
+    const material = shellMaterialOf(createIceShell(ORIGIN, 1))
+    expect(material.fragmentShader).toContain('vLocal')
+    expect(material.fragmentShader).not.toContain('vUv.x')
+  })
+
+  it('holds still, because ice does not travel', () => {
+    // The vocabulary water-reach.ts documents: no travel means holding. A drifting shell would
+    // say the freeze is doing something to the soldier, and it is not — it is keeping it still.
+    const material = shellMaterialOf(createIceShell(ORIGIN, 1))
+    expect(material.uniforms.time).toBeUndefined()
+  })
+
+  it('puts its bright edge on the silhouette, where the surface turns away', () => {
+    // The collar's actual claim is internal contrast at the effect's *boundary*. On a closed
+    // shell the boundary is wherever the surface goes edge-on to the viewer, which is a
+    // view-space fact and not an object-space one — so this reads the view normal, not vLocal.
+    const material = shellMaterialOf(createIceShell(ORIGIN, 1))
+    expect(material.fragmentShader).toContain('vViewNormal')
+    expect(material.fragmentShader).toContain('1.0 - abs(n.z)')
+    expect(material.fragmentShader).toContain('mix(tint * 0.18, tint, core)')
+  })
+
+  it('dims rather than empties its interior, so the soldier stays visible through it', () => {
+    // Unlike a ground arc's `collar`, which is a band bounded on both sides with nothing drawn
+    // past its outer edge, the shell's whole non-rim interior stays lit at `(1.0 - core) * 0.45`
+    // — about 0.19 effective opacity against `PEAK_OPACITY` 0.42 — because the enemy inside has to
+    // stay visible everywhere, not just at a boundary. `SHELL_BODY`'s own doc comment carries the
+    // argument for why that is a different shape from every other arc's `collar` in full.
+    const material = shellMaterialOf(createIceShell(ORIGIN, 1))
+    expect(material.fragmentShader).toContain('(1.0 - core) * 0.45')
+  })
+
+  it('keeps the shell BackSide, so it does not double its own density', () => {
+    expect(shellMaterialOf(createIceShell(ORIGIN, 1)).side).toBe(BackSide)
+  })
+
+  it('stays depth-tested, because its lower half is under the ground', () => {
+    expect(shellMaterialOf(createIceShell(ORIGIN, 1)).depthTest).toBe(true)
   })
 })

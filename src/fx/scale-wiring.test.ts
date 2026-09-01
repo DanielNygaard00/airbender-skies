@@ -17,6 +17,8 @@ import { createImpact } from './impact'
 import { createStaffArc } from './staff-arc-fx'
 import { createDashTrail } from './dash-trail'
 import { createAirWallPanel } from './air-wall'
+import { createSteam } from './steam'
+import { createMud } from './mud'
 
 /**
  * One invariant over the whole effects directory: no effect may hand the scene graph a scale that
@@ -139,6 +141,24 @@ const CASES: Case[] = [
       const panel = createAirWallPanel()
       panel.update(1 / 60, true, ORIGIN, NORTH, { ...AIR_WALL, range: NAN })
       return panel.object
+    },
+  },
+  {
+    module: 'steam.ts',
+    path: 'a NaN dt into advance',
+    drive: () => {
+      const steam = createSteam(ORIGIN)
+      steam.advance(NAN)
+      return steam.object
+    },
+  },
+  {
+    module: 'mud.ts',
+    path: 'a NaN dt into advance',
+    drive: () => {
+      const mud = createMud(ORIGIN)
+      mud.advance(NAN)
+      return mud.object
     },
   },
 ]

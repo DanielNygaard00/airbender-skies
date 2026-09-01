@@ -31,13 +31,23 @@ export type BenchEffectId =
   | 'shockwave'
   | 'dash-trail'
   | 'slipstream'
-  // `steam`, `mud` and `finisher` do not exist yet — they are deferred to step B2, along with
-  // water, earth and fire (§2 of `docs/superpowers/specs/2026-08-27-air-vfx-design.md` records
-  // why: the shapes they need were specified without reading their geometry, which had already
-  // cost this step two fix rounds). Registered here anyway, pointing at `createShockwave` in
-  // `./effects.ts` until B2 repoints them, so `BENCH_EFFECTS` stays a total `Record` in the
-  // meantime: an id added to this union without a scene, or a scene naming an id this union does
-  // not have, is a compile error rather than a bench shot of an effect nobody fires.
+  | 'water-grip'
+  | 'ice-shell'
+  | 'earth-reach'
+  | 'fire-burst'
+  | 'fire-thrust'
+  // `finisher` is the only id left in this union without its own effect — deferred per §2 of
+  // `docs/superpowers/specs/2026-08-27-air-vfx-design.md`, which records why: the shapes they
+  // needed were specified without reading their geometry, which had already cost this step two
+  // fix rounds. Water, earth and fire were once deferred behind that same shape, alongside
+  // `finisher`; all three elements now have real factories — `water-grip` (and the shell it and
+  // the freeze share, `ice-shell`) first, then `earth-reach`, `fire-burst` and `fire-thrust` here.
+  // `finisher` is registered anyway, pointing at `createShockwave` in `./effects.ts` until its own
+  // task repoints it, so `BENCH_EFFECTS` stays a total `Record` in the meantime: an id added to
+  // this union without a scene, or a scene naming an id this union does not have, is a compile
+  // error rather than a bench shot of an effect nobody fires.
+  // `steam` and `mud` used to share that same deferred slot; Task 7 gave `steam` `createSteam`
+  // and Task 8 gave `mud` `createMud`, so neither is deferred any more.
   | 'steam'
   | 'mud'
   | 'finisher'
@@ -151,6 +161,246 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     effect: 'gust',
     fireAt: 0.1,
     duration: 0.2,
+  },
+  {
+    /**
+     * The Water Grip's collar gate. Task 2 gave `water-reach.ts`'s arc a dark collar between its
+     * bright core and its outer edge — `ARC_BODY`'s comment there argues the reason at length:
+     * B1's rule that every bright element clears `post.ts`'s 0.82 bloom threshold cannot answer
+     * whether an effect separates from the ground it is drawn over, because contrast is a
+     * difference and a threshold is a level. This is the shot that answers it: whether the dark
+     * band inside the arc's bright core actually reads against grass, which is the pale half of
+     * the comparison the gust's own tint was retuned against.
+     *
+     * **Same pose as `gust`, copied field for field rather than tuned.** With an identical frame
+     * the only thing that can differ between the two shots is the effect, so the collar can be
+     * judged against the flat arc it replaced rather than against a differently-framed picture of
+     * it. The rejected alternative was framing water's shorter 10-unit reach (`grip.range` in
+     * `DEFAULT_COMBAT_CONFIG.water`, against the gust's 12) more tightly, which would have made
+     * the two shots incomparable — a bigger arc in frame is not evidence of a better collar, it is
+     * evidence of a different camera. See `gust`'s own comment for why this pose and this target
+     * height are what they are; nothing about that argument changes for a narrower cone.
+     *
+     * `createWaterReach`'s `LIFETIME` is 0.3s (`water-reach.ts`), longer than the gust's 0.22s —
+     * a different number from a different effect, not something copied along with the pose.
+     * `fireAt: 0.1, duration: 0.22` freezes the frame at age 0.12s, 40% through that 0.3s life:
+     * `lookFor`'s grip arc lerps its reach from `1` down to `GRIP_END_FRACTION` (0.15) over the
+     * full life, so at t=0.4 the arc sits at roughly two-thirds of the full reach — visibly
+     * mid-pull rather than freshly opened at full reach or already collapsed onto the caster,
+     * either of which would leave nothing to compare.
+     */
+    id: 'water',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'water-grip',
+    fireAt: 0.1,
+    duration: 0.22,
+  },
+  {
+    /**
+     * The Water Grip's collar gate again, over the canyon's rock floor — the dark half of the
+     * comparison, the same role the canyon plays for `gust-canyon` above. Same pose as
+     * `gust-canyon`, copied for the identical reason `water`'s comment gives against `gust`: the
+     * only thing that can differ between this shot and `gust-canyon`'s is the effect, so the
+     * collar is judged against the flat arc it replaced rather than against a repositioned camera.
+     *
+     * `fireAt`/`duration` match `water`'s for the same timing argument given there: age 0.12s
+     * against `createWaterReach`'s 0.3s `LIFETIME`, the grip's arc partway through its inward
+     * travel.
+     */
+    id: 'water-canyon',
+    regionId: CANYON_ID,
+    camera: { position: new Vector3(0, 23.9, 2), target: new Vector3(0, 13.9, -18) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'water-grip',
+    fireAt: 0.1,
+    duration: 0.22,
+  },
+  {
+    /**
+     * The ice on a held soldier, closer than every ground effect above because it is not one.
+     * `createIceShell`'s own doc comment gives its scale: a 1.3-unit octahedron centred on a
+     * body, against the gust's 12-unit, 120-degree wedge the shared pose above is framed for. At
+     * 20 units back that shell would be a few pixels of haze — the same "cannot support a
+     * judgement about how the effect reads" argument `dash-trail`'s comment makes against the
+     * cone pose, for a subject smaller still.
+     *
+     * **The one scene in this group that does not share the common frame, and deliberately so.**
+     * Every scene from `gust` through `water-canyon` above argues for an identical pose precisely
+     * because the effects it compares are all the same size and shape — a wedge is a wedge is a
+     * wedge, so the only honest way to compare their tints is to hold the camera still. A shell
+     * around a body is a different kind of subject, and forcing it into that same frame would not
+     * buy a fair comparison; it would make the shot illegible instead. So this scene keeps the
+     * region and the centre — the archipelago, the same spot every scene above stands over — and
+     * moves only the camera, close enough that a 1.3-unit shell reads as a shape rather than a
+     * smudge.
+     *
+     * Position `(0, 13.8, 4.5)` sits 4.5 units back and 1.9 above the target, at a
+     * `atan(1.9 / 4.5) ≈ 23`-degree look-down close to `gust`'s own — a closer throw than the
+     * cone poses' 20-odd units, but still not so close the octahedron's facets read as a wall
+     * rather than a shape.
+     *
+     * **Target is `(0, 11.9, 0)`, the same bare ground height every other scene above uses —
+     * this scene used to add `CENTRE_Y`'s 0.95 into the target itself, and that was the bug.**
+     * `bench/main.ts` hands the scene's `camera.target` straight to `benchEffect` as the
+     * effect's *origin* (`benchEffect(effectId, scene.camera.target.clone(), …)`), and
+     * `createIceShell` then adds its own `CENTRE_Y` on top of whatever origin it is given. A
+     * target of `(0, 12.85, 0)` — ground plus `CENTRE_Y` already folded in, on the theory that
+     * doing so would centre the camera on the shell — instead fed the shell a *second* `CENTRE_Y`
+     * on top of the first, landing its centre at 12.85 + 0.95 = 13.8: a full `CENTRE_Y` above
+     * where the camera was actually aimed, not on it. At the old pose that cropped the shell's
+     * own crown: camera `(0, 14.35, 3.5)` looking at that wrong `(0, 12.85, 0)` put the shell's
+     * top edge (centre 13.8 plus `RADIUS` 1.3) at 35.3 degrees off the view axis, past
+     * `BASE_FOV` 70's 35-degree half-height (`mapping.ts`) — the crown was clipped, not merely
+     * close to clipped.
+     *
+     * With the target restored to bare ground height, `createIceShell` still adds its one
+     * `CENTRE_Y` and lands the shell at 11.9 + 0.95 = 12.85, off-axis from the new pose by about
+     * 11 degrees; the top edge sits at about 27.3 degrees off-axis, comfortably inside the
+     * 35-degree half-height with roughly 7.7 degrees to spare, and the bottom edge at under 4
+     * degrees is nowhere close to the frame's other side. (Recomputed independently rather than
+     * assumed: `camera.target = (0, 11.9, 0)`, shell centre `(0, 12.85, 0)`, shell top
+     * `(0, 14.15, 0)`, angle between the camera's view-axis vector and its vector to each point.)
+     *
+     * **The structural trap this scene fell into, worth naming so the next scene does not repeat
+     * it.** Because the bench hands a scene's *target* to the effect as its *origin*, a scene can
+     * never aim the camera at anywhere but the effect's spawn point — there is no separate "look
+     * here" the target can mean once it doubles as "spawn here". Any effect that lifts itself
+     * above its own origin (this shell's `CENTRE_Y`, or the plume's `HEIGHT` below) therefore
+     * always sits some fixed amount above wherever the camera is aimed; that offset cannot be
+     * designed away by moving the target, only by choosing a camera pose shallow and close enough
+     * to absorb it. This is exactly why the `fire-thrust` scene below keeps its own target at the
+     * bare 11.9 ground height rather than trying to pre-add the plume's own `HEIGHT` into it —
+     * see that scene's own comment — and it is the shortcut this scene took instead, and paid
+     * for.
+     *
+     * `fireAt`/`duration` land the frozen frame at age 0.4s. `createIceShell` also takes a
+     * `holdSeconds`, a second parameter this task's own brief did not carry — `./effects.ts`
+     * reaches `DEFAULT_COMBAT_CONFIG.water.gripHoldSeconds` (1.4s) for it, the shorter of the two
+     * holds the game applies. The shell's own `FORM_SECONDS` (0.12) and `MELT_SECONDS` (0.25)
+     * bound the two moments a frozen frame has to avoid: 0.4s is comfortably past the 0.12s
+     * form-in, so the shell is at full size and full opacity, and comfortably short of the 1.4s
+     * hold ending — the melt does not start until the hold itself is over — so nothing here is
+     * fading either. Fully formed and not yet melting, which is the one moment worth a still
+     * frame.
+     */
+    id: 'ice-shell',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 13.8, 4.5), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'ice-shell',
+    fireAt: 0.1,
+    duration: 0.5,
+  },
+  {
+    /**
+     * Stone Throw's arc, in the shared frame `water`'s own comment argues for at length: with an
+     * identical pose the only thing that can differ between this shot and `gust`'s or `water`'s
+     * is the effect, so earth's collar (`ARC_BODY` in `earth-reach.ts`) is judged against the
+     * same island rather than against a differently-framed picture of it.
+     *
+     * `createEarthReach`'s `LIFETIME` is 0.26s (`earth-reach.ts`). `fireAt: 0.1, duration: 0.23`
+     * freezes the frame at age 0.13s, half the life — the arc mid-travel outward rather than
+     * still clipped near the caster or already faded at the far edge, the same mid-life target
+     * every cone scene above picks for the same reason.
+     */
+    id: 'earth-reach',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'earth-reach',
+    fireAt: 0.1,
+    duration: 0.23,
+  },
+  {
+    /**
+     * Fire Burst's arc, the same shared frame and the same reason `earth-reach`'s comment gives
+     * just above.
+     *
+     * `createFireBurst`'s `LIFETIME` is 0.16s (`fire-burst.ts`) — the shortest-lived effect in the
+     * game, per that file's own comment. `fireAt: 0.05, duration: 0.13` freezes the frame at age
+     * 0.08s, half that life, the same mid-travel target as `earth-reach` and every cone above it.
+     * `fireAt` is 0.05 rather than the 0.1 the wider cones use only because a burst this short
+     * would leave the frozen frame too close to the end of its life on the wider cones' own
+     * `fireAt` — 0.1 would leave just 0.06s of the 0.16s life to land a frame in, still legal but
+     * tighter than it needs to be.
+     */
+    id: 'fire-burst',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'fire-burst',
+    fireAt: 0.05,
+    duration: 0.13,
+  },
+  {
+    /**
+     * Fire Thrust's plume. **The second scene in this group that does not share the common
+     * frame, for the same kind of reason `ice-shell`'s own comment gives, not the same reach.**
+     * `earth-reach` and `fire-burst` above legitimately share `gust`'s pose because all three draw
+     * a ground-scale wedge the shared 22-unit throw was framed for. The plume is not that: it is a
+     * `WIDTH`/`THICKNESS` 0.34 slab (`fire-thrust.ts`), closer in scale to `ice-shell`'s 1.3-unit
+     * shell than to a 12-unit cone. **The wide pose was actually shot and checked, not assumed
+     * bad:** at `gust`'s frame it measured as a pale sliver a few pixels across, near the bottom
+     * edge of the frame — indistinguishable from nothing, which defeats the one job this scene has
+     * (fire's own doc comment: the plume is the *only* feedback a thrust gives when nobody is
+     * looking at the HUD, so a bench shot that cannot show it is a bench shot that cannot catch a
+     * silent shader failure here).
+     *
+     * **Which way the plume actually points, worked out rather than assumed.** `./effects.ts`
+     * calls `createFireThrust(origin, fireThrustImpulse(forward, DEFAULT_COMBAT_CONFIG.fire))`
+     * with the bench's own fixed `forward` of `(0, 0, -1)` (`bench/main.ts`). `fireThrustImpulse`
+     * (`combat/fire.ts`) returns `(0, thrustUpSpeed, 0)` plus the flattened `forward` scaled by
+     * `thrustForwardSpeed` — `thrustUpSpeed` 9 and `thrustForwardSpeed` 6
+     * (`DEFAULT_COMBAT_CONFIG.fire`) — so the impulse here is `(0, 9, -6)`, length
+     * `sqrt(81 + 36) ≈ 10.82` (the "10.8 m/s" `fire-thrust.ts`'s own comment already cites).
+     * `createFireThrust` draws the plume along the *negation* of that impulse (its own comment:
+     * "drawn opposite the push"), so the exhaust direction is `(0, -9, 6)` — normalised, mostly
+     * down and a lesser amount toward `+Z`. A pose built on the impulse itself rather than its
+     * negation would point the camera at empty air on the wrong side of the origin, the same
+     * failure this comment's own heading warns against.
+     *
+     * **How long the plume actually is, including the stretch.** `plumeLength` is
+     * `impulse.length() * PLUME_SECONDS` = `10.82 * 0.12 ≈ 1.30` at birth, and `apply()` lerps a
+     * stretch factor from `1` up to `1.6` over the life — so the plume can be as long as
+     * `1.30 * 1.6 ≈ 2.08` by the time it fades out. At this scene's own frozen age (0.07s, half of
+     * the 0.14s `LIFETIME` — see below), the stretch is `1.3`, so the drawn length is
+     * `1.30 * 1.3 ≈ 1.69`. The pose is built for the larger, once-over-the-life figure (~2.1) so a
+     * later retune of `fireAt`/`duration` toward the end of the life does not immediately outgrow
+     * the frame.
+     *
+     * **The pose itself: closer, and off to the side rather than down the barrel.** The plume's
+     * travel has no `X` component at all (the bench's fixed `forward` is pure `-Z`), so a camera
+     * offset mostly along `X` views its `Y`/`Z` descent broadside instead of foreshortening it
+     * toward a point — the same fix `dash-trail`'s own comment makes for a streak that travels
+     * along `-Z`, applied to a different plane here because the plume's own travel is diagonal in
+     * `Y`/`Z` rather than flat along `Z`. Position `(4.5, 13.8, 0)` against target `(0, 11.9, 0)`
+     * is a `~4.9`-unit throw (`sqrt(4.5² + 1.9²)`) at a `~21°` look-down — close to `ice-shell`'s
+     * own shallow `~23°`, and close enough at this range that a ~2-unit plume reads as a shape
+     * rather than a smudge, the same test `ice-shell`'s own comment applies to its shell.
+     *
+     * **The target is `gust`'s own point, kept rather than moved.** Every ground scene's target
+     * is `(0, 11.9, 0)`, the archipelago's true measured surface height at its centre (see
+     * `gust`'s own comment for how 11.9 was taken and why it is not the HUD's 14).
+     * `createFireThrust` adds its own `HEIGHT` of 0.95 above whatever origin it is given, the same
+     * number `ice-shell.ts`'s `CENTRE_Y` uses, so keeping the target at the bare ground height —
+     * rather than pre-adding that 0.95 into the target itself, which is the mistake `ice-shell`'s
+     * own scene made and its own comment now records at length — lands the plume's nozzle at
+     * exactly 11.9 + 0.95 = 12.85 without double-counting the factory's own offset. The plume's own
+     * vertical span (the
+     * nozzle at 12.85 descending toward roughly 11.4 at its far tip) sits close enough to that
+     * target height that the shallow camera above still keeps the whole thing in frame; only
+     * `camera` changes here, so `fireAt` and `duration` still land the frozen frame at age 0.07s,
+     * the same mid-life point the scene always froze at.
+     */
+    id: 'fire-thrust',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(4.5, 13.8, 0), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'fire-thrust',
+    fireAt: 0.05,
+    duration: 0.12,
   },
   {
     /**
@@ -285,15 +535,11 @@ export const BENCH_SCENES: readonly BenchScene[] = [
   },
   {
     /**
-     * Steam, Mud and the staff finisher do not have their own effects yet — they are deferred to
-     * step B2 (see the `BenchEffectId` comment above, and §2 of
-     * `docs/superpowers/specs/2026-08-27-air-vfx-design.md`) — so all three are wired to
-     * `./effects.ts`'s placeholder, which is `createShockwave` at a size closer to the reaction
-     * rings `main.ts` draws for Steam and Mud today (`REACTION_RING_RADIUS` 1.4,
-     * `REACTION_RING_STRENGTH` 0.85 — private to that file, so this scene cites rather than
-     * imports them) than to the Pressure Wave's own full-size ring. `shockwave`'s own `LIFETIME`
-     * of 0.4s and its half-life framing apply to all three, since they share the one placeholder
-     * factory.
+     * Steam has its own effect now — `createSteam`'s rising column, wired in `./effects.ts` — so
+     * unlike the staff finisher below it no longer shares `ringAt`'s placeholder. (Mud no longer
+     * shares it either — see its own comment just below.) This shot is otherwise unchanged: same
+     * camera, same `fireAt` and `duration`, so a diff between this scene's frames before and
+     * after Task 7 is a diff of the effect alone.
      */
     id: 'steam',
     regionId: ARCHIPELAGO_ID,
@@ -304,7 +550,12 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     duration: 0.3,
   },
   {
-    /** Mud's placeholder shot. See `steam`'s comment above — same factory, same reasoning. */
+    /**
+     * Mud has its own effect now — `createMud`'s flat spatter, wired in `./effects.ts` — so like
+     * Steam just above it no longer shares `ringAt`'s placeholder. This shot is otherwise
+     * unchanged: same camera, same `fireAt` and `duration`, so a diff between this scene's frames
+     * before and after Task 8 is a diff of the effect alone.
+     */
     id: 'mud',
     regionId: ARCHIPELAGO_ID,
     camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
@@ -314,7 +565,11 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     duration: 0.3,
   },
   {
-    /** The staff finisher's placeholder shot. See `steam`'s comment above. */
+    /**
+     * The staff finisher's placeholder shot: `ringAt` at `PLACEHOLDER_RADIUS`/
+     * `PLACEHOLDER_STRENGTH` in `./effects.ts`, deferred until the finisher gets its own effect.
+     * Steam and Mud, just above, no longer share this placeholder — see their own comments.
+     */
     id: 'finisher',
     regionId: ARCHIPELAGO_ID,
     camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
