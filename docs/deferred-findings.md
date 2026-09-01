@@ -158,3 +158,131 @@ Listed so they are not investigated again:
   that file went stale and has since been removed.
 - `hitEnemy` leaving `grounded` stale for a frame and the invulnerable window running up to one
   frame long are both intentional in a frame-stepped simulation, and documented as such.
+
+---
+
+# Carried over from the visual design arc, 2026-09-01
+
+Four steps merged between 2026-08-13 and 2026-09-01: the lit world (A), elemental combos (C),
+and three steps of effect painting (B1 air, B2 the borrowed effects, B3 the shared layer). B1's
+findings were carried over at the time. **B2's and B3's ledgers were lost** — they lived in
+`.superpowers/sdd/<plan>/progress.md` inside git-ignored worktrees that were removed after
+merging, which is the exact failure the top of this file was written to prevent. What follows was
+reconstructed from the session that produced them. The lesson is the one already recorded here:
+carry a cycle's Minor findings into this file *before* deleting its workspace, not after.
+
+## Still open
+
+- **`src/fx/finisher.ts` states three numbers that are false, and one is in a test name.** Its
+  `PEAK_OPACITY` comment credits `staff-arc-fx.ts` with "its own arc opacity — 0.9"; that file's
+  only opacity is `FILL_OPACITY = 0.55`, and 0.9 is not the brightest in the directory either
+  (`fire-burst.ts`'s `ARC_OPACITY` is 0.95). `finisher.test.ts`'s "peaks at the staff arc's own
+  opacity" repeats it. Separately, the comment calls `gust-cone.ts`'s 0.22 lifetime "the fastest
+  full beat already shipped" and itself "shorter than every other timed effect in this directory";
+  `fire-thrust.ts` is 0.14 and `fire-burst.ts` and `staff-arc-fx.ts` are both 0.16. The values are
+  defensible; their stated derivations are invented. Comment-and-test-name edit, no retune. This
+  was reviewed as Needs-fixes and merged anyway as a deliberate call.
+- **The no-collar exemption count is inconsistent across three files.** `mud.ts` calls itself "the
+  second and last such exemption", `finisher.ts` calls itself "the third and last", and
+  `aim-tell.ts` declines a collar without registering at all — though unlike the others it has a
+  radius coordinate available, so it is a body that could have carried one and chose not to. No
+  single task owned all three files. The fix is to delete the ordinal claims rather than renumber
+  them: a count every new body must update in every other file will break again.
+- **Nothing clears an enemy's elemental mark when it is knocked down.** `hitEnemy` spreads `mark`
+  through untouched, and `markAndReact` clears it only when the downing blow is itself the
+  reaction that fired. So a soldier downed and later restored still carries whatever mark was on
+  it, ageing out on `stepEnemy`'s own clock, and the reaction table will read it. B3's mark pip
+  masks this in the view with an `isDowned` check, which makes that check load-bearing rather
+  than belt-and-braces. **Whether the simulation should clear it is a gameplay decision, not a
+  view one.**
+- **`EnemyView` has no `dispose` method at all**, so `createHealthBar`'s own `dispose` already
+  goes uncalled and B3's mark pip geometry and material join it. Pre-existing; widening that
+  interface was outside the visual arc's scope.
+
+## Two frequencies that predate the criterion they are judged by
+
+B2's fire tasks established a rule, recorded in `fire-thrust.ts`'s `PLUME_BODY` comment: whether a
+temporal term reads as a flicker or as travel turns on the *spatial* richness of the body it
+modulates, not on its raw cycle count. Sub-one-cycle motion on a single band never completes even
+one rise and fall; the same arithmetic on a rich multi-band pattern slides that pattern
+legibly. Two bodies written before the rule existed do not satisfy it:
+
+- `earth-reach.ts`'s `pulse`, `sin(time * 22.0)` over a 0.26 s lifetime — about 0.91 of one cycle,
+  on a term with no spatial structure at all, since it multiplies overall alpha.
+- `water-reach.ts`'s grip drift — about 0.24 cycles of travel against roughly 1.06 spatial cycles
+  across the 60-degree wedge.
+
+Both amplitudes are small (±0.15 and ±0.14) and both photographed acceptably, so the numbers were
+documented rather than moved. A retune is a tuning decision for a play-test.
+
+## Shader edge cases that are inert but real
+
+- `impact.ts`'s `atan(n.y, n.x)` is formally undefined where the view-space normal points straight
+  at the camera — the dead centre of every burst, every frame. Every major GPU returns a finite
+  value there rather than a NaN, so no artefact is expected.
+- `mud.ts` is the first `POLAR_PREAMBLE` caller with a radius-0 disc, so the first to evaluate
+  `atan(p.y, p.x)` at the origin, which GLSL also leaves undefined. One centre fragment on a
+  48-triangle fan.
+- `finisher.ts` interpolates its flicker rate into the shader source as `time * ${FLICKER_RATE}.0`,
+  which is a new idiom here — `steam.ts` hard-codes its own. It is correct only while the constant
+  is an integer: `8.5` would emit `8.5.0`, which fails to link, and the mesh would then silently
+  not draw, which is exactly the failure `effect-material.ts` exists to make loud.
+- `steam.ts` and `fire-thrust.ts` can both write a NaN into `position.y` from a NaN `dt`, which is
+  outside `safeScale`'s remit — `scale-wiring.test.ts` drives that NaN but only inspects scale. A
+  NaN translation collapses a matrix as thoroughly as a NaN scale.
+
+## What the tests structurally cannot establish
+
+- **No shader in this project has ever been compiled by a GPU under test.** The suite runs in
+  node, so bodies are asserted as strings. A body that assembles and passes every assertion can
+  still fail to link, and the failure mode is a mesh that does not draw — indistinguishable from a
+  correctly transparent effect.
+- Substring assertions against an assembled `fragmentShader` cannot tell live GLSL from the same
+  text sitting in a dead comment. Inherent to the above, and true of every shader test here.
+- Two assertions pass for weaker reasons than their names claim: `staff-arc-fx.test.ts`'s
+  "measures across the wedge" is satisfied by `WEDGE_PREAMBLE` alone, since the preamble itself
+  contains the substring `across`; and `aim-tell.ts`'s construction-time agreement between
+  `sectorGeometry(1, 0, 1)` and `halfAngle: 1` is load-bearing but pinned nowhere — the test only
+  proves the uniform follows two later `update` calls.
+- `MARK_COLOUR` in `enemy-mesh.ts` is the fifth copy of the four element hex literals and the
+  first with no test pinning it. Nothing fails if `element-radial.ts`'s `LOOKS` moves a colour.
+- The collar's literals are per-effect rather than shared, deliberately, because each mesh is a
+  different thickness. `collar-bounds.test.ts` guards the risk that creates for the ring cases by
+  reading each mesh's real geometry, but it cannot cover the shell or box bodies, which have no
+  radius band.
+
+## The bench, and three ways it has misled
+
+The FX bench is the instrument the whole arc was verified with, and it produced a false negative
+three separate times. Each is now argued in a scene comment, but the class is worth stating
+plainly: **a bench proves an effect drew something; it does not prove the frame could have shown
+it.**
+
+1. It drove its simulation from `requestAnimationFrame`, which never fires in a hidden browser
+   pane, so every screenshot taken that way showed the region, the light and no effect —
+   indistinguishable from a shader that compiled and drew nothing. Fixed by running the
+   simulation to completion synchronously before the first render, with identical frame counts.
+2. `src/bench/main.ts` hands a scene's camera *target* to the effect as its origin, so an effect
+   that lifts itself above that origin sits above the aim point. The ice-shell scene cropped its
+   own subject this way.
+3. A flat horizontal shape seen from a shallow angle foreshortens to a sliver. Two staff scenes
+   photographed completely empty at 9.8 degrees above the horizon; the fix was the `gust` scene's
+   26.6-degree look-down, scaled to the subject. An off-axis margin calculation does not catch
+   this — it answers whether the shape fits the frame, not whether the frame can see a flat shape.
+
+The bench is also now a still camera only: with the simulation run to completion before the first
+render, every scene shows its final frame and an effect can no longer be watched playing.
+
+## Still the oldest item in this file
+
+Nothing in this project has been played. Four merged steps of visual work now rest on frozen bench
+frames and argued reasoning. The collar survived a gate on pale grass, on dark rock, and at the low
+tier where the composer is bypassed, which is real evidence — but every judgement about motion,
+about whether five elements stay distinguishable now all are painted, about whether the mark pip is
+findable in a four-soldier fight, and about whether the finisher flare lands on the beat the hit
+does, is still standing on arithmetic against a lifetime rather than on anyone's eye.
+
+Pointer lock is refused in the harness these steps were built in — `requestPointerLock` returns
+`WrongDocumentError: The root document of this element is not valid for pointer lock` — and the
+simulation stays paused without it. So the play-test is not something the build process can close.
+It needs the owner and a real browser.
