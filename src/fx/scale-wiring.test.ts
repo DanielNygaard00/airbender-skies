@@ -19,6 +19,7 @@ import { createDashTrail } from './dash-trail'
 import { createAirWallPanel } from './air-wall'
 import { createSteam } from './steam'
 import { createMud } from './mud'
+import { createFinisherFlare } from './finisher'
 
 /**
  * One invariant over the whole effects directory: no effect may hand the scene graph a scale that
@@ -159,6 +160,15 @@ const CASES: Case[] = [
       const mud = createMud(ORIGIN)
       mud.advance(NAN)
       return mud.object
+    },
+  },
+  {
+    module: 'finisher.ts',
+    path: 'a NaN dt into advance',
+    drive: () => {
+      const flare = createFinisherFlare(ORIGIN)
+      flare.advance(NAN)
+      return flare.object
     },
   },
 ]

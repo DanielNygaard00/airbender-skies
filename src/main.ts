@@ -38,6 +38,7 @@ import { detectSlam, applyBounce, touchedDown } from './player/slam'
 import { createShockwave } from './fx/shockwave'
 import { createSteam } from './fx/steam'
 import { createMud } from './fx/mud'
+import { createFinisherFlare } from './fx/finisher'
 import { createEffectPool } from './fx/effect-pool'
 import { createGustCone } from './fx/gust-cone'
 import { createStaffArc } from './fx/staff-arc-fx'
@@ -1714,6 +1715,20 @@ function start(): void {
       effects.add(createVortexRing(
         player.position, vortexRadius(fight.vortexFired, fightConfig.vortex),
       ))
+    }
+
+    // `fight.finisherThisFrame` is a boolean, not a list of soldiers — `encounter.ts`'s own
+    // comment says so, twice, and that is what settles this being a single `if` rather than a
+    // loop like the reaction burst below: the finisher is the player's own act, so one flare
+    // draws at `player.position`, never one per enemy the closing blow happened to catch. Read
+    // directly off `player.position` rather than through `positionOf` (declared just below,
+    // for the enemy-side bursts): that helper exists to dodge the pre/post-restore trap on
+    // `fight.enemiesBeforeRestore` versus `encounter.enemies`, a trap that only applies to
+    // enemies a patrol restore can respawn. The player is never restored mid-frame, so
+    // `player.position` here is the same point on this frame whichever side of `stepEncounter`
+    // it is read from.
+    if (fight.finisherThisFrame) {
+      effects.add(createFinisherFlare(player.position))
     }
 
     // impactTargets owns the union and the rule that a down beats a connect. It lives

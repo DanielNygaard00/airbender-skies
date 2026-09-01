@@ -36,18 +36,18 @@ export type BenchEffectId =
   | 'earth-reach'
   | 'fire-burst'
   | 'fire-thrust'
-  // `finisher` is the only id left in this union without its own effect — deferred per §2 of
-  // `docs/superpowers/specs/2026-08-27-air-vfx-design.md`, which records why: the shapes they
-  // needed were specified without reading their geometry, which had already cost this step two
-  // fix rounds. Water, earth and fire were once deferred behind that same shape, alongside
-  // `finisher`; all three elements now have real factories — `water-grip` (and the shell it and
-  // the freeze share, `ice-shell`) first, then `earth-reach`, `fire-burst` and `fire-thrust` here.
-  // `finisher` is registered anyway, pointing at `createShockwave` in `./effects.ts` until its own
-  // task repoints it, so `BENCH_EFFECTS` stays a total `Record` in the meantime: an id added to
-  // this union without a scene, or a scene naming an id this union does not have, is a compile
-  // error rather than a bench shot of an effect nobody fires.
-  // `steam` and `mud` used to share that same deferred slot; Task 7 gave `steam` `createSteam`
-  // and Task 8 gave `mud` `createMud`, so neither is deferred any more.
+  // None of the ids in this union are deferred behind a placeholder shape any more. Several once
+  // were — per §2 of `docs/superpowers/specs/2026-08-27-air-vfx-design.md`, which records why:
+  // the shapes they needed were specified without reading their geometry, which had already cost
+  // this step two fix rounds. Water, earth and fire were the first out of that hole
+  // (`water-grip`, and the shell it and the freeze share, `ice-shell`, first, then `earth-reach`,
+  // `fire-burst` and `fire-thrust`). `steam` and `mud` came next, each given its own shape rather
+  // than sharing `createShockwave`'s ring the way every reaction once did. `finisher` was the
+  // last: it shared that same ring as a placeholder until its own task gave it `createFinisherFlare`,
+  // a vertical flare at the player rather than a ring at an enemy. `BENCH_EFFECTS` in
+  // `./effects.ts` stays a total `Record` regardless — an id added to this union without a scene,
+  // or a scene naming an id this union does not have, is a compile error rather than a bench shot
+  // of an effect nobody fires — but that guard is no longer standing in for a shape not yet built.
   | 'steam'
   | 'mud'
   | 'finisher'
@@ -648,10 +648,10 @@ export const BENCH_SCENES: readonly BenchScene[] = [
   {
     /**
      * Steam has its own effect now — `createSteam`'s rising column, wired in `./effects.ts` — so
-     * unlike the staff finisher below it no longer shares `ringAt`'s placeholder. (Mud no longer
-     * shares it either — see its own comment just below.) This shot is otherwise unchanged: same
-     * camera, same `fireAt` and `duration`, so a diff between this scene's frames before and
-     * after Task 7 is a diff of the effect alone.
+     * it no longer shares `ringAt`'s placeholder the way it once did. (Mud and the chain
+     * finisher below no longer share it either — see each one's own comment.) This shot is
+     * otherwise unchanged: same camera, same `fireAt` and `duration`, so a diff between this
+     * scene's frames before and after Task 7 is a diff of the effect alone.
      */
     id: 'steam',
     regionId: ARCHIPELAGO_ID,
@@ -678,17 +678,63 @@ export const BENCH_SCENES: readonly BenchScene[] = [
   },
   {
     /**
-     * The staff finisher's placeholder shot: `ringAt` at `PLACEHOLDER_RADIUS`/
-     * `PLACEHOLDER_STRENGTH` in `./effects.ts`, deferred until the finisher gets its own effect.
-     * Steam and Mud, just above, no longer share this placeholder — see their own comments.
+     * The chain finisher's own flourish — `createFinisherFlare`'s vertical flare at the player's
+     * feet, wired in `./effects.ts`. It no longer shares `ringAt`'s placeholder the way it did
+     * before this task, the same retirement Steam and Mud already had; see either one's own
+     * comment above. The pose and timing below are new rather than carried over: the placeholder
+     * shot reused the wide `gust` pose (`(0, 21.9, 20)` looking at `(0, 11.9, 0)`, a 22-unit
+     * shot framed for a 12-unit wedge), and this effect is nothing like that wedge's size or
+     * orientation.
+     *
+     * **Trap 1: the effect's origin is the camera's own target, not a separate fact.**
+     * `bench/main.ts` hands `scene.camera.target.clone()` to the effect as the point it is
+     * spawned at, so an effect that lifts itself above that point sits above the aim point rather
+     * than off to one side of it. The flare grows straight up from wherever it is spawned, so the
+     * target has to stay bare ground — `(0, 11.9, 0)`, the same measured island-centre height
+     * (`groundHeightAt(0, 0)` ≈ 11.87) every other scene here already targets — and the whole
+     * flare then rises into frame above that point rather than the camera having to guess where
+     * "above" will land.
+     *
+     * **Trap 2: a pose framed for a 12-metre wedge photographs a small object as nothing.** The
+     * flare's own footprint is under two units across (`TOP_RADIUS` 0.9) and a little over two
+     * units tall (`HEIGHT` 2.3, `finisher.ts`) — nowhere near the 12-unit reach a gust or water
+     * cone needs to state honestly. Kept on the inherited wide pose, it would read as a speck.
+     * The new pose sits at `(0, 13.9, 5)`, close enough that the flare's own width fills a real
+     * fraction of the frame rather than the fraction a 12-unit wedge needs to.
+     *
+     * **Trap 3 — the one that does not apply here, said explicitly so it does not read as
+     * missed.** A flat horizontal shape seen from a shallow angle foreshortens to a sliver; that
+     * is what photographed the staff scenes completely empty before their own fix. This flare is
+     * the opposite orientation: it stands vertically, so a shallow, near-level look is what shows
+     * its height rather than hiding it — the same fact `slipstream`'s own comment gives for why a
+     * *tall* shape wants a low camera, not the steep look-down a flat ground decal can afford.
+     * `(0, 13.9, 5)` looking at `(0, 11.9, 0)` is a 2-unit rise over a 5-unit run, about 22
+     * degrees below horizontal — shallow enough that the flare's full 2.3-unit climb stays inside
+     * the frame instead of collapsing toward a dot the way a steep overhead look would.
+     *
+     * `groundHeightAt(0, 5)` measures 11.55 with the same probe technique `gust`'s own comment
+     * uses, so the camera at 13.9 clears the terrain by 2.35 units — close to `slipstream`'s own
+     * thinnest margin, and for the same reason: a close, low camera is the price of framing a
+     * small effect at all.
+     *
+     * **Timing.** `fireAt: 0.1` matches every other reaction-scale shot in this file. `duration:
+     * 0.2` — matching `gust`'s own duration, which is not a coincidence: `finisher.ts`'s own
+     * `LIFETIME` is `0.22`, chosen to equal `gust-cone.ts`'s `LIFETIME` exactly, so the two share
+     * a duration for the same reason they share a lifetime. Run through the real clock
+     * (`runFixedClock`, the same arithmetic `effects.test.ts`'s own frozen-frame guard uses
+     * rather than a second formula that could drift from it), this freezes the flare at age
+     * ≈0.1167s — 53% of the way through `LIFETIME`, past halfway grown and still comfortably
+     * above half its peak opacity — with a margin of ≈0.1033s (about six frames at 60Hz) before
+     * `advance` would report it finished. Comfortably inside the window, and framed at the point
+     * the flare is actually worth photographing rather than at its first spark or its last fade.
      */
     id: 'finisher',
     regionId: ARCHIPELAGO_ID,
-    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    camera: { position: new Vector3(0, 13.9, 5), target: new Vector3(0, 11.9, 0) },
     elevation: SUN_ELEVATION_DEGREES,
     effect: 'finisher',
     fireAt: 0.1,
-    duration: 0.3,
+    duration: 0.2,
   },
   {
     /**

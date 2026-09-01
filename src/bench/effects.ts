@@ -11,6 +11,7 @@ import type { Effect } from '../fx/effect'
 import { createEarthReach } from '../fx/earth-reach'
 import { createFireBurst } from '../fx/fire-burst'
 import { createFireThrust } from '../fx/fire-thrust'
+import { createFinisherFlare } from '../fx/finisher'
 import { createGuardShell } from '../fx/guard-shell'
 import { createGustCone } from '../fx/gust-cone'
 import { createIceShell } from '../fx/ice-shell'
@@ -181,20 +182,6 @@ function ringAt(origin: Vector3, radius: number, strength: number): Effect {
 }
 
 /**
- * Sized like the reaction ring `main.ts` drew for every reaction before Task 7 and Task 8 gave
- * Steam and Mud each their own shape (`1.4` and `0.85` — the values `REACTION_RING_RADIUS` and
- * `REACTION_RING_STRENGTH` held before both were deleted along with the ring reactions used).
- * Copied rather than exported and reused, because exporting gameplay tuning for a bench
- * placeholder to read would be a bigger change than the placeholder itself, and `finisher` is
- * going away the moment its own task gives it a real effect.
- *
- * Neither `steam` nor `mud` uses this any more: Task 7 gave `steam` `createSteam` and Task 8 gave
- * `mud` `createMud`, so this pair now sizes only `finisher`'s placeholder shot.
- */
-const PLACEHOLDER_RADIUS = 1.4
-const PLACEHOLDER_STRENGTH = 0.85
-
-/**
  * Every effect the bench can fire, as a total `Record` over the ids the scenes may name.
  *
  * Two mistakes this shape makes impossible. An effect added to `BenchEffectId` without a factory
@@ -206,12 +193,12 @@ const PLACEHOLDER_STRENGTH = 0.85
  * The alternative was the `if (scene.effect === 'gust')` chain this replaces in `bench/main.ts`.
  * It worked for one effect and would have been nine unreachable branches at ten.
  *
- * `finisher` does not have a factory yet — deferred, per §2 of
- * `docs/superpowers/specs/2026-08-27-air-vfx-design.md` — so it points at `ringAt` with the
- * placeholder size `createShockwave` once gave every reaction. That keeps this `Record` total in
- * the meantime, which is the property that turns a forgotten registration into a compile error.
- * Neither `steam` nor `mud` shares that placeholder any more: Task 7 gave `steam` `createSteam`
- * and Task 8 gave `mud` `createMud`.
+ * `finisher` was the last id here without its own factory — deferred, per §2 of
+ * `docs/superpowers/specs/2026-08-27-air-vfx-design.md`, behind `ringAt`'s placeholder size, the
+ * same slot `steam` and `mud` were once deferred behind too. All three now have real factories:
+ * `steam` got `createSteam` and `mud` got `createMud` first, and `finisher` gets `createFinisherFlare`
+ * here. `ringAt` itself is not going anywhere — `shockwave` below still uses it for the Pressure
+ * Wave's own ring, which is a real ring rather than a stand-in for a shape not yet built.
  */
 export const BENCH_EFFECTS: Record<BenchEffectId, (origin: Vector3, forward: Vector3) => Effect> = {
   gust: (origin, forward) => createGustCone(origin, forward, DEFAULT_COMBAT_CONFIG.gust),
@@ -269,7 +256,10 @@ export const BENCH_EFFECTS: Record<BenchEffectId, (origin: Vector3, forward: Vec
   ),
   steam: (origin) => createSteam(origin),
   mud: (origin) => createMud(origin),
-  finisher: (origin) => ringAt(origin, PLACEHOLDER_RADIUS, PLACEHOLDER_STRENGTH),
+  // `createFinisherFlare` takes no `forward` either, the same reason `vortex` and `ice-shell`
+  // above leave it unused: a column standing straight up at the player has no direction of its
+  // own for `forward` to mean anything against.
+  finisher: (origin) => createFinisherFlare(origin),
   // `createImpact` takes `(position, kind)`, not `(origin, forward)` — a burst where a blow
   // lands has no direction of its own, the same reason `vortex` and `ice-shell` above leave
   // `forward` unused — so all three kinds are registered against this file's own
