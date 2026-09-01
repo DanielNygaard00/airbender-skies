@@ -42,9 +42,10 @@ export interface Shape {
    */
   fill: number
   /**
-   * The angular frequency of the surface break-up, in whole turns around the sphere's vertical
-   * axis. Zero is smooth. Must be a whole number — a fractional turn leaves a stationary
-   * discontinuity down one meridian, the bug B2 caught twice.
+   * The number of lobes the surface break-up radiates in, as seen on screen. Zero is smooth.
+   * Must be a whole number — see `BURST_BODY`'s doc comment for why a fractional value seams at
+   * the screen-space azimuth's branch cut, and why that is not the same requirement B2's
+   * `6.2832 * n` rule was written for.
    */
   shards: number
 }
@@ -73,14 +74,26 @@ const SHAPES: Record<ImpactKind, Shape> = {
    * the literals, so retuning `hit` drags this with it.
    *
    * Task 2 adds the surface argument the size and tint alone could not carry: a hard, narrow
-   * rim (`rim: 0.2`, against the other two's 0.5) instead of a soft billow, a low fill (`0.15`)
-   * so what is left once the rim falls away is a broken shell rather than a ball, and five whole
-   * turns of surface break-up (`shards: 5`) so the shell itself reads as shattered plating
-   * rather than a smaller smooth puff. This is the one kind this task actually tunes; `hit` and
-   * `down` above are holding values only.
+   * rim (`rim: 0.2`, against the other two's 0.5) instead of a soft billow, and five lobes of
+   * surface break-up (`shards: 5`) so the shell reads as shattered plating rather than a
+   * smaller smooth puff. This is the one kind this task actually tunes; `hit` and `down` above
+   * are holding values only.
+   *
+   * **`fill: 0.55`, raised from an initial 0.15 in the gate round this comment now records.**
+   * `BURST_BODY`'s alpha shape was originally `max(edge * lumps, fill * (1.0 - edge))`, which
+   * confined the shard modulation to `edge`'s own narrow band and left the rest of the sphere at
+   * a flat `fill` floor — at `rim: 0.2` that band is a sliver, so the shot the controller
+   * actually took showed a nearly featureless disc with no visible shards at all. `BURST_BODY`'s
+   * doc comment carries the fix (`lumps` now multiplies the whole alpha shape, not just `edge`);
+   * this value is the other half of that fix. A low `fill` made sense when only the rim carried
+   * the break-up — the interior was supposed to stay quiet — but now that `lumps` modulates
+   * everywhere, a low `fill` just makes the whole sphere faint rather than making it read as
+   * broken. 0.55, close to `hit`/`down`'s own 0.6, is high enough that the shard wave's peaks
+   * (up to `1.0`, see `BURST_BODY`) read as bright plating and its troughs (down to `0.55 * 0.20
+   * = 0.11`) read as gaps between shards, rather than the whole surface staying too dim to judge.
    */
   deflect: {
-    radius: 0.7, lifetime: 0.12, opacity: 0.7, tint: 0xbcc4d2, rim: 0.2, fill: 0.15, shards: 5,
+    radius: 0.7, lifetime: 0.12, opacity: 0.7, tint: 0xbcc4d2, rim: 0.2, fill: 0.55, shards: 5,
   },
 }
 
@@ -99,17 +112,8 @@ export function impactShape(kind: ImpactKind): Readonly<Shape> {
  * bound decides how wide the bright edge band is: a narrow band reads as a hard shell, a wide
  * one as a soft billow. That single number is most of what separates a spark from a cloud.
  *
- * **Why `shards` is in whole turns.** It is an angular frequency around the sphere, so a value
- * that is not periodic leaves a stationary discontinuity down one meridian — the bug B2 caught
- * twice, on a cylinder's `vUv.x` and on a disc's `angle`. Multiplying by a turn first makes the
- * literal mean lobes rather than radians, and makes it wrap cleanly. `atan(vLocal.x, vLocal.z)`
- * is `atan2(x, z)` in GLSL's `atan(y, x)` two-argument form — three.js is Y-up, so the x/z plane
- * is horizontal and this measures the angle swept going around the sphere's *vertical* axis, the
- * axis the shards actually run around, rather than around the view axis or some other meridian.
- *
  * `fill` is what stops a smooth kind from being an outline: it is the floor the interior is
- * drawn at once `edge` has fallen away. `deflect` runs it low, so what is left is a broken
- * shell rather than a ball.
+ * drawn at once `edge` has fallen away.
  *
  * **`edge`'s sense, checked rather than assumed.** At `facing = 0` (the silhouette),
  * `1.0 - facing = 1.0`, which sits above `1.0 - rim * 0.35` for any `rim` in `(0, 1]`, so
@@ -121,26 +125,77 @@ export function impactShape(kind: ImpactKind): Readonly<Shape> {
  * (`facing` running from 0 up to `rim`, with the ramp itself between `0.35 * rim` and `rim`)
  * the bright band still reaches before the surface goes dark. A larger `rim` pushes that reach
  * further toward face-on, which is the "wider band" the field's own doc comment claims — the
- * sense holds, and this body ships the expression as given in the brief.
+ * sense holds, and this body ships the expression as given in the original brief.
+ *
+ * **Gate round: `lumps` moved off `edge` and onto the whole alpha shape.** The first version of
+ * this body wrote `max(edge * lumps, fill * (1.0 - edge))`, which confined the shard modulation
+ * to `edge`'s own band. At `deflect`'s tight `rim` (0.2) that band is a sliver right at the
+ * silhouette, so `lumps` had almost no area to modulate and the shot the controller actually
+ * took showed a nearly featureless disc — the shards were mathematically present and visually
+ * absent. Shards are meant to break up the *whole visible surface*, not just its rim, so `lumps`
+ * now multiplies `max(edge, fill)` — the full alpha shape — instead of being folded into one
+ * term of it: `alpha * max(edge, fill) * lumps`. Checked against the smooth kinds: `lumps` is
+ * exactly `1.0` for `hit` and `down` (see below), so this reduces to `alpha * max(edge, fill)`
+ * for them either way, which is close to the pre-gate shape they already shipped at unchanged
+ * `rim`/`fill` values — nothing about their own look moves.
+ *
+ * **The modulation is deep, not a shading wobble.** A term that floors at `fill` and only wobbles
+ * by ±0.45 around it reads as soft shading, not as separate shards — indistinguishable from a
+ * lit, slightly bumpy ball. `wave` maps the raw `sin` into 0..1, and `shardWave` then stretches
+ * that into `0.20` (near-dark trough — a gap between shards) to `1.0` (full brightness — a lit
+ * facet), so at `deflect`'s `fill: 0.55` the visible range runs `0.55 * 0.20 ≈ 0.11` up to
+ * `0.55 * 1.0 = 0.55` — a real break in the surface rather than a texture on top of it.
  *
  * **The `shards` branch: `mix` on a `step`, not a ternary on a uniform.** `shards > 0.0 ? wave
  * : 1.0` is legal GLSL but reads oddly as a branch on a value that never varies per-fragment.
- * `step(shards, 0.0)` is 1.0 exactly when `shards <= 0.0` — the boundary both `hit` and `down`
- * actually sit on — and 0.0 once `shards` is positive, so `mix(shardWave, 1.0, isSmooth)` picks
- * the constant for a smooth kind and the wave for a shard kind with no branch at all. The
- * rejected alternative was `step(0.0, shards)`: GLSL's `step(edge, x)` returns 1.0 when
- * `x >= edge`, so at exactly `shards = 0.0` it would select the *wave* branch instead of the
- * constant, leaving `hit` and `down` pulsing with `time` even though neither has a frequency to
- * modulate — the flip side of the same boundary this body has to get right.
+ * `step(0.5, shards)` is 0.0 for `shards = 0` (both `hit` and `down`) and 1.0 for any `shards`
+ * of 1 or more (every shard kind so far), so `mix(1.0, shardWave, isShard)` picks the constant
+ * for a smooth kind and the deep wave for a shard kind with no branch at all. `0.5` rather than
+ * `0.0` as the threshold is deliberate: it sits at the midpoint between the only two values this
+ * uniform actually takes today (0 and a positive integer), so it does not carry the same
+ * exactly-on-the-boundary risk `step(0.0, shards)` had in the first version of this body, where
+ * `shards = 0` and `shards > 0` both had to resolve correctly right at the comparison point.
+ *
+ * **Spokes radiate in screen space, not around the mesh's vertical axis.** The first version
+ * read `atan(vLocal.x, vLocal.z)`, the azimuth around the sphere's own Y axis — correct as an
+ * angle, but wrong as a *spark*: from a side view those lobes run top-to-bottom as vertical
+ * stripes down the ball, because they are laid out in object space and the object's vertical
+ * axis rarely lines up with anything the camera sees as "outward from the impact point". A spark
+ * radiates from where it is struck *as seen*, which is a view-space fact exactly like `facing`
+ * above, not an object-space one — so `spokeAngle` reads `n`, the same view-space normal `facing`
+ * already reads, and takes its on-screen azimuth: `atan(n.y, n.x)` is the angle of that normal's
+ * projection onto the screen's own x/y plane, which sweeps around the visible disc the way a
+ * spark's rays actually do, regardless of which way the sphere itself is oriented.
+ *
+ * **Why this seam rule is not `6.2832 * n`, and why that form would be wrong here.** Every other
+ * periodic angle in this codebase (`POLAR_PREAMBLE`'s `angle`, the vertical-axis azimuth this
+ * body used before the gate round) is pre-divided into a 0..1 turn fraction, so multiplying by
+ * `6.2832` (one turn in radians) converts "n turns" back into "n full radian cycles" before it
+ * reaches `sin`. `spokeAngle` is not that kind of coordinate: `atan(y, x)` already returns a
+ * value in radians over its own natural `(-pi, pi]` domain, with no turn-fraction division in
+ * between. Multiplying an already-radian coordinate by `6.2832` would not fix a seam — it would
+ * just scale the frequency by a further factor of `2*pi`, which is not what `shards` is meant to
+ * mean (lobes, not lobes times two-pi). The seam-free condition for `sin(spokeAngle * shards)` is
+ * simply that `shards` is a whole number: `sin` evaluated at the branch cut gives
+ * `sin(shards * pi)` approaching from one side and `sin(shards * -pi) = -sin(shards * pi)`
+ * approaching from the other, and these two agree (both `0`) exactly when `shards * pi` is a
+ * multiple of `pi` — i.e. `shards` is an integer — with no turn conversion required at all. So
+ * `shards` still has to be a whole number, for a real reason, but writing `6.2832 * shards` here
+ * would be reintroducing the exact bug this rule exists to prevent, not fixing one: a future
+ * reader who "fixes" this into that form on the general "sin around a loop needs a turn count"
+ * instinct would be re-scaling an already-correct radian coordinate and changing `shards`' actual
+ * meaning without changing its seam behaviour at all.
  */
 const BURST_BODY = /* glsl */ `
     vec3 n = normalize(vViewNormal);
     float facing = abs(n.z);
     float edge = smoothstep(1.0 - rim, 1.0 - rim * 0.35, 1.0 - facing);
-    float shardWave = 0.55 + 0.45 * sin(atan(vLocal.x, vLocal.z) * 6.2832 * shards + time * 40.0);
-    float isSmooth = step(shards, 0.0);
-    float lumps = mix(shardWave, 1.0, isSmooth);
-    gl_FragColor = vec4(tint, alpha * max(edge * lumps, fill * (1.0 - edge)));
+    float spokeAngle = atan(n.y, n.x);
+    float wave = 0.5 + 0.5 * sin(spokeAngle * shards + time * 40.0);
+    float shardWave = 0.20 + 0.80 * wave;
+    float isShard = step(0.5, shards);
+    float lumps = mix(1.0, shardWave, isShard);
+    gl_FragColor = vec4(tint, alpha * max(edge, fill) * lumps);
 `
 
 export function createImpact(position: Vector3, kind: ImpactKind): Effect {

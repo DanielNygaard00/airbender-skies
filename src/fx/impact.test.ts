@@ -118,11 +118,18 @@ describe('the deflect reads as a spark off metal', () => {
     expect(impactShape('deflect').rim).toBeLessThan(impactShape('down').rim)
   })
 
-  it('shards a whole number of turns, so the surface has no seam', () => {
-    // `across`-style wrap: an angular frequency that is not periodic leaves a stationary
-    // discontinuity down one meridian. Caught twice in B2.
+  it('shards a whole number of lobes, so the screen-space seam closes', () => {
+    // `spokeAngle` is `atan(n.y, n.x)` -- already in radians over its own natural (-pi, pi]
+    // domain, not a 0..1 turn fraction the way `POLAR_PREAMBLE`'s `angle` is -- so the seam-free
+    // condition is that `shards` itself is a whole number, not the `6.2832 * n` form used
+    // elsewhere: multiplying an already-radian coordinate by a further full turn would rescale
+    // the frequency rather than fix a seam. `BURST_BODY`'s own doc comment carries the argument
+    // in full, including why a reader should not "fix" this into the `6.2832` form on the
+    // general instinct that a sin around a loop always needs one.
+    expect(Number.isInteger(impactShape('deflect').shards)).toBe(true)
     const material = burstMaterialOf(createImpact(ORIGIN, 'deflect'))
-    expect(material.fragmentShader).toContain('6.2832')
+    expect(material.fragmentShader).toContain('atan(n.y, n.x)')
+    expect(material.fragmentShader).not.toContain('6.2832')
   })
 
   it('finds its silhouette from the view, not from object space', () => {
@@ -145,5 +152,37 @@ describe('the deflect reads as a spark off metal', () => {
     const before = material.uniforms.time?.value
     for (let t = 0; t < 0.06; t += 1 / 60) effect.advance(1 / 60)
     expect(material.uniforms.time?.value).not.toBe(before)
+  })
+})
+
+describe('the gate round: shards cover the surface rather than a sliver of it', () => {
+  // The first gate shot showed a nearly featureless disc: `lumps` was folded into `edge`'s own
+  // band, which is a sliver at `deflect`'s tight `rim`, so the shard wave had almost no area to
+  // modulate. `BURST_BODY`'s own doc comment carries the fix in full; these pin the two
+  // expressions that fix depends on so a future edit cannot silently narrow the modulation back
+  // down to `edge` or flatten the wave back into a shading wobble.
+  it('multiplies the whole alpha shape by the shard wave, not just the rim band', () => {
+    const material = burstMaterialOf(createImpact(ORIGIN, 'deflect'))
+    expect(material.fragmentShader).toContain('max(edge, fill) * lumps')
+  })
+
+  it('gates the wave with mix on a step, not a ternary, at a midpoint threshold', () => {
+    const material = burstMaterialOf(createImpact(ORIGIN, 'deflect'))
+    expect(material.fragmentShader).toContain('step(0.5, shards)')
+    expect(material.fragmentShader).toContain('mix(1.0, shardWave, isShard)')
+  })
+
+  it('runs the deep wave from a near-dark trough to full brightness, not a shading wobble', () => {
+    const material = burstMaterialOf(createImpact(ORIGIN, 'deflect'))
+    expect(material.fragmentShader).toContain('0.20 + 0.80 * wave')
+  })
+
+  it('keeps a smooth kind at a constant 1.0 regardless of the wave, since shards is 0', () => {
+    // `hit` and `down` must come out exactly as they did before this gate round: `step(0.5, 0)`
+    // is 0.0, so `mix(1.0, shardWave, 0.0)` is the constant `1.0` no matter what `shardWave`
+    // computes to, including its own `time`-driven term.
+    const material = burstMaterialOf(createImpact(ORIGIN, 'hit'))
+    expect(material.fragmentShader).toContain('mix(1.0, shardWave, isShard)')
+    expect(impactShape('hit').shards).toBe(0)
   })
 })
