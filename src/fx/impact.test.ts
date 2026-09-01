@@ -187,6 +187,39 @@ describe('the gate round: shards cover the surface rather than a sliver of it', 
   })
 })
 
+describe('the three kinds differ in surface, not only in size', () => {
+  it('gives the down the softest, widest rim, because it is a billow', () => {
+    expect(impactShape('down').rim).toBeGreaterThan(impactShape('hit').rim)
+  })
+
+  it('gives the down the most interior, because it is a volume and the hit is an outline', () => {
+    expect(impactShape('down').fill).toBeGreaterThan(impactShape('hit').fill)
+  })
+
+  it('pins the three surface triples exactly, so a later retune is a visible edit', () => {
+    expect(impactShape('hit').rim).toBeCloseTo(0.3, 5)
+    expect(impactShape('hit').fill).toBeCloseTo(0.3, 5)
+    expect(impactShape('hit').shards).toBe(0)
+    expect(impactShape('down').rim).toBeCloseTo(0.5, 5)
+    expect(impactShape('down').fill).toBeCloseTo(0.6, 5)
+    expect(impactShape('down').shards).toBe(0)
+    expect(impactShape('deflect').rim).toBeCloseTo(0.2, 5)
+    expect(impactShape('deflect').fill).toBeCloseTo(0.55, 5)
+    expect(impactShape('deflect').shards).toBe(5)
+  })
+
+  it('keeps every shipped number for both kinds', () => {
+    expect(impactShape('hit').radius).toBeCloseTo(1.1, 5)
+    expect(impactShape('hit').lifetime).toBeCloseTo(0.18, 5)
+    expect(impactShape('hit').opacity).toBeCloseTo(0.55, 5)
+    expect(impactShape('hit').tint).toBe(0xdff1ff)
+    expect(impactShape('down').radius).toBeCloseTo(2.3, 5)
+    expect(impactShape('down').lifetime).toBeCloseTo(0.45, 5)
+    expect(impactShape('down').opacity).toBeCloseTo(0.4, 5)
+    expect(impactShape('down').tint).toBe(0xfff3d8)
+  })
+})
+
 describe('the second gate round: the burst carries the collar\'s own darkening', () => {
   // The first two gate rounds only ever varied brightness (`alpha`, via `lumps`/`fill`/`edge`),
   // never colour, so a kind whose `tint` sits close in luminance to what is behind it -- the
@@ -217,10 +250,11 @@ describe('the second gate round: the burst carries the collar\'s own darkening',
     expect(worstChannel(impactShape('deflect').tint) * impactShape('deflect').dark).toBeLessThan(40)
   })
 
-  it('keeps hit and down\'s holding puff pale rather than over-darkening an undesigned shape', () => {
+  it('keeps hit and down pale rather than over-darkening a soft, quiet puff', () => {
     // The same 0.18 fraction on either of these tints would also land under 40 (checked in
     // BURST_BODY's own doc comment) -- both would go nearly black, which is not the light-touch
-    // contrast a holding value should carry. `dark: 0.6` keeps their darkest channel above 100.
+    // contrast a soft connect or down should carry. `dark: 0.6` keeps their darkest channel
+    // above 100, a deliberate choice Task 3 kept rather than a placeholder Task 3 left alone.
     expect(worstChannel(impactShape('hit').tint) * impactShape('hit').dark).toBeGreaterThan(100)
     expect(worstChannel(impactShape('down').tint) * impactShape('down').dark).toBeGreaterThan(100)
   })

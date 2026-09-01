@@ -60,29 +60,63 @@ export interface Shape {
 }
 
 const SHAPES: Record<ImpactKind, Shape> = {
-  // `rim`, `fill` and `dark` are a holding position, not a design: they reproduce today's
-  // one-shade sphere as closely as one shared body can -- smooth (`shards: 0`), a moderately
-  // wide rim so the silhouette does not go flat, and a fill high enough that the interior reads
-  // as filled rather than hollow. Task 3 is where these get tuned on their own terms; nothing
-  // here has been judged against a real connect or a real down on screen yet.
-  //
-  // `dark: 0.6` is a light touch deliberately: these are soft, broad puffs rather than a hard
-  // spark, and `BURST_BODY`'s own doc comment records that `0.18` -- the fraction the five arc
-  // bodies that survived B2's gate share -- reads as *nearly black* against either of these
-  // kinds' own pale tints. That much darkening would be a real design change to a shape this
-  // task is explicitly not designing yet, so `hit` and `down` get just enough interior
-  // darkening to carry the collar's own contrast argument (an effect needs an edge against
-  // whatever is behind it, not only a colour) without redrawing the puff Task 3 still owns.
+  /**
+   * A connect: "quick and tight" in this file's own opening words. Tuned against `down` rather
+   * than in the abstract -- the same discipline `deflect`'s own comment already uses -- because
+   * leaving these two on the same `rim`/`fill` (as Task 2's holding values did) would have
+   * shipped exactly the "one smooth sphere at three sizes" bug this task exists to fix: sharing
+   * a surface and differing only in radius and lifetime is a difference in size, not in kind.
+   *
+   * **`rim: 0.3`, narrower than `down`'s 0.5.** A narrower bright band reaches less far toward
+   * face-on before the surface goes dark, which reads as a harder, more contained edge -- the
+   * "tight" half of the design -- without reaching `deflect`'s 0.2, which is reserved for a
+   * spark off metal. `hit` sits visually between the two: tighter than a soft billow, not as
+   * hard as a shard-bearing shell.
+   *
+   * **`fill: 0.3`, lower than `down`'s 0.6.** A connect is meant to read as a quick outline, not
+   * a filled blob, so a lower floor keeps the far side of the sphere dim relative to the bright
+   * rim band. The gate's own shot, taken at the shared holding value of 0.6 this kind and `down`
+   * both carried before this task, already read `hit` as "a clean pale outline of medium size" --
+   * 0.3 is a further step in the direction that shot already pointed, not a reversal of it.
+   *
+   * **`dark: 0.6`, unchanged from the holding value.** The gate's shots raised no contrast
+   * complaint against this pale tint, unlike `deflect`'s cold grey against pale grass, so there
+   * is no argument for darkening this kind's collar further -- and `impact.test.ts`'s own "keeps
+   * hit and down's holding puff pale" test already pins the floor this value has to clear.
+   */
   hit: {
     radius: 1.1,
     lifetime: 0.18,
     opacity: 0.55,
     tint: 0xdff1ff,
-    rim: 0.5,
-    fill: 0.6,
+    rim: 0.3,
+    fill: 0.3,
     shards: 0,
     dark: 0.6,
   },
+  /**
+   * A down: "broad and slow" in this file's own opening words -- and already the shape the
+   * gate's shot showed before any tuning. At the same `rim: 0.5` / `fill: 0.6` / `dark: 0.6`
+   * Task 2 held for both `hit` and `down`, the shot read this kind as "a broad soft-rimmed
+   * bubble with a hollow interior", which is what "broad and slow" wants, not a smaller, harder
+   * body wearing a bigger radius. Kept rather than changed, on the position the task brief
+   * itself states: the holding values were closer to right than the plan assumed, and moving a
+   * number that already reads correctly would be change for its own sake.
+   *
+   * **`rim: 0.5`, the widest of the three** (`deflect`'s 0.2, `hit`'s 0.3). The bright band
+   * reaches furthest toward face-on here, which is the "soft billow" half of "broad and slow" --
+   * exactly the read the shot confirmed.
+   *
+   * **`fill: 0.6`, higher than `hit`'s 0.3.** This is the "it is a volume and the hit is an
+   * outline" half of the same design: `down` keeps more of its interior lit once the rim band
+   * falls away. The shot still called that interior "hollow" at this radius, but a broad, airy
+   * billow rather than a solid ball is exactly what "slow" is supposed to look like -- more
+   * interior than an outline, not a claim to be completely solid.
+   *
+   * **`dark: 0.6`, unchanged, for the same reason as `hit`'s:** no contrast complaint came back
+   * from the shot, and this pale, warm tint has no need of the near-black collar `deflect`'s
+   * cold grey required against grass.
+   */
   down: {
     radius: 2.3,
     lifetime: 0.45,
@@ -105,10 +139,11 @@ const SHAPES: Record<ImpactKind, Shape> = {
    * the literals, so retuning `hit` drags this with it.
    *
    * Task 2 adds the surface argument the size and tint alone could not carry: a hard, narrow
-   * rim (`rim: 0.2`, against the other two's 0.5) instead of a soft billow, and five lobes of
-   * surface break-up (`shards: 5`) so the shell reads as shattered plating rather than a
-   * smaller smooth puff. This is the one kind this task actually tunes; `hit` and `down` above
-   * are holding values only.
+   * rim (`rim: 0.2`, against `down`'s 0.5 and `hit`'s 0.3, both tuned since) instead of a soft
+   * billow, and five lobes of surface break-up (`shards: 5`) so the shell reads as shattered
+   * plating rather than a smaller smooth puff. Task 2 tuned this kind alone, while `hit` and
+   * `down` above were still on holding values; Task 3 has since tuned those two on their own
+   * terms (see their own comments), and the comparison numbers above are kept current with that.
    *
    * **`fill: 0.55`, raised from an initial 0.15 in the first gate round this comment now
    * records.** `BURST_BODY`'s alpha shape was originally `max(edge * lumps, fill * (1.0 -
@@ -257,13 +292,13 @@ export function impactShape(kind: ImpactKind): Readonly<Shape> {
  * rather than copied on the collar bodies' own precedent: `0xbcc4d2 * 0.18` and `0xfff3d8 * 0.18`
  * both land under 46 of 255 on every channel — both are nearly black, regardless of one tint
  * being cold grey and the other warm near-white. That is very likely the right amount of
- * darkening for `deflect`, whose whole claim is a hard, decisive spark. It is very likely too
- * much for `hit` and `down`, which are still on holding values standing in for today's flat,
- * uniformly pale puff — driving them to near-black on one side of every sphere would be a real
- * design change to a shape nobody has actually designed yet, smuggled in as a side effect of a
- * fix aimed at `deflect`. So `dark` moved from a shared constant to the fourth per-kind field
- * beside `rim`, `fill` and `shards`; see `SHAPES`'s own comments for each kind's chosen value and
- * why.
+ * darkening for `deflect`, whose whole claim is a hard, decisive spark. It is too much for
+ * `hit` and `down`, which Task 3 has since tuned toward a soft, pale puff on purpose (see
+ * `SHAPES`'s own comments) — driving either to near-black on one side of every sphere would
+ * still be wrong for that design, smuggled in as a side effect of a fix aimed at `deflect`
+ * rather than a choice made for these two. So `dark` moved from a shared constant to the fourth
+ * per-kind field beside `rim`, `fill` and `shards`; see `SHAPES`'s own comments for each kind's
+ * chosen value and why.
  */
 const BURST_BODY = /* glsl */ `
     vec3 n = normalize(vViewNormal);
