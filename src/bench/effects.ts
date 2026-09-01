@@ -2,17 +2,24 @@ import { Vector3 } from 'three'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 import { DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG } from '../core/config'
 import { fireThrustImpulse } from '../combat/fire'
+import { staffShape } from '../combat/staff-arc'
+import { createAimTell } from '../fx/aim-tell'
 import { createAirWallPanel } from '../fx/air-wall'
+import { createAvatarAura } from '../fx/avatar-aura'
 import { createDashTrail } from '../fx/dash-trail'
 import type { Effect } from '../fx/effect'
 import { createEarthReach } from '../fx/earth-reach'
 import { createFireBurst } from '../fx/fire-burst'
 import { createFireThrust } from '../fx/fire-thrust'
+import { createFinisherFlare } from '../fx/finisher'
+import { createGuardShell } from '../fx/guard-shell'
 import { createGustCone } from '../fx/gust-cone'
 import { createIceShell } from '../fx/ice-shell'
+import { createImpact } from '../fx/impact'
 import { createMud } from '../fx/mud'
 import { createShockwave } from '../fx/shockwave'
 import { createSlipstreamTrail } from '../fx/slipstream-trail'
+import { createStaffArc } from '../fx/staff-arc-fx'
 import { createSteam } from '../fx/steam'
 import { createVortexChargeTell } from '../fx/vortex-charge'
 import { createVortexRing } from '../fx/vortex-ring'
@@ -73,6 +80,95 @@ function benchVortexCharge(origin: Vector3): Effect {
 }
 
 /**
+ * The Slipstream's guard shell, wrapped for the same reason as `benchAirWall` and
+ * `benchVortexCharge`: `createGuardShell` is a held state advanced with `update(dt, active)`
+ * rather than a one-shot `Effect`. `HOLD_SECONDS` holds it active well past its own
+ * `FADE_IN_SECONDS` (0.02s, `guard-shell.ts`) before the wrapper lets go, and `object.visible` —
+ * the shell's own signal that its fade-out has finished — is what ends the wrapper afterward, the
+ * same technique `benchAirWall` uses rather than a second copy of the fade timing.
+ *
+ * The origin is added onto the `CENTRE_Y` offset the factory already bakes into
+ * `object.position.y`, not substituted for it, the same move `benchVortexCharge`'s own comment
+ * makes for the charge tell's `HEIGHT`.
+ */
+function benchGuardShell(origin: Vector3): Effect {
+  const guard = createGuardShell()
+  guard.object.position.x += origin.x
+  guard.object.position.y += origin.y
+  guard.object.position.z += origin.z
+  const HOLD_SECONDS = 0.5
+  let age = 0
+  return {
+    object: guard.object,
+    advance(dt: number): boolean {
+      age += dt
+      const active = age < HOLD_SECONDS
+      guard.update(dt, active)
+      return active || guard.object.visible
+    },
+    dispose: guard.dispose,
+  }
+}
+
+/**
+ * The Avatar State's aura, wrapped the same way `benchGuardShell` just above wraps its sibling
+ * shell. `HOLD_SECONDS` is longer here than the guard shell's — 1 second against 0.5 — because
+ * the aura's own `FADE_IN_SECONDS` is 0.15s rather than 0.02s, and the hold has to stay well past
+ * whichever fade-in it is covering for the frozen frame to land on a fully lit shell rather than
+ * one still rising.
+ *
+ * The origin is added onto the factory's own `HEIGHT` offset, the same move
+ * `benchVortexCharge`'s comment argues for its own `HEIGHT`.
+ */
+function benchAvatarAura(origin: Vector3): Effect {
+  const aura = createAvatarAura()
+  aura.object.position.x += origin.x
+  aura.object.position.y += origin.y
+  aura.object.position.z += origin.z
+  const HOLD_SECONDS = 1
+  let age = 0
+  return {
+    object: aura.object,
+    advance(dt: number): boolean {
+      age += dt
+      const active = age < HOLD_SECONDS
+      aura.update(dt, active)
+      return active || aura.object.visible
+    },
+    dispose: aura.dispose,
+  }
+}
+
+/**
+ * The aim tell, wrapped for the same reason as `benchAirWall` and its siblings above:
+ * `createAimTell` is a held state driven every frame by `update`'s five arguments rather than a
+ * one-shot `Effect`, and it is the one factory here whose `update` needs both a `targeted` and a
+ * `ready` flag alongside the position and heading every other wrapped factory already supplies.
+ *
+ * Held `targeted: true` and `ready: true` for the whole shot rather than following any clock, so
+ * both children draw at every frame — a tell that is only ever `targeted` for the frame the
+ * scene happens to freeze on would be indistinguishable from one that never shows its preview at
+ * all. Unlike every other wrapper in this file, `advance` never has a reason to return `false`:
+ * the tell has no fade-out and no lifetime of its own, so it stays alive for exactly as long as
+ * the scene's own `duration` keeps calling it.
+ *
+ * Fed `DEFAULT_COMBAT_CONFIG.gust`, the same `ConeShape` `main.ts` feeds the real tell for the F
+ * move — a Water Grip preview would show a narrower cone the bench has no button to switch to,
+ * and the gust is what the shipped tell defaults to showing before either element is chosen.
+ */
+function benchAimTell(origin: Vector3, forward: Vector3): Effect {
+  const tell = createAimTell()
+  return {
+    object: tell.object,
+    advance(dt: number): boolean {
+      tell.update(origin, forward, true, true, DEFAULT_COMBAT_CONFIG.gust)
+      return true
+    },
+    dispose: tell.dispose,
+  }
+}
+
+/**
  * `createShockwave` takes no position of its own — every real caller (`main.ts`'s slam ring and
  * its reaction ring) sets `effect.object.position` right after construction, because the ring's
  * radius and strength are what the caller has to hand and its place in the world is a separate
@@ -86,20 +182,6 @@ function ringAt(origin: Vector3, radius: number, strength: number): Effect {
 }
 
 /**
- * Sized like the reaction ring `main.ts` drew for every reaction before Task 7 and Task 8 gave
- * Steam and Mud each their own shape (`1.4` and `0.85` — the values `REACTION_RING_RADIUS` and
- * `REACTION_RING_STRENGTH` held before both were deleted along with the ring reactions used).
- * Copied rather than exported and reused, because exporting gameplay tuning for a bench
- * placeholder to read would be a bigger change than the placeholder itself, and `finisher` is
- * going away the moment its own task gives it a real effect.
- *
- * Neither `steam` nor `mud` uses this any more: Task 7 gave `steam` `createSteam` and Task 8 gave
- * `mud` `createMud`, so this pair now sizes only `finisher`'s placeholder shot.
- */
-const PLACEHOLDER_RADIUS = 1.4
-const PLACEHOLDER_STRENGTH = 0.85
-
-/**
  * Every effect the bench can fire, as a total `Record` over the ids the scenes may name.
  *
  * Two mistakes this shape makes impossible. An effect added to `BenchEffectId` without a factory
@@ -111,12 +193,12 @@ const PLACEHOLDER_STRENGTH = 0.85
  * The alternative was the `if (scene.effect === 'gust')` chain this replaces in `bench/main.ts`.
  * It worked for one effect and would have been nine unreachable branches at ten.
  *
- * `finisher` does not have a factory yet — deferred, per §2 of
- * `docs/superpowers/specs/2026-08-27-air-vfx-design.md` — so it points at `ringAt` with the
- * placeholder size `createShockwave` once gave every reaction. That keeps this `Record` total in
- * the meantime, which is the property that turns a forgotten registration into a compile error.
- * Neither `steam` nor `mud` shares that placeholder any more: Task 7 gave `steam` `createSteam`
- * and Task 8 gave `mud` `createMud`.
+ * `finisher` was the last id here without its own factory — deferred, per §2 of
+ * `docs/superpowers/specs/2026-08-27-air-vfx-design.md`, behind `ringAt`'s placeholder size, the
+ * same slot `steam` and `mud` were once deferred behind too. All three now have real factories:
+ * `steam` got `createSteam` and `mud` got `createMud` first, and `finisher` gets `createFinisherFlare`
+ * here. `ringAt` itself is not going anywhere — `shockwave` below still uses it for the Pressure
+ * Wave's own ring, which is a real ring rather than a stand-in for a shape not yet built.
  */
 export const BENCH_EFFECTS: Record<BenchEffectId, (origin: Vector3, forward: Vector3) => Effect> = {
   gust: (origin, forward) => createGustCone(origin, forward, DEFAULT_COMBAT_CONFIG.gust),
@@ -162,9 +244,35 @@ export const BENCH_EFFECTS: Record<BenchEffectId, (origin: Vector3, forward: Vec
   'fire-thrust': (origin, forward) => (
     createFireThrust(origin, fireThrustImpulse(forward, DEFAULT_COMBAT_CONFIG.fire))
   ),
+  // `createStaffArc` takes a `ConeShape`, not a `finisher` flag — its own doc comment argues at
+  // length for why it has no business knowing which swing produced the shape it draws. The two
+  // bench ids each resolve their own shape through `staffShape`, the same call the fight itself
+  // makes, rather than the bench inventing a shortcut that could drift from it.
+  'staff-opener': (origin, forward) => (
+    createStaffArc(origin, forward, staffShape(false, DEFAULT_COMBAT_CONFIG.staffArc))
+  ),
+  'staff-finisher': (origin, forward) => (
+    createStaffArc(origin, forward, staffShape(true, DEFAULT_COMBAT_CONFIG.staffArc))
+  ),
   steam: (origin) => createSteam(origin),
   mud: (origin) => createMud(origin),
-  finisher: (origin) => ringAt(origin, PLACEHOLDER_RADIUS, PLACEHOLDER_STRENGTH),
+  // `createFinisherFlare` takes no `forward` either, the same reason `vortex` and `ice-shell`
+  // above leave it unused: a column standing straight up at the player has no direction of its
+  // own for `forward` to mean anything against.
+  finisher: (origin) => createFinisherFlare(origin),
+  // `createImpact` takes `(position, kind)`, not `(origin, forward)` — a burst where a blow
+  // lands has no direction of its own, the same reason `vortex` and `ice-shell` above leave
+  // `forward` unused — so all three kinds are registered against this file's own
+  // `(origin, forward) => Effect` shape and simply ignore the second argument.
+  'impact-hit': (origin) => createImpact(origin, 'hit'),
+  'impact-down': (origin) => createImpact(origin, 'down'),
+  'impact-deflect': (origin) => createImpact(origin, 'deflect'),
+  // The two character shells, wrapped like `air-wall` and `vortex-charge` above since neither is
+  // an `Effect`. Both leave `forward` unused, for the same reason `vortex` and `ice-shell` do:
+  // a shell around a body has no direction of its own.
+  'guard-shell': (origin) => benchGuardShell(origin),
+  'avatar-aura': (origin) => benchAvatarAura(origin),
+  'aim-tell': (origin, forward) => benchAimTell(origin, forward),
 }
 
 export function benchEffect(id: BenchEffectId, origin: Vector3, forward: Vector3): Effect {

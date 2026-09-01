@@ -3,6 +3,8 @@ import { Mesh, RingGeometry, ShaderMaterial, Vector3 } from 'three'
 import { createWaterReach } from './water-reach'
 import { createEarthReach } from './earth-reach'
 import { createFireBurst } from './fire-burst'
+import { createStaffArc } from './staff-arc-fx'
+import { staffShape } from '../combat/staff-arc'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 
 const ORIGIN = new Vector3(0, 0, 0)
@@ -24,6 +26,14 @@ interface CollarCase {
  * feeding a body with a bright `core` and a dark `collar`, each a `smoothstep(_, _, radius)` —
  * registers itself here. Task 2 (`water-reach.ts`) is the first; Tasks 4 and 5 (`earth-reach.ts`,
  * `fire-burst.ts`) registered theirs once they landed, each with its own arc's own thickness.
+ * The staff swing's fill (`staff-arc-fx.ts`) is the newest member, and the odd one in the list:
+ * every case above reads an *arc* — a `RingGeometry` with a positive inner radius, a thin band
+ * near the rim. `sectorGeometry(shape.halfAngle, 0, 1)` gives the staff swing an inner radius of
+ * 0, a filled disc rather than a band, so `innerNormalised` below reads 0 for it rather than the
+ * 0.84..1.0 the other four bands sit in. Nothing about the guard assumes an annulus — it derives
+ * the inner edge from the mesh it is handed rather than from a shape rule — so a disc registers
+ * exactly like a band and every `smoothstep(_, _, radius)` bound in `FILL_BODY` still has to
+ * clear a floor, that floor is simply 0 here instead of a rim thickness.
  *
  * **The real membership rule is that `core`/`collar` pair against `radius`, not a shape rule —
  * and the suite's absences prove it, for two different reasons.** Task 3's ice shell and Task 6's
@@ -72,12 +82,26 @@ const COLLAR_CASES: CollarCase[] = [
     name: 'fire-burst arc',
     arc: () => arcMeshOf(createFireBurst(ORIGIN, NORTH, DEFAULT_COMBAT_CONFIG.fire)),
   },
+  {
+    name: 'staff-arc-fx fill',
+    // The staff swing's only child, at children[0] rather than the collar-carrying [1] every
+    // other case above reads — this effect has one mesh, not a separate fill and arc.
+    arc: () => fillMeshOf(createStaffArc(
+      ORIGIN, NORTH, staffShape(true, DEFAULT_COMBAT_CONFIG.staffArc),
+    )),
+  },
 ]
 
 function arcMeshOf(effect: ReturnType<typeof createWaterReach>): Mesh {
   const arc = effect.object.children[1]
   if (!(arc instanceof Mesh)) throw new Error('expected the arc as children[1]')
   return arc
+}
+
+function fillMeshOf(effect: ReturnType<typeof createStaffArc>): Mesh {
+  const fill = effect.object.children[0]
+  if (!(fill instanceof Mesh)) throw new Error('expected the fill as children[0]')
+  return fill
 }
 
 /**

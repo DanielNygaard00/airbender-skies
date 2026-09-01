@@ -36,21 +36,48 @@ export type BenchEffectId =
   | 'earth-reach'
   | 'fire-burst'
   | 'fire-thrust'
-  // `finisher` is the only id left in this union without its own effect — deferred per §2 of
-  // `docs/superpowers/specs/2026-08-27-air-vfx-design.md`, which records why: the shapes they
-  // needed were specified without reading their geometry, which had already cost this step two
-  // fix rounds. Water, earth and fire were once deferred behind that same shape, alongside
-  // `finisher`; all three elements now have real factories — `water-grip` (and the shell it and
-  // the freeze share, `ice-shell`) first, then `earth-reach`, `fire-burst` and `fire-thrust` here.
-  // `finisher` is registered anyway, pointing at `createShockwave` in `./effects.ts` until its own
-  // task repoints it, so `BENCH_EFFECTS` stays a total `Record` in the meantime: an id added to
-  // this union without a scene, or a scene naming an id this union does not have, is a compile
-  // error rather than a bench shot of an effect nobody fires.
-  // `steam` and `mud` used to share that same deferred slot; Task 7 gave `steam` `createSteam`
-  // and Task 8 gave `mud` `createMud`, so neither is deferred any more.
+  // None of the ids in this union are deferred behind a placeholder shape any more. Several once
+  // were — per §2 of `docs/superpowers/specs/2026-08-27-air-vfx-design.md`, which records why:
+  // the shapes they needed were specified without reading their geometry, which had already cost
+  // this step two fix rounds. Water, earth and fire were the first out of that hole
+  // (`water-grip`, and the shell it and the freeze share, `ice-shell`, first, then `earth-reach`,
+  // `fire-burst` and `fire-thrust`). `steam` and `mud` came next, each given its own shape rather
+  // than sharing `createShockwave`'s ring the way every reaction once did. `finisher` was the
+  // last: it shared that same ring as a placeholder until its own task gave it `createFinisherFlare`,
+  // a vertical flare at the player rather than a ring at an enemy. `BENCH_EFFECTS` in
+  // `./effects.ts` stays a total `Record` regardless — an id added to this union without a scene,
+  // or a scene naming an id this union does not have, is a compile error rather than a bench shot
+  // of an effect nobody fires — but that guard is no longer standing in for a shape not yet built.
   | 'steam'
   | 'mud'
   | 'finisher'
+  // The impact burst's three kinds. `createImpact` takes `(position, kind)`, not
+  // `(origin, forward)` — a burst has no direction of its own, the same reason `vortex` and
+  // `ice-shell` above leave `forward` unused — so `./effects.ts` registers all three against
+  // the same `(origin, forward) => Effect` shape and ignores the second argument, per that
+  // file's own comment on the pattern.
+  | 'impact-hit'
+  | 'impact-down'
+  | 'impact-deflect'
+  // The two character shells. Neither is a one-shot `Effect` — `createGuardShell` and
+  // `createAvatarAura` are held states advanced with `update(dt, active)`, the same shape
+  // `air-wall` and `vortex-charge` above are — so `./effects.ts` wraps each the same way those
+  // two already are.
+  | 'guard-shell'
+  | 'avatar-aura'
+  // The staff's two swings. Not `staffArc` with a `finisher` boolean alongside it — the shape
+  // itself already carries the difference (`staffShape(false, …)` against `staffShape(true, …)`),
+  // and `createStaffArc`'s own doc comment argues at length for why it has no business knowing
+  // which one produced the shape it was handed. Two ids rather than one, so each shot can be
+  // pointed at directly instead of a scene having to pick a swing for the other to never see.
+  | 'staff-opener'
+  | 'staff-finisher'
+  // The aim tell. Not a one-shot `Effect` — `createAimTell`'s own doc comment says why: it is
+  // persistent, held up for as long as the player holds a direction, and driven every frame by
+  // `update`'s five arguments rather than fired once and left to run down. `./effects.ts` wraps
+  // it the same way it already wraps `air-wall`, `vortex-charge`, `guard-shell` and
+  // `avatar-aura` for the identical reason.
+  | 'aim-tell'
 
 export interface BenchScene {
   id: string
@@ -404,6 +431,91 @@ export const BENCH_SCENES: readonly BenchScene[] = [
   },
   {
     /**
+     * The staff's opener, sharing one pose with `staff-finisher` below for the reason `water`'s
+     * own comment makes at length against `gust`: with an identical frame the only thing that
+     * can differ between the two shots is the swing itself, so the wider wedge is the thing
+     * worth seeing rather than a differently-framed picture of it.
+     *
+     * **Not the shared `gust` pose, but the same angle — and the angle, not just the frustum
+     * margin, is what this scene was originally shot and found wrong on.** A first pass at this
+     * pose sat 1.9 up and 11 back from the target: inside the frustum on paper, but at
+     * `atan(1.9 / 11) ≈ 9.8` degrees of look-down a flat horizontal sector reads almost edge-on
+     * — a sliver, not a wedge, the exact failure `gust`'s own scene comment names in its first
+     * sentence: shot from above and behind "so the ... wedge reads as a wedge instead of edge-on".
+     * Fitting inside `BASE_FOV`'s half-height answers whether the shape is in frame; it says
+     * nothing about whether a *flat* shape is foreshortened to nothing once it is. Both shots
+     * came back empty on the first take, which is what caught this.
+     *
+     * **The fix holds `gust`'s own look-down angle and scales its distance to the subject.**
+     * `gust` sits 10 up and 20 back from its target — `atan(10 / 20) = 26.565` degrees — and that
+     * angle is what makes a *flat ground wedge* read as a wedge rather than a line; nothing about
+     * it depends on `gust`'s own 12-unit range. The staff's own reach (opener 3.6, finisher 4.2,
+     * `DEFAULT_COMBAT_CONFIG.staffArc`) is a fraction of that, so this pose keeps the ratio —
+     * `up : back = 1 : 2`, the same `26.565`-degree look-down — and scales the distance down to
+     * the subject instead: **5 up, 10 back.**
+     *
+     * **The distance, worked out for the finisher's own reach rather than assumed.** Because the
+     * fill is an apex-centred disc (`sectorGeometry(shape.halfAngle, 0, 1)`), every point it
+     * draws sits within exactly `shape.range` of the apex regardless of `halfAngle` — a bounding
+     * sphere, the same simplification `impact-hit`'s own comment uses for a burst's `radius`.
+     * `createStaffArc` adds its own `HEIGHT` of 1 above whatever origin it is given
+     * (`staff-arc-fx.ts`), so against this scene's target of `(0, 11.9, 0)` — the bare measured
+     * ground height `gust`'s own comment takes and explains — the finisher's centre sits at
+     * `(0, 12.9, 0)`, radius 4.2.
+     *
+     * At `(0, 16.9, 10)` — `11.9 + 5` up, `10` back, the `26.565`-degree angle above — distance to
+     * that centre is `sqrt(10² + 4²) ≈ 10.77`; the camera's axis toward the scene's own target
+     * sits `≈4.76` degrees off the vector to the centre; the finisher's own half-angular radius
+     * from the camera is `asin(4.2 / 10.77) ≈ 22.95` degrees — for a far edge at
+     * `4.76 + 22.95 ≈ 27.72` degrees off-axis, inside `BASE_FOV` 70's 35-degree half-height
+     * (`mapping.ts`) with about 7.3 degrees to spare, at the correct look-down angle this time.
+     * The opener's shorter 3.6 reach frames with more room still (half-angular radius `≈19.53`
+     * degrees, total `≈24.29`, `≈10.7` degrees to spare) — never less, which is the whole point
+     * of sizing the shared pose to the wider of the two swings.
+     *
+     * **Timing, landed through the real clock rather than assumed from `duration - fireAt`, and
+     * moved earlier in the swing's life for a second reason this scene was reshot.** A swing is
+     * an instant, and its readable moment is at the start, not the middle: the first pass froze
+     * at 52 per cent through `LIFETIME`, where `FILL_OPACITY * (1 - t)` had already faded from
+     * 0.55 to roughly 0.29 — half-gone on top of a near-edge-on angle left nothing to
+     * photograph either way. `src/bench/effects.test.ts` runs every scene through `runFixedClock`
+     * (`./clock.ts`) for the reason its own comment gives: the fixed step never divides a scene's
+     * own numbers evenly, so the naive subtraction is not the age the bench actually freezes on.
+     * `fireAt: 0.02, duration: 0.05` lands a real age of `0.033333` s against `staff-arc-fx.ts`'s
+     * 0.16 s `LIFETIME` — 20.8 per cent through the swing's life, where `FILL_OPACITY * (1 - t)`
+     * is `0.55 * (1 - 0.2083) ≈ 0.435` — still close to its peak brightness, with 0.126667 s
+     * (79 per cent) of margin before it would read as already faded. `staff-finisher` below
+     * lands at the same real age, sharing this scene's `fireAt`/`duration` along with its pose,
+     * since `LIFETIME` does not depend on which shape was handed to it.
+     */
+    id: 'staff-opener',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 16.9, 10), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'staff-opener',
+    fireAt: 0.02,
+    duration: 0.05,
+  },
+  {
+    /**
+     * The staff's finisher, from the identical pose and timing `staff-opener` above uses — see
+     * its own comment for why the pose holds `gust`'s 26.565-degree look-down angle rather than
+     * its distance, for why that angle (not just the frustum margin) is what the first take of
+     * this scene got wrong, and for the real frozen age both scenes land on. Copied field for
+     * field rather than tuned, the same discipline `water`'s own comment argues for against
+     * `gust`: a hand-edit to either pose would silently break the comparison the shared frame
+     * exists to make.
+     */
+    id: 'staff-finisher',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 16.9, 10), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'staff-finisher',
+    fireAt: 0.02,
+    duration: 0.05,
+  },
+  {
+    /**
      * Air Wall. `createAirWallPanel` is a held state rather than a one-shot `Effect` — see its
      * own doc comment — so `./effects.ts`'s `benchEffect` wraps it around a clock that holds the
      * panel up for `DEFAULT_COMBAT_CONFIG.airWall.maxSeconds` (0.9s) before releasing it, which
@@ -536,10 +648,10 @@ export const BENCH_SCENES: readonly BenchScene[] = [
   {
     /**
      * Steam has its own effect now — `createSteam`'s rising column, wired in `./effects.ts` — so
-     * unlike the staff finisher below it no longer shares `ringAt`'s placeholder. (Mud no longer
-     * shares it either — see its own comment just below.) This shot is otherwise unchanged: same
-     * camera, same `fireAt` and `duration`, so a diff between this scene's frames before and
-     * after Task 7 is a diff of the effect alone.
+     * it no longer shares `ringAt`'s placeholder the way it once did. (Mud and the chain
+     * finisher below no longer share it either — see each one's own comment.) This shot is
+     * otherwise unchanged: same camera, same `fireAt` and `duration`, so a diff between this
+     * scene's frames before and after Task 7 is a diff of the effect alone.
      */
     id: 'steam',
     regionId: ARCHIPELAGO_ID,
@@ -566,15 +678,281 @@ export const BENCH_SCENES: readonly BenchScene[] = [
   },
   {
     /**
-     * The staff finisher's placeholder shot: `ringAt` at `PLACEHOLDER_RADIUS`/
-     * `PLACEHOLDER_STRENGTH` in `./effects.ts`, deferred until the finisher gets its own effect.
-     * Steam and Mud, just above, no longer share this placeholder — see their own comments.
+     * The chain finisher's own flourish — `createFinisherFlare`'s vertical flare at the player's
+     * feet, wired in `./effects.ts`. It no longer shares `ringAt`'s placeholder the way it did
+     * before this task, the same retirement Steam and Mud already had; see either one's own
+     * comment above. The pose and timing below are new rather than carried over: the placeholder
+     * shot reused the wide `gust` pose (`(0, 21.9, 20)` looking at `(0, 11.9, 0)`, a 22-unit
+     * shot framed for a 12-unit wedge), and this effect is nothing like that wedge's size or
+     * orientation.
+     *
+     * **Trap 1: the effect's origin is the camera's own target, not a separate fact.**
+     * `bench/main.ts` hands `scene.camera.target.clone()` to the effect as the point it is
+     * spawned at, so an effect that lifts itself above that point sits above the aim point rather
+     * than off to one side of it. The flare grows straight up from wherever it is spawned, so the
+     * target has to stay bare ground — `(0, 11.9, 0)`, the same measured island-centre height
+     * (`groundHeightAt(0, 0)` ≈ 11.87) every other scene here already targets — and the whole
+     * flare then rises into frame above that point rather than the camera having to guess where
+     * "above" will land.
+     *
+     * **Trap 2: a pose framed for a 12-metre wedge photographs a small object as nothing.** The
+     * flare's own footprint is under two units across (`TOP_RADIUS` 0.9) and a little over two
+     * units tall (`HEIGHT` 2.3, `finisher.ts`) — nowhere near the 12-unit reach a gust or water
+     * cone needs to state honestly. Kept on the inherited wide pose, it would read as a speck.
+     * The new pose sits at `(0, 13.9, 5)`, close enough that the flare's own width fills a real
+     * fraction of the frame rather than the fraction a 12-unit wedge needs to.
+     *
+     * **Trap 3 — the one that does not apply here, said explicitly so it does not read as
+     * missed.** A flat horizontal shape seen from a shallow angle foreshortens to a sliver; that
+     * is what photographed the staff scenes completely empty before their own fix. This flare is
+     * the opposite orientation: it stands vertically, so a shallow, near-level look is what shows
+     * its height rather than hiding it — the same fact `slipstream`'s own comment gives for why a
+     * *tall* shape wants a low camera, not the steep look-down a flat ground decal can afford.
+     * `(0, 13.9, 5)` looking at `(0, 11.9, 0)` is a 2-unit rise over a 5-unit run, about 22
+     * degrees below horizontal — shallow enough that the flare's full 2.3-unit climb stays inside
+     * the frame instead of collapsing toward a dot the way a steep overhead look would.
+     *
+     * `groundHeightAt(0, 5)` measures 11.55 with the same probe technique `gust`'s own comment
+     * uses, so the camera at 13.9 clears the terrain by 2.35 units — close to `slipstream`'s own
+     * thinnest margin, and for the same reason: a close, low camera is the price of framing a
+     * small effect at all.
+     *
+     * **Timing.** `fireAt: 0.1` matches every other reaction-scale shot in this file. `duration:
+     * 0.2` — matching `gust`'s own duration, which is not a coincidence: `finisher.ts`'s own
+     * `LIFETIME` is `0.22`, chosen to equal `gust-cone.ts`'s `LIFETIME` exactly, so the two share
+     * a duration for the same reason they share a lifetime. Run through the real clock
+     * (`runFixedClock`, the same arithmetic `effects.test.ts`'s own frozen-frame guard uses
+     * rather than a second formula that could drift from it), this freezes the flare at age
+     * ≈0.1167s — 53% of the way through `LIFETIME`, past halfway grown and still comfortably
+     * above half its peak opacity — with a margin of ≈0.1033s (about six frames at 60Hz) before
+     * `advance` would report it finished. Comfortably inside the window, and framed at the point
+     * the flare is actually worth photographing rather than at its first spark or its last fade.
      */
     id: 'finisher',
     regionId: ARCHIPELAGO_ID,
-    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    camera: { position: new Vector3(0, 13.9, 5), target: new Vector3(0, 11.9, 0) },
     elevation: SUN_ELEVATION_DEGREES,
     effect: 'finisher',
+    fireAt: 0.1,
+    duration: 0.2,
+  },
+  {
+    /**
+     * The impact burst's three kinds, sharing one pose so the only thing that can differ
+     * between the three shots is the burst itself — the argument `water`'s own comment makes
+     * at length against `gust`'s pose, applied here to three shots of one effect instead of
+     * two effects sharing a ground scale.
+     *
+     * **Why not the shared cone pose.** `gust` and `water` are framed for a 12-unit wedge at
+     * roughly 22 units of throw; the impact bursts run 0.7 to 2.3 units across (`SHAPES` in
+     * `impact.ts`), which at that distance would be a few pixels of haze — the same "cannot
+     * support a judgement about how the effect reads" failure `dash-trail`'s own comment
+     * diagnoses for a subject smaller still. So this trio gets its own closer pose instead,
+     * the same move `ice-shell` and `fire-thrust` made above for their own body-scale
+     * subjects.
+     *
+     * **The trap this pose exists to dodge, named so it is not repeated a third time.**
+     * `bench/main.ts` hands a scene's own `camera.target` to the effect as its *origin*
+     * (`benchEffect(effectId, scene.camera.target.clone(), …)`), and `createImpact` then adds
+     * its own `HEIGHT` of 0.9 on top of it — the exact shape of the trap `ice-shell`'s own
+     * scene fell into in B2, recorded at length in that scene's comment above. The fix here is
+     * the same one used there: keep the target at the bare measured ground height, 11.9 (see
+     * `gust`'s comment for how that number was taken), and absorb the 0.9-unit lift with the
+     * *camera's* placement rather than the target's.
+     *
+     * **The pose: `(0, 13.8, 9)` looking at `(0, 11.9, 0)`.** 13.8 is the same camera height
+     * `ice-shell` and `fire-thrust` already use, and it already clears the terrain near the
+     * island's centre for both of them; 9 units back is close enough to frame `down`, the
+     * largest of the three (`radius: 2.3`), without cropping it. Worked out rather than
+     * assumed: the burst's centre sits at 11.9 + 0.9 = 12.8, a distance of 9.055 from the
+     * camera; the view axis toward the `(0, 11.9, 0)` target sits 5.58 degrees off the vector
+     * to that centre, and `down`'s own half-angular radius from the camera is
+     * `asin(2.3 / 9.055) ≈ 14.71` degrees — for a far edge at `5.58 + 14.71 ≈ 20.29` degrees
+     * off-axis, comfortably inside `BASE_FOV` 70's 35-degree half-height (`mapping.ts`), with
+     * about 14.7 degrees to spare. `hit` (radius 1.1) and `deflect` (radius 0.7) are smaller
+     * subjects at the same distance, so the same pose frames both with more room still
+     * (half-angular radii 6.98 and 4.43 degrees respectively), never less.
+     *
+     * **Timing, landed through the real clock rather than assumed from `duration - fireAt`.**
+     * `src/bench/effects.test.ts` runs every scene through `runFixedClock` (`./clock.ts`) to
+     * derive the frame the bench would actually freeze on, because the fixed step never
+     * divides a scene's own numbers evenly and the loop always runs at least one whole step
+     * past the boundary it is checking. `fireAt: 0.05, duration: 0.13` lands `hit` at a real
+     * age of six steps past firing — `(1/60) * 6 ≈ 0.1s` against its 0.18s `LIFETIME`, 56%
+     * through its life with 0.08s (44%) of margin before it would read as dead. `impact-down`
+     * below lands at its own comparable fraction. `impact-deflect`, in a second gate round,
+     * moved to a deliberately different point in its own life for a reason that does not apply
+     * to either scene above — see its own comment — which leaves `impact-hit`'s 0.08s the
+     * tightest margin of the three as shipped now, not `impact-deflect`'s.
+     */
+    id: 'impact-hit',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 13.8, 9), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'impact-hit',
+    fireAt: 0.05,
+    duration: 0.13,
+  },
+  {
+    /**
+     * The down burst, the same shared pose as `impact-hit` just above — see that scene's own
+     * comment for why one pose serves all three impact kinds and how it was sized against
+     * `down`, the largest of them.
+     *
+     * `fireAt: 0.1, duration: 0.32` lands at a real age of fourteen steps past firing,
+     * `(1/60) * 14 ≈ 0.2333s` against `down`'s own 0.45s `LIFETIME` — 52% through its life,
+     * with 0.2167s (48%) of margin to spare, the most generous of the three.
+     */
+    id: 'impact-down',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 13.8, 9), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'impact-down',
+    fireAt: 0.1,
+    duration: 0.32,
+  },
+  {
+    /**
+     * The deflect burst, the same shared pose as `impact-hit` above, for the same reason — see
+     * that scene's comment for the pose. **Its timing does not follow the same rule as its two
+     * siblings, and deliberately so.** `impact-hit` and `impact-down` are both photographed
+     * mid-life (56% and 52% through, respectively) because each of those kinds makes its claim
+     * over a stretch of time worth catching in the middle of. `deflect`'s whole claim is the
+     * opposite: it exists to read as instantaneous — "that bounced" rather than "that hit a
+     * bit," per this file's own top-of-module doc comment — so a mid-life frame photographs it
+     * after its one readable moment has already passed. Its `alpha` peaks at spawn and fades
+     * linearly across its 0.12s `LIFETIME` (`shape.opacity * (1 - t)` in `createImpact`'s own
+     * `apply()`), so the earlier the frozen frame lands, the closer it sits to that peak.
+     *
+     * `fireAt: 0.01, duration: 0.03` lands at a real age of two steps past firing —
+     * `(1/60) * 2 ≈ 0.0333s` against `deflect`'s own 0.12s `LIFETIME`, unchanged — 28% through
+     * its life rather than the first gate round's 56%. At that age the alpha fade has only
+     * taken it to `1 - 0.28 ≈ 72%` of peak (`0.7 * 0.7222 ≈ 0.51`, against `0.7 * 0.44 ≈ 0.31`
+     * at the old timing), and the scale-up (`START_FRACTION` 0.25 lerping to 1 over the life)
+     * sits at `0.25 + 0.75 * 0.28 ≈ 46%` of full radius rather than the old 65% — smaller, which
+     * is the accepted trade for catching it near its peak rather than mid-fade. This still
+     * clears `src/bench/effects.test.ts`'s liveness check with 0.0867s (72%) of margin before
+     * `deflect` would read as dead, more margin than the old timing had, not less; `deflect`'s
+     * own `radius` (0.7 against `down`'s 2.3) is why it reads smaller than its siblings at this
+     * shared pose regardless of timing, by design, per `impact-hit`'s own comment on how the
+     * pose was sized — not a framing bug introduced by moving this scene's clock.
+     */
+    id: 'impact-deflect',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 13.8, 9), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'impact-deflect',
+    fireAt: 0.01,
+    duration: 0.03,
+  },
+  {
+    /**
+     * The Slipstream's guard shell. There is no player here to wrap it around — `bench/main.ts`'s
+     * own comment records that the player, the enemies and the input tracker do not exist in this
+     * module — so this shot shows the shell's own shape against the world, and whether it reads
+     * *around a character* is a thing only play can answer.
+     *
+     * **The same pose as `ice-shell`, reused rather than re-derived, and safely so.**
+     * `createGuardShell`'s `CENTRE_Y` is 0.95, identical to `createIceShell`'s, so against the
+     * same target `(0, 11.9, 0)` the two shells' centres land on the exact same point,
+     * `(0, 12.85, 0)` — see `ice-shell`'s own comment for how that point and this pose were
+     * checked against `bench/main.ts`'s target-is-origin trap. The only thing that changes is
+     * `RADIUS`: 1.15 here against ice-shell's 1.3, strictly smaller, so a pose already proven to
+     * keep a 1.3-unit shell in frame keeps a 1.15-unit one in frame with more room, not less.
+     * Recomputed rather than assumed: camera `(0, 13.8, 4.5)`, view axis to target `(0, -1.9,
+     * -4.5)`; the shell's top edge `(0, 14.00, 0)` sits about 25.5 degrees off that axis and its
+     * bottom edge `(0, 11.70, 0)` about 2.5 degrees off, both comfortably inside `BASE_FOV` 70's
+     * 35-degree half-height (`mapping.ts`), with roughly 9.5 degrees of margin on the tighter
+     * (top) edge.
+     *
+     * **Timing.** `./effects.ts`'s `benchGuardShell` holds the shell active for its own
+     * `HOLD_SECONDS` (0.5s) before releasing it, well past `createGuardShell`'s own
+     * `FADE_IN_SECONDS` (0.02s) — the whole window this move's tell has to work with is 0.11s
+     * long, so the fade-in itself is nearly instant, and holding for ten times that is what
+     * "well past" means for a shell this fast. `fireAt: 0.1, duration: 0.3` freezes the frame at
+     * a real age of about 0.2s into the hold: long past the 0.02s rise and comfortably short of
+     * the 0.5s release, so the shell is at full, steady opacity rather than mid-fade in either
+     * direction.
+     */
+    id: 'guard-shell',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 13.8, 4.5), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'guard-shell',
+    fireAt: 0.1,
+    duration: 0.3,
+  },
+  {
+    /**
+     * The Avatar State's aura. Same absent-player caveat as `guard-shell` just above: there is no
+     * character here for it to surround, so this shot can only show its own shape against the
+     * world, not whether that shape reads as air around a body — that is play's question, not the
+     * bench's.
+     *
+     * **Its own pose, checked rather than borrowed verbatim, because the two shells do not land
+     * on quite the same point.** `createAvatarAura`'s `HEIGHT` is 1 and its `RADIUS` is 1.35 —
+     * both a touch larger than the guard shell's `CENTRE_Y` 0.95 and `RADIUS` 1.15 — so against
+     * the shared target `(0, 11.9, 0)` this shell's centre sits at `(0, 12.9, 0)`, 0.05 units
+     * above `ice-shell`'s and the guard shell's `(0, 12.85, 0)`, and its radius reaches 0.05
+     * units further than `ice-shell`'s 1.3. Close enough that the guard shell's pose was worth
+     * checking against this shell specifically rather than assumed to still clear it: at
+     * `(0, 13.8, 4.5)` the top edge came out to within about 6 degrees of `BASE_FOV` 70's
+     * 35-degree half-height, not a bad frame but a tighter margin than either sibling scene
+     * carries. Pulled back to `(0, 13.8, 5.5)` instead — one unit further along the same shallow
+     * approach — for a share of margin closer to `ice-shell`'s own.
+     *
+     * Recomputed for this pose: view axis to target `(0, -1.9, -5.5)`; the shell's top edge
+     * `(0, 14.25, 0)` sits about 23.8 degrees off that axis and its bottom edge `(0, 11.55, 0)`
+     * about 3.2 degrees off, both inside the 35-degree half-height with roughly 11.2 degrees of
+     * margin on the tighter (top) edge — more room than the guard shell's own 9.5, not less,
+     * despite the larger shell, because the extra unit of throw shrinks its angular size faster
+     * than the extra size grows it.
+     *
+     * **Timing.** `./effects.ts`'s `benchAvatarAura` holds the shell active for its own
+     * `HOLD_SECONDS` (1s), longer than the guard shell's 0.5s because `createAvatarAura`'s own
+     * `FADE_IN_SECONDS` is 0.15s rather than 0.02s and the hold has to clear it by a comparable
+     * margin. `fireAt: 0.2, duration: 0.6` freezes the frame at a real age of about 0.4s into the
+     * hold: well past the 0.15s rise and well short of the 1s release, so the aura is at full,
+     * steady opacity.
+     */
+    id: 'avatar-aura',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 13.8, 5.5), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'avatar-aura',
+    fireAt: 0.2,
+    duration: 0.6,
+  },
+  {
+    /**
+     * The aim tell. Held `targeted` and `ready` for the whole shot so both children draw —
+     * `./effects.ts`'s wrapper does that, the same technique `benchAirWall` uses for a held
+     * state that has no natural end. The previewed cone is `DEFAULT_COMBAT_CONFIG.gust`, the
+     * shape the game actually feeds this tell for the F move, not an invented one.
+     *
+     * **`gust`'s own pose, taken rather than reframed, because the subject is not smaller here
+     * — it is the same size.** The preview sector is drawn at the gust's own range, 12, the
+     * identical wedge `gust`'s scene already frames — this is not one of the recent small-
+     * object scenes (`guard-shell`, `avatar-aura`, `ice-shell`) that needed their own closer
+     * pose because a 12-unit frame photographed a 1-unit shape as nothing. At `gust`'s own
+     * 10-up-20-back position against the same `(0, 11.9, 0)` target, the look-down angle is
+     * `atan(10 / 20) = 26.565` degrees — trap 3, the one the staff scenes hit at 9.8 degrees,
+     * is squarely this scene's risk too: both meshes here are flat and sit within `HEIGHT`
+     * (0.08) of the ground, closer to edge-on than anything else on the bench. Foreshortening
+     * from a shallow look-down is a property of the camera angle against a horizontal plane,
+     * not of how high above the ground that plane sits, so `gust`'s already-validated 26.565
+     * degrees applies to this tell's near-ground preview exactly as it does to the gust cone's
+     * own `HEIGHT`-1 fill — reframing closer would only shrink the frame around a wedge that
+     * already fits it.
+     *
+     * The chevron marker sits at `markerDistance` 3, well inside the 12-unit preview, so both
+     * children land in the same frame this pose already proves out for the gust.
+     */
+    id: 'aim-tell',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'aim-tell',
     fireAt: 0.1,
     duration: 0.3,
   },

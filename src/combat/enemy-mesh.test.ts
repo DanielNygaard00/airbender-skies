@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { Euler, Group, Mesh, MeshLambertMaterial, Object3D, Quaternion, Vector3 } from 'three'
+import {
+  Euler, Group, Mesh, MeshBasicMaterial, MeshLambertMaterial, Object3D, Quaternion, Vector3,
+} from 'three'
 import { createEnemyView } from './enemy-mesh'
 import { spawnEnemy, hitEnemy, type Enemy, type EnemyKind, type Stance } from './enemy'
 import { DEFAULT_COMBAT_CONFIG } from './config'
@@ -433,5 +435,73 @@ describe('a downed soldier drops whatever it was holding', () => {
     expect(Math.abs(bow.rotation.x)).toBeGreaterThan(0.3)
     view.sync(hitEnemy(archer, ARCHER_CONFIG.maxHealth, new Vector3()), CAMERA, 0)
     expect(bow.rotation.x).toBeCloseTo(0, 5)
+  })
+})
+
+describe('the mark pip', () => {
+  // Not `CAMERA`: that Euler is tuned so the health-bar tests read as "turned", and reusing
+  // its name here would suggest the pip test is checking something specific to that angle
+  // rather than just "some non-identity rotation, so a copy versus a no-op can be told apart".
+  const IDENTITY = new Quaternion()
+  const TURNED = new Quaternion().setFromEuler(new Euler(0.3, 0.9, 0))
+
+  function pipOf(view: { object: Object3D }): Mesh {
+    const found = child(view, 'mark-pip')
+    if (!(found instanceof Mesh)) throw new Error('expected the mark pip to be a Mesh')
+    return found
+  }
+
+  function colourOf(pip: Mesh): number {
+    return (pip.material as MeshBasicMaterial).color.getHex()
+  }
+
+  function fadeOf(pip: Mesh): number {
+    return (pip.material as MeshBasicMaterial).opacity
+  }
+
+  it('is hidden on an unmarked soldier, and costs nothing', () => {
+    const view = viewFor('spear')
+    view.sync({ ...enemyAt(0, 0), mark: null }, IDENTITY, 0)
+    expect(pipOf(view).visible).toBe(false)
+  })
+
+  it('appears when a mark is written, and says which element', () => {
+    const view = viewFor('spear')
+    view.sync({ ...enemyAt(0, 0), mark: { element: 'fire', secondsLeft: 2.5 } }, IDENTITY, 0)
+    const pip = pipOf(view)
+    expect(pip.visible).toBe(true)
+    const fire = colourOf(pip)
+    view.sync({ ...enemyAt(0, 0), mark: { element: 'earth', secondsLeft: 2.5 } }, IDENTITY, 0)
+    expect(colourOf(pip)).not.toBe(fire)
+  })
+
+  it('shows a mark running out, because a fresh mark and a dying one are different facts', () => {
+    const view = viewFor('spear')
+    view.sync({ ...enemyAt(0, 0), mark: { element: 'fire', secondsLeft: 2.5 } }, IDENTITY, 0)
+    const fresh = fadeOf(pipOf(view))
+    view.sync({ ...enemyAt(0, 0), mark: { element: 'fire', secondsLeft: 0.2 } }, IDENTITY, 0)
+    expect(fadeOf(pipOf(view))).toBeLessThan(fresh)
+  })
+
+  it('faces the camera, like the health bar above it', () => {
+    const view = viewFor('spear')
+    view.sync({ ...enemyAt(0, 0), mark: { element: 'water', secondsLeft: 1 } }, TURNED, 0)
+    expect(pipOf(view).quaternion.x).toBeCloseTo(TURNED.x, 5)
+  })
+
+  it('is hidden on a downed soldier, because a mark on something that cannot act says nothing', () => {
+    // `markEnemy` already refuses to write a mark on a downed body, for this reason. But
+    // nothing clears an EXISTING mark when a soldier goes down: `hitEnemy` leaves `mark`
+    // untouched, and `markAndReact` in encounter.ts only clears it on the branch where the
+    // blow that downs the soldier is itself the one that fires a reaction -- an ordinary
+    // killing blow that does not react leaves the old mark standing. So a mark written
+    // before the knockdown can still be sitting in `enemy.mark` afterwards, only ageing out
+    // on its own schedule. This check is the one thing standing between that stale data and
+    // a pip drawn on a body -- load-bearing, not belt-and-braces.
+    const view = viewFor('spear')
+    view.sync(
+      { ...downed(enemyAt(0, 0)), mark: { element: 'fire', secondsLeft: 2.5 } }, IDENTITY, 0,
+    )
+    expect(pipOf(view).visible).toBe(false)
   })
 })

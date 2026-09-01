@@ -1,6 +1,7 @@
 import {
-  BackSide, MathUtils, Mesh, MeshBasicMaterial, SphereGeometry, type Object3D,
+  BackSide, Color, MathUtils, Mesh, SphereGeometry, type Object3D,
 } from 'three'
+import { createEffectMaterial } from './effect-material'
 
 /**
  * The shell of air around the character while the Avatar State runs.
@@ -29,16 +30,33 @@ const FADE_IN_SECONDS = 0.15
 const FADE_OUT_SECONDS = 0.4
 const TINT = 0xfff3c4
 
+/**
+ * A bright silhouette and a dim interior, so the shell reads as a surface and not a wash.
+ *
+ * `guard-shell.ts`'s `SHELL_BODY` — byte-identical to this one — carries the full argument:
+ * why the edge has to be read off `vViewNormal` rather than object space (pointing at
+ * `ice-shell.ts` in turn), why `abs` is required for a `BackSide` mesh, why there is no `time`
+ * uniform, why the two files duplicate this body rather than sharing it, and why `0.35` replaces
+ * the arc bodies' `0.18` here with both fractions computed against both tints. None of that is
+ * restated in this file.
+ */
+const SHELL_BODY = /* glsl */ `
+    vec3 n = normalize(vViewNormal);
+    float grazing = 1.0 - abs(n.z);
+    float core = smoothstep(0.30, 0.70, grazing);
+    gl_FragColor = vec4(mix(tint * 0.35, tint, core), alpha * max(core, 0.30));
+`
+
 export function createAvatarAura(): AvatarAura {
   const geometry = new SphereGeometry(RADIUS, 20, 14)
-  const material = new MeshBasicMaterial({
-    color: TINT,
-    transparent: true,
+  const material = createEffectMaterial({
+    body: SHELL_BODY,
+    uniforms: { tint: new Color(TINT), alpha: 0 },
     // Inside-out, so the shell reads as air around the character rather than a bubble
-    // drawn over them.
+    // drawn over them. `depthTest` is left at the builder's own default of `true`, for
+    // `air-wall.ts`'s reason: this shell extends as far below the character's footing as
+    // above it, and the depth test is what keeps that underground half hidden by the ground.
     side: BackSide,
-    depthWrite: false,
-    opacity: 0,
   })
 
   const mesh = new Mesh(geometry, material)
@@ -55,7 +73,7 @@ export function createAvatarAura(): AvatarAura {
       const seconds = active ? FADE_IN_SECONDS : FADE_OUT_SECONDS
       const step = seconds > 0 ? dt / seconds : 1
       lit = MathUtils.clamp(active ? lit + step : lit - step, 0, 1)
-      material.opacity = PEAK_OPACITY * lit
+      material.uniforms.alpha!.value = PEAK_OPACITY * lit
       // Skipped entirely when invisible, so it costs nothing the rest of the time.
       mesh.visible = lit > 0.001
     },

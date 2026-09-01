@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Mesh } from 'three'
+import { BackSide, Mesh, ShaderMaterial } from 'three'
 import { createAvatarAura, type AvatarAura } from './avatar-aura'
 
 function shell(aura: AvatarAura): Mesh {
@@ -8,10 +8,20 @@ function shell(aura: AvatarAura): Mesh {
   return object
 }
 
-function opacityOf(aura: AvatarAura): number {
+// The aura moved from a `MeshBasicMaterial` to a `ShaderMaterial` built through
+// `createEffectMaterial` (see `avatar-aura.ts`'s own `SHELL_BODY` comment), so what carries
+// opacity moved with it: from the material's own `.opacity` to an `alpha` uniform `update`
+// writes every frame.
+function shellMaterialOf(aura: AvatarAura): ShaderMaterial {
   const material = shell(aura).material
-  if (Array.isArray(material)) throw new Error('expected a single material')
-  return material.opacity
+  if (!(material instanceof ShaderMaterial)) throw new Error('expected a ShaderMaterial')
+  return material
+}
+
+function opacityOf(aura: AvatarAura): number {
+  const value = shellMaterialOf(aura).uniforms.alpha?.value
+  if (typeof value !== 'number') throw new Error('expected a numeric alpha uniform')
+  return value
 }
 
 /** Hold `active` for `seconds` at 60 Hz. */
@@ -100,5 +110,41 @@ describe('createAvatarAura', () => {
 
   it('disposes without throwing', () => {
     expect(() => createAvatarAura().dispose()).not.toThrow()
+  })
+})
+
+describe('the shell reads as a surface rather than a wash', () => {
+  it('brightens toward its silhouette, where the surface turns away', () => {
+    // ice-shell.ts's argument, unchanged: on a closed shell the visible boundary is a fact
+    // about the view, so a band in object space is not a band on screen.
+    const material = shellMaterialOf(createAvatarAura())
+    expect(material.fragmentShader).toContain('vViewNormal')
+    expect(material.fragmentShader).toContain('1.0 - abs(n.z)')
+  })
+
+  it('stays BackSide, so it still reads as air around the character', () => {
+    expect(shellMaterialOf(createAvatarAura()).side).toBe(BackSide)
+  })
+
+  it('stays depth-tested, so its lower half is hidden by the ground', () => {
+    expect(shellMaterialOf(createAvatarAura()).depthTest).toBe(true)
+  })
+
+  it('drives alpha from the fade, not from a time uniform', () => {
+    // The aura's fade-out is the slow one here (0.4s against the guard shell's 0.03s), so this
+    // holds the state active long enough to reach a meaningfully lit value before release,
+    // rather than reusing the guard shell's one-frame timing verbatim.
+    const aura = createAvatarAura()
+    const material = shellMaterialOf(aura)
+    for (let t = 0; t < 0.3; t += 1 / 60) aura.update(1 / 60, true)
+    const lit = material.uniforms.alpha?.value
+    for (let t = 0; t < 0.1; t += 1 / 60) aura.update(1 / 60, false)
+    expect(material.uniforms.alpha?.value).toBeLessThan(lit as number)
+  })
+
+  it('costs nothing while invisible', () => {
+    const aura = createAvatarAura()
+    aura.update(1 / 60, false)
+    expect(aura.object.visible).toBe(false)
   })
 })

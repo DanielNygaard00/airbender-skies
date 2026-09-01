@@ -99,6 +99,20 @@ describe('bench scenes', () => {
     expect(scene.camera.target.equals(new Vector3(0, 11.9, 0))).toBe(true)
   })
 
+  it('shoots the staff finisher from the same pose and timing as the opener, so the swing is the only difference', () => {
+    // The argument `water`'s own comment makes at length against `gust`, applied to two shots of
+    // one weapon instead of two effects. Pinned as literals, the same way the shared-pose tests
+    // above pin `gust`'s: a hand-edit to either scene would silently break the comparison without
+    // failing any other check in this file.
+    const opener = BENCH_SCENES.find((s) => s.id === 'staff-opener')!
+    const finisher = BENCH_SCENES.find((s) => s.id === 'staff-finisher')!
+    expect(finisher.camera.position.equals(opener.camera.position)).toBe(true)
+    expect(finisher.camera.target.equals(opener.camera.target)).toBe(true)
+    expect(finisher.elevation).toBe(opener.elevation)
+    expect(finisher.fireAt).toBe(opener.fireAt)
+    expect(finisher.duration).toBe(opener.duration)
+  })
+
   it('warns and returns nothing for an unknown id', () => {
     // Falls back to nothing rather than to a default scene: a mistyped bench id should say
     // so, and silently rendering a different scene is how a screenshot gets filed against
