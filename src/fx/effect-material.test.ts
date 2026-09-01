@@ -220,8 +220,13 @@ describe('WEDGE_PREAMBLE', () => {
   it('assembles into a legal body when halfAngle is supplied', () => {
     // effectFragmentSource's uniforms parameter is required, not defaulted (see the same
     // pattern in the polar preamble's own "passes the builder's own refusal" test above).
-    expect(() => effectFragmentSource(WEDGE_PREAMBLE + 'gl_FragColor = vec4(tint, alpha * across);', {}))
-      .not.toThrow()
+    // halfAngle itself must actually be declared here: this test asserts the body is legal,
+    // and an under-declared wedge body is exactly the silent-link-failure shape this whole
+    // task exists to catch, which the sibling describe block below covers directly.
+    expect(() => effectFragmentSource(
+      WEDGE_PREAMBLE + 'gl_FragColor = vec4(tint, alpha * across);',
+      { halfAngle: Math.PI / 3 },
+    )).not.toThrow()
   })
 })
 

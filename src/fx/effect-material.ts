@@ -93,7 +93,7 @@ const VERTEX_SHADER = /* glsl */ `
  * | `OctahedronGeometry` | `vLocal`; UVs exist (`PolyhedronGeometry`'s `generateUVs` derives them from spherical azimuth/inclination) but carry pole and seam artefacts, so they are not useful here |
  * | `CylinderGeometry` | side-face `vUv` genuinely is (around, up), as `air-wall.ts` uses |
  * | `SphereGeometry` | `vUv` is (azimuth, polar); a shell wanting its own silhouette instead wants `vViewNormal`, as `ice-shell.ts` does |
- * | hand-built `BufferGeometry` | check what attributes it actually sets before trusting anything derived from them — `aim-tell.ts`'s `createChevronGeometry` sets only `position`, so `vUv` reads as zero across the whole mesh and only `vLocal` means anything; a body written against `vUv` there is uniformly flat and looks deliberate |
+ * | hand-built `BufferGeometry` | check what attributes it actually sets before trusting anything derived from them — `aim-tell.ts`'s `createChevronGeometry` sets only `position`, plus a `normal` derived by `computeVertexNormals()`. `vUv` reads as zero across the whole mesh, so a body written against it is uniformly flat and looks deliberate. `vViewNormal` exists too but is no better: a single flat triangle has one constant face normal, so it carries no per-fragment gradient either. `vLocal` is the only one of the three that means anything here |
  */
 export const POLAR_PREAMBLE = /* glsl */ `
     vec2 p = vUv * 2.0 - 1.0;
@@ -139,8 +139,12 @@ export const WEDGE_PREAMBLE = /* glsl */ `
     float across = atan(p.x, -p.y) / halfAngle;
 `
 
-/** Matched against a body so a missing `halfAngle` is a throw rather than a mesh that never draws. */
-export const WEDGE_MARKER = 'atan(p.x, -p.y) / halfAngle'
+/**
+ * Matched against a body so a missing `halfAngle` is a throw rather than a mesh that never
+ * draws. Unexported, like `FORBIDDEN` above: no caller outside this module needs to detect a
+ * wedge body, only to write one.
+ */
+const WEDGE_MARKER = 'atan(p.x, -p.y) / halfAngle'
 
 export const WEDGE_UNIFORM_MESSAGE =
   'A body using WEDGE_PREAMBLE must declare a `halfAngle` uniform: without it the shader fails '
