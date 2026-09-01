@@ -51,6 +51,14 @@ export type BenchEffectId =
   | 'steam'
   | 'mud'
   | 'finisher'
+  // The impact burst's three kinds. `createImpact` takes `(position, kind)`, not
+  // `(origin, forward)` — a burst has no direction of its own, the same reason `vortex` and
+  // `ice-shell` above leave `forward` unused — so `./effects.ts` registers all three against
+  // the same `(origin, forward) => Effect` shape and ignores the second argument, per that
+  // file's own comment on the pattern.
+  | 'impact-hit'
+  | 'impact-down'
+  | 'impact-deflect'
 
 export interface BenchScene {
   id: string
@@ -577,6 +585,98 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     effect: 'finisher',
     fireAt: 0.1,
     duration: 0.3,
+  },
+  {
+    /**
+     * The impact burst's three kinds, sharing one pose so the only thing that can differ
+     * between the three shots is the burst itself — the argument `water`'s own comment makes
+     * at length against `gust`'s pose, applied here to three shots of one effect instead of
+     * two effects sharing a ground scale.
+     *
+     * **Why not the shared cone pose.** `gust` and `water` are framed for a 12-unit wedge at
+     * roughly 22 units of throw; the impact bursts run 0.7 to 2.3 units across (`SHAPES` in
+     * `impact.ts`), which at that distance would be a few pixels of haze — the same "cannot
+     * support a judgement about how the effect reads" failure `dash-trail`'s own comment
+     * diagnoses for a subject smaller still. So this trio gets its own closer pose instead,
+     * the same move `ice-shell` and `fire-thrust` made above for their own body-scale
+     * subjects.
+     *
+     * **The trap this pose exists to dodge, named so it is not repeated a third time.**
+     * `bench/main.ts` hands a scene's own `camera.target` to the effect as its *origin*
+     * (`benchEffect(effectId, scene.camera.target.clone(), …)`), and `createImpact` then adds
+     * its own `HEIGHT` of 0.9 on top of it — the exact shape of the trap `ice-shell`'s own
+     * scene fell into in B2, recorded at length in that scene's comment above. The fix here is
+     * the same one used there: keep the target at the bare measured ground height, 11.9 (see
+     * `gust`'s comment for how that number was taken), and absorb the 0.9-unit lift with the
+     * *camera's* placement rather than the target's.
+     *
+     * **The pose: `(0, 13.8, 9)` looking at `(0, 11.9, 0)`.** 13.8 is the same camera height
+     * `ice-shell` and `fire-thrust` already use, and it already clears the terrain near the
+     * island's centre for both of them; 9 units back is close enough to frame `down`, the
+     * largest of the three (`radius: 2.3`), without cropping it. Worked out rather than
+     * assumed: the burst's centre sits at 11.9 + 0.9 = 12.8, a distance of 9.055 from the
+     * camera; the view axis toward the `(0, 11.9, 0)` target sits 5.58 degrees off the vector
+     * to that centre, and `down`'s own half-angular radius from the camera is
+     * `asin(2.3 / 9.055) ≈ 14.71` degrees — for a far edge at `5.58 + 14.71 ≈ 20.29` degrees
+     * off-axis, comfortably inside `BASE_FOV` 70's 35-degree half-height (`mapping.ts`), with
+     * about 14.7 degrees to spare. `hit` (radius 1.1) and `deflect` (radius 0.7) are smaller
+     * subjects at the same distance, so the same pose frames both with more room still
+     * (half-angular radii 6.98 and 4.43 degrees respectively), never less.
+     *
+     * **Timing, landed through the real clock rather than assumed from `duration - fireAt`.**
+     * `src/bench/effects.test.ts` runs every scene through `runFixedClock` (`./clock.ts`) to
+     * derive the frame the bench would actually freeze on, because the fixed step never
+     * divides a scene's own numbers evenly and the loop always runs at least one whole step
+     * past the boundary it is checking. `fireAt: 0.05, duration: 0.13` lands `hit` at a real
+     * age of six steps past firing — `(1/60) * 6 ≈ 0.1s` against its 0.18s `LIFETIME`, 56%
+     * through its life with 0.08s (44%) of margin before it would read as dead. `impact-down`
+     * and `impact-deflect` below land at their own comparable fractions; `impact-deflect`'s own
+     * comment reports the tightest margin of the three.
+     */
+    id: 'impact-hit',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 13.8, 9), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'impact-hit',
+    fireAt: 0.05,
+    duration: 0.13,
+  },
+  {
+    /**
+     * The down burst, the same shared pose as `impact-hit` just above — see that scene's own
+     * comment for why one pose serves all three impact kinds and how it was sized against
+     * `down`, the largest of them.
+     *
+     * `fireAt: 0.1, duration: 0.32` lands at a real age of fourteen steps past firing,
+     * `(1/60) * 14 ≈ 0.2333s` against `down`'s own 0.45s `LIFETIME` — 52% through its life,
+     * with 0.2167s (48%) of margin to spare, the most generous of the three.
+     */
+    id: 'impact-down',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 13.8, 9), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'impact-down',
+    fireAt: 0.1,
+    duration: 0.32,
+  },
+  {
+    /**
+     * The deflect burst, the same shared pose as `impact-hit` above, for the same reason.
+     *
+     * `fireAt: 0.02, duration: 0.08` lands at a real age of four steps past firing,
+     * `(1/60) * 4 ≈ 0.0667s` against `deflect`'s own 0.12s `LIFETIME` — 56% through its life,
+     * with 0.0533s (44%) of margin to spare. That is the tightest margin of the three in
+     * absolute seconds, because `deflect` is the shortest-lived of the group — not a tighter
+     * fraction of the life than `impact-hit`'s own 44%, just the same fraction of a shorter
+     * number.
+     */
+    id: 'impact-deflect',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 13.8, 9), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'impact-deflect',
+    fireAt: 0.02,
+    duration: 0.08,
   },
   {
     /**

@@ -10,6 +10,7 @@ import { createFireBurst } from '../fx/fire-burst'
 import { createFireThrust } from '../fx/fire-thrust'
 import { createGustCone } from '../fx/gust-cone'
 import { createIceShell } from '../fx/ice-shell'
+import { createImpact } from '../fx/impact'
 import { createMud } from '../fx/mud'
 import { createShockwave } from '../fx/shockwave'
 import { createSlipstreamTrail } from '../fx/slipstream-trail'
@@ -165,6 +166,13 @@ export const BENCH_EFFECTS: Record<BenchEffectId, (origin: Vector3, forward: Vec
   steam: (origin) => createSteam(origin),
   mud: (origin) => createMud(origin),
   finisher: (origin) => ringAt(origin, PLACEHOLDER_RADIUS, PLACEHOLDER_STRENGTH),
+  // `createImpact` takes `(position, kind)`, not `(origin, forward)` — a burst where a blow
+  // lands has no direction of its own, the same reason `vortex` and `ice-shell` above leave
+  // `forward` unused — so all three kinds are registered against this file's own
+  // `(origin, forward) => Effect` shape and simply ignore the second argument.
+  'impact-hit': (origin) => createImpact(origin, 'hit'),
+  'impact-down': (origin) => createImpact(origin, 'down'),
+  'impact-deflect': (origin) => createImpact(origin, 'deflect'),
 }
 
 export function benchEffect(id: BenchEffectId, origin: Vector3, forward: Vector3): Effect {

@@ -1,14 +1,24 @@
 import { describe, it, expect } from 'vitest'
-import { Mesh, Vector3 } from 'three'
-import { createImpact } from './impact'
+import { Mesh, ShaderMaterial, Vector3 } from 'three'
+import { createImpact, impactShape } from './impact'
 import type { Effect } from './effect'
 
 const AT = new Vector3(4, 9, -2)
+const ORIGIN = new Vector3(0, 0, 0)
 
 function shell(impact: Effect): Mesh {
   const object = impact.object
   if (!(object instanceof Mesh)) throw new Error('expected a mesh')
   return object
+}
+
+/** The burst's shader material, built through `createEffectMaterial` for its rim and shards. */
+function burstMaterialOf(impact: Effect): ShaderMaterial {
+  const material = shell(impact).material
+  if (Array.isArray(material) || !(material instanceof ShaderMaterial)) {
+    throw new Error('expected the burst to carry a shader material')
+  }
+  return material
 }
 
 /** Run to completion, returning how many frames it took. */
@@ -63,13 +73,16 @@ describe('createImpact', () => {
   })
 
   it('fades out', () => {
+    // The burst's brightness is driven by the shader's own `alpha` uniform rather than by the
+    // material's base `opacity`, since a `ShaderMaterial`'s body controls `gl_FragColor.a`
+    // directly — `material.opacity` is never read by `BURST_BODY` and would be a silent no-op
+    // to write. `ice-shell.test.ts`'s `opacityOf` makes the same call for the same reason.
     const impact = createImpact(AT, 'hit')
-    const material = shell(impact).material
-    if (Array.isArray(material)) throw new Error('expected a single material')
-    const start = material.opacity
+    const material = burstMaterialOf(impact)
+    const start = material.uniforms.alpha?.value as number
     expect(start).toBeGreaterThan(0)
     impact.advance(0.12)
-    expect(material.opacity).toBeLessThan(start)
+    expect(material.uniforms.alpha?.value as number).toBeLessThan(start)
   })
 
   it('runs and then finishes, for both kinds', () => {
@@ -88,5 +101,49 @@ describe('createImpact', () => {
 
   it('disposes without throwing', () => {
     expect(() => createImpact(AT, 'down').dispose()).not.toThrow()
+  })
+})
+
+describe('the deflect reads as a spark off metal', () => {
+  it('breaks its surface into shards where the other two are smooth', () => {
+    // impact.ts's own words: the deflect "must not read as a weaker version of a connect".
+    // A different size and tint says weaker; a different surface says different material.
+    expect(impactShape('deflect').shards).toBeGreaterThan(0)
+    expect(impactShape('hit').shards).toBe(0)
+    expect(impactShape('down').shards).toBe(0)
+  })
+
+  it('wears the hardest rim of the three, because a spark has an edge and a puff does not', () => {
+    expect(impactShape('deflect').rim).toBeLessThan(impactShape('hit').rim)
+    expect(impactShape('deflect').rim).toBeLessThan(impactShape('down').rim)
+  })
+
+  it('shards a whole number of turns, so the surface has no seam', () => {
+    // `across`-style wrap: an angular frequency that is not periodic leaves a stationary
+    // discontinuity down one meridian. Caught twice in B2.
+    const material = burstMaterialOf(createImpact(ORIGIN, 'deflect'))
+    expect(material.fragmentShader).toContain('6.2832')
+  })
+
+  it('finds its silhouette from the view, not from object space', () => {
+    // A sphere's visible boundary is where it turns edge-on to the camera, which is a fact
+    // about the view. ice-shell.ts carries this argument in full.
+    const material = burstMaterialOf(createImpact(ORIGIN, 'deflect'))
+    expect(material.fragmentShader).toContain('vViewNormal')
+  })
+
+  it('keeps every shipped number', () => {
+    expect(impactShape('deflect').radius).toBeCloseTo(0.7, 5)
+    expect(impactShape('deflect').lifetime).toBeCloseTo(0.12, 5)
+    expect(impactShape('deflect').opacity).toBeCloseTo(0.7, 5)
+    expect(impactShape('deflect').tint).toBe(0xbcc4d2)
+  })
+
+  it('advances time, so the shards are not a still pattern', () => {
+    const effect = createImpact(ORIGIN, 'deflect')
+    const material = burstMaterialOf(effect)
+    const before = material.uniforms.time?.value
+    for (let t = 0; t < 0.06; t += 1 / 60) effect.advance(1 / 60)
+    expect(material.uniforms.time?.value).not.toBe(before)
   })
 })
