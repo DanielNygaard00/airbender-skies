@@ -68,8 +68,8 @@ const SHAPES: Record<ImpactKind, Shape> = {
    * records the gate's own shot calling `hit` "a clean pale outline of medium size" against
    * `down`'s "broad soft-rimmed bubble" -- so the argument for moving a number here cannot be
    * "these were indistinguishable". It is that `hit`'s own design asks for more than merely not
-   * being `down`: "quick and tight" is a specific, sharper read than a same-shaped ball at
-   * three-fifths the radius, and `rim`/`fill` are what carries that sharpening.
+   * being `down`: "quick and tight" is a specific, sharper read than a same-shaped ball at under
+   * half the radius (1.1 against 2.3), and `rim`/`fill` are what carries that sharpening.
    *
    * **`rim: 0.3`, narrower than `down`'s 0.5.** A narrower bright band reaches less far toward
    * face-on before the surface goes dark, which reads as a harder, quicker edge -- sharpening
