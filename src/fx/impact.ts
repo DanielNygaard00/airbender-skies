@@ -48,19 +48,50 @@ export interface Shape {
    * `6.2832 * n` rule was written for.
    */
   shards: number
+  /**
+   * How dark the interior goes, as a fraction of `tint`, once `edge`'s bright silhouette band
+   * has fallen away — the collar's own darkening (`mix(tint * dark, tint, core)` in every arc
+   * body that survived B2's gate), added on top of this burst's own surface rather than in place
+   * of it. A low fraction (near 0) is a hard, near-black core; a high one (near 1) barely darkens
+   * at all. See `BURST_BODY`'s doc comment for why this is a per-kind field rather than one
+   * shared constant.
+   */
+  dark: number
 }
 
 const SHAPES: Record<ImpactKind, Shape> = {
-  // `rim` and `fill` are a holding position, not a design: they reproduce today's one-shade
-  // sphere as closely as one shared body can -- smooth (`shards: 0`), a moderately wide rim so
-  // the silhouette does not go flat, and a fill high enough that the interior reads as filled
-  // rather than hollow. Task 3 is where these two get tuned on their own terms; nothing here
-  // has been judged against a real connect or a real down on screen yet.
+  // `rim`, `fill` and `dark` are a holding position, not a design: they reproduce today's
+  // one-shade sphere as closely as one shared body can -- smooth (`shards: 0`), a moderately
+  // wide rim so the silhouette does not go flat, and a fill high enough that the interior reads
+  // as filled rather than hollow. Task 3 is where these get tuned on their own terms; nothing
+  // here has been judged against a real connect or a real down on screen yet.
+  //
+  // `dark: 0.6` is a light touch deliberately: these are soft, broad puffs rather than a hard
+  // spark, and `BURST_BODY`'s own doc comment records that `0.18` -- the fraction the five arc
+  // bodies that survived B2's gate share -- reads as *nearly black* against either of these
+  // kinds' own pale tints. That much darkening would be a real design change to a shape this
+  // task is explicitly not designing yet, so `hit` and `down` get just enough interior
+  // darkening to carry the collar's own contrast argument (an effect needs an edge against
+  // whatever is behind it, not only a colour) without redrawing the puff Task 3 still owns.
   hit: {
-    radius: 1.1, lifetime: 0.18, opacity: 0.55, tint: 0xdff1ff, rim: 0.5, fill: 0.6, shards: 0,
+    radius: 1.1,
+    lifetime: 0.18,
+    opacity: 0.55,
+    tint: 0xdff1ff,
+    rim: 0.5,
+    fill: 0.6,
+    shards: 0,
+    dark: 0.6,
   },
   down: {
-    radius: 2.3, lifetime: 0.45, opacity: 0.4, tint: 0xfff3d8, rim: 0.5, fill: 0.6, shards: 0,
+    radius: 2.3,
+    lifetime: 0.45,
+    opacity: 0.4,
+    tint: 0xfff3d8,
+    rim: 0.5,
+    fill: 0.6,
+    shards: 0,
+    dark: 0.6,
   },
   /**
    * Smaller than a connect and shorter-lived, and cold grey where the other two are warm.
@@ -79,21 +110,42 @@ const SHAPES: Record<ImpactKind, Shape> = {
    * smaller smooth puff. This is the one kind this task actually tunes; `hit` and `down` above
    * are holding values only.
    *
-   * **`fill: 0.55`, raised from an initial 0.15 in the gate round this comment now records.**
-   * `BURST_BODY`'s alpha shape was originally `max(edge * lumps, fill * (1.0 - edge))`, which
-   * confined the shard modulation to `edge`'s own narrow band and left the rest of the sphere at
-   * a flat `fill` floor — at `rim: 0.2` that band is a sliver, so the shot the controller
-   * actually took showed a nearly featureless disc with no visible shards at all. `BURST_BODY`'s
-   * doc comment carries the fix (`lumps` now multiplies the whole alpha shape, not just `edge`);
-   * this value is the other half of that fix. A low `fill` made sense when only the rim carried
-   * the break-up — the interior was supposed to stay quiet — but now that `lumps` modulates
-   * everywhere, a low `fill` just makes the whole sphere faint rather than making it read as
-   * broken. 0.55, close to `hit`/`down`'s own 0.6, is high enough that the shard wave's peaks
-   * (up to `1.0`, see `BURST_BODY`) read as bright plating and its troughs (down to `0.55 * 0.20
-   * = 0.11`) read as gaps between shards, rather than the whole surface staying too dim to judge.
+   * **`fill: 0.55`, raised from an initial 0.15 in the first gate round this comment now
+   * records.** `BURST_BODY`'s alpha shape was originally `max(edge * lumps, fill * (1.0 -
+   * edge))`, which confined the shard modulation to `edge`'s own narrow band and left the rest
+   * of the sphere at a flat `fill` floor — at `rim: 0.2` that band is a sliver, so the first
+   * shot the controller took showed a nearly featureless disc with no visible shards at all.
+   * `BURST_BODY`'s doc comment carries the fix (`lumps` now multiplies the whole alpha shape,
+   * not just `edge`); this value is the other half of that fix. A low `fill` made sense when
+   * only the rim carried the break-up — the interior was supposed to stay quiet — but now that
+   * `lumps` modulates everywhere, a low `fill` just makes the whole sphere faint rather than
+   * making it read as broken. 0.55, close to `hit`/`down`'s own 0.6, is high enough that the
+   * shard wave's peaks (up to `1.0`, see `BURST_BODY`) read as bright plating and its troughs
+   * (down to `0.55 * 0.20 = 0.11`) read as gaps between shards, rather than the whole surface
+   * staying too dim to judge.
+   *
+   * **`dark: 0.18`, added in the second gate round.** The second shot showed the shards reading
+   * correctly but the whole burst nearly invisible against pale grass: `tint` (`0xbcc4d2`, cold
+   * grey) and the terrain it is drawn over are close in luminance, so a shape carrying no darker
+   * value anywhere has nothing to separate it from its background — precisely the failure the
+   * collar mechanism exists to fix elsewhere, and this burst had none of it. `0.18` is the exact
+   * fraction the five collar-bearing arc bodies already use, kept here rather than invented,
+   * because `deflect` is the one kind actually arguing for a *hard* spark: a near-black core
+   * reads as decisive metal-on-metal contact, which is the opposite failure mode from `hit`/
+   * `down`'s soft billow, where the same fraction would over-darken a shape nobody has designed
+   * yet. Unlike `hit`/`down`, `deflect`'s tight `rim` (0.2) means most of the visible surface
+   * sits in the darkened `edge ≈ 0` region, so this fraction is doing real, load-bearing work
+   * here rather than shading a sliver.
    */
   deflect: {
-    radius: 0.7, lifetime: 0.12, opacity: 0.7, tint: 0xbcc4d2, rim: 0.2, fill: 0.55, shards: 5,
+    radius: 0.7,
+    lifetime: 0.12,
+    opacity: 0.7,
+    tint: 0xbcc4d2,
+    rim: 0.2,
+    fill: 0.55,
+    shards: 5,
+    dark: 0.18,
   },
 }
 
@@ -185,6 +237,33 @@ export function impactShape(kind: ImpactKind): Readonly<Shape> {
  * reader who "fixes" this into that form on the general "sin around a loop needs a turn count"
  * instinct would be re-scaling an already-correct radian coordinate and changing `shards`' actual
  * meaning without changing its seam behaviour at all.
+ *
+ * **Second gate round: the collar's own darkening, added on top of the surface above rather than
+ * substituted for it.** The design note this task was drawn from said the impact burst "needs
+ * something the collar does not provide"; the first two rounds of this body read that as
+ * permission to replace the collar's contrast mechanism with a per-kind surface instead of
+ * adding to it. The second gate shot proved that reading wrong: `deflect`'s `tint` (`0xbcc4d2`,
+ * cold grey) sits close in luminance to pale grass, so a shape that draws flat `tint` everywhere
+ * has no darker value anywhere to separate it from that background — contrast is a difference,
+ * brightness is a level, and this body was only ever varying the level. The fix is literally the
+ * collar: every arc body that survived B2's gate writes `mix(tint * 0.18, tint, core)`, and here
+ * `edge` plays `core`'s role, since it is already this body's own "how close to the visible
+ * boundary" measurement. `colour` darkens toward `tint * dark` as `edge` falls from 1 (silhouette)
+ * to 0 (face-on) — the same direction the collar darkens away from a shell's own bright rim.
+ * `lumps` and `max(edge, fill)` are untouched by this change and still shape the alpha exactly as
+ * the first gate round left them; this round changes what colour is drawn, not where.
+ *
+ * **Why `dark` is a per-kind field instead of the shared `0.18`.** Checked before shipping,
+ * rather than copied on the collar bodies' own precedent: `0xbcc4d2 * 0.18` and `0xfff3d8 * 0.18`
+ * both land under 46 of 255 on every channel — both are nearly black, regardless of one tint
+ * being cold grey and the other warm near-white. That is very likely the right amount of
+ * darkening for `deflect`, whose whole claim is a hard, decisive spark. It is very likely too
+ * much for `hit` and `down`, which are still on holding values standing in for today's flat,
+ * uniformly pale puff — driving them to near-black on one side of every sphere would be a real
+ * design change to a shape nobody has actually designed yet, smuggled in as a side effect of a
+ * fix aimed at `deflect`. So `dark` moved from a shared constant to the fourth per-kind field
+ * beside `rim`, `fill` and `shards`; see `SHAPES`'s own comments for each kind's chosen value and
+ * why.
  */
 const BURST_BODY = /* glsl */ `
     vec3 n = normalize(vViewNormal);
@@ -195,7 +274,8 @@ const BURST_BODY = /* glsl */ `
     float shardWave = 0.20 + 0.80 * wave;
     float isShard = step(0.5, shards);
     float lumps = mix(1.0, shardWave, isShard);
-    gl_FragColor = vec4(tint, alpha * max(edge, fill) * lumps);
+    vec3 colour = mix(tint * dark, tint, edge);
+    gl_FragColor = vec4(colour, alpha * max(edge, fill) * lumps);
 `
 
 export function createImpact(position: Vector3, kind: ImpactKind): Effect {
@@ -207,7 +287,7 @@ export function createImpact(position: Vector3, kind: ImpactKind): Effect {
     body: BURST_BODY,
     uniforms: {
       tint: new Color(shape.tint), alpha: shape.opacity, time: 0, rim: shape.rim,
-      fill: shape.fill, shards: shape.shards,
+      fill: shape.fill, shards: shape.shards, dark: shape.dark,
     },
     // `side` and `depthTest` are both left at the builder's defaults -- `DoubleSide` and
     // `true` -- which is what the old `MeshBasicMaterial` set here: `side: DoubleSide`

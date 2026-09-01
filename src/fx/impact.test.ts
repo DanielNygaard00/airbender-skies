@@ -186,3 +186,54 @@ describe('the gate round: shards cover the surface rather than a sliver of it', 
     expect(impactShape('hit').shards).toBe(0)
   })
 })
+
+describe('the second gate round: the burst carries the collar\'s own darkening', () => {
+  // The first two gate rounds only ever varied brightness (`alpha`, via `lumps`/`fill`/`edge`),
+  // never colour, so a kind whose `tint` sits close in luminance to what is behind it -- the
+  // deflect's cold grey against pale grass -- had no darker value anywhere to separate it from
+  // its background. `BURST_BODY`'s own doc comment carries the argument in full: `colour`
+  // now darkens toward `tint * dark` as `edge` (playing the collar's `core` role here) falls
+  // from the silhouette toward face-on, the same mechanism every arc body that survived B2's
+  // gate already uses.
+  it('darkens the colour toward tint * dark as edge falls, the same shape the collar uses', () => {
+    const material = burstMaterialOf(createImpact(ORIGIN, 'deflect'))
+    expect(material.fragmentShader).toContain('mix(tint * dark, tint, edge)')
+  })
+
+  it('wires dark as its own uniform, read from the shape rather than hardcoded', () => {
+    const material = burstMaterialOf(createImpact(ORIGIN, 'deflect'))
+    expect(material.uniforms.dark?.value).toBeCloseTo(impactShape('deflect').dark, 5)
+  })
+
+  const worstChannel = (tint: number): number => Math.min(
+    (tint >> 16) & 0xff,
+    (tint >> 8) & 0xff,
+    tint & 0xff,
+  )
+
+  it('darkens deflect to near-black, arguing a hard spark rather than copying a constant', () => {
+    // `0xbcc4d2`'s own darkest channel is 188 (of 255); at `dark: 0.18` -- the fraction every
+    // collar-bearing arc body already shares -- that lands under 34, comfortably "nearly black".
+    expect(worstChannel(impactShape('deflect').tint) * impactShape('deflect').dark).toBeLessThan(40)
+  })
+
+  it('keeps hit and down\'s holding puff pale rather than over-darkening an undesigned shape', () => {
+    // The same 0.18 fraction on either of these tints would also land under 40 (checked in
+    // BURST_BODY's own doc comment) -- both would go nearly black, which is not the light-touch
+    // contrast a holding value should carry. `dark: 0.6` keeps their darkest channel above 100.
+    expect(worstChannel(impactShape('hit').tint) * impactShape('hit').dark).toBeGreaterThan(100)
+    expect(worstChannel(impactShape('down').tint) * impactShape('down').dark).toBeGreaterThan(100)
+  })
+
+  it('gives deflect a harder (darker) core than hit or down, matching its harder rim', () => {
+    expect(impactShape('deflect').dark).toBeLessThan(impactShape('hit').dark)
+    expect(impactShape('deflect').dark).toBeLessThan(impactShape('down').dark)
+  })
+
+  it('keeps every shipped number, including through the second gate round', () => {
+    expect(impactShape('deflect').radius).toBeCloseTo(0.7, 5)
+    expect(impactShape('deflect').lifetime).toBeCloseTo(0.12, 5)
+    expect(impactShape('deflect').opacity).toBeCloseTo(0.7, 5)
+    expect(impactShape('deflect').tint).toBe(0xbcc4d2)
+  })
+})

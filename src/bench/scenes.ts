@@ -630,8 +630,10 @@ export const BENCH_SCENES: readonly BenchScene[] = [
      * past the boundary it is checking. `fireAt: 0.05, duration: 0.13` lands `hit` at a real
      * age of six steps past firing — `(1/60) * 6 ≈ 0.1s` against its 0.18s `LIFETIME`, 56%
      * through its life with 0.08s (44%) of margin before it would read as dead. `impact-down`
-     * and `impact-deflect` below land at their own comparable fractions; `impact-deflect`'s own
-     * comment reports the tightest margin of the three.
+     * below lands at its own comparable fraction. `impact-deflect`, in a second gate round,
+     * moved to a deliberately different point in its own life for a reason that does not apply
+     * to either scene above — see its own comment — which leaves `impact-hit`'s 0.08s the
+     * tightest margin of the three as shipped now, not `impact-deflect`'s.
      */
     id: 'impact-hit',
     regionId: ARCHIPELAGO_ID,
@@ -661,22 +663,37 @@ export const BENCH_SCENES: readonly BenchScene[] = [
   },
   {
     /**
-     * The deflect burst, the same shared pose as `impact-hit` above, for the same reason.
+     * The deflect burst, the same shared pose as `impact-hit` above, for the same reason — see
+     * that scene's comment for the pose. **Its timing does not follow the same rule as its two
+     * siblings, and deliberately so.** `impact-hit` and `impact-down` are both photographed
+     * mid-life (56% and 52% through, respectively) because each of those kinds makes its claim
+     * over a stretch of time worth catching in the middle of. `deflect`'s whole claim is the
+     * opposite: it exists to read as instantaneous — "that bounced" rather than "that hit a
+     * bit," per this file's own top-of-module doc comment — so a mid-life frame photographs it
+     * after its one readable moment has already passed. Its `alpha` peaks at spawn and fades
+     * linearly across its 0.12s `LIFETIME` (`shape.opacity * (1 - t)` in `createImpact`'s own
+     * `apply()`), so the earlier the frozen frame lands, the closer it sits to that peak.
      *
-     * `fireAt: 0.02, duration: 0.08` lands at a real age of four steps past firing,
-     * `(1/60) * 4 ≈ 0.0667s` against `deflect`'s own 0.12s `LIFETIME` — 56% through its life,
-     * with 0.0533s (44%) of margin to spare. That is the tightest margin of the three in
-     * absolute seconds, because `deflect` is the shortest-lived of the group — not a tighter
-     * fraction of the life than `impact-hit`'s own 44%, just the same fraction of a shorter
-     * number.
+     * `fireAt: 0.01, duration: 0.03` lands at a real age of two steps past firing —
+     * `(1/60) * 2 ≈ 0.0333s` against `deflect`'s own 0.12s `LIFETIME`, unchanged — 28% through
+     * its life rather than the first gate round's 56%. At that age the alpha fade has only
+     * taken it to `1 - 0.28 ≈ 72%` of peak (`0.7 * 0.7222 ≈ 0.51`, against `0.7 * 0.44 ≈ 0.31`
+     * at the old timing), and the scale-up (`START_FRACTION` 0.25 lerping to 1 over the life)
+     * sits at `0.25 + 0.75 * 0.28 ≈ 46%` of full radius rather than the old 65% — smaller, which
+     * is the accepted trade for catching it near its peak rather than mid-fade. This still
+     * clears `src/bench/effects.test.ts`'s liveness check with 0.0867s (72%) of margin before
+     * `deflect` would read as dead, more margin than the old timing had, not less; `deflect`'s
+     * own `radius` (0.7 against `down`'s 2.3) is why it reads smaller than its siblings at this
+     * shared pose regardless of timing, by design, per `impact-hit`'s own comment on how the
+     * pose was sized — not a framing bug introduced by moving this scene's clock.
      */
     id: 'impact-deflect',
     regionId: ARCHIPELAGO_ID,
     camera: { position: new Vector3(0, 13.8, 9), target: new Vector3(0, 11.9, 0) },
     elevation: SUN_ELEVATION_DEGREES,
     effect: 'impact-deflect',
-    fireAt: 0.02,
-    duration: 0.08,
+    fireAt: 0.01,
+    duration: 0.03,
   },
   {
     /**
