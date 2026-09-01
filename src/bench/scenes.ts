@@ -236,11 +236,44 @@ export const BENCH_SCENES: readonly BenchScene[] = [
      * moves only the camera, close enough that a 1.3-unit shell reads as a shape rather than a
      * smudge.
      *
-     * Position and target sit 3.5 and 3.2 units out respectively rather than 20, at a shallow
-     * 23-degree look-down close to `gust`'s own. Target height is 12.85: the archipelago's
-     * measured ground height of 11.9 (see `gust`'s own comment for how that number was taken)
-     * plus `CENTRE_Y`'s 0.95 (`ice-shell.ts`), the shell's own offset for a body whose origin is
-     * at its feet — so the camera centres on the shell, not on the ground underneath it.
+     * Position `(0, 13.8, 4.5)` sits 4.5 units back and 1.9 above the target, at a
+     * `atan(1.9 / 4.5) ≈ 23`-degree look-down close to `gust`'s own — a closer throw than the
+     * cone poses' 20-odd units, but still not so close the octahedron's facets read as a wall
+     * rather than a shape.
+     *
+     * **Target is `(0, 11.9, 0)`, the same bare ground height every other scene above uses —
+     * this scene used to add `CENTRE_Y`'s 0.95 into the target itself, and that was the bug.**
+     * `bench/main.ts` hands the scene's `camera.target` straight to `benchEffect` as the
+     * effect's *origin* (`benchEffect(effectId, scene.camera.target.clone(), …)`), and
+     * `createIceShell` then adds its own `CENTRE_Y` on top of whatever origin it is given. A
+     * target of `(0, 12.85, 0)` — ground plus `CENTRE_Y` already folded in, on the theory that
+     * doing so would centre the camera on the shell — instead fed the shell a *second* `CENTRE_Y`
+     * on top of the first, landing its centre at 12.85 + 0.95 = 13.8: a full `CENTRE_Y` above
+     * where the camera was actually aimed, not on it. At the old pose that cropped the shell's
+     * own crown: camera `(0, 14.35, 3.5)` looking at that wrong `(0, 12.85, 0)` put the shell's
+     * top edge (centre 13.8 plus `RADIUS` 1.3) at 35.3 degrees off the view axis, past
+     * `BASE_FOV` 70's 35-degree half-height (`mapping.ts`) — the crown was clipped, not merely
+     * close to clipped.
+     *
+     * With the target restored to bare ground height, `createIceShell` still adds its one
+     * `CENTRE_Y` and lands the shell at 11.9 + 0.95 = 12.85, off-axis from the new pose by about
+     * 11 degrees; the top edge sits at about 27.3 degrees off-axis, comfortably inside the
+     * 35-degree half-height with roughly 7.7 degrees to spare, and the bottom edge at under 4
+     * degrees is nowhere close to the frame's other side. (Recomputed independently rather than
+     * assumed: `camera.target = (0, 11.9, 0)`, shell centre `(0, 12.85, 0)`, shell top
+     * `(0, 14.15, 0)`, angle between the camera's view-axis vector and its vector to each point.)
+     *
+     * **The structural trap this scene fell into, worth naming so the next scene does not repeat
+     * it.** Because the bench hands a scene's *target* to the effect as its *origin*, a scene can
+     * never aim the camera at anywhere but the effect's spawn point — there is no separate "look
+     * here" the target can mean once it doubles as "spawn here". Any effect that lifts itself
+     * above its own origin (this shell's `CENTRE_Y`, or the plume's `HEIGHT` below) therefore
+     * always sits some fixed amount above wherever the camera is aimed; that offset cannot be
+     * designed away by moving the target, only by choosing a camera pose shallow and close enough
+     * to absorb it. This is exactly why the `fire-thrust` scene below keeps its own target at the
+     * bare 11.9 ground height rather than trying to pre-add the plume's own `HEIGHT` into it —
+     * see that scene's own comment — and it is the shortcut this scene took instead, and paid
+     * for.
      *
      * `fireAt`/`duration` land the frozen frame at age 0.4s. `createIceShell` also takes a
      * `holdSeconds`, a second parameter this task's own brief did not carry — `./effects.ts`
@@ -254,7 +287,7 @@ export const BENCH_SCENES: readonly BenchScene[] = [
      */
     id: 'ice-shell',
     regionId: ARCHIPELAGO_ID,
-    camera: { position: new Vector3(0, 14.35, 3.5), target: new Vector3(0, 12.85, 0) },
+    camera: { position: new Vector3(0, 13.8, 4.5), target: new Vector3(0, 11.9, 0) },
     elevation: SUN_ELEVATION_DEGREES,
     effect: 'ice-shell',
     fireAt: 0.1,
@@ -352,9 +385,10 @@ export const BENCH_SCENES: readonly BenchScene[] = [
      * `gust`'s own comment for how 11.9 was taken and why it is not the HUD's 14).
      * `createFireThrust` adds its own `HEIGHT` of 0.95 above whatever origin it is given, the same
      * number `ice-shell.ts`'s `CENTRE_Y` uses, so keeping the target at the bare ground height —
-     * rather than adding that 0.95 in a second time on top of it, which `ice-shell`'s own target
-     * does for its differently-shaped subject — lands the plume's nozzle at exactly 11.9 + 0.95 =
-     * 12.85 without double-counting the factory's own offset. The plume's own vertical span (the
+     * rather than pre-adding that 0.95 into the target itself, which is the mistake `ice-shell`'s
+     * own scene made and its own comment now records at length — lands the plume's nozzle at
+     * exactly 11.9 + 0.95 = 12.85 without double-counting the factory's own offset. The plume's own
+     * vertical span (the
      * nozzle at 12.85 descending toward roughly 11.4 at its far tip) sits close enough to that
      * target height that the shallow camera above still keeps the whole thing in frame; only
      * `camera` changes here, so `fireAt` and `duration` still land the frozen frame at age 0.07s,
@@ -502,9 +536,10 @@ export const BENCH_SCENES: readonly BenchScene[] = [
   {
     /**
      * Steam has its own effect now — `createSteam`'s rising column, wired in `./effects.ts` — so
-     * unlike Mud and the staff finisher below it no longer shares `ringAt`'s placeholder. This
-     * shot is otherwise unchanged: same camera, same `fireAt` and `duration`, so a diff between
-     * this scene's frames before and after Task 7 is a diff of the effect alone.
+     * unlike the staff finisher below it no longer shares `ringAt`'s placeholder. (Mud no longer
+     * shares it either — see its own comment just below.) This shot is otherwise unchanged: same
+     * camera, same `fireAt` and `duration`, so a diff between this scene's frames before and
+     * after Task 7 is a diff of the effect alone.
      */
     id: 'steam',
     regionId: ARCHIPELAGO_ID,
