@@ -3,6 +3,7 @@ import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 import { DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG } from '../core/config'
 import { fireThrustImpulse } from '../combat/fire'
 import { staffShape } from '../combat/staff-arc'
+import { createAimTell } from '../fx/aim-tell'
 import { createAirWallPanel } from '../fx/air-wall'
 import { createAvatarAura } from '../fx/avatar-aura'
 import { createDashTrail } from '../fx/dash-trail'
@@ -138,6 +139,35 @@ function benchAvatarAura(origin: Vector3): Effect {
 }
 
 /**
+ * The aim tell, wrapped for the same reason as `benchAirWall` and its siblings above:
+ * `createAimTell` is a held state driven every frame by `update`'s five arguments rather than a
+ * one-shot `Effect`, and it is the one factory here whose `update` needs both a `targeted` and a
+ * `ready` flag alongside the position and heading every other wrapped factory already supplies.
+ *
+ * Held `targeted: true` and `ready: true` for the whole shot rather than following any clock, so
+ * both children draw at every frame — a tell that is only ever `targeted` for the frame the
+ * scene happens to freeze on would be indistinguishable from one that never shows its preview at
+ * all. Unlike every other wrapper in this file, `advance` never has a reason to return `false`:
+ * the tell has no fade-out and no lifetime of its own, so it stays alive for exactly as long as
+ * the scene's own `duration` keeps calling it.
+ *
+ * Fed `DEFAULT_COMBAT_CONFIG.gust`, the same `ConeShape` `main.ts` feeds the real tell for the F
+ * move — a Water Grip preview would show a narrower cone the bench has no button to switch to,
+ * and the gust is what the shipped tell defaults to showing before either element is chosen.
+ */
+function benchAimTell(origin: Vector3, forward: Vector3): Effect {
+  const tell = createAimTell()
+  return {
+    object: tell.object,
+    advance(dt: number): boolean {
+      tell.update(origin, forward, true, true, DEFAULT_COMBAT_CONFIG.gust)
+      return true
+    },
+    dispose: tell.dispose,
+  }
+}
+
+/**
  * `createShockwave` takes no position of its own — every real caller (`main.ts`'s slam ring and
  * its reaction ring) sets `effect.object.position` right after construction, because the ring's
  * radius and strength are what the caller has to hand and its place in the world is a separate
@@ -252,6 +282,7 @@ export const BENCH_EFFECTS: Record<BenchEffectId, (origin: Vector3, forward: Vec
   // a shell around a body has no direction of its own.
   'guard-shell': (origin) => benchGuardShell(origin),
   'avatar-aura': (origin) => benchAvatarAura(origin),
+  'aim-tell': (origin, forward) => benchAimTell(origin, forward),
 }
 
 export function benchEffect(id: BenchEffectId, origin: Vector3, forward: Vector3): Effect {

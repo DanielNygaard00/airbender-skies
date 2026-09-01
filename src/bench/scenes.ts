@@ -72,6 +72,12 @@ export type BenchEffectId =
   // pointed at directly instead of a scene having to pick a swing for the other to never see.
   | 'staff-opener'
   | 'staff-finisher'
+  // The aim tell. Not a one-shot `Effect` — `createAimTell`'s own doc comment says why: it is
+  // persistent, held up for as long as the player holds a direction, and driven every frame by
+  // `update`'s five arguments rather than fired once and left to run down. `./effects.ts` wraps
+  // it the same way it already wraps `air-wall`, `vortex-charge`, `guard-shell` and
+  // `avatar-aura` for the identical reason.
+  | 'aim-tell'
 
 export interface BenchScene {
   id: string
@@ -870,6 +876,39 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     effect: 'avatar-aura',
     fireAt: 0.2,
     duration: 0.6,
+  },
+  {
+    /**
+     * The aim tell. Held `targeted` and `ready` for the whole shot so both children draw —
+     * `./effects.ts`'s wrapper does that, the same technique `benchAirWall` uses for a held
+     * state that has no natural end. The previewed cone is `DEFAULT_COMBAT_CONFIG.gust`, the
+     * shape the game actually feeds this tell for the F move, not an invented one.
+     *
+     * **`gust`'s own pose, taken rather than reframed, because the subject is not smaller here
+     * — it is the same size.** The preview sector is drawn at the gust's own range, 12, the
+     * identical wedge `gust`'s scene already frames — this is not one of the recent small-
+     * object scenes (`guard-shell`, `avatar-aura`, `ice-shell`) that needed their own closer
+     * pose because a 12-unit frame photographed a 1-unit shape as nothing. At `gust`'s own
+     * 10-up-20-back position against the same `(0, 11.9, 0)` target, the look-down angle is
+     * `atan(10 / 20) = 26.565` degrees — trap 3, the one the staff scenes hit at 9.8 degrees,
+     * is squarely this scene's risk too: both meshes here are flat and sit within `HEIGHT`
+     * (0.08) of the ground, closer to edge-on than anything else on the bench. Foreshortening
+     * from a shallow look-down is a property of the camera angle against a horizontal plane,
+     * not of how high above the ground that plane sits, so `gust`'s already-validated 26.565
+     * degrees applies to this tell's near-ground preview exactly as it does to the gust cone's
+     * own `HEIGHT`-1 fill — reframing closer would only shrink the frame around a wedge that
+     * already fits it.
+     *
+     * The chevron marker sits at `markerDistance` 3, well inside the 12-unit preview, so both
+     * children land in the same frame this pose already proves out for the gust.
+     */
+    id: 'aim-tell',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'aim-tell',
+    fireAt: 0.1,
+    duration: 0.3,
   },
   {
     /**

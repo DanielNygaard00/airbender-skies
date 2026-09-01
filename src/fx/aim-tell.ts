@@ -1,8 +1,9 @@
 import {
-  BufferAttribute, BufferGeometry, DoubleSide, Group, Mesh, MeshBasicMaterial, Vector3,
+  BufferAttribute, BufferGeometry, Color, Group, Mesh, Vector3,
   type Object3D,
 } from 'three'
 import type { ConeShape } from '../combat/cone'
+import { createEffectMaterial, WEDGE_PREAMBLE } from './effect-material'
 import { SECTOR_FLAT_ROTATION_X, sectorGeometry } from './sector'
 import { DEFAULT_AIM_TELL_CONFIG, type AimTellConfig } from './config'
 import { safeScale } from './scale'
@@ -70,13 +71,61 @@ function createChevronGeometry(size: number): BufferGeometry {
   return geometry
 }
 
+/**
+ * The chevron, shaded from object space because its geometry has no texture coordinates.
+ *
+ * `createChevronGeometry` sets a `position` attribute and nothing else, so `vUv` is zero across
+ * every fragment and a gradient written against it renders as a flat fill that looks like a
+ * choice. `vLocal.z` is the one axis a direction marker has any business varying along — but it
+ * does not run -1..1: the geometry above bakes `size` straight into the vertex positions, with
+ * the point at `+size` and the tail at `-size * 0.4`, so `vLocal.z` spans `-size * 0.4` to
+ * `+size`. Dividing by the `size` uniform (the same `c.markerSize` the geometry was built with)
+ * recovers -0.4..1.0, which is what the bounds below assume. Brightest at the point, so the
+ * chevron reads as pointing rather than as a triangle.
+ *
+ * No clock. A tell that animates is a tell competing with the move it predicts.
+ */
+const MARKER_BODY = /* glsl */ `
+    float toPoint = smoothstep(-0.4, 1.0, vLocal.z / max(size, 1e-4));
+    gl_FragColor = vec4(tint, alpha * (0.45 + 0.55 * toPoint));
+`
+
+/**
+ * The preview, edged rather than filled.
+ *
+ * A flat 0.14-opacity sector says "somewhere around here". The reach is the fact the player
+ * needs, so the edge carries the value and the interior stays nearly empty — which also keeps
+ * the tell from competing with the gust that follows it into the same space. No collar: this is
+ * not an effect claiming to be an event, and a dark band inside a 0.14 fill would be invisible.
+ *
+ * **Reaches for `WEDGE_PREAMBLE` anyway, even though this body never touches its `across`.**
+ * Both previewable cones — the gust's 60 degrees and the Water Grip's 30 — are inside
+ * `sectorUvIsMonotone`'s bound, so bare `vUv.x` would work here just as well as `radius` does.
+ * The preamble is used regardless so this file and `staff-arc-fx.ts` reach for the same
+ * coordinate on the same geometry, and so a future move previewed through this same tell with a
+ * wider cone cannot quietly break it the way a bare `vUv.x` would past a quarter turn. The cost
+ * of that choice is real and worth naming rather than hiding: it is a `halfAngle` uniform this
+ * body does not read, kept in step with a geometry rebuild that already has to happen for
+ * `sectorGeometry`'s own reason (see `update` below). That is a small, already-paid-for cost
+ * against a coordinate this file would otherwise have to migrate to by hand the day a wider
+ * preview cone is added — worth it, on that trade.
+ */
+const PREVIEW_BODY = /* glsl */ `
+    float rim = smoothstep(0.70, 0.96, radius);
+    float far = smoothstep(1.0, 0.96, radius);
+    gl_FragColor = vec4(tint, alpha * max(rim * far, 0.18));
+`
+
 export function createAimTell(c: AimTellConfig = DEFAULT_AIM_TELL_CONFIG): AimTell {
   const object = new Group()
 
   const markerGeometry = createChevronGeometry(c.markerSize)
-  const markerMaterial = new MeshBasicMaterial({
-    color: TINT, transparent: true, side: DoubleSide, depthWrite: false,
-    opacity: MARKER_OPACITY,
+  // `side` is left to the builder's default, deliberately: it defaults to DoubleSide, which is
+  // exactly what this material set explicitly before, the same note `staff-arc-fx.ts`'s own
+  // fill material makes for its own default.
+  const markerMaterial = createEffectMaterial({
+    body: MARKER_BODY,
+    uniforms: { tint: new Color(TINT), alpha: MARKER_OPACITY, size: c.markerSize },
     // Drawn over the world, like every other attack tell in this directory: a flat shape
     // near the ground is otherwise buried by terrain sloping up away from the player, which
     // is the defect that made the gust cone invisible in play.
@@ -96,9 +145,12 @@ export function createAimTell(c: AimTellConfig = DEFAULT_AIM_TELL_CONFIG): AimTe
   // bearing: switching element between air and water changes the previewed cone from 60 degrees
   // to 30, so the rebuild fires on the frame the player flicks the radial.
   const previewGeometry = sectorGeometry(1, 0, 1)
-  const previewMaterial = new MeshBasicMaterial({
-    color: TINT, transparent: true, side: DoubleSide, depthWrite: false,
-    opacity: c.previewOpacity, depthTest: false,
+  // `halfAngle` starts at 1, matching `previewGeometry`'s own initial build above, so the two
+  // never disagree even for the first frame before `update` has run once.
+  const previewMaterial = createEffectMaterial({
+    body: WEDGE_PREAMBLE + PREVIEW_BODY,
+    uniforms: { tint: new Color(TINT), alpha: c.previewOpacity, halfAngle: 1 },
+    depthTest: false,
   })
   const preview = new Mesh(previewGeometry, previewMaterial)
   preview.name = 'aim-preview'
@@ -138,9 +190,14 @@ export function createAimTell(c: AimTellConfig = DEFAULT_AIM_TELL_CONFIG): AimTe
           preview.geometry.dispose()
           preview.geometry = sectorGeometry(shape.halfAngle, 0, 1)
           builtHalfAngle = shape.halfAngle
+          // Rewritten on the same branch that rebuilds the geometry: `WEDGE_PREAMBLE`'s `across`
+          // normalises by this uniform, so a rebuild that changed the wedge without also moving
+          // this would leave the shader dividing by the old angle — the shape and its own shading
+          // would silently disagree.
+          previewMaterial.uniforms.halfAngle!.value = shape.halfAngle
         }
         preview.scale.setScalar(safeScale(shape.range))
-        previewMaterial.opacity = c.previewOpacity * (ready ? 1 : c.dimmedFactor)
+        previewMaterial.uniforms.alpha!.value = c.previewOpacity * (ready ? 1 : c.dimmedFactor)
       }
     },
 

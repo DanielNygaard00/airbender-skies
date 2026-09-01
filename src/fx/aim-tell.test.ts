@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Mesh, Vector3 } from 'three'
+import { Mesh, ShaderMaterial, Vector3 } from 'three'
 import { createAimTell } from './aim-tell'
 import { FILL_OPACITY as GUST_CONE_FILL_OPACITY } from './gust-cone'
 import { DEFAULT_AIM_TELL_CONFIG } from './config'
@@ -7,6 +7,7 @@ import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 import { inCone } from '../combat/cone'
 
 const GUST = DEFAULT_COMBAT_CONFIG.gust
+const SHAPE = GUST
 const ORIGIN = new Vector3(0, 0, 0)
 const NORTH = new Vector3(0, 0, -1)
 
@@ -17,6 +18,57 @@ function parts(tell: { object: { getObjectByName(name: string): unknown } }) {
   if (!preview || !marker) throw new Error('the aim tell must name its two children')
   return { preview, marker }
 }
+
+function markerMaterialOf(tell: ReturnType<typeof createAimTell>): ShaderMaterial {
+  return parts(tell).marker.material as ShaderMaterial
+}
+
+function previewMaterialOf(tell: ReturnType<typeof createAimTell>): ShaderMaterial {
+  return parts(tell).preview.material as ShaderMaterial
+}
+
+describe('the tell stays quiet', () => {
+  it('has no clock, because a tell that animates competes with the move it predicts', () => {
+    const tell = createAimTell()
+    expect(markerMaterialOf(tell).uniforms.time).toBeUndefined()
+    expect(previewMaterialOf(tell).uniforms.time).toBeUndefined()
+  })
+
+  it('reads the chevron from object space, because that geometry has no uvs at all', () => {
+    // createChevronGeometry sets only `position`. A body against vUv there is uniformly flat
+    // and looks intentional, which is the worst kind of wrong.
+    const material = markerMaterialOf(createAimTell())
+    expect(material.fragmentShader).toContain('vLocal')
+    expect(material.fragmentShader).not.toContain('vUv.x')
+  })
+
+  it('rebuilds the preview uniform with the preview geometry', () => {
+    // A RingGeometry cannot change theta, so a changed half-angle rebuilds it. If the
+    // halfAngle uniform does not follow, `across` normalises against a stale angle and the
+    // tell disagrees with its own shape.
+    const tell = createAimTell()
+    const material = previewMaterialOf(tell)
+    tell.update(ORIGIN, NORTH, true, true, { range: 12, halfAngle: Math.PI / 3, verticalReach: 3 })
+    expect(material.uniforms.halfAngle?.value).toBeCloseTo(Math.PI / 3, 6)
+    tell.update(ORIGIN, NORTH, true, true, { range: 10, halfAngle: Math.PI / 6, verticalReach: 3 })
+    expect(material.uniforms.halfAngle?.value).toBeCloseTo(Math.PI / 6, 6)
+  })
+
+  it('still dims on cooldown by the configured factor and nothing else', () => {
+    const c = DEFAULT_AIM_TELL_CONFIG
+    const tell = createAimTell(c)
+    const material = previewMaterialOf(tell)
+    tell.update(ORIGIN, NORTH, true, true, SHAPE)
+    const ready = material.uniforms.alpha?.value as number
+    tell.update(ORIGIN, NORTH, true, false, SHAPE)
+    expect(material.uniforms.alpha?.value).toBeCloseTo(ready * c.dimmedFactor, 5)
+  })
+
+  it('edges the preview so its reach is legible, without filling it in', () => {
+    const material = previewMaterialOf(createAimTell())
+    expect(material.fragmentShader).toContain('smoothstep(0.70, 0.96, radius)')
+  })
+})
 
 describe('the marker', () => {
   it('always shows, whether or not anything is in range', () => {
@@ -80,11 +132,14 @@ describe('the cone preview', () => {
 
   it('stays visible but dimmer while the gust is on cooldown', () => {
     // Dimming rather than hiding, so the shape does not blink off and on every 0.45s.
+    // Read through the `alpha` uniform, not `.material.opacity`: the preview builds through
+    // `createEffectMaterial` now, and the dimming lives in `alpha`, which `.opacity` (still
+    // sitting at three's own default of 1) would not reflect at all.
     const tell = createAimTell()
     tell.update(ORIGIN, NORTH, true, true, GUST)
-    const ready = (parts(tell).preview.material as { opacity: number }).opacity
+    const ready = previewMaterialOf(tell).uniforms.alpha?.value as number
     tell.update(ORIGIN, NORTH, true, false, GUST)
-    const cooling = (parts(tell).preview.material as { opacity: number }).opacity
+    const cooling = previewMaterialOf(tell).uniforms.alpha?.value as number
     expect(parts(tell).preview.visible).toBe(true)
     // A margin, not a bare `<`: a dim of a millionth would pass that.
     expect(cooling).toBeLessThan(ready * 0.6)
