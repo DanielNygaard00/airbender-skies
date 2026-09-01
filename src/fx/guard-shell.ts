@@ -33,11 +33,10 @@ const FADE_OUT_SECONDS = 0.03
 /**
  * A bright silhouette and a dim interior, so the shell reads as a surface and not a wash.
  *
- * A flat `MeshBasicMaterial` at one opacity draws the whole projected disc at the same value,
- * which over a character reads as a tinted smear with no shape to it. What tells the eye this is
- * a *shell* is its edge — and on a closed surface the edge is wherever the surface turns
- * edge-on to the camera, which is a fact about the view rather than about the mesh.
- * `ice-shell.ts`'s `SHELL_BODY` carries that argument in full; this file does not restate it.
+ * `ice-shell.ts`'s `SHELL_BODY` carries the full argument for why the edge has to be read off
+ * `vViewNormal` rather than object space — a `MeshBasicMaterial`'s flat opacity draws the whole
+ * projected disc at one value, and on a closed surface the boundary the eye actually reads is a
+ * fact about the view, not the mesh. This file only adds what is specific to this shell.
  *
  * `abs` because the shell is `BackSide`: its rendered normals point away from the viewer, so the
  * raw view-space z is negative over the whole visible half.
@@ -54,13 +53,14 @@ const FADE_OUT_SECONDS = 0.03
  * shape this task. Retuning one shell's grazing curve or floor later would either drag the other
  * along with it through a shared file, or force splitting the constant apart at that point anyway
  * — paying the coupling now for a saving that is not guaranteed to last. It also matches this
- * directory's own precedent: `water-reach.ts`, `earth-reach.ts`, `fire-burst.ts` and
- * `ice-shell.ts` all write `mix(tint * 0.18, tint, core)` as their own local constant rather than
- * importing one, and `impact.ts`'s own comment on that line calls it out explicitly — five
- * bodies, sharing a literal, none of them sharing a symbol. Sharing here would be the first
- * departure from that pattern rather than a continuation of it. If a third caller ever wants this
- * exact body, that is the point to promote it into `effect-material.ts` beside `POLAR_PREAMBLE`
- * — not before, on the strength of two.
+ * directory's own precedent: every collar-carrying body — `water-reach.ts`, `earth-reach.ts`,
+ * `fire-burst.ts`, `fire-thrust.ts` and `ice-shell.ts`, five bodies as of this task — writes
+ * `mix(tint * 0.18, tint, core)` as its own local constant rather than importing one, and
+ * `impact.ts`'s own comment on that line calls the pattern out explicitly: a literal repeated on
+ * purpose, not a symbol shared. Sharing here would be the first departure from that pattern
+ * rather than a continuation of it. If a third caller ever wants this exact body, that is the
+ * point to promote it into `effect-material.ts` beside `POLAR_PREAMBLE` — not before, on the
+ * strength of two.
  *
  * **`mix(tint * 0.35, tint, core)`, not the arc bodies' `0.18`.** Checked rather than assumed:
  * `0xd6f6ff * 0.18` is `(39, 44, 46)` of 255 and `0xfff3c4 * 0.18` (the aura's own tint) is
