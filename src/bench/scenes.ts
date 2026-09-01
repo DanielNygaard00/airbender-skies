@@ -59,6 +59,12 @@ export type BenchEffectId =
   | 'impact-hit'
   | 'impact-down'
   | 'impact-deflect'
+  // The two character shells. Neither is a one-shot `Effect` — `createGuardShell` and
+  // `createAvatarAura` are held states advanced with `update(dt, active)`, the same shape
+  // `air-wall` and `vortex-charge` above are — so `./effects.ts` wraps each the same way those
+  // two already are.
+  | 'guard-shell'
+  | 'avatar-aura'
 
 export interface BenchScene {
   id: string
@@ -694,6 +700,84 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     effect: 'impact-deflect',
     fireAt: 0.01,
     duration: 0.03,
+  },
+  {
+    /**
+     * The Slipstream's guard shell. There is no player here to wrap it around — `bench/main.ts`'s
+     * own comment records that the player, the enemies and the input tracker do not exist in this
+     * module — so this shot shows the shell's own shape against the world, and whether it reads
+     * *around a character* is a thing only play can answer.
+     *
+     * **The same pose as `ice-shell`, reused rather than re-derived, and safely so.**
+     * `createGuardShell`'s `CENTRE_Y` is 0.95, identical to `createIceShell`'s, so against the
+     * same target `(0, 11.9, 0)` the two shells' centres land on the exact same point,
+     * `(0, 12.85, 0)` — see `ice-shell`'s own comment for how that point and this pose were
+     * checked against `bench/main.ts`'s target-is-origin trap. The only thing that changes is
+     * `RADIUS`: 1.15 here against ice-shell's 1.3, strictly smaller, so a pose already proven to
+     * keep a 1.3-unit shell in frame keeps a 1.15-unit one in frame with more room, not less.
+     * Recomputed rather than assumed: camera `(0, 13.8, 4.5)`, view axis to target `(0, -1.9,
+     * -4.5)`; the shell's top edge `(0, 14.00, 0)` sits about 25.5 degrees off that axis and its
+     * bottom edge `(0, 11.70, 0)` about 2.5 degrees off, both comfortably inside `BASE_FOV` 70's
+     * 35-degree half-height (`mapping.ts`), with roughly 9.5 degrees of margin on the tighter
+     * (top) edge.
+     *
+     * **Timing.** `./effects.ts`'s `benchGuardShell` holds the shell active for its own
+     * `HOLD_SECONDS` (0.5s) before releasing it, well past `createGuardShell`'s own
+     * `FADE_IN_SECONDS` (0.02s) — the whole window this move's tell has to work with is 0.11s
+     * long, so the fade-in itself is nearly instant, and holding for ten times that is what
+     * "well past" means for a shell this fast. `fireAt: 0.1, duration: 0.3` freezes the frame at
+     * a real age of about 0.2s into the hold: long past the 0.02s rise and comfortably short of
+     * the 0.5s release, so the shell is at full, steady opacity rather than mid-fade in either
+     * direction.
+     */
+    id: 'guard-shell',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 13.8, 4.5), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'guard-shell',
+    fireAt: 0.1,
+    duration: 0.3,
+  },
+  {
+    /**
+     * The Avatar State's aura. Same absent-player caveat as `guard-shell` just above: there is no
+     * character here for it to surround, so this shot can only show its own shape against the
+     * world, not whether that shape reads as air around a body — that is play's question, not the
+     * bench's.
+     *
+     * **Its own pose, checked rather than borrowed verbatim, because the two shells do not land
+     * on quite the same point.** `createAvatarAura`'s `HEIGHT` is 1 and its `RADIUS` is 1.35 —
+     * both a touch larger than the guard shell's `CENTRE_Y` 0.95 and `RADIUS` 1.15 — so against
+     * the shared target `(0, 11.9, 0)` this shell's centre sits at `(0, 12.9, 0)`, 0.05 units
+     * above `ice-shell`'s and the guard shell's `(0, 12.85, 0)`, and its radius reaches 0.05
+     * units further than `ice-shell`'s 1.3. Close enough that the guard shell's pose was worth
+     * checking against this shell specifically rather than assumed to still clear it: at
+     * `(0, 13.8, 4.5)` the top edge came out to within about 6 degrees of `BASE_FOV` 70's
+     * 35-degree half-height, not a bad frame but a tighter margin than either sibling scene
+     * carries. Pulled back to `(0, 13.8, 5.5)` instead — one unit further along the same shallow
+     * approach — for a share of margin closer to `ice-shell`'s own.
+     *
+     * Recomputed for this pose: view axis to target `(0, -1.9, -5.5)`; the shell's top edge
+     * `(0, 14.25, 0)` sits about 23.8 degrees off that axis and its bottom edge `(0, 11.55, 0)`
+     * about 3.2 degrees off, both inside the 35-degree half-height with roughly 11.2 degrees of
+     * margin on the tighter (top) edge — more room than the guard shell's own 9.5, not less,
+     * despite the larger shell, because the extra unit of throw shrinks its angular size faster
+     * than the extra size grows it.
+     *
+     * **Timing.** `./effects.ts`'s `benchAvatarAura` holds the shell active for its own
+     * `HOLD_SECONDS` (1s), longer than the guard shell's 0.5s because `createAvatarAura`'s own
+     * `FADE_IN_SECONDS` is 0.15s rather than 0.02s and the hold has to clear it by a comparable
+     * margin. `fireAt: 0.2, duration: 0.6` freezes the frame at a real age of about 0.4s into the
+     * hold: well past the 0.15s rise and well short of the 1s release, so the aura is at full,
+     * steady opacity.
+     */
+    id: 'avatar-aura',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 13.8, 5.5), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'avatar-aura',
+    fireAt: 0.2,
+    duration: 0.6,
   },
   {
     /**

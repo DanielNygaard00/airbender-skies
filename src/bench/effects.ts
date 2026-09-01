@@ -3,11 +3,13 @@ import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 import { DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG } from '../core/config'
 import { fireThrustImpulse } from '../combat/fire'
 import { createAirWallPanel } from '../fx/air-wall'
+import { createAvatarAura } from '../fx/avatar-aura'
 import { createDashTrail } from '../fx/dash-trail'
 import type { Effect } from '../fx/effect'
 import { createEarthReach } from '../fx/earth-reach'
 import { createFireBurst } from '../fx/fire-burst'
 import { createFireThrust } from '../fx/fire-thrust'
+import { createGuardShell } from '../fx/guard-shell'
 import { createGustCone } from '../fx/gust-cone'
 import { createIceShell } from '../fx/ice-shell'
 import { createImpact } from '../fx/impact'
@@ -70,6 +72,66 @@ function benchVortexCharge(origin: Vector3): Effect {
       return held < c.maxChargeSeconds
     },
     dispose: tell.dispose,
+  }
+}
+
+/**
+ * The Slipstream's guard shell, wrapped for the same reason as `benchAirWall` and
+ * `benchVortexCharge`: `createGuardShell` is a held state advanced with `update(dt, active)`
+ * rather than a one-shot `Effect`. `HOLD_SECONDS` holds it active well past its own
+ * `FADE_IN_SECONDS` (0.02s, `guard-shell.ts`) before the wrapper lets go, and `object.visible` —
+ * the shell's own signal that its fade-out has finished — is what ends the wrapper afterward, the
+ * same technique `benchAirWall` uses rather than a second copy of the fade timing.
+ *
+ * The origin is added onto the `CENTRE_Y` offset the factory already bakes into
+ * `object.position.y`, not substituted for it, the same move `benchVortexCharge`'s own comment
+ * makes for the charge tell's `HEIGHT`.
+ */
+function benchGuardShell(origin: Vector3): Effect {
+  const guard = createGuardShell()
+  guard.object.position.x += origin.x
+  guard.object.position.y += origin.y
+  guard.object.position.z += origin.z
+  const HOLD_SECONDS = 0.5
+  let age = 0
+  return {
+    object: guard.object,
+    advance(dt: number): boolean {
+      age += dt
+      const active = age < HOLD_SECONDS
+      guard.update(dt, active)
+      return active || guard.object.visible
+    },
+    dispose: guard.dispose,
+  }
+}
+
+/**
+ * The Avatar State's aura, wrapped the same way `benchGuardShell` just above wraps its sibling
+ * shell. `HOLD_SECONDS` is longer here than the guard shell's — 1 second against 0.5 — because
+ * the aura's own `FADE_IN_SECONDS` is 0.15s rather than 0.02s, and the hold has to stay well past
+ * whichever fade-in it is covering for the frozen frame to land on a fully lit shell rather than
+ * one still rising.
+ *
+ * The origin is added onto the factory's own `HEIGHT` offset, the same move
+ * `benchVortexCharge`'s comment argues for its own `HEIGHT`.
+ */
+function benchAvatarAura(origin: Vector3): Effect {
+  const aura = createAvatarAura()
+  aura.object.position.x += origin.x
+  aura.object.position.y += origin.y
+  aura.object.position.z += origin.z
+  const HOLD_SECONDS = 1
+  let age = 0
+  return {
+    object: aura.object,
+    advance(dt: number): boolean {
+      age += dt
+      const active = age < HOLD_SECONDS
+      aura.update(dt, active)
+      return active || aura.object.visible
+    },
+    dispose: aura.dispose,
   }
 }
 
@@ -173,6 +235,11 @@ export const BENCH_EFFECTS: Record<BenchEffectId, (origin: Vector3, forward: Vec
   'impact-hit': (origin) => createImpact(origin, 'hit'),
   'impact-down': (origin) => createImpact(origin, 'down'),
   'impact-deflect': (origin) => createImpact(origin, 'deflect'),
+  // The two character shells, wrapped like `air-wall` and `vortex-charge` above since neither is
+  // an `Effect`. Both leave `forward` unused, for the same reason `vortex` and `ice-shell` do:
+  // a shell around a body has no direction of its own.
+  'guard-shell': (origin) => benchGuardShell(origin),
+  'avatar-aura': (origin) => benchAvatarAura(origin),
 }
 
 export function benchEffect(id: BenchEffectId, origin: Vector3, forward: Vector3): Effect {
