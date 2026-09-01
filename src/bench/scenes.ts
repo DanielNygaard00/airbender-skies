@@ -65,6 +65,13 @@ export type BenchEffectId =
   // two already are.
   | 'guard-shell'
   | 'avatar-aura'
+  // The staff's two swings. Not `staffArc` with a `finisher` boolean alongside it — the shape
+  // itself already carries the difference (`staffShape(false, …)` against `staffShape(true, …)`),
+  // and `createStaffArc`'s own doc comment argues at length for why it has no business knowing
+  // which one produced the shape it was handed. Two ids rather than one, so each shot can be
+  // pointed at directly instead of a scene having to pick a swing for the other to never see.
+  | 'staff-opener'
+  | 'staff-finisher'
 
 export interface BenchScene {
   id: string
@@ -415,6 +422,70 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     effect: 'fire-thrust',
     fireAt: 0.05,
     duration: 0.12,
+  },
+  {
+    /**
+     * The staff's opener, sharing one pose with `staff-finisher` below for the reason `water`'s
+     * own comment makes at length against `gust`: with an identical frame the only thing that
+     * can differ between the two shots is the swing itself, so the wider wedge is the thing
+     * worth seeing rather than a differently-framed picture of it.
+     *
+     * **Not the shared `gust` pose.** `staffArc`'s two ranges (`DEFAULT_COMBAT_CONFIG.staffArc`:
+     * opener 3.6, finisher 4.2) are both far short of the 12-unit wedge that pose was framed
+     * for, and `sectorGeometry(shape.halfAngle, 0, 1)` makes this the one wedge in the arc that
+     * is a filled *disc* rather than a band, so unlike `earth-reach` and `fire-burst` sharing
+     * `gust`'s frame verbatim, framing tighter here is not a comparison broken, because nothing
+     * upstream of this scene shares that frame with the staff.
+     *
+     * **The pose, worked out for the finisher's own reach rather than assumed.** Because the
+     * fill is an apex-centred disc, every point it draws sits within exactly `shape.range` of
+     * the apex regardless of `halfAngle` — a bounding sphere, the same simplification
+     * `impact-hit`'s own comment uses for a burst's `radius`. `createStaffArc` adds its own
+     * `HEIGHT` of 1 above whatever origin it is given (`staff-arc-fx.ts`), so against this
+     * scene's target of `(0, 11.9, 0)` — the bare measured ground height `gust`'s own comment
+     * takes and explains — the finisher's centre sits at `(0, 12.9, 0)`, radius 4.2.
+     *
+     * At `(0, 13.8, 11)`: distance to that centre is `sqrt(11² + 0.9²) ≈ 11.04`; the camera's
+     * axis toward the scene's own target sits `≈5.12` degrees off the vector to the centre; the
+     * finisher's own half-angular radius from the camera is `asin(4.2 / 11.04) ≈ 22.37` degrees
+     * — for a far edge at `5.12 + 22.37 ≈ 27.49` degrees off-axis, inside `BASE_FOV` 70's
+     * 35-degree half-height (`mapping.ts`) with about 7.5 degrees to spare. The opener's shorter
+     * 3.6 reach frames with more room still (half-angular radius `≈19.04` degrees), never less —
+     * which is the whole point of sizing the shared pose to the wider of the two swings.
+     *
+     * **Timing, landed through the real clock rather than assumed from `duration - fireAt`.**
+     * `src/bench/effects.test.ts` runs every scene through `runFixedClock` (`./clock.ts`) for
+     * the reason its own comment gives: the fixed step never divides a scene's own numbers
+     * evenly, so the naive subtraction is not the age the bench actually freezes on.
+     * `fireAt: 0.07, duration: 0.14` lands a real age of `0.083333` s against `staff-arc-fx.ts`'s
+     * 0.16 s `LIFETIME` — 52 per cent through the swing's life, with 0.076667 s (48 per cent) of
+     * margin before it would read as already faded. `staff-finisher` below lands at the same
+     * real age, sharing this scene's `fireAt`/`duration` along with its pose, since `LIFETIME`
+     * does not depend on which shape was handed to it.
+     */
+    id: 'staff-opener',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 13.8, 11), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'staff-opener',
+    fireAt: 0.07,
+    duration: 0.14,
+  },
+  {
+    /**
+     * The staff's finisher, from the identical pose and timing `staff-opener` above uses — see
+     * its own comment for why the pose is sized to this swing's own 4.2 reach and for the real
+     * frozen age both scenes land on. Copied field for field rather than tuned, the same
+     * discipline `water`'s own comment argues for against `gust`: a hand-edit to either pose
+     * would silently break the comparison the shared frame exists to make.
+     */
+    id: 'staff-finisher',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 13.8, 11), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'staff-finisher',
+    fireAt: 0.07,
+    duration: 0.14,
   },
   {
     /**

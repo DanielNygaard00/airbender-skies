@@ -2,6 +2,7 @@ import { Vector3 } from 'three'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 import { DEFAULT_GROUND_CONFIG, DEFAULT_SLIPSTREAM_CONFIG } from '../core/config'
 import { fireThrustImpulse } from '../combat/fire'
+import { staffShape } from '../combat/staff-arc'
 import { createAirWallPanel } from '../fx/air-wall'
 import { createAvatarAura } from '../fx/avatar-aura'
 import { createDashTrail } from '../fx/dash-trail'
@@ -16,6 +17,7 @@ import { createImpact } from '../fx/impact'
 import { createMud } from '../fx/mud'
 import { createShockwave } from '../fx/shockwave'
 import { createSlipstreamTrail } from '../fx/slipstream-trail'
+import { createStaffArc } from '../fx/staff-arc-fx'
 import { createSteam } from '../fx/steam'
 import { createVortexChargeTell } from '../fx/vortex-charge'
 import { createVortexRing } from '../fx/vortex-ring'
@@ -224,6 +226,16 @@ export const BENCH_EFFECTS: Record<BenchEffectId, (origin: Vector3, forward: Vec
   // line up.
   'fire-thrust': (origin, forward) => (
     createFireThrust(origin, fireThrustImpulse(forward, DEFAULT_COMBAT_CONFIG.fire))
+  ),
+  // `createStaffArc` takes a `ConeShape`, not a `finisher` flag — its own doc comment argues at
+  // length for why it has no business knowing which swing produced the shape it draws. The two
+  // bench ids each resolve their own shape through `staffShape`, the same call the fight itself
+  // makes, rather than the bench inventing a shortcut that could drift from it.
+  'staff-opener': (origin, forward) => (
+    createStaffArc(origin, forward, staffShape(false, DEFAULT_COMBAT_CONFIG.staffArc))
+  ),
+  'staff-finisher': (origin, forward) => (
+    createStaffArc(origin, forward, staffShape(true, DEFAULT_COMBAT_CONFIG.staffArc))
   ),
   steam: (origin) => createSteam(origin),
   mud: (origin) => createMud(origin),
