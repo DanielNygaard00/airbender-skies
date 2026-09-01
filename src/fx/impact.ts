@@ -62,16 +62,20 @@ export interface Shape {
 const SHAPES: Record<ImpactKind, Shape> = {
   /**
    * A connect: "quick and tight" in this file's own opening words. Tuned against `down` rather
-   * than in the abstract -- the same discipline `deflect`'s own comment already uses -- because
-   * leaving these two on the same `rim`/`fill` (as Task 2's holding values did) would have
-   * shipped exactly the "one smooth sphere at three sizes" bug this task exists to fix: sharing
-   * a surface and differing only in radius and lifetime is a difference in size, not in kind.
+   * than in the abstract -- the same discipline `deflect`'s own comment already uses. This is
+   * not a case of two kinds reading as one: the pre-task holding values (`rim: 0.5` / `fill:
+   * 0.6`, shared with `down`) already looked distinct on screen -- the `fill` paragraph below
+   * records the gate's own shot calling `hit` "a clean pale outline of medium size" against
+   * `down`'s "broad soft-rimmed bubble" -- so the argument for moving a number here cannot be
+   * "these were indistinguishable". It is that `hit`'s own design asks for more than merely not
+   * being `down`: "quick and tight" is a specific, sharper read than a same-shaped ball at
+   * three-fifths the radius, and `rim`/`fill` are what carries that sharpening.
    *
    * **`rim: 0.3`, narrower than `down`'s 0.5.** A narrower bright band reaches less far toward
-   * face-on before the surface goes dark, which reads as a harder, more contained edge -- the
-   * "tight" half of the design -- without reaching `deflect`'s 0.2, which is reserved for a
-   * spark off metal. `hit` sits visually between the two: tighter than a soft billow, not as
-   * hard as a shard-bearing shell.
+   * face-on before the surface goes dark, which reads as a harder, quicker edge -- sharpening
+   * the "tight" half of the design beyond what the size difference alone already gave it --
+   * without reaching `deflect`'s 0.2, which is reserved for a spark off metal. `hit` sits
+   * visually between the two: tighter than a soft billow, not as hard as a shard-bearing shell.
    *
    * **`fill: 0.3`, lower than `down`'s 0.6.** A connect is meant to read as a quick outline, not
    * a filled blob, so a lower floor keeps the far side of the sphere dim relative to the bright
@@ -154,7 +158,8 @@ const SHAPES: Record<ImpactKind, Shape> = {
    * not just `edge`); this value is the other half of that fix. A low `fill` made sense when
    * only the rim carried the break-up — the interior was supposed to stay quiet — but now that
    * `lumps` modulates everywhere, a low `fill` just makes the whole sphere faint rather than
-   * making it read as broken. 0.55, close to `hit`/`down`'s own 0.6, is high enough that the
+   * making it read as broken. 0.55, close to `down`'s own 0.6 (the value `hit` also carried when
+   * this number was chosen, before Task 3 moved `hit.fill` down to 0.3), is high enough that the
    * shard wave's peaks (up to `1.0`, see `BURST_BODY`) read as bright plating and its troughs
    * (down to `0.55 * 0.20 = 0.11`) read as gaps between shards, rather than the whole surface
    * staying too dim to judge.
