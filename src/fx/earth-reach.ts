@@ -94,6 +94,19 @@ const ARC_START_FRACTION = 0.2
  * The grain does not scroll with `time` the way water's drift does. Rock thrown through the air is
  * a solid object moving, not a medium flowing, so the band's brightness is fixed to the geometry
  * and only its overall alpha rises and falls.
+ *
+ * **`pulse` predates this codebase's own criterion for when sub-one-cycle temporal motion is
+ * legible, and does not meet it.** `time * 22.0` over the 0.26s `LIFETIME` advances
+ * 22 * 0.26 = 5.72 rad, 5.72 / (2π) ≈ 0.91 of one cycle — sub-one-cycle, the same regime
+ * `fire-thrust.ts`'s own doc comment names as a defect rather than a fix on `ARC_BODY`'s cousin in
+ * `fire-burst.ts`, because `pulse` multiplies overall alpha with no spatial term of its own for the
+ * motion to travel across: there is no second band for a single rise-and-fall to slide past, so by
+ * that criterion this reads as a flicker rather than as travel. Left as shipped anyway: the
+ * amplitude is small (±0.15, against `grain`'s own ±0.22 just above), small enough that it
+ * photographed as the arc breathing gently rather than as an unfinished flicker on the `earth-reach`
+ * bench scene, and a retune to close the gap with the criterion is a tuning decision for the
+ * owner's own play-test — this branch moves neither gameplay numbers nor tints, and a shader rate
+ * chosen for legibility is the same kind of number as either.
  */
 const ARC_BODY = /* glsl */ `
     float core = smoothstep(0.94, 0.97, radius);

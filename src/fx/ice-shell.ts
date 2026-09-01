@@ -81,6 +81,23 @@ const MELT_SECONDS = 0.25
  *
  * No `time` uniform, deliberately. Ice holds a soldier still; a drifting shell would claim motion
  * the move does not have.
+ *
+ * **The interior term, and why "collar" now covers two different things.** Every arc body in this
+ * directory writes `collar = smoothstep(hi, lo, coord) * (1.0 - core)` — a band bounded on both
+ * sides, with nothing drawn past its outer edge, because a ground arc's job stops at its own edge:
+ * there is no "inside" left to account for once the band ends. `gl_FragColor`'s alpha here instead
+ * writes `(1.0 - core) * 0.45` for the whole non-rim interior, unbounded on the near side — every
+ * fragment that is not part of the bright silhouette rim gets some alpha, not just a band next to
+ * it. Against `PEAK_OPACITY` 0.42 that interior fragment renders at `0.42 * 0.45 ≈ 0.19` effective
+ * opacity, down from a flat 0.42 before this shell had a shader at all. That is a deliberate choice
+ * for this shape and not an accident of copying the arc idiom: the shell's whole point per its own
+ * doc comment above is that the soldier inside stays visible, so its faces need to stay dim rather
+ * than empty — a ground arc has nothing behind it worth seeing through, and a hard cut to zero past
+ * its band is the honest reading of "this is where the effect ends"; a shell wants the opposite
+ * reading everywhere that is not the rim: "the ice is here, thin enough to see through." One word,
+ * `collar`, ends up naming both a bounded band with nothing beyond it and an unbounded dim fill
+ * with a bright rim on top — structurally different shapes serving the same "put contrast at the
+ * boundary" argument, not the same shape reused.
  */
 const SHELL_BODY = /* glsl */ `
     vec3 n = normalize(vViewNormal);

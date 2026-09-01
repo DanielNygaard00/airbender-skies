@@ -159,6 +159,16 @@ describe('the shell reads as faceted ice', () => {
     expect(material.fragmentShader).toContain('mix(tint * 0.18, tint, core)')
   })
 
+  it('dims rather than empties its interior, so the soldier stays visible through it', () => {
+    // Unlike a ground arc's `collar`, which is a band bounded on both sides with nothing drawn
+    // past its outer edge, the shell's whole non-rim interior stays lit at `(1.0 - core) * 0.45`
+    // — about 0.19 effective opacity against `PEAK_OPACITY` 0.42 — because the enemy inside has to
+    // stay visible everywhere, not just at a boundary. `SHELL_BODY`'s own doc comment carries the
+    // argument for why that is a different shape from every other arc's `collar` in full.
+    const material = shellMaterialOf(createIceShell(ORIGIN, 1))
+    expect(material.fragmentShader).toContain('(1.0 - core) * 0.45')
+  })
+
   it('keeps the shell BackSide, so it does not double its own density', () => {
     expect(shellMaterialOf(createIceShell(ORIGIN, 1)).side).toBe(BackSide)
   })

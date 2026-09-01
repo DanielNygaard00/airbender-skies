@@ -95,6 +95,19 @@ const GRIP_END_FRACTION = 0.15
  *
  * `travel` is 0 for the freeze and 1 for the grip, which is how one body serves both verbs without
  * a second shader: multiplied into the drift term it makes the freeze's arc snap and hold.
+ *
+ * **The grip's own drift predates this codebase's later criterion for legible sub-one-cycle
+ * motion, and does not meet it either.** `angle`'s spatial term (`angle * 40.0`) covers about
+ * 40 / 6 / (2π) ≈ 1.06 cycles across the grip's 60-degree wedge — `angle` is a full 0..1 turn of
+ * the *whole* circle, so a 60-degree (1/6-turn) wedge only ever sees 1/6 of that 40.0 argument's
+ * range. The temporal term (`time * travel * 5.0`) over the 0.3s `LIFETIME` advances
+ * 5 * 0.3 / (2π) ≈ 0.24 of one cycle — sub-one-cycle, and against a spatial pattern with only
+ * about one cycle of its own rather than the several `fire-thrust.ts`'s `lick` slides its
+ * temporal motion across. By that criterion this is closer to a flicker than to travel. Left as
+ * shipped anyway: the amplitude is small (±0.14) and it photographed as the arc gently rippling
+ * rather than flickering on the `water` bench scene, and closing the gap with the criterion —
+ * raising the spatial multiplier, the way `fire-burst.ts`'s own retune did — is a tuning decision
+ * for the owner's play-test, which this branch's no-tint/no-gameplay-number rule excludes.
  */
 const ARC_BODY = /* glsl */ `
     float core = smoothstep(0.90, 0.96, radius);
