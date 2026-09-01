@@ -56,11 +56,12 @@ const MELT_SECONDS = 0.25
 /**
  * Facet brightness from object space, and the bright rim that carries the collar's contrast.
  *
- * An `OctahedronGeometry` has no UV worth reading, so `vLocal` is the only *object-space*
- * coordinate available — and it is the right one for the faceting: how bright a facet is should
- * depend on where that facet is, not on a texture coordinate. `facet` quantises the object-space
- * direction into bands so adjacent faces differ, which is what makes it read as cut ice rather
- * than a smooth blob.
+ * An `OctahedronGeometry` does generate a UV — `PolyhedronGeometry`'s `generateUVs` derives one
+ * from spherical azimuth and inclination — but it carries pole and seam artefacts from that
+ * projection, so `vLocal` is the coordinate actually worth reading here: it is the right one for
+ * the faceting regardless, since how bright a facet is should depend on where that facet is, not
+ * on a texture coordinate. `facet` quantises the object-space direction into bands so adjacent
+ * faces differ, which is what makes it read as cut ice rather than a smooth blob.
  *
  * **Why the contrast is view-dependent and not object-space.** Task 2's collar earns its keep by
  * putting a dark band immediately inside the effect's *visible boundary*, so the eye has an edge

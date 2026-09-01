@@ -35,7 +35,7 @@ export function runFixedClock(
   // the same arithmetic `elapsed < duration` converges on — padded by a handful of steps to
   // absorb the float drift repeated addition accumulates (this codebase's own scene data
   // needs one increment more than the exact division implies: see the `gust` and
-  // `dash-trail` cases in `clock.test.ts`). `Math.min` against `MAX_SANE_STEPS` then turns a
+  // `water` cases in `clock.test.ts`). `Math.min` against `MAX_SANE_STEPS` then turns a
   // duration that is `Infinity`, absurdly large, or (via `elapsed < duration` short-circuiting
   // on the comparison itself) `NaN` or negative into a bounded number of iterations. Same
   // spirit as `effect-pool.ts`'s `add` bounding its eviction count rather than trusting its

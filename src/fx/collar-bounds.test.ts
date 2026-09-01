@@ -20,19 +20,25 @@ interface CollarCase {
 }
 
 /**
- * Every effect whose arc draws `water-reach.ts`'s collar pattern — `POLAR_PREAMBLE` feeding a
- * body with a bright `core` and a dark `collar`, each a `smoothstep(_, _, radius)` — registers
- * itself here. Task 2 (`water-reach.ts`) is the first; Tasks 4 and 5 register theirs as they land,
- * each with its own arc's own thickness.
+ * Every effect that carries a `core`/`collar` pair checked against `radius` — `POLAR_PREAMBLE`
+ * feeding a body with a bright `core` and a dark `collar`, each a `smoothstep(_, _, radius)` —
+ * registers itself here. Task 2 (`water-reach.ts`) is the first; Tasks 4 and 5 (`earth-reach.ts`,
+ * `fire-burst.ts`) registered theirs once they landed, each with its own arc's own thickness.
  *
- * A box- or shell-shaped effect has no radius band to check and so does not belong here: this
- * suite's whole method is reading a `RingGeometry`'s `innerRadius`/`outerRadius` and comparing it
- * against the shader's `radius`-driven `smoothstep` bounds, and neither term exists for a shape
- * with no ring geometry and no `POLAR_PREAMBLE`. That is why Task 3's ice shell and Task 6's fire
- * thrust are absent by design rather than by omission — the ice shell shades a silhouette rim off
- * `vViewNormal`, and the fire thrust's plume shades `along01` off `vLocal.z` on a `BoxGeometry`,
- * so both carry the same bright-core-and-collar idea expressed against a coordinate this suite
- * has no geometry to check it against.
+ * **The real membership rule is that `core`/`collar` pair against `radius`, not a shape rule —
+ * and the suite's absences prove it, for two different reasons.** Task 3's ice shell and Task 6's
+ * fire thrust are absent because they have nothing here to check at all: this suite's whole
+ * method is reading a `RingGeometry`'s `innerRadius`/`outerRadius` and comparing it against the
+ * shader's `radius`-driven `smoothstep` bounds, and neither term exists for a shape with no ring
+ * geometry and no `POLAR_PREAMBLE` — the ice shell shades a silhouette rim off `vViewNormal`, and
+ * the fire thrust's plume shades `along01` off `vLocal.z` on a `BoxGeometry`, so both carry the
+ * same bright-core-and-collar idea expressed against a coordinate this suite has no geometry to
+ * check it against. `mud.ts` is absent for the opposite reason: it has both a `RingGeometry` and
+ * `POLAR_PREAMBLE` — exactly the shape and the preamble this suite knows how to read — but writes
+ * no `core`/`collar` pair at all, being the collar rule's second and last exemption (see its own
+ * comment). A shape rule ("no ring, no preamble") would have called mud's absence the same kind of
+ * absence as the shell's and the plume's; it is not the same kind, which is why the rule this
+ * suite actually enforces is the pair against `radius`, not the shape underneath it.
  *
  * **What this catches that the literal-pinning tests in each effect's own `*.test.ts` cannot.**
  * Those tests (`toContain('smoothstep(0.90, 0.96, radius)')` and similar) prove a gradient was

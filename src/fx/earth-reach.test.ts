@@ -218,7 +218,7 @@ describe('createEarthReach', () => {
 })
 
 describe('the stone\'s arc reads as mass', () => {
-  it('draws the hardest collar of the six, because earth is the heavy element', () => {
+  it('draws the hardest collar of the five, because earth is the heavy element', () => {
     // §4.2 makes earth "slow, committed, high payoff" and the only armour-breaker. A soft edge
     // would read as air, so earth's core ramps over 3/16 of the band where water's takes 6/16,
     // and its dark band is the thicker of the two: the collar plateau runs right up to the core.

@@ -90,7 +90,7 @@ const VERTEX_SHADER = /* glsl */ `
  * | `RingGeometry` (full ring) | this preamble; never bare `vUv` axes |
  * | `sectorGeometry` (bounded wedge) | `vUv.x` along the arc, but only while the half-angle stays at or under a quarter turn — see `sectorUvIsMonotone` in `sector.ts`. `radius` from this preamble is valid for a wedge too |
  * | `BoxGeometry` | `vLocal`; UVs are per face, so `vUv.x` means a different axis depending on which face a fragment is on |
- * | `OctahedronGeometry` | `vLocal`; there is no useful UV |
+ * | `OctahedronGeometry` | `vLocal`; UVs exist (`PolyhedronGeometry`'s `generateUVs` derives them from spherical azimuth/inclination) but carry pole and seam artefacts, so they are not useful here |
  * | `CylinderGeometry` | side-face `vUv` genuinely is (around, up), as `air-wall.ts` uses |
  * | `SphereGeometry` | `vUv` is (azimuth, polar) |
  */

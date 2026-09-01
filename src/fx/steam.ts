@@ -15,7 +15,8 @@ import { safeScale } from './scale'
  * the Vortex, the finisher, Steam and Mud all at once without the player losing the ability to
  * tell them apart at a glance. So Steam gets a shape that actually looks like what it is. Steam
  * **rises**; Mud **stays down** — the opposite motion is the whole reason the two need different
- * geometry rather than just different tints, and Mud keeps the ring until it gets its turn.
+ * geometry rather than just different tints. Mud's own ring is gone as of Task 8, the same as
+ * this file's own switch away from it below.
  *
  * **A single rising, widening column, not a Group.** Every layered effect in this directory
  * (`water-reach.ts`, `fire-burst.ts`) is a fill plus an arc because the fill states a true reach

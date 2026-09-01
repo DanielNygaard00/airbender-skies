@@ -4,7 +4,7 @@
 
 **Goal:** Replace the legibility rule that failed, prove the replacement on one effect, then paint water, earth and fire plus the two reaction shapes step C left as placeholders.
 
-**Architecture:** A `POLAR_PREAMBLE` and a documented geometry table move B1's hard-won coordinate knowledge into `effect-material.ts` and `sector.ts`. Each effect then gains a **collar** — a dark band drawn immediately outside its bright core — so contrast lives inside the effect rather than depending on the ground. `water-reach` is a gate: it is shot on pale grass and dark rock before any other effect commits.
+**Architecture:** A `POLAR_PREAMBLE` and a documented geometry table move B1's hard-won coordinate knowledge into `effect-material.ts` and `sector.ts`. Each effect then gains a **collar** — a dark band drawn immediately inside its bright core — so contrast lives inside the effect rather than depending on the ground. `water-reach` is a gate: it is shot on pale grass and dark rock before any other effect commits.
 
 **Tech Stack:** TypeScript, three.js 0.185.1, Vitest (node environment, no DOM, no WebGL).
 
@@ -19,7 +19,7 @@
 - **A fragment body must never include a `..._pars_fragment` chunk.** The builder throws on it; that refusal is why the module exists.
 - **No gameplay number moves.** No lifetime, reach, radius, thickness, height, width or opacity constant. Newly `export`ing a constant for a test is allowed; changing its value is not.
 - **No tint moves.** B1 spent the red-channel headroom raising green five times and the four air tints now differ only in red. The collar is what buys legibility here, not brightness.
-- **The collar rule replaces B1's threshold rule.** Every bright element draws a darker band immediately outside its core, so the contrast is internal and ground-independent. B1's "clear 0.82 luminance" is retired — do not add new luminance assertions, and do not delete B1's existing ones (they still describe B1's effects truthfully).
+- **The collar rule replaces B1's threshold rule.** Every bright element draws a darker band immediately inside its core, so the contrast is internal and ground-independent. B1's "clear 0.82 luminance" is retired — do not add new luminance assertions, and do not delete B1's existing ones (they still describe B1's effects truthfully).
 - **`pillar-view` is out of scope** and must not be touched: it is opaque, lit, depth-tested world geometry, and the builder makes transparent unlit overlays.
 - **Collar bounds live in the mesh's own radius range, not in 0..1** — every arc in this plan is a `sectorGeometry(halfAngle, 1 - ARC_THICKNESS, 1)` band, so `POLAR_PREAMBLE`'s `radius` spans `1 - ARC_THICKNESS`..1 and nothing below that inner edge exists to shade. Before writing a `smoothstep` against `radius`, read the effect's `ARC_THICKNESS` and place both bounds inside the band: water and earth run 0.84..1.0, fire 0.70..1.0. A bound below the inner edge saturates `core` and zeroes `collar`, which draws the old flat arc and passes every test that only pins literals.
 - **Tuned constants are pinned in tests** — exact `toContain` on each literal `smoothstep` bound plus the `gl_FragColor` expression, in the shape `shockwave.test.ts:156-170` and both trail tests already use, with a comment saying what only a bench shot can answer.
@@ -208,7 +208,7 @@ Add to `src/fx/water-reach.test.ts`, using whatever helper that file already has
 
 ```ts
 describe('the arc carries its own collar', () => {
-  it('draws a darker band outside the bright core', () => {
+  it('draws a darker band inside the bright core', () => {
     // The rule B1's threshold rule failed to deliver: contrast is a difference, and an absolute
     // luminance cannot separate a bright element from a bright ground. A collar drawn dark works
     // over pale grass and dark rock alike, because the contrast is inside the effect.

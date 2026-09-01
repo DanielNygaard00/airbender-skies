@@ -221,7 +221,7 @@ describe('createWaterReach', () => {
 })
 
 describe('the arc carries its own collar', () => {
-  it('draws a darker band outside the bright core', () => {
+  it('draws a darker band inside the bright core', () => {
     // The rule B1's threshold rule failed to deliver: contrast is a difference, and an absolute
     // luminance cannot separate a bright element from a bright ground. A collar drawn dark works
     // over pale grass and dark rock alike, because the contrast is inside the effect.

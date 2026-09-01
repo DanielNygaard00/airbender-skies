@@ -123,8 +123,9 @@ describe('createIceShell', () => {
   })
 
   it('carries a shader material for its facets and rim, built through createEffectMaterial', () => {
-    // No longer a `MeshBasicMaterial`: an octahedron has no useful UV, so the faceting and the
-    // silhouette rim (`SHELL_BODY`) are real per-fragment math a flat-colour material cannot
+    // No longer a `MeshBasicMaterial`: an octahedron's UV carries pole and seam artefacts and is
+    // not useful here, so the faceting and the silhouette rim (`SHELL_BODY`) are real
+    // per-fragment math a flat-colour material cannot
     // express. `effect-material.ts` is the only module in `src/fx/` allowed to build the
     // `ShaderMaterial` this now needs, and it is what guards against the `..._pars_fragment`
     // trap — a body duplicating those chunks fails to compile nearly silently, and the mesh
@@ -135,7 +136,7 @@ describe('createIceShell', () => {
 })
 
 describe('the shell reads as faceted ice', () => {
-  it('varies brightness per facet from object space, since an octahedron has no useful uv', () => {
+  it('varies brightness per facet from object space, since an octahedron\'s uv is not useful here', () => {
     const material = shellMaterialOf(createIceShell(ORIGIN, 1))
     expect(material.fragmentShader).toContain('vLocal')
     expect(material.fragmentShader).not.toContain('vUv.x')

@@ -29,15 +29,19 @@ import { createEffectMaterial } from './effect-material'
  * drawing of a vector that genuinely has a vertical component. Flattening it would draw a horizontal
  * flame for a move whose main axis is up.
  *
- * **The plume now builds through `createEffectMaterial`, the last of the six Task 2 collar
+ * **The plume now builds through `createEffectMaterial`, the last of the five Task 2 collar
  * carries onto.** It was a flat `MeshBasicMaterial` before: the trap that kept it there — a
  * `ShaderMaterial` including the `..._pars_fragment` chunks the renderer already injects fails to
  * compile with redefinition errors that throw nowhere visible, and the mesh then simply does not
  * draw, which reads as a tastefully transparent effect rather than as a broken one — is
  * `effect-material.ts`'s to guard against, not this file's; its own doc comment carries that
  * argument in full, so it is not restated here. What a shader buys that a flat colour could not is
- * `PLUME_BODY`'s bright core and collar (see its own doc comment), the last of the six places this
- * pattern lands.
+ * `PLUME_BODY`'s bright core and collar (see its own doc comment), the last of the five places this
+ * pattern lands — five, not the design note's original six: Task 7 made Steam the collar's first
+ * exemption instead of its sixth carrier, and `mud.ts` names itself the second and last such
+ * exemption, so the count that actually ships is `grep -n "mix(tint \* 0.18, tint, core)"
+ * src/fx/*.ts`'s five non-test hits: `earth-reach.ts`, `fire-burst.ts`, this file, `ice-shell.ts`
+ * and `water-reach.ts`.
  */
 
 /** Short: a thrust is one shove, not a sustained burn. Under the burst cone's own 0.16. */

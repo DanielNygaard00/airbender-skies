@@ -42,10 +42,13 @@ Corroborating measurement: the shockwave reads best on both terrains. It is the 
 element (0.35 of radius against the gust arc's 0.16), not the brightest.
 
 **The replacement rule: every bright element carries its own dark edge.** Concretely: one extra
-`smoothstep` band immediately outside the bright core, multiplying alpha *up* there while the core
-stays bright — a darker collar, not an added colour, so it costs no tint and no second draw. The
-contrast is then inside the effect and independent of the ground. The fill keeps its existing job — stating the volume honestly,
-quiet enough to see the world through.
+`smoothstep` band immediately inside the bright core — a darker collar, not an added colour, so it
+costs no tint and no second draw. It is a dark band, not a brightened one: nothing here multiplies
+alpha up, the core stays bright on its own and the collar draws darker than both the core beside it
+and the ground behind it. The contrast comes from that relative darkness, not from any absolute
+brightness level — which is the whole reason it survives moving from grass to rock, where B1's
+threshold did not. The fill keeps its existing job — stating the volume honestly, quiet enough to
+see the world through.
 
 **No tint moves.** B1 spent the red-channel headroom raising green five times; the four air tints now
 differ only in red. Raising anything further makes the palette worse without fixing the problem.

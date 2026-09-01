@@ -73,7 +73,7 @@ describe('mud', () => {
 })
 
 describe("mud's own tuning, pinned so a retune is a visible edit", () => {
-  it("takes its tint from main.ts's own REACTION_LOOKS entry, dark and brown rather than pale", () => {
+  it("takes its tint from main.ts's own former REACTION_LOOKS entry, dark and brown rather than pale", () => {
     // `0x4a3423`, argued in `main.ts` as earth compacted wet around a soldier's feet, pushed away
     // from the sandstone `earth-reach.ts` already uses. This module now owns the live copy;
     // `REACTION_LOOKS` itself is gone, since both reactions now carry their own tint.
