@@ -205,6 +205,15 @@ carry a cycle's Minor findings into this file *before* deleting its workspace, n
   "What the tests structurally cannot establish" and "Shader edge cases that are inert but real"
   respectively — see those sections, updated in place.
 
+## One count left standing, because it is still true
+
+`fire-thrust.ts` calls itself "the last of the five" bodies carrying the collar, and five is
+correct today — `earth-reach.ts`, `fire-burst.ts`, `fire-thrust.ts`, `ice-shell.ts` and
+`water-reach.ts`. It carries exactly the fragility the exemption count did: it will be wrong the
+day a sixth body carries one, and nothing will fail when it is. It was left because churning a
+comment that is currently accurate costs more than it buys — but if that file is touched again,
+delete the count and state the criterion instead, the way the exemption register now does.
+
 ## Two frequencies that predate the criterion they are judged by
 
 B2's fire tasks established a rule, recorded in `fire-thrust.ts`'s `PLUME_BODY` comment: whether a
