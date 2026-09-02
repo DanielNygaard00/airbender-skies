@@ -55,6 +55,21 @@ describe('the finisher flare', () => {
     expect(material.fragmentShader).toContain('6.2832')
   })
 
+  it('interpolates FLICKER_RATE into the shader as a well-formed float literal', () => {
+    // `time * ${FLICKER_RATE}.0` is a new idiom in this file — `steam.ts` hard-codes its own
+    // multiplier instead of interpolating a named constant. It is correct only while
+    // `FLICKER_RATE` is an integer: a non-integer (8.5, say) would emit `8.5.0`, which is not a
+    // valid GLSL float and fails to link — and the mesh would then silently not draw, exactly the
+    // failure `effect-material.ts` exists to make loud (see `docs/deferred-findings.md`'s "Shader
+    // edge cases" section). No shader in this suite is ever compiled by a GPU, so this cannot be
+    // a link check; it is a string-level well-formedness check instead, matching the emitted term
+    // against the shape a non-integer rate would break: `\d+\.0` requires the whole token between
+    // `time * ` and the closing paren to be plain digits, so `8.5.0` (only `5.0` of it matches
+    // `\d+\.0`) fails to match at the required position and this assertion goes red.
+    const material = flareMaterialOf(createFinisherFlare(new Vector3()))
+    expect(material.fragmentShader).toMatch(/time \* \d+\.0\)/)
+  })
+
   it('wears the staff\'s tint, because the staff is what earned it', () => {
     expect(colourOf(flareMaterialOf(createFinisherFlare(new Vector3())))).toBe(0xffa64d)
   })

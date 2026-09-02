@@ -507,6 +507,34 @@ describe('the mark pip', () => {
     expect(colourOf(pipOf(other))).toBe(colourOf(pip))
   })
 
+  /**
+   * Pins `MARK_COLOUR` against `src/ui/element-radial.ts`'s own `LOOKS` table, which is where
+   * `enemy-mesh.ts`'s own doc comment says these four hex literals were copied from. `LOOKS` is
+   * not exported -- it holds CSS strings for the HUD's DOM, not three.js hex numbers for a
+   * `Mesh` material, so there is no shared symbol to import on either side. The literals below
+   * are `LOOKS`'s own values, read out of that file rather than assumed: air `'#7fe4ff'`, water
+   * `'#2fb8d8'`, earth `'#d9a066'`, fire `'#ff5a2d'`. Nothing before this test failed if
+   * `MARK_COLOUR` drifted from that table -- the "same input produces the same output" test above
+   * only checks internal consistency, not agreement with the source it was copied from.
+   *
+   * Colour is set whenever `mark` is non-null regardless of `pip.visible` (`sync`'s own code
+   * writes `pipMaterial.color` before the `markCanReact` visibility check), so every element's
+   * colour is readable here even though only water's pip is currently ever shown.
+   */
+  it('matches the element radial\'s own colours, not just itself', () => {
+    const expected: Record<typeof ELEMENT_ORDER[number], number> = {
+      air: 0x7fe4ff,
+      water: 0x2fb8d8,
+      earth: 0xd9a066,
+      fire: 0xff5a2d,
+    }
+    for (const element of ELEMENT_ORDER) {
+      const view = viewFor('spear')
+      view.sync({ ...enemyAt(0, 0), mark: { element, secondsLeft: 2.5 } }, IDENTITY, 0)
+      expect(colourOf(pipOf(view))).toBe(expected[element])
+    }
+  })
+
   it('shows a mark running out, because a fresh mark and a dying one are different facts', () => {
     const view = viewFor('spear')
     view.sync({ ...enemyAt(0, 0), mark: { element: 'water', secondsLeft: 2.5 } }, IDENTITY, 0)

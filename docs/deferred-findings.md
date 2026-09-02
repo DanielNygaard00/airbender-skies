@@ -173,21 +173,6 @@ carry a cycle's Minor findings into this file *before* deleting its workspace, n
 
 ## Still open
 
-- **`src/fx/finisher.ts` states three numbers that are false, and one is in a test name.** Its
-  `PEAK_OPACITY` comment credits `staff-arc-fx.ts` with "its own arc opacity — 0.9"; that file's
-  only opacity is `FILL_OPACITY = 0.55`, and 0.9 is not the brightest in the directory either
-  (`fire-burst.ts`'s `ARC_OPACITY` is 0.95). `finisher.test.ts`'s "peaks at the staff arc's own
-  opacity" repeats it. Separately, the comment calls `gust-cone.ts`'s 0.22 lifetime "the fastest
-  full beat already shipped" and itself "shorter than every other timed effect in this directory";
-  `fire-thrust.ts` is 0.14 and `fire-burst.ts` and `staff-arc-fx.ts` are both 0.16. The values are
-  defensible; their stated derivations are invented. Comment-and-test-name edit, no retune. This
-  was reviewed as Needs-fixes and merged anyway as a deliberate call.
-- **The no-collar exemption count is inconsistent across three files.** `mud.ts` calls itself "the
-  second and last such exemption", `finisher.ts` calls itself "the third and last", and
-  `aim-tell.ts` declines a collar without registering at all — though unlike the others it has a
-  radius coordinate available, so it is a body that could have carried one and chose not to. No
-  single task owned all three files. The fix is to delete the ordinal claims rather than renumber
-  them: a count every new body must update in every other file will break again.
 - **Nothing clears an enemy's elemental mark when it is knocked down.** `hitEnemy` spreads `mark`
   through untouched, and `markAndReact` clears it only when the downing blow is itself the
   reaction that fired. So a soldier downed and later restored still carries whatever mark was on
@@ -198,6 +183,27 @@ carry a cycle's Minor findings into this file *before* deleting its workspace, n
 - **`EnemyView` has no `dispose` method at all**, so `createHealthBar`'s own `dispose` already
   goes uncalled and B3's mark pip geometry and material join it. Pre-existing; widening that
   interface was outside the visual arc's scope.
+
+## Closed, 2026-09-02
+
+- **`src/fx/finisher.ts`'s three false numbers.** The `PEAK_OPACITY` comment no longer credits
+  `staff-arc-fx.ts` with 0.9 — that file's own opacity is a `FILL_OPACITY` of 0.55, unrelated to
+  this number. The real match is `earth-reach.ts`, `gust-cone.ts` and `water-reach.ts`, whose own
+  `ARC_OPACITY` is also 0.9, one notch under the directory's actual brightest, `fire-burst.ts`'s
+  0.95. `finisher.test.ts`'s test name no longer repeats the false credit either. The `LIFETIME`
+  comment no longer calls `gust-cone.ts`'s 0.22 "the fastest full beat already shipped" — it is
+  not: `fire-thrust.ts` is 0.14 and `fire-burst.ts` and `staff-arc-fx.ts` are both 0.16 — and the
+  module comment no longer claims the flare is "shorter than every other timed effect in this
+  directory" for the same reason. All three sites now cite the real spread. No value was retuned.
+- **The no-collar exemption register.** The ordinal claims are gone from `mud.ts`, `finisher.ts`
+  and `collar-bounds.test.ts`'s reference to `mud.ts`'s old wording, and from `fire-thrust.ts`'s
+  own reference to it. `aim-tell.ts`'s preview sector now states its own no-collar reasoning
+  explicitly rather than leaving it unregistered. `steam.ts` carries the one general note that the
+  exemptions are deliberate and individually argued rather than counted, so no file has to agree
+  with a running total that lives in three other files at once.
+- **The two Section 3 test gaps below, and the `FLICKER_RATE` interpolation trap**, listed under
+  "What the tests structurally cannot establish" and "Shader edge cases that are inert but real"
+  respectively — see those sections, updated in place.
 
 ## Two frequencies that predate the criterion they are judged by
 
@@ -226,7 +232,12 @@ documented rather than moved. A retune is a tuning decision for a play-test.
 - `finisher.ts` interpolates its flicker rate into the shader source as `time * ${FLICKER_RATE}.0`,
   which is a new idiom here — `steam.ts` hard-codes its own. It is correct only while the constant
   is an integer: `8.5` would emit `8.5.0`, which fails to link, and the mesh would then silently
-  not draw, which is exactly the failure `effect-material.ts` exists to make loud.
+  not draw, which is exactly the failure `effect-material.ts` exists to make loud. The
+  interpolation was kept rather than hard-coded, because a hard-coded literal would drift silently
+  from `FLICKER_RATE` the next time someone retunes the constant and forgets the shader string;
+  `finisher.test.ts` now asserts the emitted term matches `time \* \d+\.0\)`, which is a
+  string-level well-formedness check (not a link check — nothing here compiles on a GPU) that
+  reddens the day this constant becomes non-integer.
 - `steam.ts` and `fire-thrust.ts` can both write a NaN into `position.y` from a NaN `dt`, which is
   outside `safeScale`'s remit — `scale-wiring.test.ts` drives that NaN but only inspects scale. A
   NaN translation collapses a matrix as thoroughly as a NaN scale.
@@ -239,13 +250,18 @@ documented rather than moved. A retune is a tuning decision for a play-test.
   correctly transparent effect.
 - Substring assertions against an assembled `fragmentShader` cannot tell live GLSL from the same
   text sitting in a dead comment. Inherent to the above, and true of every shader test here.
-- Two assertions pass for weaker reasons than their names claim: `staff-arc-fx.test.ts`'s
+- One assertion passes for a weaker reason than its name claims: `staff-arc-fx.test.ts`'s
   "measures across the wedge" is satisfied by `WEDGE_PREAMBLE` alone, since the preamble itself
-  contains the substring `across`; and `aim-tell.ts`'s construction-time agreement between
-  `sectorGeometry(1, 0, 1)` and `halfAngle: 1` is load-bearing but pinned nowhere — the test only
-  proves the uniform follows two later `update` calls.
-- `MARK_COLOUR` in `enemy-mesh.ts` is the fifth copy of the four element hex literals and the
-  first with no test pinning it. Nothing fails if `element-radial.ts`'s `LOOKS` moves a colour.
+  contains the substring `across`. (`aim-tell.ts`'s own construction-time agreement between
+  `sectorGeometry(1, 0, 1)` and `halfAngle: 1` — previously load-bearing but pinned nowhere — is
+  now pinned directly: `aim-tell.test.ts`'s "agrees with its own construction-time sector before
+  any update is called" reads the uniform before calling `update`, and was mutation-verified
+  against a desynced initial value.)
+- `MARK_COLOUR` in `enemy-mesh.ts` was the fifth copy of the four element hex literals and the
+  first with no test pinning it against `element-radial.ts`'s own `LOOKS` table, which is not
+  exported. `enemy-mesh.test.ts`'s "matches the element radial's own colours, not just itself" now
+  pins all four against `LOOKS`'s literal CSS strings (mutation-verified against a one-bit-off
+  `fire` value), with a comment naming where they come from.
 - The collar's literals are per-effect rather than shared, deliberately, because each mesh is a
   different thickness. `collar-bounds.test.ts` guards the risk that creates for the ring cases by
   reading each mesh's real geometry, but it cannot cover the shell or box bodies, which have no

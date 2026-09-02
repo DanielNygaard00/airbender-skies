@@ -42,6 +42,18 @@ describe('the tell stays quiet', () => {
     expect(material.fragmentShader).not.toContain('vUv.x')
   })
 
+  it('agrees with its own construction-time sector before any update is called', () => {
+    // `previewGeometry` is built with `sectorGeometry(1, 0, 1)` and `halfAngle` starts at the
+    // same `1`, so the two must never disagree, even on the very first frame -- a frame that can
+    // be rendered (the preview starts hidden, but nothing stops a caller reading the uniform
+    // before the first `update`). Only the existing 'rebuilds the preview uniform' test below
+    // exercises `halfAngle` at all, and only after two `update` calls: if the initial geometry
+    // were built at a different theta from this uniform's starting value, this suite would stay
+    // green while the first frame shaded against a stale angle.
+    const material = previewMaterialOf(createAimTell())
+    expect(material.uniforms.halfAngle?.value).toBeCloseTo(1, 6)
+  })
+
   it('rebuilds the preview uniform with the preview geometry', () => {
     // A RingGeometry cannot change theta, so a changed half-angle rebuilds it. If the
     // halfAngle uniform does not follow, `across` normalises against a stale angle and the
