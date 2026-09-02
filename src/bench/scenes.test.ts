@@ -1,8 +1,17 @@
 import { Vector3 } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { AT_PARAM, BENCH_SCENES, resolveBench, type BenchScene } from './scenes'
+import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
+import { ELEMENT_ORDER } from '../elements/element'
 import { LEVELS } from '../world/levels'
 import { runFixedClock } from './clock'
+
+// The canonical set of valid `EnemyKind`s, read off `DEFAULT_COMBAT_CONFIG.enemies` — a
+// `Record<EnemyKind, EnemyConfig>`, per `combat/config.ts` — rather than a second, hand-typed
+// list of the four kind strings that could silently drift from the union the moment a fifth
+// kind is added.
+const KNOWN_KINDS = new Set(Object.keys(DEFAULT_COMBAT_CONFIG.enemies))
+const KNOWN_ELEMENTS = new Set(ELEMENT_ORDER)
 
 // Matches `bench/main.ts`'s own `STEP_SECONDS`, the same reason `effects.test.ts`'s own `STEP`
 // gives: the age a scene actually freezes at is a property of the real fixed step, not of
@@ -147,6 +156,83 @@ describe('bench scenes', () => {
     expect(resolveBench('?scene=nope')).toBeNull()
     expect(warn).toHaveBeenCalledOnce()
     warn.mockRestore()
+  })
+})
+
+describe('bench scenes: soldiers', () => {
+  it('gives every soldiers entry a real EnemyKind and a real Element or null', () => {
+    // A typo in either string would still satisfy `BenchScene`'s own type at the call site that
+    // matters least — `main.ts` reads `spec.kind` and `spec.mark` off a plain object literal,
+    // so nothing here is caught by the type system the way an actual `EnemyKind`/`Element`
+    // union member would be. This is the runtime backstop for exactly that gap.
+    for (const scene of BENCH_SCENES) {
+      for (const soldier of scene.soldiers ?? []) {
+        expect(KNOWN_KINDS.has(soldier.kind)).toBe(true)
+        expect(soldier.mark === null || KNOWN_ELEMENTS.has(soldier.mark)).toBe(true)
+      }
+    }
+  })
+
+  it('gives every present markSeconds a positive, finite value', () => {
+    // `undefined` (omitted, "fresh") is legal and skipped here; what is not legal is a
+    // `markSeconds` of zero, negative or non-finite, any of which `main.ts`'s own
+    // `spec.markSeconds ?? DEFAULT_COMBAT_CONFIG.reactions.markSeconds` would happily pass
+    // straight through to `Enemy.mark.secondsLeft`, landing a mark that expired before the
+    // frame is even drawn, or a `NaN` that `MathUtils.clamp` in `enemy-mesh.ts` cannot recover
+    // a sane opacity from.
+    for (const scene of BENCH_SCENES) {
+      for (const soldier of scene.soldiers ?? []) {
+        if (soldier.markSeconds === undefined) continue
+        expect(Number.isFinite(soldier.markSeconds)).toBe(true)
+        expect(soldier.markSeconds).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('leaves every scene without its own soldiers with none at all', () => {
+    // The inverse of the two checks above, and the one that would catch a `soldiers: []`
+    // sneaking onto some other scene's entry — an empty array is not `undefined`, and a
+    // scene that never meant to carry any soldiers should not carry an array that says
+    // otherwise.
+    const withSoldiers = new Set(['marks', 'marks-occluded'])
+    for (const scene of BENCH_SCENES) {
+      if (withSoldiers.has(scene.id)) continue
+      expect(scene.soldiers).toBeUndefined()
+    }
+  })
+
+  it('marks all four elements plus an unmarked control across the `marks` row', () => {
+    // The one check that would catch a hand-edit quietly dropping a mark from this scene — the
+    // scene would still pass every generic check above (a `null` mark is just as "a real
+    // Element or null" as a real one), so this is the check `soldiers`'s own field comment says
+    // has to exist: the two new scenes actually carrying the marks they claim to.
+    const scene = BENCH_SCENES.find((s) => s.id === 'marks')!
+    expect(scene.soldiers).toBeDefined()
+    const marks = scene.soldiers!.map((s) => s.mark)
+    expect(new Set(marks.filter((m): m is NonNullable<typeof m> => m !== null))).toEqual(
+      new Set(ELEMENT_ORDER),
+    )
+    expect(marks.filter((m) => m === null)).toHaveLength(1)
+  })
+
+  it('gives `marks-occluded` two differently-marked soldiers, the rear one nearly expired', () => {
+    const scene = BENCH_SCENES.find((s) => s.id === 'marks-occluded')!
+    expect(scene.soldiers).toHaveLength(2)
+    const [front, rear] = scene.soldiers!
+    expect(front!.mark).not.toBeNull()
+    expect(rear!.mark).not.toBeNull()
+    expect(front!.mark).not.toBe(rear!.mark)
+    // "Nearly expired" against the reaction system's own full mark length
+    // (`DEFAULT_COMBAT_CONFIG.reactions.markSeconds`, 2.5s) — a tenth of it or less, not merely
+    // "less than fresh".
+    expect(rear!.markSeconds).toBeDefined()
+    expect(rear!.markSeconds!).toBeGreaterThan(0)
+    expect(rear!.markSeconds!).toBeLessThan(DEFAULT_COMBAT_CONFIG.reactions.markSeconds * 0.1)
+    // The rear soldier reads as further from the camera than the front one, the whole point of
+    // "occluded" — the camera sits at positive Z looking toward the target the way every scene
+    // in this table does, so a smaller Z offset than the front soldier's own is what "further
+    // away" means here.
+    expect(rear!.dz).toBeLessThan(front!.dz)
   })
 })
 

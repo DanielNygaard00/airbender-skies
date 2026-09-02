@@ -1,4 +1,7 @@
 import { Vector3 } from 'three'
+import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
+import { spawnEnemy } from '../combat/enemy'
+import { createEnemyView } from '../combat/enemy-mesh'
 import { createPost } from '../core/post'
 import { profileFor, isQuality, DEFAULT_QUALITY } from '../core/quality'
 import { createRenderer, hasWebGL, showFallback, WEBGL_MESSAGE } from '../core/renderer'
@@ -111,6 +114,51 @@ function start(): void {
   camera.lookAt(scene.camera.target)
   followSun(scene.camera.target)
 
+  /**
+   * A scene's own `soldiers`, if it names any — see that field's doc comment on `BenchScene`
+   * for why this exists at all (the mark pip had never been photographed, because nothing in
+   * this module had ever built a soldier to put one on).
+   *
+   * Built through `spawnEnemy` and then overridden, not written out by hand: `Enemy` carries
+   * many fields (`stanceTime`, `downs`, `heldSeconds`, `knockback`, `verticalVelocity`,
+   * `grounded`...), and a hand-written literal here would silently stop matching that shape the
+   * next time a field is added to it, the same reason `spawnEnemy` exists for the game's own
+   * patrol spawner in `main.ts`. Only `mark` is overridden — `spawnEnemy` always starts a
+   * soldier unmarked.
+   *
+   * Ground height comes from `world.terrain.groundHeightAt(x, z)`, the same call
+   * `world/shrine.ts` and `world/payload.ts` make for an identical reason: `scene.camera.target`
+   * is one measured point on the terrain, not a statement about its shape, so a soldier held at
+   * the target's own `y` would float above the ground or sink into it the moment its own
+   * `dx`/`dz` moved it off that exact point — the same family of mistake `ice-shell`'s own scene
+   * comment in `scenes.ts` records at length for an effect's origin. `?? scene.camera.target.y`
+   * only covers a query that misses the mesh entirely; every offset either bench scene names
+   * lands on the world's own surface.
+   */
+  const soldiers = (scene.soldiers ?? []).map((spec, index) => {
+    const x = scene.camera.target.x + spec.dx
+    const z = scene.camera.target.z + spec.dz
+    const y = world.terrain.groundHeightAt(x, z) ?? scene.camera.target.y
+    const c = DEFAULT_COMBAT_CONFIG.enemies[spec.kind]
+    const enemy = {
+      ...spawnEnemy(`bench-soldier-${index}`, new Vector3(x, y, z), spec.kind, c),
+      mark: spec.mark === null
+        ? null
+        : {
+            element: spec.mark,
+            secondsLeft: spec.markSeconds ?? DEFAULT_COMBAT_CONFIG.reactions.markSeconds,
+          },
+    }
+    const view = createEnemyView(spec.kind, c)
+    graph.add(view.object)
+    // Mirrors `main.ts`'s own `enableShadows(view.object)` over `enemyViews` (around line 484):
+    // nothing in `src/world/` sets `castShadow`, so without this call a soldier standing on lit
+    // ground would cast no shadow at all — the identical omission `enableShadows(world.group)`
+    // above already cost this bench once, on the world itself rather than on what stands on it.
+    enableShadows(view.object)
+    return { enemy, view }
+  })
+
   const pool = createEffectPool(graph)
   // Rebound the same way `scene` is above: the check happens here, but `benchEffect` is only
   // called from inside a callback `runFixedClock` may invoke later, and control-flow narrowing
@@ -132,6 +180,23 @@ function start(): void {
     // does now is keep drawing — the window would otherwise go black the instant rAF stopped
     // being driven by anything, rather than holding the final frame.
     post.render(STEP_SECONDS)
+    // Every frame, not once at construction — `EnemyView.sync`'s health bar and mark pip both
+    // billboard off `camera.quaternion` (see `enemy-mesh.ts`), so a sync done once at spawn
+    // time would only be correct for as long as nothing about the camera changes. This bench's
+    // own camera never moves after `start()` sets it above, so in practice a single sync would
+    // currently produce an identical frame — but that would be leaning on this scene never
+    // getting a moving camera rather than on `sync`'s own contract, the same distinction
+    // `main.ts` draws by re-syncing every enemy view on every real frame instead of once.
+    //
+    // `rising: 1` — fully risen, not `risingProgress(enemy, c)`. `spawnEnemy` starts every
+    // soldier in `stance: 'advance'`, and `risingProgress` returns exactly `0` for any stance
+    // other than `'rising'` — correct by its own contract, but a "not risen at all" value that
+    // says nothing true about a soldier that never went down. `sync`'s own final branch (every
+    // stance but `'rising'` and downed) does not read `rising` at all — the rig's rotation
+    // there comes from `facing` alone — so the number is inert either way; `1` is the value
+    // that reads correctly to anyone who goes looking, where `risingProgress`'s literal `0`
+    // would not.
+    for (const { enemy, view } of soldiers) view.sync(enemy, camera.quaternion, 1)
     requestAnimationFrame(frame)
   }
   requestAnimationFrame(frame)

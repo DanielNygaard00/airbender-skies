@@ -1,5 +1,7 @@
 import { Vector3 } from 'three'
 import { SUN_ELEVATION_DEGREES } from '../core/daylight'
+import type { EnemyKind } from '../combat/enemy'
+import type { Element } from '../elements/element'
 import { ARCHIPELAGO } from '../world/levels/archipelago'
 import { CANYON_COUNTRY } from '../world/levels/canyon-country'
 
@@ -114,6 +116,42 @@ export interface BenchScene {
    * override is in play.
    */
   duration: number
+  /**
+   * Soldiers to stand in the shot, or omit for none.
+   *
+   * This exists because the mark pip `enemy-mesh.ts` draws above a marked soldier — the
+   * chevron that tells the reaction system apart from a plain hit, per that file's own
+   * `createMarkPipGeometry` comment — had never been photographed anywhere: nothing in
+   * `src/bench/` has ever built a soldier, so nothing here could put a mark on one to check
+   * whether the four elements read apart, whether an unmarked soldier reads as unmarked,
+   * whether the pip survives being occluded by another body, or whether a nearly-expired mark
+   * fades rather than jumps to a different colour.
+   *
+   * A field on the scene table, not a special case in `bench/main.ts`, for the reason the
+   * `BenchEffectId` union's own comment gives against an `if (scene.effect === 'gust')` chain:
+   * the alternative is half a scene's content living somewhere this table cannot describe it,
+   * discoverable only by reading `main.ts` scene-by-scene rather than by reading this file.
+   *
+   * `dx`/`dz` are offsets from the scene's own `camera.target`, not absolute world coordinates.
+   * Every other field on `BenchScene` is already relative to that one pose — the shared-frame
+   * scenes above compose because their `camera` is a value they can literally copy — and a
+   * soldier row pinned to absolute coordinates would break the moment a scene's own target
+   * moved, the same coupling this file's poses already avoid everywhere else. Height is never
+   * one of the offsets: `main.ts` looks each soldier up on `world.terrain.groundHeightAt` (see
+   * `shrine.ts` and `payload.ts` for the identical pattern), because the target is one measured
+   * point and the terrain around it is not flat — a soldier held at the target's own `y` would
+   * float or sink the moment its `dx`/`dz` moved it off that exact point.
+   */
+  soldiers?: readonly {
+    kind: EnemyKind
+    /** Offset from the scene's camera target, in metres — see this field's own comment. */
+    dx: number
+    dz: number
+    /** The element marking this soldier, or `null` for a control with no mark at all. */
+    mark: Element | null
+    /** Seconds left on that mark. Omit for a fresh one, at the reaction system's own full length. */
+    markSeconds?: number
+  }[]
 }
 
 // Imported directly rather than read as `LEVELS[0]`: under `noUncheckedIndexedAccess` an
@@ -982,6 +1020,184 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     effect: null,
     fireAt: 0,
     duration: 1,
+  },
+  {
+    /**
+     * The mark pip, side by side across all four elements plus an unmarked control — the shot
+     * that answers whether `MARK_COLOUR` in `enemy-mesh.ts` actually reads as four distinct
+     * colours rather than as "a soldier has something lit up", and whether a soldier with no
+     * mark at all is visibly bare next to one that has one. Nothing before this scene has ever
+     * built a soldier here to check either question; see `soldiers`'s own doc comment on
+     * `BenchScene` for why.
+     *
+     * `effect: null`, like `light` above and for the identical reason: a transient effect in
+     * the same frame as five static pips would leave a reader unsure which glow they were
+     * meant to be judging.
+     *
+     * **One kind, `spear`, for all five — the same "hold everything but the one variable
+     * still" discipline `water`'s own comment argues for the shared cone pose above, applied to
+     * bodies instead of cameras.** A row of five identical silhouettes means the pip is the
+     * only thing that can differ between any two soldiers in the shot; mixing in `archer`'s
+     * torus bow or `heavy`'s wider rig would make each soldier's read partly about the prop
+     * silhouette instead of about the mark. `enemy-mesh.ts`'s own comment already establishes
+     * that three of the four kinds share `BODY`'s tint for exactly this reason — the silhouette
+     * is what tells kinds apart, and spending it here buys nothing this scene needs.
+     *
+     * **Five soldiers 1.3m apart along X, at `dz: 0` — a row facing the camera rather than in
+     * file, so all five pips are broadside rather than three-quarters foreshortened.** Their
+     * ground heights are not equal — the archipelago's centre slopes down to the east — which is
+     * `main.ts`'s own reason for reading each one off `groundHeightAt` rather than off the
+     * target's `y`: `groundHeightAt(x, 0)` measured 12.224, 12.047, 11.869, 11.691 and 11.514 at
+     * `x = -2.6, -1.3, 0, 1.3, 2.6` respectively (a scratch probe against `buildWorld(ARCHIPELAGO)`,
+     * the same technique `gust`'s own comment uses for its target height), so the row is a
+     * shallow staircase in world space even though every soldier in it stands flat on its own
+     * ground.
+     *
+     * Order, left to right: air, water, earth, fire — `element-radial.ts`'s own canonical order
+     * — then the unmarked control last, so a reader scanning the row meets the four colours in
+     * the order the game's own HUD already taught them before meeting the soldier that has
+     * none of them.
+     *
+     * **The fight distance: 8 metres back from the row, argued rather than assumed.** A
+     * soldier's own `strikeRange` (`DEFAULT_COMBAT_CONFIG.spear`) is about 3.2 and the gust
+     * reaches 12 — point-blank melee at one end, the widest area effect in the game at the
+     * other, neither of which is where a player actually reads a mark on an enemy they are
+     * still fighting. 8 sits two-thirds of the way from the near bound to the far one: close
+     * enough that five soldiers spanning 5.2m of width still fill a real fraction of the frame
+     * (`impact-hit`'s own 9-unit throw makes the same trade for a much smaller subject), far
+     * enough that it reads as "mid-fight, not nose-to-nose" rather than the melee range a
+     * player would actually be retreating from.
+     *
+     * **The pose: `(0, 13.9, 8)` looking at `(0, 11.9, 0)`, a `atan(2.0 / 8) ≈ 14.04`-degree
+     * look-down.** Shallower than the cone scenes' 26.565 degrees on purpose: the subject here
+     * is five vertical bodies, not a flat ground wedge, so trap 3 (a flat shape foreshortening
+     * to a sliver at a shallow angle) does not apply — nothing in this shot lies flat except the
+     * ground itself. A steeper look-down would instead crowd the row's far ends toward the
+     * frame's edges faster than a shallow one does, which is the opposite of what a row this
+     * wide wants.
+     *
+     * **Checked against the pip, not the feet, per this task's own framing trap.** The pip
+     * sits `MARK_PIP_HEIGHT_ABOVE_FEET` (2.3) plus its own apex (`size` 0.16) above each
+     * soldier's feet — 2.46m up — so the point that has to clear the frustum is that apex on
+     * the two end soldiers, the tallest and farthest-off-axis targets in the row, not the
+     * ground point under them. At `x = -2.6` (ground 12.224, apex 14.684): view axis
+     * `(0, -2.0, -8)`, vector to the apex `(-2.6, 0.784, -8)`, angle between them ≈26.4 degrees
+     * — inside `BASE_FOV` 70's 35-degree half-height (`mapping.ts`) with about 8.6 degrees of
+     * spare, the tightest margin in the row. At `x = 2.6` (ground 11.514, apex 13.974) the
+     * angle is ≈23.0 degrees, comfortably wider, because that end's lower ground pulls its pip
+     * closer to the view axis rather than further from it. Both soldiers' feet clear with far
+     * more room still (≈17.7 and ≈17.4 degrees respectively) — the pip, not the feet, is what
+     * this pose was sized against.
+     *
+     * `groundHeightAt(0, 8)` (the camera's own footprint) measured 11.367 in the same probe, so
+     * the camera at 13.9 clears the terrain by about 2.5 units — in the same range as `finisher`'s
+     * 2.35 and `dash-trail`'s 4.3, not the thinnest margin on the bench.
+     *
+     * All five marks are fresh (`markSeconds` omitted, so `main.ts` fills in the reaction
+     * system's own full `markSeconds`) — `marks-occluded` below is the shot that answers what a
+     * mark looks like as it runs out.
+     */
+    id: 'marks',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 13.9, 8), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: null,
+    fireAt: 0,
+    duration: 1,
+    soldiers: [
+      { kind: 'spear', dx: -2.6, dz: 0, mark: 'air' },
+      { kind: 'spear', dx: -1.3, dz: 0, mark: 'water' },
+      { kind: 'spear', dx: 0, dz: 0, mark: 'earth' },
+      { kind: 'spear', dx: 1.3, dz: 0, mark: 'fire' },
+      { kind: 'spear', dx: 2.6, dz: 0, mark: null },
+    ],
+  },
+  {
+    /**
+     * Two soldiers, one standing behind the other, to answer the two questions `marks` above
+     * cannot: does the pip still read when another body sits between it and the camera, since
+     * `enemy-mesh.ts`'s own `pipMaterial` is `depthTest`-on (the default) rather than always
+     * drawn on top; and does a mark with almost no time left fade toward
+     * `MARK_PIP_FADE_FLOOR` rather than doing something a player could mistake for a colour
+     * change.
+     *
+     * **Both soldiers `spear`, for `marks`'s own reason: the pip and its fade are the only
+     * things this shot needs to differ, not the silhouette carrying them.**
+     *
+     * **Why this pose is a much closer, steeper throw than `marks`'s representative fight
+     * distance, and deliberately not another "representative" pose.** The pip sits
+     * `MARK_PIP_HEIGHT_ABOVE_FEET` (2.3) above the feet, above everything a standing soldier's
+     * own silhouette reaches (the tallest prop, the net-thrower's wound-back torus, peaks under
+     * 2.0) — so for the *front* soldier's own body to occlude the *rear* soldier's pip at all,
+     * the front has to be close enough to camera that its own silhouette subtends a wider angle
+     * than the rear's full reach up to its own pip does from the same camera. That is a
+     * geometric constraint this scene has to satisfy to demonstrate anything, not a framing
+     * preference — a `marks`-style 8-unit throw makes every soldier's own silhouette so small
+     * on screen that nothing could occlude anything else's pip at all, gust-cone-pose or not.
+     *
+     * **Front soldier at the scene's own target, `(dx: 0, dz: 0)` — world `(0, 11.869, 0)`,
+     * `fire`, freshly marked.** Rear soldier at `(dx: 0.6, dz: -4.5)` — world
+     * `(0.6, 11.889, -4.5)`, 4.5m further from the camera and 0.6m to the side, `water`, at
+     * `markSeconds: 0.15` against the reaction system's own 2.5-second full length — a sliver of
+     * its life left, not merely "less than fresh". Both world heights are from the same
+     * scratch-probe technique `marks`'s own comment uses; the two points sit within 2cm of each
+     * other (11.869 against 11.889), so this pair stands on what is, for this purpose, flat
+     * ground.
+     *
+     * **The separation and the small `dx`, checked against the live renderer rather than left
+     * to the angle arithmetic alone.** The maths below establishes that both pips sit inside the
+     * frustum at all; it does not by itself say how much of the rear soldier the front one's
+     * body actually covers on screen, which is a full-projection question the rest of this
+     * file's single-point "angle off the boresight" check was never built to answer (that check
+     * asks "is this point in frame", not "does this near shape overlap that far one"). This pose
+     * and this `dx`/`dz` pair were tuned directly against `bench.html?scene=marks-occluded` in a
+     * live browser: at `dx: 0` the rear soldier vanished completely behind the front one
+     * (answering "does depth-test hide it" but nothing about a *partial* view, which is the
+     * common case — soldiers on foot are never perfectly stacked in the game itself); pulled out
+     * to `dx: 0.6` the front's body still hides most of the rear one, but a sliver of the rear's
+     * own shoulder and the top edge of its faded pip clear the front's silhouette, which is the
+     * shot that actually answers question 3 rather than merely gesturing at it.
+     *
+     * At `MARK_PIP_FADE_WINDOW` (1 second) and `MARK_PIP_FADE_FLOOR` (0.35), the rear soldier's
+     * `0.15` seconds left clamps its opacity to the floor itself (`0.15 / 1 = 0.15`, clamped up
+     * to `0.35`) — dim, not gone, and still unmistakably `water`'s own colour rather than
+     * shifted toward black or toward another element's hue, which is exactly the distinction
+     * question 4 asks this scene to make; the sliver that clears the front soldier's silhouette
+     * is visibly paler than the front soldier's own full-strength `fire` pip in the same shot,
+     * not a different hue.
+     *
+     * **The pose: `(0, 13.1, 4.6)` looking at `(0, 11.9, 0)`, a `atan(1.2 / 4.6) ≈ 14.6`-degree
+     * look-down.**
+     *
+     * **Checked against each soldier's own pip apex, not its feet.** View axis toward the target
+     * is `(0, -1.2, -4.6)`. Front pip apex `(0, 14.329, 0)`: vector `(0, 1.229, -4.6)`, angle
+     * ≈29.6 degrees off-axis — inside the 35-degree half-height with about 5.4 degrees of spare,
+     * the tighter of the two margins in this scene precisely because it sits nearest the camera
+     * (the same trade `ice-shell`'s own scene makes closer in for a small subject). Rear pip
+     * apex `(0.6, 14.349, -4.5)`: vector `(0.6, 1.249, -9.1)`, angle ≈22.7 degrees, about 12.3
+     * degrees of spare — wider despite being further off-centre, because the extra 4.5m of
+     * throw shrinks its angular size faster than the offset grows it, the same trade
+     * `avatar-aura`'s own comment measures against `ice-shell`. Both soldiers' feet clear with
+     * more room still, so as with `marks`, the pip decided this pose, not the feet.
+     *
+     * `groundHeightAt(0, 4.6)` (the camera's own footprint) measured 11.580, so the camera at
+     * 13.1 clears the terrain by about 1.52 units — the thinnest margin on the bench, tighter
+     * even than `slipstream`'s 2.7, and for the same reason that comment gives taken one step
+     * further: a close, low camera is the price of framing a body-scale subject at all, and this
+     * shot needs the front soldier closer still than any single-body scene above it to make the
+     * occlusion legible.
+     */
+    id: 'marks-occluded',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 13.1, 4.6), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: null,
+    fireAt: 0,
+    duration: 1,
+    soldiers: [
+      { kind: 'spear', dx: 0, dz: 0, mark: 'fire' },
+      { kind: 'spear', dx: 0.6, dz: -4.5, mark: 'water', markSeconds: 0.15 },
+    ],
   },
 ]
 
