@@ -63,10 +63,11 @@ import { safeScale } from './scale'
  * `mud.ts`'s doc comment gives for declining `POLAR_PREAMBLE` on a shape whose UV convention has
  * already been checked and is not that one. And even setting the geometry aside, a collar earns
  * its keep by giving the eye a moment to resolve one band nested inside another; this flourish
- * lives for `LIFETIME` seconds below, under a third of a second and shorter than every other
- * timed effect in this directory, most of which is spent growing out of a spark too small to
- * read at all. A dark band nested inside a gradient that is itself barely open by the time it
- * closes would not separate anything — it would just be noise inside a flash.
+ * lives for `LIFETIME` seconds below — under a third of a second, short even against
+ * `fire-thrust.ts`'s 0.14 and `fire-burst.ts`'s and `staff-arc-fx.ts`'s 0.16, though not the
+ * shortest one-shot in the directory — and most of what time it has is spent growing out of a
+ * spark too small to read at all. A dark band nested inside a gradient that is itself barely open
+ * by the time it closes would not separate anything — it would just be noise inside a flash.
  */
 
 /** Argued in full above: the staff's own tint, carried rather than re-derived. */
@@ -77,9 +78,13 @@ const TINT = 0xffa64d
  *
  * This is punctuation on a landing, not a state — unlike Steam or Mud, which report a soldier's
  * own mark for as long as that mark lasts, the finisher flourish has nothing to keep saying once
- * the beat has read. `gust-cone.ts`'s own `LIFETIME` of `0.22` is the fastest full beat already
- * shipped in this vocabulary, and matching it rather than inventing a new fastest number says
- * this is exactly that fast a beat, not a special case that needed its own tempo. Checked against
+ * the beat has read. `gust-cone.ts`'s own `LIFETIME` of `0.22` is short — faster than
+ * `earth-reach.ts`'s 0.26, `water-reach.ts`'s 0.3, `shockwave.ts`'s 0.4, `mud.ts`'s 0.8 and
+ * `steam.ts`'s 1.1 — though not the fastest beat already shipped: `fire-thrust.ts`'s plume is
+ * 0.14 and `fire-burst.ts`'s and `staff-arc-fx.ts`'s bursts are both 0.16. Matching
+ * `gust-cone.ts`'s number exactly, rather than one of those faster ones or a value of its own,
+ * says this flourish reuses an already-shipped tempo instead of inventing a new one — the same
+ * discipline the tint above follows. Checked against
  * the state the finisher itself leaves on the player: `DEFAULT_STAFF_CONFIG.swingSeconds` is
  * `0.26` and `recoverySeconds` is `0.4` (`src/core/config.ts` — cited by value, not imported, the
  * same convention `steam.ts` and `mud.ts` use to quote a combat constant without this module
@@ -133,13 +138,16 @@ const START_SIZE = TOP_RADIUS * 0.1
 /**
  * Peak opacity, before the shader's own edge fade and fluting take their bite out of it.
  *
- * At `staff-arc-fx.ts`'s own arc opacity — `0.9`, the brightest number in this vocabulary,
- * carried rather than re-derived for the same reason the tint is: this flourish is the payoff of
- * that same swing, and a payoff drawn fainter than the swing that earned it would read as an
- * anticlimax. Both Steam's `0.5` and Mud's `0.8` sit under it because both of those hold their
- * shape for the better part of a second and have to stay legible as they fade for that whole
- * span; this shape spends most of its short life growing rather than fading, so it can afford to
- * open at full strength.
+ * `0.9` is near the top of the opacity range in this directory without being the top:
+ * `fire-burst.ts`'s own `ARC_OPACITY` is `0.95`, and this number instead matches the `0.9`
+ * `earth-reach.ts`, `gust-cone.ts` and `water-reach.ts` already use for their own travelling arc
+ * highlights. Not `staff-arc-fx.ts` — that file's own opacity is a `FILL_OPACITY` of `0.55`, a
+ * fill rather than an arc, unrelated to this number; the tint above is the thing this flourish
+ * carries from that file, argued in full there, and the two borrowings are independent. Both
+ * Steam's `0.5` and Mud's `0.8` sit under `0.9` because both of those hold their shape for the
+ * better part of a second and have to stay legible as they fade for that whole span; this shape
+ * spends most of its short life growing rather than fading, so it can afford to open near the top
+ * of the range, one notch under the single brightest arc in the directory.
  */
 const PEAK_OPACITY = 0.9
 

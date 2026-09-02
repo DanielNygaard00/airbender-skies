@@ -103,7 +103,7 @@ describe("the finisher flare's own tuning, pinned so a retune is a visible edit"
     expect(at.toArray()).toEqual([1, 2, 3])
   })
 
-  it('peaks at the staff arc\'s own opacity', () => {
+  it('peaks at 0.9, the arc opacity earth-reach, gust-cone and water-reach already share', () => {
     const material = flareMaterialOf(createFinisherFlare(new Vector3()))
     expect(material.uniforms.alpha?.value).toBeCloseTo(0.9, 5)
   })

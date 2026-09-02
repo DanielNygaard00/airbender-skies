@@ -769,10 +769,12 @@ export const BENCH_SCENES: readonly BenchScene[] = [
      * a duration for the same reason they share a lifetime. Run through the real clock
      * (`runFixedClock`, the same arithmetic `effects.test.ts`'s own frozen-frame guard uses
      * rather than a second formula that could drift from it), this freezes the flare at age
-     * ≈0.1167s — 53% of the way through `LIFETIME`, past halfway grown and still comfortably
-     * above half its peak opacity — with a margin of ≈0.1033s (about six frames at 60Hz) before
-     * `advance` would report it finished. Comfortably inside the window, and framed at the point
-     * the flare is actually worth photographing rather than at its first spark or its last fade.
+     * ≈0.1167s — 53% of the way through `LIFETIME`, past halfway grown, with alpha at
+     * `0.9 * (1 - 0.5303) ≈ 0.423` — marginally *under* half its own peak opacity of 0.45, not
+     * comfortably above it — with a margin of ≈0.1033s (about six frames at 60Hz) before
+     * `advance` would report it finished. Comfortably inside the timing window regardless, and
+     * framed at the point the flare is actually worth photographing rather than at its first
+     * spark or its last fade.
      */
     id: 'finisher',
     regionId: ARCHIPELAGO_ID,
