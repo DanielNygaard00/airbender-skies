@@ -1,7 +1,33 @@
 import { Vector3 } from 'three'
 import { describe, expect, it, vi } from 'vitest'
-import { BENCH_SCENES, resolveBench } from './scenes'
+import { AT_PARAM, BENCH_SCENES, resolveBench, type BenchScene } from './scenes'
 import { LEVELS } from '../world/levels'
+import { runFixedClock } from './clock'
+
+// Matches `bench/main.ts`'s own `STEP_SECONDS`, the same reason `effects.test.ts`'s own `STEP`
+// gives: the age a scene actually freezes at is a property of the real fixed step, not of
+// whatever step size a test happens to pick.
+const STEP = 1 / 60
+
+/**
+ * The real age `runFixedClock` freezes a scene's effect at — computed the same way
+ * `effects.test.ts` computes it, by running the actual clock and counting seconds from the
+ * fire callback onward, not by subtracting `fireAt` from `duration`. This function is the sole
+ * authority the `at`-override tests below check against; a hand-rolled formula here could
+ * quietly agree with a wrong implementation instead of catching one.
+ */
+function realAgeOf(scene: Pick<BenchScene, 'fireAt' | 'duration'>): number {
+  let age = 0
+  let hasFired = false
+  runFixedClock(
+    scene.fireAt,
+    scene.duration,
+    STEP,
+    () => { hasFired = true },
+    (dt) => { if (hasFired) age += dt },
+  )
+  return age
+}
 
 describe('bench scenes', () => {
   it('names every scene once', () => {
@@ -121,5 +147,58 @@ describe('bench scenes', () => {
     expect(resolveBench('?scene=nope')).toBeNull()
     expect(warn).toHaveBeenCalledOnce()
     warn.mockRestore()
+  })
+})
+
+describe('bench scenes: the `at` age override', () => {
+  it('lands the real age, run through runFixedClock exactly as effects.test.ts computes it, within one step of a valid `at`', () => {
+    // impact-deflect is the scene named in this task's own brief: its own fireAt (0.01) sits
+    // close enough to a single step that this case also exercises the override choosing a
+    // duration shorter than fireAt itself (see `resolveBench`'s own comment on why that is
+    // correct rather than a bug). The wider values check the general case.
+    const scene = BENCH_SCENES.find((s) => s.id === 'impact-deflect')!
+    for (const at of [0.01, 0.02, 0.05, 0.08]) {
+      const resolved = resolveBench(`?scene=impact-deflect&${AT_PARAM}=${at}`)
+      expect(resolved).not.toBeNull()
+      const age = realAgeOf(resolved!)
+      expect(Math.abs(age - at)).toBeLessThanOrEqual(STEP)
+      // `at` overrides `duration` and leaves `fireAt` alone — the effect still fires at the
+      // same point in the run the camera pose and world state were chosen around.
+      expect(resolved!.fireAt).toBe(scene.fireAt)
+    }
+  })
+
+  it('leaves every scene\'s duration exactly as the table has it when `at` is absent', () => {
+    for (const scene of BENCH_SCENES) {
+      const resolved = resolveBench(`?scene=${scene.id}`)
+      expect(resolved).not.toBeNull()
+      expect(resolved!.duration).toBe(scene.duration)
+      expect(resolved!.fireAt).toBe(scene.fireAt)
+    }
+  })
+
+  it('falls back to the table\'s own timing, and warns, for every malformed `at`', () => {
+    const scene = BENCH_SCENES.find((s) => s.id === 'gust')!
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    for (const bad of ['-1', '0', 'NaN', '', 'banana', 'Infinity']) {
+      warn.mockClear()
+      const resolved = resolveBench(`?scene=gust&${AT_PARAM}=${bad}`)
+      expect(resolved).not.toBeNull()
+      expect(resolved!.duration).toBe(scene.duration)
+      expect(resolved!.fireAt).toBe(scene.fireAt)
+      expect(warn).toHaveBeenCalledOnce()
+    }
+    warn.mockRestore()
+  })
+
+  it('does not mutate BENCH_SCENES when overriding duration', () => {
+    const before = BENCH_SCENES.find((s) => s.id === 'gust')!.duration
+    const resolved = resolveBench(`?scene=gust&${AT_PARAM}=0.5`)
+    expect(resolved).not.toBeNull()
+    expect(resolved!.duration).not.toBe(before)
+    const after = BENCH_SCENES.find((s) => s.id === 'gust')!.duration
+    expect(after).toBe(before)
+    // Not merely unchanged in value — a different object than the table's own entry.
+    expect(resolved).not.toBe(BENCH_SCENES.find((s) => s.id === 'gust'))
   })
 })

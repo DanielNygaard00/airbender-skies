@@ -104,7 +104,15 @@ export interface BenchScene {
    * disposed by the time anyone looks at the frozen frame.
    */
   fireAt: number
-  /** Seconds the bench runs before it freezes on the last frame. See `fireAt`'s note. */
+  /**
+   * Seconds the bench runs before it freezes on the last frame. See `fireAt`'s note.
+   *
+   * A caller asking `resolveBench` for a specific effect age (the `AT_PARAM` query parameter,
+   * documented on that constant) gets back a `BenchScene` whose `duration` has been replaced
+   * to land on that age — `fireAt` is untouched. Read a `BenchScene`'s `duration` as "however
+   * long this run needs to take", not as a fact about the scene's own table entry, once that
+   * override is in play.
+   */
   duration: number
 }
 
@@ -981,20 +989,200 @@ export const BENCH_SCENES: readonly BenchScene[] = [
 export const SCENE_PARAM = 'scene'
 
 /**
+ * The query-string key that overrides how far into its effect's life a scene's frozen frame
+ * lands, in seconds — `bench.html?scene=impact-deflect&at=0.02` photographs that burst 0.02s
+ * into its life, whatever `impact-deflect`'s own `duration` says.
+ *
+ * **Why this parameter exists at all.** Every scene in `BENCH_SCENES` hard-codes one `fireAt`
+ * and one `duration`, so the frozen frame lands at exactly one age in an effect's life, chosen
+ * once when the scene was written — and that one-frame limit has already cost two real fix
+ * rounds. `impact-deflect` was first frozen 44% through its 0.12s life, where its own alpha
+ * fade had already taken it to 56% of peak and it read as nearly nothing (see that scene's own
+ * comment above for the full retune). Both `staff-opener` and `staff-finisher` were frozen at
+ * 52% through their shared 0.16s `LIFETIME`, where `FILL_OPACITY * (1 - t)` had faded to
+ * roughly half — also found only by looking, also a separate fix round (see that scene's own
+ * comment). Both bugs were "is the readable moment where the scene assumes it is" — an
+ * arithmetic claim nothing checked because nothing could ask the bench for a different age
+ * without hand-editing the scene table and reasoning through `runFixedClock` by hand each time.
+ * `at` turns that into `?at=0.02`, `?at=0.04`, `?at=0.06` — a five-shot filmstrip of one effect,
+ * which is what would have caught both bugs on the first pass instead of the second.
+ *
+ * **Age, not duration.** `duration` is a property of this bench's own clock — how long the run
+ * takes from its own start, an implementation detail nobody photographing an effect actually
+ * cares about. Age — how far into its own life the effect is — is the thing a reader means by
+ * "a third of the way through", so that is what this parameter asks for; see `durationFor`
+ * below for the reason `duration` is still the field that gets overridden. `fireAt` is left
+ * alone on purpose: moving it would change where in the run the effect starts existing, and
+ * every scene's camera pose and world state were chosen around that one instant, not around
+ * whatever age is being inspected this time.
+ */
+export const AT_PARAM = 'at'
+
+// `runFixedClock`'s own `step` argument, mirrored here rather than imported. `bench/main.ts`
+// defines its own `STEP_SECONDS` and does not export it — deliberately: the whole point of
+// putting this override in `resolveBench` rather than in `main.ts` is that `main.ts` does not
+// need to change at all for `at` to exist (see `resolveBench`'s own comment). `effects.test.ts`
+// and `clock.test.ts` each keep their own copy of this same constant for the identical reason —
+// there is no single exported source of truth for the bench's fixed step, so all of these names
+// have to be kept in lockstep by hand. A fourth copy here is the price of that, paid once,
+// rather than adding a second way to reach into `main.ts`.
+const STEP_SECONDS = 1 / 60
+
+// A generous ceiling on how many fixed steps the two search loops below will walk, entirely
+// separate from `clock.ts`'s own `MAX_SANE_STEPS`. That guard bounds `runFixedClock`'s own loop
+// at *run* time; this one bounds the search this module does at *resolve* time, before any
+// `BenchScene` is handed back, so an absurd `at` (or, in principle, an absurd `fireAt`, though
+// every table entry is already validated elsewhere) fails fast here with a thrown error stating
+// why, rather than spinning this function for a very long time on a plain `for` loop with
+// nothing watching it. Set well above `MAX_SANE_STEPS` (10,000): a request that lands inside
+// this bound but outside that one is still a legitimate `at` value that the real clock would
+// itself reject when the scene actually runs (see clock.ts's own throw) — this bound exists
+// only to stop *this* function from hanging, not to anticipate that one.
+const MAX_SEARCH_STEPS = 100_000
+
+/**
+ * Where `runFixedClock`'s own `elapsed` sits after `steps` fixed increments of `STEP_SECONDS`,
+ * computed by the identical repeated addition `runFixedClock` performs at runtime rather than
+ * by `steps * STEP_SECONDS`. The two are not interchangeable: `STEP_SECONDS` (1/60) has no
+ * exact binary floating-point representation, so repeated addition drifts from the multiplied
+ * value by the last bit or two — usually nothing, except right at a comparison boundary, where
+ * that drift is exactly what `clock.ts`'s own comment on `MAX_SANE_STEPS` means by "this
+ * codebase's own scene data needs one increment more than the exact division implies". Reusing
+ * this same accumulation to build the override below is what keeps this module's arithmetic
+ * from silently disagreeing with `runFixedClock`'s.
+ */
+function elapsedAfterSteps(steps: number): number {
+  let elapsed = 0
+  for (let i = 0; i < steps; i++) elapsed += STEP_SECONDS
+  return elapsed
+}
+
+/**
+ * The 1-indexed fixed step on which `runFixedClock` would fire a scene with this `fireAt` —
+ * found by walking the same `elapsed += STEP_SECONDS; if (elapsed >= fireAt) ...` shape
+ * `runFixedClock` itself runs, rather than by dividing `fireAt` by `STEP_SECONDS` and rounding.
+ * Division-and-round looks equivalent and is not: verified directly against this file's own
+ * `gust` and `water` scenes (both `fireAt: 0.1`) — `Math.ceil(0.1 / STEP_SECONDS)` computes 6,
+ * but stepping `elapsed` up in fixed increments of `1/60` the way `runFixedClock` actually does
+ * leaves it at `0.09999999999999999` after 6 steps, still short of `0.1`, so the real fire step
+ * is 7. `clock.test.ts`'s own gust/water cases already measured the *consequence* of that same
+ * drift (7 and 8 post-fire advances, not the 6 and 7 a clean division would suggest); this
+ * function is what lets `durationFor` below agree with that measurement instead of a formula
+ * that only agrees with it by accident some of the time.
+ */
+function fireStepIndex(fireAt: number): number {
+  let elapsed = 0
+  for (let step = 1; step <= MAX_SEARCH_STEPS; step++) {
+    elapsed += STEP_SECONDS
+    if (elapsed >= fireAt) return step
+  }
+  throw new Error(
+    `resolveBench could not find a fire step for fireAt ${fireAt} within `
+    + `${MAX_SEARCH_STEPS} steps. This indicates a broken scene table entry, not a bad "at".`,
+  )
+}
+
+/**
+ * The `duration` that makes `runFixedClock(fireAt, duration, STEP_SECONDS, ...)` freeze a
+ * freshly-fired effect at real age `age` (in seconds) — the inverse of the relationship
+ * `effects.test.ts` uses to check a scene's own `fireAt`/`duration` pair, run the other way.
+ *
+ * **Not `fireAt + age`, and this is the mistake this task's own brief warns against by name.**
+ * `runFixedClock` fires on the first fixed step where `elapsed >= fireAt` and then calls
+ * `advance` on that same step and every step after until `elapsed >= duration` — so the age at
+ * freeze time is measured in whole steps *from the firing step*, not in continuous seconds from
+ * `fireAt` itself. Two effects of that: the fire step itself already counts as one step of age
+ * (an effect that fires and is immediately frozen is one step old, not zero), and the fire step
+ * is wherever `fireStepIndex` above actually lands, which is not always `Math.ceil(fireAt /
+ * STEP_SECONDS)` — see that function's own comment.
+ *
+ * **The construction.** `fireStepIndex(fireAt)` gives the 1-indexed step the effect is created
+ * on. `Math.round(age / STEP_SECONDS)` converts the requested continuous age into a whole
+ * number of steps past that — floored at 1 rather than allowed to hit 0, because age 0 is not a
+ * frame this bench can freeze on: the earliest `runFixedClock` can ever stop is one step after
+ * firing, the same step the fire happens on. Adding the two (minus the one step they'd
+ * otherwise double-count, since the fire step is included in both counts) gives the total
+ * number of steps the run needs, and `elapsedAfterSteps` turns that step count into the exact
+ * `duration` value that makes `runFixedClock`'s own `elapsed < duration` loop condition stop
+ * after precisely that many steps — see that function's own comment for why it is the
+ * accumulated value and not the multiplied one.
+ *
+ * **This can produce a `duration` smaller than `fireAt`, and that is correct, not a bug to
+ * paper over.** `runFixedClock` checks `elapsed >= fireAt` *inside* the same iteration that
+ * checks `elapsed < duration` to decide whether to keep looping — the fire check does not care
+ * what `duration` is, only that the loop reached that iteration at all. A request for an age of
+ * exactly one step, fired at a `fireAt` that itself lands late in its own step (e.g.
+ * `impact-deflect`'s `fireAt: 0.01`, one step past 0), can therefore land on a `duration`
+ * smaller than `fireAt` while still correctly firing and freezing one step later — verified in
+ * `scenes.test.ts`'s own `at`-override tests via `runFixedClock` itself, not by inspecting the
+ * two numbers' ordering, which is exactly the "looks wrong, runs right" trap a naive validation
+ * (like rejecting `duration <= fireAt`) would have introduced here for no reason.
+ *
+ * **What this function cannot do, on purpose.** It has no way to know the effect's own
+ * `LIFETIME` (or `HOLD_SECONDS`, or whatever a given factory calls it) — that constant lives in
+ * each effect's own module under `src/fx/`, not in this file, and this file does not import
+ * effect code. So an `age` beyond what the effect actually lives for produces a `duration` that
+ * runs the clock past the effect's own disposal, and the bench freezes on whatever the world
+ * looked like with the effect already gone — an empty frame, indistinguishable from a shader
+ * that silently draws nothing, which is the one failure this whole instrument exists to catch.
+ * There is no fix for that *here*: a reader picking an `at` has to check the effect's own
+ * lifetime constant first, the same way every scene's own `fireAt`/`duration` comment above
+ * already had to before this parameter existed.
+ */
+function durationFor(fireAt: number, age: number): number {
+  const fireStep = fireStepIndex(fireAt)
+  const stepsPastFire = Math.max(1, Math.round(age / STEP_SECONDS))
+  const totalSteps = Math.min(fireStep + stepsPastFire - 1, MAX_SEARCH_STEPS)
+  return elapsedAfterSteps(totalSteps)
+}
+
+/**
  * Resolve a scene from a query string, e.g. `?scene=gust`.
  *
  * Takes the search string rather than reading `location` itself, for the reason
  * `selectLevel` does: it stays testable in node, and the one caller that knows about the
  * browser stays in the entry point.
+ *
+ * An `?at=<seconds>` alongside `?scene=` overrides the resolved scene's `duration` so the
+ * frozen frame lands at that real age instead of whatever the table's own `duration` produces —
+ * see `AT_PARAM`'s own comment for why this exists and `durationFor`'s for exactly how the
+ * override is computed. The override always returns a fresh object; `BENCH_SCENES`'s own entry
+ * is never mutated, so a second call with a different `at` (or none) is unaffected by the
+ * first.
+ *
+ * A malformed `at` — anything that is not a finite, positive number — is rejected rather than
+ * coerced into something plausible-looking, and falls back to the scene's own `fireAt` and
+ * `duration` with a `console.warn` naming what was ignored, the same shape this function already
+ * uses for an unknown scene id below. The reason is the same reason a wrong frame is worse than
+ * a missing one throughout this module: a frame frozen on a silently-clamped or silently-zeroed
+ * `at` looks exactly like a correctly-aimed one, and nothing about the resulting screenshot
+ * would say otherwise.
  */
 export function resolveBench(search = ''): BenchScene | null {
-  const requested = new URLSearchParams(search).get(SCENE_PARAM)
+  const params = new URLSearchParams(search)
+  const requested = params.get(SCENE_PARAM)
   if (requested === null || requested === '') return null
 
   const found = BENCH_SCENES.find((s) => s.id === requested)
-  if (found) return found
-  console.warn(
-    `Unknown bench scene "${requested}". Known scenes: ${BENCH_SCENES.map((s) => s.id).join(', ')}.`,
-  )
-  return null
+  if (!found) {
+    console.warn(
+      `Unknown bench scene "${requested}". Known scenes: ${BENCH_SCENES.map((s) => s.id).join(', ')}.`,
+    )
+    return null
+  }
+
+  const rawAge = params.get(AT_PARAM)
+  if (rawAge === null) return found
+
+  const age = Number(rawAge)
+  if (!Number.isFinite(age) || age <= 0) {
+    console.warn(
+      `Ignoring bench "${AT_PARAM}" value "${rawAge}" for scene "${found.id}": it must be a `
+      + `finite, positive number of seconds. Using scene "${found.id}"'s own fireAt `
+      + `(${found.fireAt}) and duration (${found.duration}) instead.`,
+    )
+    return found
+  }
+
+  return { ...found, duration: durationFor(found.fireAt, age) }
 }
