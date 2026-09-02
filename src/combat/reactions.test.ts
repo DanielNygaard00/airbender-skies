@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Vector3 } from 'three'
 import {
-  elementOf, SOURCE_ELEMENTS, REACTIONS, reactionFor, applyReaction,
+  elementOf, SOURCE_ELEMENTS, REACTIONS, reactionFor, applyReaction, markCanReact,
   type ReactionKind, type ReactionConfig,
 } from './reactions'
 import { ELEMENT_ORDER } from '../elements/element'
@@ -83,6 +83,38 @@ describe('the reaction table', () => {
       }
     }
     expect(live.sort()).toEqual(['mud', 'steam'])
+  })
+})
+
+describe('whether a mark can ever pay', () => {
+  /**
+   * Asserted against `REACTIONS` itself, not against a literal "water only" list. A hardcoded
+   * list would have to be hand-edited the day Dust or Backdraft ships -- see `markCanReact`'s
+   * own comment -- and until someone remembered to do that, this test would keep passing while
+   * asserting the opposite of the truth.
+   */
+  it('agrees with REACTIONS for every element', () => {
+    for (const mark of ELEMENT_ORDER) {
+      const rowHasAReaction = ELEMENT_ORDER.some((verb) => REACTIONS[mark][verb] !== 'none')
+      expect(markCanReact(mark)).toBe(rowHasAReaction)
+    }
+  })
+
+  /**
+   * Pins the *count* of actionable marks, not which ones. Adding a reaction to the shipped
+   * table -- Dust or Backdraft, say -- should be a visible event this suite makes someone
+   * notice, rather than a silent one the row-by-row test above would absorb without complaint.
+   */
+  it('counts exactly one actionable mark against the shipped table', () => {
+    const actionable = ELEMENT_ORDER.filter((mark) => markCanReact(mark))
+    expect(actionable).toHaveLength(1)
+  })
+
+  it('reports water actionable, and air, earth and fire not', () => {
+    expect(markCanReact('water')).toBe(true)
+    expect(markCanReact('air')).toBe(false)
+    expect(markCanReact('earth')).toBe(false)
+    expect(markCanReact('fire')).toBe(false)
   })
 })
 

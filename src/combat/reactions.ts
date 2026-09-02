@@ -82,6 +82,21 @@ export function reactionFor(mark: Element, verb: Element): ReactionKind {
 }
 
 /**
+ * Whether any verb thrown at this mark produces anything but `'none'`.
+ *
+ * Derived from `REACTIONS` by scanning its row, rather than a literal `mark === 'water'`,
+ * because the table above is a thing that grows, not a closed fact: its own comment records
+ * Dust (earth then air) and Backdraft (air then fire) as designed and rejected for stated
+ * reasons, which is a record of candidates, not a promise the table stays at two cells forever.
+ * A hardcoded list would silently stop being right the moment either ships; reading the row
+ * follows the table for free, the same trade `REACTIONS` itself makes over a switch by being a
+ * `Record<Element, Record<Element, ReactionKind>>` in the first place.
+ */
+export function markCanReact(mark: Element): boolean {
+  return Object.values(REACTIONS[mark]).some((kind) => kind !== 'none')
+}
+
+/**
  * Tuning for the mark-and-reaction system.
  *
  * Its own interface rather than an inline `{ markSeconds: number }` on `CombatConfig`, because

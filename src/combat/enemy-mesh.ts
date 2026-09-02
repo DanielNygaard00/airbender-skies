@@ -5,6 +5,7 @@ import {
 } from 'three'
 import { isDowned } from './health'
 import { createHealthBar } from './health-bar'
+import { markCanReact } from './reactions'
 import type { Enemy, EnemyConfig, EnemyKind } from './enemy'
 import type { Element } from '../elements/element'
 
@@ -323,11 +324,27 @@ export function createEnemyView(kind: EnemyKind, c: EnemyConfig): EnemyView {
        * this check is the only thing standing between that stale data and a pip drawn on a
        * body that cannot act on it.
        *
+       * `markCanReact` folds into this same gate rather than adding a second one, for the
+       * finding this pip's own bench scenes (`marks`, `marks-occluded`) turned up: of
+       * `REACTIONS`'s sixteen cells, only water's row is ever anything but `'none'`, so an air,
+       * earth or fire mark can never produce a reaction whatever hits it. Before this the pip
+       * drew all four with equal visual weight, which made three of the four states it drew
+       * information nobody could act on -- and a pip showing unusable state is the same failure
+       * as the invisible mark it was built to fix, pointing the other way. It also makes moot,
+       * rather than separately fixing, air's own near-invisible `#7fe4ff` pip against a sky
+       * background: an unactionable mark now draws nothing, so its colour never has to be seen.
+       *
+       * The alternative considered was drawing all four but styling the actionable one
+       * differently -- bolder, or the other three dimmed. Rejected: a mark that can never be an
+       * input carries no information to style. The soldier is not "burning"; the mark is purely
+       * a reaction input, so even a quieter pip on an unactionable mark would still be teaching
+       * the player that it matters.
+       *
        * Costs nothing when `mark` is null: only this one boolean is written, and the colour,
        * opacity and billboard work below never runs -- the same shape `avatar-aura.ts` and
        * `guard-shell.ts` use to skip themselves entirely while invisible.
        */
-      pip.visible = enemy.mark !== null && !isDowned(enemy.health)
+      pip.visible = enemy.mark !== null && !isDowned(enemy.health) && markCanReact(enemy.mark.element)
       if (enemy.mark) {
         pipMaterial.color.setHex(MARK_COLOUR[enemy.mark.element])
         // A fixed fade window rather than a fraction of the mark's total duration -- see

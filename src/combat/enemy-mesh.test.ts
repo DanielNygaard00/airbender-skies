@@ -5,6 +5,8 @@ import {
 import { createEnemyView } from './enemy-mesh'
 import { spawnEnemy, hitEnemy, type Enemy, type EnemyKind, type Stance } from './enemy'
 import { DEFAULT_COMBAT_CONFIG } from './config'
+import { markCanReact } from './reactions'
+import { ELEMENT_ORDER } from '../elements/element'
 
 /**
  * A view for one kind, built against that kind's own shipped config.
@@ -465,21 +467,51 @@ describe('the mark pip', () => {
     expect(pipOf(view).visible).toBe(false)
   })
 
-  it('appears when a mark is written, and says which element', () => {
+  /**
+   * Driven by `markCanReact` rather than a hardcoded "water only" expectation, for
+   * `reactions.test.ts`'s own reason: this loop keeps telling the truth the day `REACTIONS`
+   * grows a second actionable mark, where a literal `mark === 'water'` here would not.
+   *
+   * Only a mark that can pay draws anything -- air, earth and fire cannot produce a reaction
+   * against any verb today, and a pip drawn for a state the player can never act on is the same
+   * failure the pip was built to fix, pointing the other way: an invisible mark taught nothing
+   * because the player could not see it, and a mark pip drawn with equal weight for a state
+   * that can never matter would teach a false lesson instead. Air's near-invisible sky-blue pip
+   * (`#7fe4ff` against a sky background) was the second symptom of the same root cause and is
+   * moot under this rule rather than fixed directly: an unactionable mark draws nothing, so its
+   * colour against the sky never comes up.
+   *
+   * The rejected alternative was drawing all four marks but styling the actionable one
+   * differently (bolder, or the other three dimmed). That was rejected because a mark that can
+   * never be an input carries no information to style: the soldier is not "burning", the mark
+   * is purely a reaction input, so even a quieter pip on an unactionable mark would still be
+   * teaching the player that it matters.
+   */
+  it('draws a pip only for a mark that can actually react', () => {
+    for (const element of ELEMENT_ORDER) {
+      const view = viewFor('spear')
+      view.sync({ ...enemyAt(0, 0), mark: { element, secondsLeft: 2.5 } }, IDENTITY, 0)
+      expect(pipOf(view).visible).toBe(markCanReact(element))
+    }
+  })
+
+  it('says which element, for the mark that can react', () => {
     const view = viewFor('spear')
-    view.sync({ ...enemyAt(0, 0), mark: { element: 'fire', secondsLeft: 2.5 } }, IDENTITY, 0)
+    view.sync({ ...enemyAt(0, 0), mark: { element: 'water', secondsLeft: 2.5 } }, IDENTITY, 0)
     const pip = pipOf(view)
     expect(pip.visible).toBe(true)
-    const fire = colourOf(pip)
-    view.sync({ ...enemyAt(0, 0), mark: { element: 'earth', secondsLeft: 2.5 } }, IDENTITY, 0)
-    expect(colourOf(pip)).not.toBe(fire)
+    // Re-synced on a fresh view with the same mark: the colour this draws is a pure function
+    // of the element, so the same input has to produce the same output.
+    const other = viewFor('spear')
+    other.sync({ ...enemyAt(0, 0), mark: { element: 'water', secondsLeft: 2.5 } }, IDENTITY, 0)
+    expect(colourOf(pipOf(other))).toBe(colourOf(pip))
   })
 
   it('shows a mark running out, because a fresh mark and a dying one are different facts', () => {
     const view = viewFor('spear')
-    view.sync({ ...enemyAt(0, 0), mark: { element: 'fire', secondsLeft: 2.5 } }, IDENTITY, 0)
+    view.sync({ ...enemyAt(0, 0), mark: { element: 'water', secondsLeft: 2.5 } }, IDENTITY, 0)
     const fresh = fadeOf(pipOf(view))
-    view.sync({ ...enemyAt(0, 0), mark: { element: 'fire', secondsLeft: 0.2 } }, IDENTITY, 0)
+    view.sync({ ...enemyAt(0, 0), mark: { element: 'water', secondsLeft: 0.2 } }, IDENTITY, 0)
     expect(fadeOf(pipOf(view))).toBeLessThan(fresh)
   })
 
@@ -497,10 +529,12 @@ describe('the mark pip', () => {
     // killing blow that does not react leaves the old mark standing. So a mark written
     // before the knockdown can still be sitting in `enemy.mark` afterwards, only ageing out
     // on its own schedule. This check is the one thing standing between that stale data and
-    // a pip drawn on a body -- load-bearing, not belt-and-braces.
+    // a pip drawn on a body -- load-bearing, not belt-and-braces. Water, not fire: the mark
+    // has to be one `markCanReact` would otherwise let through, or this test would pass for
+    // the wrong reason once fire stopped drawing a pip at all.
     const view = viewFor('spear')
     view.sync(
-      { ...downed(enemyAt(0, 0)), mark: { element: 'fire', secondsLeft: 2.5 } }, IDENTITY, 0,
+      { ...downed(enemyAt(0, 0)), mark: { element: 'water', secondsLeft: 2.5 } }, IDENTITY, 0,
     )
     expect(pipOf(view).visible).toBe(false)
   })
