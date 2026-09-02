@@ -45,10 +45,11 @@ interface CollarCase {
  * same bright-core-and-collar idea expressed against a coordinate this suite has no geometry to
  * check it against. `mud.ts` is absent for the opposite reason: it has both a `RingGeometry` and
  * `POLAR_PREAMBLE` — exactly the shape and the preamble this suite knows how to read — but writes
- * no `core`/`collar` pair at all, being the collar rule's second and last exemption (see its own
- * comment). A shape rule ("no ring, no preamble") would have called mud's absence the same kind of
- * absence as the shell's and the plume's; it is not the same kind, which is why the rule this
- * suite actually enforces is the pair against `radius`, not the shape underneath it.
+ * no `core`/`collar` pair at all, being one of the collar rule's exemptions (see its own comment,
+ * and `steam.ts`'s for why this directory carries more than one). A shape rule ("no ring, no
+ * preamble") would have called mud's absence the same kind of absence as the shell's and the
+ * plume's; it is not the same kind, which is why the rule this suite actually enforces is the
+ * pair against `radius`, not the shape underneath it.
  *
  * **What this catches that the literal-pinning tests in each effect's own `*.test.ts` cannot.**
  * Those tests (`toContain('smoothstep(0.90, 0.96, radius)')` and similar) prove a gradient was

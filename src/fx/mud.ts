@@ -44,19 +44,20 @@ import { safeScale } from './scale'
  * `'mud'` had a value to compile against, and now that both reactions own their tint as a module
  * constant of their own (this one and `steam.ts`'s `TINT`) nothing reads a shared table any more.
  *
- * **Mud is exempt from the collar rule, and this is the second and last such exemption** (`steam.ts`
- * is the first, for a different reason). Every arc in this directory that reaches for a shader
- * pairs a bright core with a dark collar just inside it (`water-reach.ts`'s `ARC_BODY`,
- * `fire-burst.ts`'s own version) — but that pattern exists to carve a bright leading edge out of a
- * bright fill, and wet earth has no bright element to carve one out of and nothing above the
- * bloom threshold in the first place. Measured the way `shockwave.ts`'s own `DEFAULT_TINT` comment
- * measures it — `new Color(0x4a3423)` and `0.2126*c.r + 0.7152*c.g + 0.0722*c.b` on the linear
- * values three's sRGB decoding produces — this tint's luminance is ≈0.040, nowhere near the 0.82
- * bloom threshold that comment cites. Mud's legibility comes from being *darker* than everything
- * around it, the opposite of what a collar is for, so this module writes no `core`/`collar` pair
- * and does not register in `collar-bounds.test.ts` — that suite exists to catch a collar's bounds
- * drifting out of step with the geometry it shades, and a body with no collar has nothing there to
- * drift.
+ * **Mud draws no collar, for a reason specific to this shape.** Every arc in this directory that
+ * reaches for a shader pairs a bright core with a dark collar just inside it — the pattern itself
+ * is argued in full against `water-reach.ts`'s `ARC_BODY` and `fire-burst.ts`'s own version — but
+ * that pattern exists to carve a bright leading edge out of a bright fill, and wet earth has no
+ * bright element to carve one out of and nothing above the bloom threshold in the first place.
+ * Measured the way `shockwave.ts`'s own `DEFAULT_TINT` comment measures it — `new
+ * Color(0x4a3423)` and `0.2126*c.r + 0.7152*c.g + 0.0722*c.b` on the linear values three's sRGB
+ * decoding produces — this tint's luminance is ≈0.040, nowhere near the 0.82 bloom threshold that
+ * comment cites. Mud's legibility comes from being *darker* than everything around it, the
+ * opposite of what a collar is for, so this module writes no `core`/`collar` pair and does not
+ * register in `collar-bounds.test.ts` — that suite exists to catch a collar's bounds drifting out
+ * of step with the geometry it shades, and a body with no collar has nothing there to drift.
+ * `steam.ts`'s own comment says more about why this directory carries more than one such
+ * exemption, and why none of them are kept as a running count.
  */
 
 /** Argued in full above: `main.ts`'s own reaction tint, carried rather than re-derived. */

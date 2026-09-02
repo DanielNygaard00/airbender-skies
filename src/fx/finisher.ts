@@ -51,15 +51,16 @@ import { safeScale } from './scale'
  * not as a sixth warm hue added to a palette that has not asked for one. No number in that file
  * changes, only a second reader of it.
  *
- * **This is the third and last effect in this directory built with no collar, and for a
- * different reason than the first two.** `mud.ts` has none because wet earth has nothing bright
- * to carve a rim out of; `steam.ts` has none because its shape has no radius coordinate for a
- * collar to be a band *of* — only a circumference and a height. This shape shares `steam.ts`'s
- * structural reason exactly, being built on the same geometry: `water-reach.ts`'s and
- * `fire-burst.ts`'s collars are both bands across `POLAR_PREAMBLE`'s `radius`, a coordinate a
- * `RingGeometry`'s flat face has and a `CylinderGeometry`'s side face does not. Reaching for that
- * preamble here to manufacture one would be applying ring math to a shape it was never verified
- * against — precisely the trap that preamble's own doc comment warns off, and the same reasoning
+ * **This flare draws no collar, for the same structural reason `steam.ts` gives for its own**
+ * (`steam.ts`'s own comment says more about why this directory carries more than one such
+ * exemption). `mud.ts` has none because wet earth has nothing bright to carve a rim out of;
+ * `steam.ts` has none because its shape has no radius coordinate for a collar to be a band *of* —
+ * only a circumference and a height. This shape shares `steam.ts`'s structural reason exactly,
+ * being built on the same geometry: `water-reach.ts`'s and `fire-burst.ts`'s collars — where the
+ * collar pattern itself is argued and lives — are both bands across `POLAR_PREAMBLE`'s `radius`,
+ * a coordinate a `RingGeometry`'s flat face has and a `CylinderGeometry`'s side face does not.
+ * Reaching for that preamble here to manufacture one would be applying ring math to a shape it
+ * was never verified against — precisely the trap that preamble's own doc comment warns off, and
  * `mud.ts`'s doc comment gives for declining `POLAR_PREAMBLE` on a shape whose UV convention has
  * already been checked and is not that one. And even setting the geometry aside, a collar earns
  * its keep by giving the eye a moment to resolve one band nested inside another; this flourish
@@ -67,7 +68,9 @@ import { safeScale } from './scale'
  * `fire-thrust.ts`'s 0.14 and `fire-burst.ts`'s and `staff-arc-fx.ts`'s 0.16, though not the
  * shortest one-shot in the directory — and most of what time it has is spent growing out of a
  * spark too small to read at all. A dark band nested inside a gradient that is itself barely open
- * by the time it closes would not separate anything — it would just be noise inside a flash.
+ * by the time it closes would not separate anything — it would just be noise inside a flash, and
+ * that is the criterion this exemption rests on: the flare is a flash too brief for a nested
+ * band to ever read.
  */
 
 /** Argued in full above: the staff's own tint, carried rather than re-derived. */

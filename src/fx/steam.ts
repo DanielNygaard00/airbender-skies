@@ -55,6 +55,13 @@ import { safeScale } from './scale'
  * an oversight. It also means `collar-bounds.test.ts` does not register this file: that suite
  * exists to catch a collar's bounds drifting out of step with the geometry it shades, and a body
  * with no collar has nothing there to drift.
+ *
+ * This is one of several such exemptions in this directory — `mud.ts`, `aim-tell.ts`'s preview
+ * sector, and `finisher.ts`'s flare are the others — and deliberately not one of a running count
+ * kept anywhere: each is argued against its own shape, here and in that body's own comment,
+ * rather than enumerated together. A shared count is exactly the kind of coupling across files
+ * that goes stale quietly the next time a shape is added, which is what happened here before it
+ * was deleted.
  */
 
 /** Argued in full above: `main.ts`'s own reaction tint, carried rather than re-derived. */

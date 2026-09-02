@@ -95,8 +95,17 @@ const MARKER_BODY = /* glsl */ `
  *
  * A flat 0.14-opacity sector says "somewhere around here". The reach is the fact the player
  * needs, so the edge carries the value and the interior stays nearly empty — which also keeps
- * the tell from competing with the gust that follows it into the same space. No collar: this is
- * not an effect claiming to be an event, and a dark band inside a 0.14 fill would be invisible.
+ * the tell from competing with the gust that follows it into the same space.
+ *
+ * **This body draws no collar, unlike the other cases that reach for `radius`.** `radius` is
+ * already in scope here via `WEDGE_PREAMBLE` — unlike `mud.ts` and `steam.ts`, whose own
+ * exemptions turn on having no radius coordinate to band at all, this preview could carve one out
+ * exactly the way `water-reach.ts`'s `ARC_BODY` and `fire-burst.ts`'s own version do, where that
+ * pattern is argued in full. It declines anyway, for a reason specific to what a tell is rather
+ * than to what geometry it has: this is a preview of a move not yet thrown, not an event that
+ * happened, and a dark band inside a fill this faint (0.14) would not read as contrast — it would
+ * just be more of the same near-invisible interior. `steam.ts`'s own comment says more about why
+ * this directory carries more than one such exemption and why none of them are counted.
  *
  * **Reaches for `WEDGE_PREAMBLE` anyway, even though this body never touches its `across`.**
  * Both previewable cones — the gust's 60 degrees and the Water Grip's 30 — are inside

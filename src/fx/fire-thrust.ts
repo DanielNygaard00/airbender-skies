@@ -37,9 +37,10 @@ import { createEffectMaterial } from './effect-material'
  * `effect-material.ts`'s to guard against, not this file's; its own doc comment carries that
  * argument in full, so it is not restated here. What a shader buys that a flat colour could not is
  * `PLUME_BODY`'s bright core and collar (see its own doc comment), the last of the five places this
- * pattern lands — five, not the design note's original six: Task 7 made Steam the collar's first
- * exemption instead of its sixth carrier, and `mud.ts` names itself the second and last such
- * exemption, so the count that actually ships is `grep -n "mix(tint \* 0.18, tint, core)"
+ * pattern lands — five, not the design note's original six: Task 7 made Steam an exemption
+ * instead of its sixth carrier, and `mud.ts` is exempt too, for its own reason (see its own doc
+ * comment, and `steam.ts`'s for why this directory carries more than one such exemption without
+ * counting them), so the count that actually ships is `grep -n "mix(tint \* 0.18, tint, core)"
  * src/fx/*.ts`'s five non-test hits: `earth-reach.ts`, `fire-burst.ts`, this file, `ice-shell.ts`
  * and `water-reach.ts`.
  */
