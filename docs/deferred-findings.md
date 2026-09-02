@@ -286,3 +286,34 @@ Pointer lock is refused in the harness these steps were built in — `requestPoi
 `WrongDocumentError: The root document of this element is not valid for pointer lock` — and the
 simulation stays paused without it. So the play-test is not something the build process can close.
 It needs the owner and a real browser.
+
+## What the `at` sweep answered, 2026-09-01
+
+`bench.html?scene=<id>&at=<seconds>` freezes any scene at a chosen age in its effect's life
+rather than at the one moment its scene table hard-codes. Three things fell out of it and the
+tier sweep on the first afternoon it existed.
+
+- **The grip's inward travel is real, and this is the first time it has been seen.**
+  `water-reach.ts` documents its arc as travelling inward "because it drags", and nothing had
+  ever confirmed it — the scene froze at one age. At `at=0.04` the bright arc sits at the
+  sector's outer edge near full reach; at `at=0.25` it has moved to roughly a third of the
+  reach. Two screenshots for a claim that had been carried on argument since B2.
+- **The deflect's readable moment is early, confirmed by sweep rather than by inference.** At
+  `at=0.01` it is small, tight and densely spoked; by `at=0.06` it has expanded and the spokes
+  have stretched and faded. Gate round two moved its scene earlier on reasoning; the sweep shows
+  the reasoning was right.
+- **Earth and fire's burst share a warm-tan register and are the pair most at risk of reading
+  alike** — clearest at the low tier, on pale grass, where nothing blooms. Ranked by how well
+  they separate there: water's cyan `0x2fb8d8` best by a distance, being the only cool tint in
+  the set; earth's sandstone `0xd9a066` clearly; fire's burst `0xffd9a0` visibly but in earth's
+  register; fire's thrust, on the same `0xffd9a0`, faintest of everything. **Tints were an
+  explicit non-goal of B1, B2 and B3, so nothing was moved** — this is a design decision for the
+  owner, now with evidence behind it rather than a suspicion.
+
+Worth recording about the instrument itself: both timing bugs the arc hit — the deflect frozen
+44% through a 0.12 s life where its own fade had taken it to 56%, and two staff scenes frozen at
+half-faded — would have been obvious in a five-shot sweep. Each was instead found by eye, one at
+a time, and each cost a fix round. The sweep does not answer whether an effect *feels* right,
+which is real-time perception and still needs a person. It does answer whether the animation
+progresses legibly and whether the moment a scene chose is the moment worth photographing, and
+those were the questions being deferred to a play-test that had not happened.
