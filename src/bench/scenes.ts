@@ -1056,9 +1056,18 @@ export const BENCH_SCENES: readonly BenchScene[] = [
      * ground.
      *
      * Order, left to right: air, water, earth, fire — `element-radial.ts`'s own canonical order
-     * — then the unmarked control last, so a reader scanning the row meets the four colours in
-     * the order the game's own HUD already taught them before meeting the soldier that has
-     * none of them.
+     * — then the unmarked control last.
+     *
+     * **Only one of those five draws a pip, and that is the point of the shot now.** When this
+     * scene was built the pip drew every mark, and the row existed to ask whether four colours
+     * were distinguishable. `markCanReact` in `reactions.ts` then established that only a
+     * *water* mark can ever produce a reaction — `REACTIONS`' other fourteen cells are `'none'`
+     * — so the pip stopped drawing marks nobody can act on. The row was deliberately left at
+     * five: it now photographs the rule instead of the palette, four marks against one pip, and
+     * it is a regression canary. If a further reaction ships and another element becomes
+     * actionable, this shot changes and somebody sees it. The scene's original question — are
+     * the four colours distinguishable — is no longer answerable here and no longer worth
+     * asking; `MARK_COLOUR` stays total over `Element` for the day it is.
      *
      * **The fight distance: 8 metres back from the row, argued rather than assumed.** A
      * soldier's own `strikeRange` (`DEFAULT_COMBAT_CONFIG.spear`) is about 3.2 and the gust
@@ -1165,8 +1174,16 @@ export const BENCH_SCENES: readonly BenchScene[] = [
      * to `0.35`) — dim, not gone, and still unmistakably `water`'s own colour rather than
      * shifted toward black or toward another element's hue, which is exactly the distinction
      * question 4 asks this scene to make; the sliver that clears the front soldier's silhouette
-     * is visibly paler than the front soldier's own full-strength `fire` pip in the same shot,
-     * not a different hue.
+     * is visibly paler than the front soldier's own full-strength pip in the same shot, not a
+     * different hue.
+     *
+     * **Both soldiers carry a `water` mark, and they have to.** The front one was `fire` when
+     * this scene was built, back when the pip drew every mark. `markCanReact` then established
+     * that only a water mark can ever react, so a `fire`-marked front soldier now draws nothing
+     * at all — which would leave this shot with one pip and no full-strength pip to compare the
+     * faded one against, quietly destroying the answer to question 4 while every test stayed
+     * green. Same element on both, differing only in how much time is left, is what keeps the
+     * comparison this scene exists to make.
      *
      * **The pose: `(0, 13.1, 4.6)` looking at `(0, 11.9, 0)`, a `atan(1.2 / 4.6) ≈ 14.6`-degree
      * look-down.**
@@ -1197,7 +1214,7 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     fireAt: 0,
     duration: 1,
     soldiers: [
-      { kind: 'spear', dx: 0, dz: 0, mark: 'fire' },
+      { kind: 'spear', dx: 0, dz: 0, mark: 'water' },
       { kind: 'spear', dx: 0.6, dz: -4.5, mark: 'water', markSeconds: 0.15 },
     ],
   },

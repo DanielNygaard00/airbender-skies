@@ -2,6 +2,7 @@ import { Vector3 } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { AT_PARAM, BENCH_SCENES, resolveBench, type BenchScene } from './scenes'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
+import { markCanReact } from '../combat/reactions'
 import { ELEMENT_ORDER } from '../elements/element'
 import { LEVELS } from '../world/levels'
 import { runFixedClock } from './clock'
@@ -215,13 +216,21 @@ describe('bench scenes: soldiers', () => {
     expect(marks.filter((m) => m === null)).toHaveLength(1)
   })
 
-  it('gives `marks-occluded` two differently-marked soldiers, the rear one nearly expired', () => {
+  it('gives `marks-occluded` two soldiers on an actionable mark, the rear one nearly expired', () => {
     const scene = BENCH_SCENES.find((s) => s.id === 'marks-occluded')!
     expect(scene.soldiers).toHaveLength(2)
     const [front, rear] = scene.soldiers!
+    // Both marks must be ones the pip will actually draw, and that is asserted through
+    // `markCanReact` rather than against the literal `'water'`. This scene answers whether a
+    // faded pip reads against a full-strength one, so it needs two pips; a mark the pip
+    // declines to draw would leave it with one and no comparison, while every generic check
+    // above still passed. Asking the predicate rather than naming the element means the day a
+    // further reaction makes another element actionable, this scene may use it without the
+    // test having to be edited to allow it.
     expect(front!.mark).not.toBeNull()
     expect(rear!.mark).not.toBeNull()
-    expect(front!.mark).not.toBe(rear!.mark)
+    expect(markCanReact(front!.mark!)).toBe(true)
+    expect(markCanReact(rear!.mark!)).toBe(true)
     // "Nearly expired" against the reaction system's own full mark length
     // (`DEFAULT_COMBAT_CONFIG.reactions.markSeconds`, 2.5s) — a tenth of it or less, not merely
     // "less than fresh".
