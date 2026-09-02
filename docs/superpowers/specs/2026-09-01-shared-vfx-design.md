@@ -138,8 +138,10 @@ continuously-animated shape at the player's feet is the one element here that wo
 ### The mark pip
 
 `Enemy.mark` is `{ element, secondsLeft } | null`, written by `markEnemy` and aged at the top
-of `stepEnemy`. The reaction table then reads it: water on a fire-marked soldier makes steam,
-water on an earth-marked one makes mud. **The player cannot currently see any of it.** A
+of `stepEnemy`. The reaction table then reads it, and **the table is directional** — its own
+comment in `reactions.ts` puts it as "a wet soldier hit by fire steams; a burning soldier hit by
+water does not". So it is a *water* mark that pays: hit one with fire and it steams, hit one with
+earth and it muds. Every other pairing is `'none'`. **The player cannot currently see any of it.** A
 reaction system whose input is invisible is a system the player triggers by accident.
 
 The plumbing already exists and needs nothing added. `EnemyView.sync(enemy, cameraQuaternion,

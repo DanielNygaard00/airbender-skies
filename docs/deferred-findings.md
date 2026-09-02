@@ -317,3 +317,54 @@ a time, and each cost a fix round. The sweep does not answer whether an effect *
 which is real-time perception and still needs a person. It does answer whether the animation
 progresses legibly and whether the moment a scene chose is the moment worth photographing, and
 those were the questions being deferred to a play-test that had not happened.
+
+## What soldiers in the bench answered, 2026-09-01
+
+`BenchScene` now takes an optional `soldiers` list, and two scenes use it: `marks` (five soldiers
+in a row — air, water, earth, fire, and one unmarked control) and `marks-occluded` (one behind
+another, the rear one's mark nearly expired). The mark pip was the only thing in the whole visual
+arc that had never been seen, because the bench had no soldier to put one on.
+
+All four questions it was built to answer came back yes: the four pips are distinguishable, an
+unmarked soldier is clearly bare, the rear soldier is genuinely partially occluded and its pip
+still reads, and a nearly-expired pip reads as dimmer rather than as a different colour.
+
+Two findings, and the second is the one that matters.
+
+- **Air's pip is the weakest of the four, and it is weak for a structural reason.** `#7fe4ff` is a
+  pale cyan, the pip floats above a soldier's head, and a head at any normal camera angle is
+  silhouetted against *sky* — which is also pale blue. Water's `#2fb8d8`, earth's `#d9a066` and
+  fire's `#ff5a2d` all separate from sky comfortably; air nearly disappears into it. This is the
+  collar problem in a new place: an absolute colour chosen without regard for what is behind it.
+  The pip carries no outline or darkening of its own. **Element tints were a non-goal of the
+  visual arc, so nothing was changed** — but unlike the effects, whose background is usually
+  ground, the pip's background is usually sky, and that is a different argument from the one the
+  radial's colours were chosen under.
+- **Three of the pip's four states are information the player can never act on.** `REACTIONS` is
+  `reactionFor(mark, verb) = REACTIONS[mark][verb]`, and only two of its sixteen cells are not
+  `'none'`: a **water** mark hit by fire steams, and a water mark hit by earth muds. An air, earth
+  or fire mark can never produce a reaction, whatever hits it. The pip gives all four equal visual
+  weight. Whether three of them should be drawn at all, or drawn differently from the one that
+  pays, is a design question — and it is the one the pip made visible, which is what it was for.
+  Luckily the actionable state is also the clearest-reading of the four.
+
+### A documentation error this uncovered, now fixed
+
+Both B3 documents described the reaction system **backwards**, as "water on a fire-marked soldier
+makes steam, water on an earth-marked one makes mud". That is precisely the pairing the table
+returns `'none'` for. `reactions.ts`'s own comment states the truth three lines above the table:
+"a wet soldier hit by fire steams; a burning soldier hit by water does not" — the mark is the
+first index, the incoming element the second, and sequence is the thing being rewarded. The design
+note and the plan are corrected. No code depended on the direction, so nothing was mis-built: the
+pip draws `mark.element` and is direction-agnostic. But the artefact of record misdescribed the
+game's central combat system for the length of the step it governed, which is worth recording as
+its own class of error — the same class the task reviews kept catching in effect comments, made in
+the document that governed them.
+
+### A framing note on `marks-occluded`
+
+Read at its own scene framing it under-reads: the front soldier is small, its pip sits a visible
+0.5 units above its head, and the rear pip is a smudge. Nothing is wrong — the pip clears the
+health bar's 1.945–2.055 band by design, and at the `marks` row's 8 m the same clearance reads as
+attached rather than detached. But the close pose flatters neither question it answers, and a
+first look at it reads as broken when it is not.

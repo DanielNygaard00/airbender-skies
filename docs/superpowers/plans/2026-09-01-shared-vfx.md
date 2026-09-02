@@ -888,8 +888,9 @@ a view: it imports types and draws. No gameplay number moves, and nothing in the
 read that `sync` is not already handed.
 
 **What the pip has to say.** `Enemy.mark` is `{ element, secondsLeft } | null`. The reaction
-table cares only about `element` — water on a fire-marked soldier makes steam, water on an
-earth-marked one makes mud — so the pip's job is to say *which element*, legibly, at fight
+table cares only about `element`, and it is directional: a *water*-marked soldier hit by fire
+steams and one hit by earth muds, while every other pairing is `'none'` — so the pip's job is to
+say *which element*, legibly, at fight
 distance and at the shallow camera angle this game plays at. `aim-tell.ts` already argues that
 case for a chevron over a bar or a dot; the same reasoning applies, and hue alone is the weakest
 possible channel for it.
