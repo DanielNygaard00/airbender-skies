@@ -384,3 +384,34 @@ Read at its own scene framing it under-reads: the front soldier is small, its pi
 health bar's 1.945–2.055 band by design, and at the `marks` row's 8 m the same clearance reads as
 attached rather than detached. But the close pose flatters neither question it answers, and a
 first look at it reads as broken when it is not.
+
+## The mark pip now draws only what can be acted on, 2026-09-01
+
+Putting soldiers in the bench showed that three of the pip's four states were information nobody
+could use: `reactionFor(mark, verb)` is `REACTIONS[mark][verb]`, only two of its sixteen cells are
+not `'none'`, and both need a **water** mark. An air, earth or fire mark can never produce a
+reaction whatever hits it, and the pip was giving all four equal visual weight — implying four
+marks matter when one does.
+
+`markCanReact(mark)` now lives beside the table in `reactions.ts` and scans that mark's row for
+any non-`'none'` verb, and the pip draws nothing for a mark that cannot pay. **Derived rather than
+listed on purpose**: `reactions.ts` records that Dust (earth then air) and Backdraft (air then
+fire) were designed and rejected for stated reasons, so the table may grow, and a hardcoded
+`mark === 'water'` would silently stop being right the day it does. The tests assert against
+`REACTIONS` itself rather than against literals, and pin the count of actionable marks so adding a
+reaction is a visible event.
+
+The rejected alternative was drawing all four and styling the actionable one differently. A mark
+that can never be an input carries nothing to style — a soldier is not "burning", the mark is
+purely a reaction input — so a quieter pip would still have taught that it mattered.
+
+This also closed the air-pip legibility problem without touching a tint. Air's `#7fe4ff` is a pale
+cyan, a pip floats above a head, and a head is silhouetted against sky, which is also pale blue —
+so it nearly disappeared. Since air is never actionable, it now never draws. `MARK_COLOUR` stays a
+total `Record<Element, number>` regardless, so a new element breaks the build and a newly
+actionable one already has its colour.
+
+**Still the owner's, and unchanged:** whether earth's `0xd9a066` and fire's `0xffd9a0` are too
+close in the low tier's warm-tan register, and whether the simulation should clear a mark on a
+knockdown. Both were left alone deliberately — tints were an explicit non-goal of all three effect
+steps, and the second is a balance decision rather than a visual one.
