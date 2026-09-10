@@ -53,7 +53,7 @@ import { canAirWall, isAirWallUp } from './combat/air-wall'
 import { createVortexRing } from './fx/vortex-ring'
 import { createVortexChargeTell } from './fx/vortex-charge'
 import { vortexRadius } from './combat/vortex'
-import { createEnemyView } from './combat/enemy-mesh'
+import { createEnemyView, MODEL_FILE } from './combat/enemy-mesh'
 import { createArrowView, type ArrowView } from './fx/arrow'
 import { createWaterfall } from './world/waterfall'
 import { createPlayerState, spawnPointFor } from './player/state'
@@ -489,6 +489,34 @@ function start(): void {
     enableShadows(view.object)
     return [enemy.id, view] as const
   }))
+
+  /**
+   * Which model each standing soldier wants, captured now rather than read when the loads
+   * land. `encounter` is reassigned every frame and its enemies are rebuilt outright when the
+   * patrol restores, so by the time a model arrives over the network the array these views were
+   * built from is gone. The ids are stable across a restore — that is what makes `enemyViews`
+   * keyable by them — so the pairing is recorded here and survives.
+   */
+  const enemyKinds = encounter.enemies.map((enemy) => [enemy.id, enemy.kind] as const)
+
+  // One load per *kind*, not per soldier: `loadGLTF` caches by URL, so the seven soldiers of
+  // `HOME_PATROL` across four kinds are four requests, and `attachModel` clones what it is
+  // handed. Fire-and-forget for the reason the player's model is: a load that fails resolves
+  // null, and a soldier whose model never arrives keeps standing there as primitives.
+  for (const kind of new Set(enemyKinds.map(([, k]) => k))) {
+    void loadGLTF(`${import.meta.env.BASE_URL}models/${MODEL_FILE[kind]}`).then((gltf) => {
+      if (!gltf) return
+      for (const [id, ownKind] of enemyKinds) {
+        if (ownKind !== kind) continue
+        const view = enemyViews.get(id)
+        if (!view) continue
+        view.attachModel(gltf)
+        // The model's meshes arrive after the first frame, so they miss the initial pass --
+        // the same reason the avatar re-runs this after its own attach.
+        enableShadows(view.object)
+      }
+    })
+  }
 
   /**
    * One view per arrow in flight, created on first sight and disposed when the arrow is
@@ -1054,9 +1082,19 @@ function start(): void {
         avatar.setAnimation(animationFor(player))
         wind.update(0, 0)
         followSun(player.position)
-        for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(
-          enemy, camera.quaternion, risingProgress(enemy, DEFAULT_COMBAT_CONFIG.enemies[enemy.kind]),
-        )
+        for (const enemy of encounter.enemies) {
+          const view = enemyViews.get(enemy.id)
+          if (!view) continue
+          view.sync(
+            enemy, camera.quaternion,
+            risingProgress(enemy, DEFAULT_COMBAT_CONFIG.enemies[enemy.kind]),
+          )
+          // Zero, not dt: this is the paused branch, and the soldiers are part of what is
+          // paused. It still has to be called, because a mixer that is never updated leaves a
+          // freshly attached model in its bind pose -- so a model that loads while the game is
+          // paused would stand in a T-pose until the player unpaused.
+          view.update(0)
+        }
       }
       // The one thing that always keeps moving. The 'down' burst is the punctuation of
       // the event, not the world carrying on.
@@ -1653,9 +1691,16 @@ function start(): void {
     // DEFAULT_COMBAT_CONFIG.enemy, not fightConfig.enemy, but not for the defensive reason
     // above or below: boostedCombatConfig only ever replaces the gust key, so the two are
     // the same object today, and there is nothing on `enemy` for a future boost to reach.
-    for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(
-      enemy, camera.quaternion, risingProgress(enemy, DEFAULT_COMBAT_CONFIG.enemies[enemy.kind]),
-    )
+    for (const enemy of encounter.enemies) {
+      const view = enemyViews.get(enemy.id)
+      if (!view) continue
+      view.sync(
+        enemy, camera.quaternion, risingProgress(enemy, DEFAULT_COMBAT_CONFIG.enemies[enemy.kind]),
+      )
+      // After sync, not before: sync is what chooses the clip and sets its speed, so ticking
+      // first would advance a frame of whichever clip the *previous* stance had selected.
+      view.update(dt)
+    }
 
     // Read straight from the simulation rather than through an interpolator. Arrows are
     // fast and short-lived, an interpolator would have to be created and disposed per
@@ -2276,9 +2321,16 @@ function start(): void {
   // sync() needs camera.quaternion, which syncVisuals's camera.lookAt call above just set,
   // so this has to run after it -- the same ordering update()'s own copy of this loop
   // relies on.
-  for (const enemy of encounter.enemies) enemyViews.get(enemy.id)?.sync(
-    enemy, camera.quaternion, risingProgress(enemy, DEFAULT_COMBAT_CONFIG.enemies[enemy.kind]),
-  )
+  for (const enemy of encounter.enemies) {
+    const view = enemyViews.get(enemy.id)
+    if (!view) continue
+    view.sync(
+      enemy, camera.quaternion, risingProgress(enemy, DEFAULT_COMBAT_CONFIG.enemies[enemy.kind]),
+    )
+    // Zero for the paused branch's reason. Priming runs before any frame has been drawn, so a
+    // model that had already arrived would otherwise be primed into its bind pose.
+    view.update(0)
+  }
   hud.update(hudModelFor(player, encounter.playerHealth, {
     focus: focus.max > 0 ? focus.value / focus.max : 0,
     avatarCharge: armFraction(avatarState, DEFAULT_AVATAR_STATE_CONFIG),

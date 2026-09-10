@@ -1,12 +1,15 @@
 import {
-  BoxGeometry, BufferAttribute, BufferGeometry, CapsuleGeometry, ConeGeometry, DoubleSide, Group,
-  MathUtils, Mesh, MeshBasicMaterial, MeshLambertMaterial, TorusGeometry,
-  type Object3D, type Quaternion,
+  AnimationMixer, Box3, BoxGeometry, BufferAttribute, BufferGeometry, CapsuleGeometry,
+  ConeGeometry, DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial, MeshLambertMaterial,
+  TorusGeometry, Vector3, type AnimationAction, type AnimationClip, type Object3D,
+  type Quaternion,
 } from 'three'
+import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js'
 import { isDowned } from './health'
 import { createHealthBar } from './health-bar'
 import { markCanReact } from './reactions'
-import type { Enemy, EnemyConfig, EnemyKind } from './enemy'
+import type { Enemy, EnemyConfig, EnemyKind, Stance } from './enemy'
 import type { Element } from '../elements/element'
 
 /**
@@ -30,6 +33,22 @@ export interface EnemyView {
   object: Object3D
   /** `rising` is 0-to-1 progress through a push-up, from `risingProgress`. */
   sync(enemy: Enemy, cameraQuaternion: Quaternion, rising: number): void
+  /**
+   * Swap the primitives for a real model, once one has loaded.
+   *
+   * Shaped like `avatar.attachModel` and for the same reason: models arrive over the network
+   * after the first frame, and `loadGLTF` resolves null rather than rejecting, so a soldier
+   * whose model never arrives has to keep standing there as primitives. Everything `sync`
+   * decides has a placeholder path and a model path for exactly that reason — this is a
+   * fallback that has to work, not a transitional state.
+   */
+  attachModel(gltf: GLTF): void
+  /**
+   * Advance this soldier's animation. Separate from `sync` because `sync` is a pure read of one
+   * frame of simulation state and has no time in it — the same split `sync`'s own signature
+   * already makes by taking `rising` as a number rather than a duration.
+   */
+  update(dt: number): void
 }
 
 const BODY = 0x8d6b4a
@@ -76,6 +95,151 @@ const WIND_UP_PITCH: Record<EnemyKind, number> = {
   archer: -0.6,
   heavy: -0.8,
   nets: -1.4,
+}
+
+/**
+ * Which model each kind wears, and it is a casting decision rather than an arbitrary mapping.
+ *
+ * The four come from one character pack and share one 32-joint skeleton bone for bone, which is
+ * what makes a single clip vocabulary below possible at all — the alternative was four rigs and
+ * four sets of clip names to keep in step.
+ *
+ * The casting itself is by silhouette and by what each model already carries. The archer is the
+ * pack's Ranger because it is the one holding a bow, and the game already flies arrows at the
+ * end of its draw. The heavy is the Cleric for its plate, and for an accident worth keeping: it
+ * is the only one of the four that ships no `Roll`, which suits the kind whose whole identity is
+ * being hard to move. The netter is the Rogue, hooded and the lightest of the four at 2,326
+ * triangles, so the kind that fights from furthest out is also the cheapest to draw seven of.
+ * The spear is the Warrior, which leaves the pack's Monk to the player and its Wizard spare for
+ * whenever an enemy bender turns up.
+ *
+ * A Record for the reason `PROPS` is one: a fifth kind is a typecheck error here rather than a
+ * soldier that silently arrives wearing nobody's model.
+ */
+export const MODEL_FILE: Record<EnemyKind, string> = {
+  spear: 'soldier-warrior.glb',
+  archer: 'soldier-ranger.glb',
+  heavy: 'soldier-cleric.glb',
+  nets: 'soldier-rogue.glb',
+}
+
+/**
+ * The clip each kind winds up with.
+ *
+ * Chosen per kind rather than shared, because the wind-up is the one animation the player is
+ * required to read: §4.4's whole dodge window depends on seeing it start. So each kind uses the
+ * motion it actually makes — the Warrior's sword swing, the Ranger's bow draw, the Cleric's
+ * staff swing, and for the netter the *longer* of the Rogue's two dagger attacks, because a net
+ * is thrown with the whole body and `WIND_UP_PITCH` already says so by winding furthest back.
+ *
+ * These are not played at their authored speed; see `windUpTimeScale`.
+ */
+const WIND_UP_CLIP: Record<EnemyKind, string> = {
+  spear: 'Sword_Attack',
+  archer: 'Bow_Draw',
+  heavy: 'Staff_Attack',
+  nets: 'Dagger_Attack2',
+}
+
+/**
+ * How fast to run the wind-up clip so it finishes exactly as the wind-up does.
+ *
+ * Derived, never tuned, and that is the whole point. Every kind's telegraph window is authored
+ * in `CombatConfig` and the numbers differ deliberately — spear 0.55, archer 0.8, heavy 0.95,
+ * nets 1.0 — with `config.ts` arguing at length that the heavy's is "the game's most generous
+ * telegraph" and the netter's "the longest telegraph in the game". None of the borrowed clips
+ * happens to be that long: they run 0.75 to 1.25 seconds. A clip left at its authored speed
+ * would therefore finish early or late, and the animation would be telling the player a
+ * different window from the one the simulation is actually keeping — which is worse than the
+ * orange capsule it replaces, because it looks authoritative.
+ *
+ * So the ratio is computed from the two numbers that already exist. Nothing here needs
+ * retuning when a telegraph is rebalanced, and a new kind cannot be added with a wind-up whose
+ * animation disagrees with its window.
+ */
+export function windUpTimeScale(clipDuration: number, windUpSeconds: number): number {
+  if (!(clipDuration > 0) || !(windUpSeconds > 0)) return 1
+  return clipDuration / windUpSeconds
+}
+
+/**
+ * Which clip plays for a stance. Pure, so the mapping is testable without a mixer.
+ *
+ * `downed` and `rising` both answer `Death`, and they are the two the caller does not simply
+ * play. `Death` covers being downed *and* getting up, which is the reason this pack's short clip
+ * list is enough: `stepEnemy` reports a push-up as a continuous 0-to-1 `rising`, and a model can
+ * run its own death backwards from that number — a real get-up, continuous with the pose it is
+ * rising out of, rather than a body swivelling upright the way the placeholder must. So `sync`
+ * pauses this clip and drives its time from `rising` instead of letting it run, and the
+ * animation therefore cannot disagree with the simulation about how far up the soldier is.
+ *
+ * `recover` deliberately returns to `Idle` rather than playing the attack's tail. The recover
+ * window is the punish window — `config.ts` calls the heavy's 1.3 seconds of it exactly that —
+ * so what it has to read as is *open*, not as a follow-through the player might still respect.
+ */
+export function clipForStance(stance: Stance, kind: EnemyKind, moving: boolean): string {
+  switch (stance) {
+    // `moving` is a separate input because `advance` does not mean "walking". It is the stance
+    // every soldier is *spawned* in and the one it returns to after every attack, so a soldier
+    // standing at its patrol post with the player far outside its `aggroRange` is advancing by
+    // this enum's reckoning while not going anywhere at all. Keyed on the stance alone, all
+    // seven of `HOME_PATROL` would have walked on the spot from the moment the game loaded.
+    //
+    // Derived in the view from the position it is handed rather than read off the simulation,
+    // because there is no velocity on `Enemy` to read — and deriving it has a bonus the enum
+    // could not give: a body being shoved backwards by knockback is moving, and now says so.
+    case 'advance': return moving ? 'Walk' : 'Idle'
+    case 'wind-up': return WIND_UP_CLIP[kind]
+    case 'downed': return 'Death'
+    case 'rising': return 'Death'
+    case 'recover': return 'Idle'
+    case 'held': return 'Idle'
+  }
+}
+
+/**
+ * How far a soldier must move between syncs to count as walking.
+ *
+ * Small because it is separating movement from *no* movement rather than slow from fast: a
+ * soldier the simulation is not moving has its position copied unchanged, so the delta is
+ * exactly zero, and the slowest kind still covers millimetres per frame. Deliberately not a
+ * speed — that would need the frame time, and a threshold on distance errs the safe way as the
+ * frame rate drops, since longer frames only move a walking soldier further past it.
+ */
+const MOVING_EPSILON = 1e-4
+
+/**
+ * Standing height for a soldier's model, matching the capsule it replaces.
+ *
+ * `CapsuleGeometry(0.35, 1.0)` is 1.7 tall and sits at y 0.85, so the placeholder spans exactly
+ * 0 to 1.7 and every reach, lane and health-bar height in the fight was authored against that.
+ * The models arrive about 3.0 units tall, so they are measured and scaled rather than trusted:
+ * the four differ by 5 centimetres between themselves, which would otherwise be a soldier that
+ * is quietly taller than the one beside it.
+ */
+const SOLDIER_HEIGHT = 1.7
+
+/** How long a cross-fade between two soldier clips takes. Matches the avatar's. */
+const FADE_SECONDS = 0.18
+
+/**
+ * Scale a model to `SOLDIER_HEIGHT` and seat its feet at the rig's origin.
+ *
+ * Measured through the built scene graph rather than assumed, the way `fitToPlaceholder` does it
+ * for the player, and for a reason worth recording: read straight off the vertex buffers these
+ * models look as though they hang up to 0.79 below their own origin, which would mean a soldier
+ * scaled short and floating. They do not — those bounds are in mesh-local space, *before* the
+ * node transforms that put the model on its feet. Measured properly through `Box3` the four sit
+ * between 4 and 5 millimetres below zero. So the offset is real but tiny, and it is applied
+ * rather than assumed away only because measuring costs nothing.
+ */
+function fitToCapsule(wrapper: Object3D, model: Object3D): void {
+  const box = new Box3().setFromObject(model)
+  const height = box.max.y - box.min.y
+  if (!Number.isFinite(height) || height <= 0) return
+  const scale = SOLDIER_HEIGHT / height
+  wrapper.scale.setScalar(scale)
+  wrapper.position.y = -box.min.y * scale
 }
 
 /** How wide the throw lane is at its far end, in metres either side of the centre line. */
@@ -292,8 +456,110 @@ export function createEnemyView(kind: EnemyKind, c: EnemyConfig): EnemyView {
   pip.userData.excludeFromShadows = true
   object.add(pip)
 
+  /**
+   * Model state. Null until one arrives, and every pose branch in `sync` reads it to decide
+   * whether it is rotating primitives or driving a mixer.
+   */
+  let modelRoot: Group | null = null
+  let mixer: AnimationMixer | null = null
+  let modelClips = new Map<string, AnimationClip>()
+  let currentAction: AnimationAction | null = null
+  let currentClip: string | null = null
+  /** The model's own materials beside the colour each arrived with, for the wind-up tint. */
+  let modelMaterials: { material: MeshLambertMaterial; colour: number }[] = []
+  /**
+   * Where this soldier was at the previous sync, so the view can tell walking from standing
+   * still without a velocity on `Enemy` to read. Null until the first sync, which therefore
+   * reports "not moving" -- the correct answer for a soldier that has only just spawned.
+   */
+  let lastPosition: Vector3 | null = null
+
+  /**
+   * Start `name`, or return the action already running it.
+   *
+   * `hold` is for the two stances whose progress the simulation owns rather than the clock:
+   * being downed and pushing back up both drive the clip's time themselves, so the action is
+   * paused and its time written by the caller.
+   */
+  function play(name: string, hold: boolean, timeScale: number): AnimationAction | null {
+    if (!mixer) return null
+    const clip = modelClips.get(name)
+    if (!clip) return null
+
+    if (currentClip === name && currentAction) {
+      currentAction.paused = hold
+      currentAction.timeScale = hold ? 0 : timeScale
+      return currentAction
+    }
+
+    const next = mixer.clipAction(clip)
+    // Snapped rather than faded on the very first pose, because nothing has ticked this mixer
+    // yet: a fade would ramp weight from 0 over mixer time the soldier has not spent, so the
+    // first frame would show the bind pose. The same trap `avatar.poseNow` documents.
+    if (currentAction) {
+      currentAction.fadeOut(FADE_SECONDS)
+      next.reset().fadeIn(FADE_SECONDS).play()
+    } else {
+      next.reset().setEffectiveWeight(1).play()
+    }
+    next.paused = hold
+    next.timeScale = hold ? 0 : timeScale
+    currentAction = next
+    currentClip = name
+    return next
+  }
+
   return {
     object,
+
+    attachModel(gltf: GLTF): void {
+      // Cloned, and this is the single most important line in the method. `loadGLTF` caches by
+      // URL, and three of the seven soldiers in `HOME_PATROL` are spears — so the same GLTF
+      // instance is handed to several views, and an Object3D has exactly one parent. Adding
+      // `gltf.scene` directly would mean the last soldier to attach stole the model and the
+      // other two stood empty. `SkeletonUtils.clone` rather than `Object3D.clone` because a
+      // plain clone copies the meshes but leaves them bound to the original's skeleton, which
+      // animates one soldier and drags the others' limbs along with it.
+      const model = cloneSkinned(gltf.scene)
+
+      // A second call has to be safe for the same sharing reason: a retry, or two views handed
+      // one load, must not leave the previous model parented with its actions still running.
+      if (modelRoot) rig.remove(modelRoot)
+      mixer?.stopAllAction()
+      currentAction = null
+      currentClip = null
+
+      // Only these two go. The lane, the pip and the health bar hang off the *root* rather than
+      // the rig and are tells rather than art, so the model does not replace them.
+      rig.remove(body)
+      rig.remove(prop)
+
+      modelRoot = new Group()
+      modelRoot.add(model)
+      fitToCapsule(modelRoot, model)
+      rig.add(modelRoot)
+
+      // Materials cloned per view, for the sharing reason again and with a visible symptom:
+      // the wind-up tint writes `material.color`, so three spear soldiers sharing one material
+      // would all flash orange when any one of them wound up.
+      modelMaterials = []
+      model.traverse((node) => {
+        const mesh = node as Mesh
+        if (!mesh.isMesh || Array.isArray(mesh.material)) return
+        if (!(mesh.material instanceof MeshLambertMaterial)) return
+        const own = mesh.material.clone()
+        mesh.material = own
+        modelMaterials.push({ material: own, colour: own.color.getHex() })
+      })
+
+      mixer = new AnimationMixer(model)
+      modelClips = new Map(gltf.animations.map((clip) => [clip.name, clip]))
+    },
+
+    update(dt: number): void {
+      mixer?.update(dt)
+    },
+
     sync(enemy: Enemy, cameraQuaternion: Quaternion, rising: number): void {
       object.position.copy(enemy.position)
       // Ahead of the downed branch below: the bar's own rule already covers being
@@ -357,17 +623,47 @@ export function createEnemyView(kind: EnemyKind, c: EnemyConfig): EnemyView {
         pip.quaternion.copy(cameraQuaternion)
       }
 
+      /** The wind-up tint, or back to the colours the model arrived wearing. */
+      const tintModel = (winding: boolean): void => {
+        for (const entry of modelMaterials) {
+          entry.material.color.setHex(winding ? WINDUP : entry.colour)
+        }
+      }
+
+      /**
+       * Whether the body actually went anywhere since the last sync. Read before any branch
+       * updates it, and updated exactly once below so every branch sees the same answer.
+       */
+      const moving = lastPosition !== null
+        && lastPosition.distanceToSquared(enemy.position) > MOVING_EPSILON * MOVING_EPSILON
+      lastPosition = (lastPosition ?? new Vector3()).copy(enemy.position)
+
+      /** Hold `Death` at the point through it that `rising` names. 1 is flat, 0 is upright. */
+      const holdDeathAt = (backwards: number): void => {
+        const name = clipForStance('downed', kind, false)
+        const action = play(name, true, 1)
+        const clip = modelClips.get(name)
+        if (action && clip) action.time = clip.duration * backwards
+      }
+
+      // Facing is horizontal, so atan2 of the heading is the whole rotation.
+      const facingYaw = Math.atan2(enemy.facing.x, enemy.facing.z)
+
       if (enemy.stance === 'rising') {
         // Flat at 0, upright at 1. The rotation carries the whole read: the colour stays
         // at the kind's own base, because WINDUP exists so the player can time a dodge, and
         // wearing it here would teach them to dodge something that cannot hit them.
-        rig.rotation.set(
-          (Math.PI / 2) * (1 - rising),
-          Math.atan2(enemy.facing.x, enemy.facing.z),
-          0,
-        )
+        rig.rotation.set((Math.PI / 2) * (1 - rising), facingYaw, 0)
         bodyMaterial.color.setHex(BASE_COLOUR[kind])
         prop.rotation.set(0, 0, 0)
+        if (modelRoot) {
+          // The model gets up under its own power — its death, run backwards — so the rig is
+          // left doing nothing but turning it. Unpitching the rig *as well* would rotate a body
+          // that is already standing itself up, and the soldier would arrive leaning.
+          rig.rotation.set(0, facingYaw, 0)
+          tintModel(false)
+          holdDeathAt(1 - rising)
+        }
         return
       }
 
@@ -376,15 +672,38 @@ export function createEnemyView(kind: EnemyKind, c: EnemyConfig): EnemyView {
         rig.rotation.set(Math.PI / 2, 0, 0)
         bodyMaterial.color.setHex(BASE_COLOUR[kind])
         prop.rotation.set(0, 0, 0)
+        if (modelRoot) {
+          // Held at the end of its own death rather than pitched flat. The yaw is kept, which
+          // the placeholder throws away: a capsule laid on its side looks the same whichever way
+          // it was turned, but a body should lie along the direction it was facing when it fell.
+          rig.rotation.set(0, facingYaw, 0)
+          tintModel(false)
+          holdDeathAt(1)
+        }
         return
       }
 
-      // Facing is horizontal, so atan2 of the heading is the whole rotation.
-      rig.rotation.set(0, Math.atan2(enemy.facing.x, enemy.facing.z), 0)
+      rig.rotation.set(0, facingYaw, 0)
 
       const winding = enemy.stance === 'wind-up'
       bodyMaterial.color.setHex(winding ? WINDUP : BASE_COLOUR[kind])
       prop.rotation.set(winding ? WIND_UP_PITCH[kind] : 0, 0, 0)
+      if (modelRoot) {
+        // The tint is kept even though the model now animates its own wind-up, and that is a
+        // deliberate belt and braces rather than an oversight. `WINDUP` exists because the
+        // telegraph has to be "the most visible thing on screen", and these soldiers are read
+        // from 30 to 55 metres out — where a limb moving is a few pixels and a colour change is
+        // the whole silhouette. It costs the pack's art for the 0.55 to 1.0 seconds of a
+        // wind-up, which is the cheaper of the two errors.
+        tintModel(winding)
+        const name = clipForStance(enemy.stance, kind, moving)
+        const clip = modelClips.get(name)
+        play(
+          name,
+          false,
+          winding && clip ? windUpTimeScale(clip.duration, c.windUpSeconds) : 1,
+        )
+      }
     },
   }
 }

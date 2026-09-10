@@ -1,7 +1,8 @@
 import { Vector3 } from 'three'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 import { spawnEnemy } from '../combat/enemy'
-import { createEnemyView } from '../combat/enemy-mesh'
+import { createEnemyView, MODEL_FILE } from '../combat/enemy-mesh'
+import { loadGLTF } from '../core/assets'
 import { createPost } from '../core/post'
 import { profileFor, isQuality, DEFAULT_QUALITY } from '../core/quality'
 import { createRenderer, hasWebGL, showFallback, WEBGL_MESSAGE } from '../core/renderer'
@@ -63,7 +64,7 @@ function tierFromSearch(search: string): ReturnType<typeof profileFor> {
   return profileFor(isQuality(raw) ? raw : DEFAULT_QUALITY)
 }
 
-function start(): void {
+async function start(): Promise<void> {
   const canvas = document.getElementById('game')
   if (!(canvas instanceof HTMLCanvasElement)) return
   if (!hasWebGL()) { showFallback(WEBGL_MESSAGE); return }
@@ -159,6 +160,34 @@ function start(): void {
     return { enemy, view }
   })
 
+  /**
+   * The soldiers' real models, awaited before the clock runs rather than attached whenever they
+   * happen to arrive.
+   *
+   * Awaiting is the whole point. This bench exists to take a deterministic photograph -- see
+   * `runFixedClock`, which runs the simulation to completion *before* the first render for
+   * exactly that reason -- and a model that lands mid-render would mean the shot showed a
+   * capsule, a model, or a mixture depending on network timing. So the loads finish first and
+   * every frame this bench ever draws has the same soldiers in it.
+   *
+   * One load per kind, like `main.ts`: `loadGLTF` caches by URL and `attachModel` clones, so a
+   * row of five spear soldiers is a single request.
+   */
+  await Promise.all(
+    [...new Set(soldiers.map(({ enemy }) => enemy.kind))].map(async (kind) => {
+      const gltf = await loadGLTF(`${import.meta.env.BASE_URL}models/${MODEL_FILE[kind]}`)
+      // Null on any failure, which leaves the placeholder capsules standing -- the bench should
+      // still take a picture of something rather than refusing to start.
+      if (!gltf) return
+      for (const { enemy, view } of soldiers) {
+        if (enemy.kind !== kind) continue
+        view.attachModel(gltf)
+        // The model's meshes are new nodes, so they miss the enableShadows pass above.
+        enableShadows(view.object)
+      }
+    }),
+  )
+
   const pool = createEffectPool(graph)
   // Rebound the same way `scene` is above: the check happens here, but `benchEffect` is only
   // called from inside a callback `runFixedClock` may invoke later, and control-flow narrowing
@@ -196,10 +225,16 @@ function start(): void {
     // there comes from `facing` alone — so the number is inert either way; `1` is the value
     // that reads correctly to anyone who goes looking, where `risingProgress`'s literal `0`
     // would not.
-    for (const { enemy, view } of soldiers) view.sync(enemy, camera.quaternion, 1)
+    for (const { enemy, view } of soldiers) {
+      view.sync(enemy, camera.quaternion, 1)
+      // Zero, not STEP_SECONDS: this loop is holding a final frame, not running time. It still
+      // has to be called, because an un-updated mixer leaves a freshly attached model in its
+      // bind pose -- the soldiers would stand in a T-pose rather than their Idle.
+      view.update(0)
+    }
     requestAnimationFrame(frame)
   }
   requestAnimationFrame(frame)
 }
 
-start()
+void start()

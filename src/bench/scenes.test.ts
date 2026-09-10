@@ -195,10 +195,39 @@ describe('bench scenes: soldiers', () => {
     // sneaking onto some other scene's entry — an empty array is not `undefined`, and a
     // scene that never meant to carry any soldiers should not carry an array that says
     // otherwise.
-    const withSoldiers = new Set(['marks', 'marks-occluded'])
+    const withSoldiers = new Set(['marks', 'marks-occluded', 'soldiers'])
     for (const scene of BENCH_SCENES) {
       if (withSoldiers.has(scene.id)) continue
       expect(scene.soldiers).toBeUndefined()
+    }
+  })
+
+  it('shows every kind exactly once in the `soldiers` row, and marks none of them', () => {
+    // The scene's whole job is to answer whether the four kinds are still told apart now that
+    // they wear real models rather than four deliberately-unlike primitives. A row that
+    // repeated a kind, or dropped one, would answer a different question -- and a mark on any
+    // of them would put the brightest thing in the shot over the bodies being compared.
+    const scene = BENCH_SCENES.find((candidate) => candidate.id === 'soldiers')
+    if (!scene) throw new Error('the soldiers scene is missing')
+    const kinds = (scene.soldiers ?? []).map((soldier) => soldier.kind)
+    expect([...kinds].sort()).toEqual(['archer', 'heavy', 'nets', 'spear'])
+    expect((scene.soldiers ?? []).every((soldier) => soldier.mark === null)).toBe(true)
+  })
+
+  it('leaves daylight between the soldiers in the `soldiers` row', () => {
+    // The heavy's rig carries scale.set(1.3, 1, 1.3) and these models are broader at the
+    // shoulder than a 0.35-radius capsule, so at `marks`'s 1.3m spacing the heavy overlapped
+    // its neighbour -- and a row staged to compare silhouettes must not have them touching.
+    const scene = BENCH_SCENES.find((candidate) => candidate.id === 'soldiers')
+    if (!scene) throw new Error('the soldiers scene is missing')
+    // Compared with a tolerance rather than exactly: these offsets are authored as decimals,
+    // and -0.8 - -2.4 is 1.5999999999999999 in binary floating point. Asserting the bare 1.6
+    // fails on arithmetic rather than on spacing.
+    const MINIMUM_GAP = 1.6
+    const xs = (scene.soldiers ?? []).map((soldier) => soldier.dx).sort((a, b) => a - b)
+    expect(xs.length).toBeGreaterThan(1)
+    for (let i = 1; i < xs.length; i++) {
+      expect((xs[i] ?? 0) - (xs[i - 1] ?? 0)).toBeGreaterThan(MINIMUM_GAP - 1e-9)
     }
   })
 
