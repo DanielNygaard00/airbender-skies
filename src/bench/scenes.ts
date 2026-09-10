@@ -1125,6 +1125,53 @@ export const BENCH_SCENES: readonly BenchScene[] = [
   },
   {
     /**
+     * One soldier of every kind, side by side, to answer the question the fight rests on: can
+     * the player tell which threat they are looking at before it commits to an attack?
+     *
+     * This scene exists because replacing the primitives moved that answer. As capsules the four
+     * kinds were told apart by geometry the code chose for maximum difference — a thin cone, an
+     * open arc, a wide flat slab, a closed ring — plus the heavy's own `PLATE` tint, and
+     * `enemy-mesh.test.ts` still pins every one of those. Wearing real models they are told
+     * apart by whatever the character pack's silhouettes happen to do, which no test can
+     * assert and nothing else on this bench shows: `marks` and `marks-occluded` are both
+     * deliberately all-`spear`, because the pip is what they are photographing and a mixed row
+     * would have confounded it.
+     *
+     * Ordered by the range each fights from, nearest first — spear, heavy, nets, archer — so the
+     * row reads in the same order a player meets them closing on the patrol, rather than in the
+     * order `EnemyKind` happens to declare.
+     *
+     * **1.6m apart rather than `marks`'s 1.3.** The heavy's rig carries `scale.set(1.3, 1, 1.3)`
+     * and the models are wider at the shoulder than a 0.35-radius capsule, so at 1.3 the heavy
+     * overlapped the soldier beside it — and a row staged to compare silhouettes must not have
+     * them touching. 1.6 leaves daylight between all four.
+     *
+     * The camera copies `marks`'s framing wholesale (2.0 units of rise over 8 back, about 14
+     * degrees down) for the reason that pose was measured in the first place: it is known to
+     * clear this island's terrain and to put a soldier's whole height in frame. Widened only
+     * along Z, to 9, because four soldiers at 1.6m span 4.8m against `marks`'s 5.2m at 1.3m —
+     * near enough that the same framing holds.
+     *
+     * No marks on any of them. The pip is a coloured chevron floating over the body, and it is
+     * the brightest thing in either `marks` shot; four of them here would draw the eye to the
+     * pips rather than to the bodies this scene is about.
+     */
+    id: 'soldiers',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 13.9, 9), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: null,
+    fireAt: 0,
+    duration: 1,
+    soldiers: [
+      { kind: 'spear', dx: -2.4, dz: 0, mark: null },
+      { kind: 'heavy', dx: -0.8, dz: 0, mark: null },
+      { kind: 'nets', dx: 0.8, dz: 0, mark: null },
+      { kind: 'archer', dx: 2.4, dz: 0, mark: null },
+    ],
+  },
+  {
+    /**
      * Two soldiers, one standing behind the other, to answer the two questions `marks` above
      * cannot: does the pip still read when another body sits between it and the camera, since
      * `enemy-mesh.ts`'s own `pipMaterial` is `depthTest`-on (the default) rather than always
