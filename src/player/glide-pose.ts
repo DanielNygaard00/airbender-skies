@@ -15,8 +15,22 @@ import { DEPLOYED_PITCH } from './glider'
  * cross-fades like any other, and `glide` stops sharing an action with `fall`.
  */
 
-/** Bones from the waist down. Everything else takes the upper-body source. */
-const LOWER_BODY = /Leg|Foot|Toe|Hips/
+/**
+ * Bones taken from the settled source. Everything else takes the upper-body one.
+ *
+ * The waist down, plus the two nodes above the hips that carry the character
+ * rather than pose it. `Root` and `Body` are in here for a different reason from
+ * the legs, and it is the reason this is no longer just a waist test: the upper
+ * source is now a clip that travels. Sampling `Root` 30% into a roll would bake
+ * that roll's displacement into the pose, and because the composed clip writes
+ * position tracks as well as rotations, the glider would fly with the character
+ * permanently shunted off the harness. The settled source is standing still, so
+ * taking the carrying nodes from it contributes no translation at all.
+ *
+ * This was free with the previous model — its upper source was 5% into a punch,
+ * where nothing had moved yet — which is exactly why it is worth naming now.
+ */
+const LOWER_BODY = /Leg|Foot|Toe|Hips|^Root$|^Body$/
 
 /**
  * Pitch laid onto the hips so the rider hangs flat beneath the wing rather than
@@ -32,15 +46,29 @@ const GLIDE_PITCH = Math.PI / 2 - DEPLOYED_PITCH
 /**
  * Where each half of the pose comes from, best first, matched against clip names
  * the way clip-map matches them. The fractions are positions within the clip,
- * measured against the shipped model: 5% into `Punch` is its wind-up, with both
- * hands up near the head and the legs straight, and 60% into `Walk` has the legs
- * together and nearly straight (knees 161 degrees and 140 degrees, feet 0.96
- * apart). A model whose clips are timed differently would want its own numbers.
+ * measured against the shipped model: 30% into `Roll` is the moment the arms are
+ * thrown forward ahead of the body, and the start of `Idle` has the legs
+ * straightest and closest together (knees 156 degrees each, feet 0.42 apart).
+ * A model whose clips are timed differently would want its own numbers.
+ *
+ * `roll` and `idle` lead the fallbacks because of what this pack actually
+ * contains. It ships no airborne clip at all, so the arms have to be borrowed
+ * from a ground move, and `Roll` is the only one that puts them out in front:
+ * measured along the body's own axis, the hand sits 0.51 towards the head end at
+ * 30%, against 0.28 for `Attack` and 0.18 for `Idle_Attacking`. `punch` and
+ * `walk` stay in the lists behind them because they are what the previous model
+ * used and cost nothing to keep — the same alias-list pattern `clip-map.ts` uses,
+ * where a name that matches nothing is simply skipped.
+ *
+ * `idle` is ahead of `walk` on purpose rather than appended: this model's `Walk`
+ * has the legs apart at every fraction (feet 1.09 at 60%, against `Idle`'s 0.42),
+ * so a list that tried `walk` first would compose a gliding character in mid
+ * stride.
  */
-const UPPER_SOURCES = ['glide', 'gliding', 'fly', 'flying', 'punch'] as const
-const LOWER_SOURCES = ['glide', 'gliding', 'fly', 'flying', 'walk'] as const
-const UPPER_FRACTION = 0.05
-const LOWER_FRACTION = 0.6
+const UPPER_SOURCES = ['glide', 'gliding', 'fly', 'flying', 'roll', 'punch'] as const
+const LOWER_SOURCES = ['glide', 'gliding', 'fly', 'flying', 'idle', 'walk'] as const
+const UPPER_FRACTION = 0.3
+const LOWER_FRACTION = 0
 
 /** Two keyframes holding the same value, so the clip has a usable duration. */
 const TIMES = [0, 1]

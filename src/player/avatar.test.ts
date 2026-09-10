@@ -10,6 +10,7 @@ import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import { createAvatar } from './avatar'
 import { createGlider } from './glider'
 import { planClips } from './clip-map'
+import { BONES } from './rig'
 
 /**
  * A stand-in for a loaded model. `height` is the mesh's own height and `liftFeet`
@@ -297,28 +298,39 @@ describe('createAvatar poseNow', () => {
     expect(bodyY(posed)).toBeGreaterThan(FADE_SECONDS)
   })
 
-  it('samples the shipped model FADE_SECONDS into the clip rather than at its start', async () => {
-    // Immaterial for the only clip main.ts asks poseNow for -- Idle is a ten-second
-    // subtle loop, so a fifth of a second in is indistinguishable from its start, and the
-    // character stands with its feet on the ground either way. The offset is a latent
-    // trap for every other clip name, though, which is why poseNow documents it: `fall`
-    // borrows the one-second Jump clip, whose opening launch phase animates the root
-    // upward, so poseNow('fall') would hang the character clear of its own feet.
+  it('holds the borrowed fall pose on the shipped model instead of playing it', async () => {
+    // This test used to prove the FADE_SECONDS sampling offset against the real asset,
+    // using the fact that `fall` borrowed a one-second Jump clip whose opening launch
+    // phase animated the root upward — so the pose at 0 and the pose a fifth of a second
+    // in were visibly different heights. The replacement model has no airborne clip at
+    // all, so `fall` is now a *frozen* borrow of `Roll` (see clip-map.ts): timeScale 0
+    // with the time pinned at FREEZE_TIME, which means mixer time cannot move it and the
+    // old mechanism no longer exists to measure. The offset itself is still pinned, on
+    // the fixture clips, by the test directly above this one.
+    //
+    // What is worth pinning against the real asset is what replaced it: that the borrow
+    // is held rather than played. A `Roll` allowed to loop while the player falls reads
+    // as tumbling over and over the whole way down.
     const gltf = await loadCommittedModel()
 
     const durations = new Map(gltf.animations.map((clip) => [clip.name, clip.duration]))
-    expect(durations.get('Human Armature|Idle')).toBe(10)
-    expect(durations.get('Human Armature|Jump')).toBe(1)
+    // FREEZE_TIME is 0.5 and is documented as halfway through a one-second clip. That was
+    // written for Jump and happens to still hold for Roll, which is exactly why it is
+    // pinned here rather than left to luck.
+    expect(durations.get('Roll')).toBe(1)
+    expect(durations.get('Idle')).toBeCloseTo(3.125, 3)
 
-    /** Lowest toe joint, which is where this model's feet are. */
-    const lowestToe = (avatar: ReturnType<typeof createAvatar>): number => {
+    /**
+     * Lowest foot joint. The previous rig had toes and this measured `LeftToeBase` and
+     * friends; this one stops at the ankle, so the ankle is where the feet are.
+     */
+    const lowestFoot = (avatar: ReturnType<typeof createAvatar>): number => {
       avatar.object.updateMatrixWorld(true)
-      const toes = ['LeftToeBase', 'LeftToe_End', 'RightToeBase', 'RightToe_End']
-        .map((name) => avatar.object.getObjectByName(name))
       let lowest = Infinity
-      for (const toe of toes) {
-        if (!toe) throw new Error('toe joint missing')
-        lowest = Math.min(lowest, toe.getWorldPosition(new Vector3()).y)
+      for (const name of [BONES.footL, BONES.footR]) {
+        const foot = avatar.object.getObjectByName(name)
+        if (!foot) throw new Error(`foot joint ${name} missing`)
+        lowest = Math.min(lowest, foot.getWorldPosition(new Vector3()).y)
       }
       return lowest
     }
@@ -326,12 +338,19 @@ describe('createAvatar poseNow', () => {
     const idle = createAvatar()
     idle.attachModel(gltf)
     idle.poseNow('idle')
-    expect(lowestToe(idle)).toBeCloseTo(0, 1)
+    // Standing on its own feet: the avatar origin is at the ground.
+    expect(lowestFoot(idle)).toBeCloseTo(0, 1)
 
     const falling = createAvatar()
     falling.attachModel(await loadCommittedModel())
     falling.poseNow('fall')
-    expect(lowestToe(falling)).toBeCloseTo(0.64, 2)
+    // Knees drawn up into the tuck, which is the whole reason this frame was chosen.
+    const tucked = lowestFoot(falling)
+    expect(tucked).toBeCloseTo(1.03, 2)
+
+    // Frozen, so running the mixer on leaves the pose exactly where it was.
+    for (let i = 0; i < 30; i++) falling.update(1 / 60)
+    expect(lowestFoot(falling)).toBeCloseTo(tucked, 6)
   })
 })
 
@@ -436,11 +455,11 @@ describe('createAvatar with the real committed model', () => {
       return (Math.acos(Math.max(-1, Math.min(1, a.dot(b)))) * 180) / Math.PI
     }
 
-    expect(knee('LeftUpLeg', 'LeftLeg', 'LeftFoot')).toBeGreaterThan(120)
-    expect(knee('RightUpLeg', 'RightLeg', 'RightFoot')).toBeGreaterThan(120)
+    expect(knee(BONES.upperLegL, BONES.lowerLegL, BONES.footL)).toBeGreaterThan(120)
+    expect(knee(BONES.upperLegR, BONES.lowerLegR, BONES.footR)).toBeGreaterThan(120)
 
     // Prone beneath the wing, so the body runs forwards rather than standing up.
-    const bodyAxis = at('Head').sub(at('Hips')).normalize()
+    const bodyAxis = at(BONES.head).sub(at(BONES.hips)).normalize()
     expect(bodyAxis.z).toBeGreaterThan(0.9)
     expect(Math.abs(bodyAxis.y)).toBeLessThan(0.3)
   })
