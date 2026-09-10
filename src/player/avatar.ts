@@ -56,12 +56,16 @@ function createPlaceholder(): Group {
 /**
  * Size a loaded model to the placeholder and seat its feet at y = 0.
  *
- * Model authors pick their own units, and the numbers are not guessable: this
- * character exports 5.2594 units tall, with a scale of 100 on its armature node
- * and raw vertex bounds spanning only 0.08. So the height is measured through
- * the built scene graph rather than assumed, which also means a replacement
- * model needs no retuning. The transform lands on the wrapper, never on the
- * avatar root, because the glider is a child of that root.
+ * Model authors pick their own units, and the numbers are not guessable. The
+ * character that shipped first exported 5.2594 units tall, with a scale of 100
+ * on its armature node and raw vertex bounds spanning only 0.08; the one here
+ * now builds to 2.9146 with no non-unit node scale anywhere in it. Two models,
+ * two unrelated sets of numbers, and the swap between them needed no change to
+ * this function — which is the argument for measuring the built scene graph
+ * rather than assuming anything, stated as a fact rather than a hope.
+ *
+ * The transform lands on the wrapper, never on the avatar root, because the
+ * glider is a child of that root.
  *
  * Returns the transform it applied, so the squash can compose with it rather
  * than overwrite it.

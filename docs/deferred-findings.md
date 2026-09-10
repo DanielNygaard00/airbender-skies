@@ -424,3 +424,47 @@ actionable one already has its colour.
 close in the low tier's warm-tan register, and whether the simulation should clear a mark on a
 knockdown. Both were left alone deliberately — tints were an explicit non-goal of all three effect
 steps, and the second is a balance decision rather than a visual one.
+
+## The characters got bodies, and one of them cost a read, 2026-09-10
+
+The grey mannequin and the four capsules are gone: the player wears the Quaternius RPG pack's
+Monk, and the soldiers wear its Warrior, Cleric, Rogue and Ranger. All five share one 32-joint
+skeleton bone for bone, which is what let `clip-map.ts` and `clipForStance` stay single tables
+rather than becoming five. The primitives remain live fallbacks rather than dead code, because
+`loadGLTF` resolves null on failure and `enemy-mesh.test.ts` pins them in full.
+
+**Open, and the owner's to decide: the four kinds are harder to tell apart than the capsules
+were.** The `soldiers` bench scene exists to photograph exactly this. As primitives the four were
+told apart by shapes chosen for maximum difference — thin cone, open arc, wide slab, closed ring
+— plus the heavy's `PLATE` tint. Wearing models, the heavy reads instantly and spear, nets and
+archer are three dark bodies at the 30-to-55 metres those kinds fight from. The heavy reading is
+partly luck: the model cast for it is the pale one in the pack.
+
+The fix is cheap and deliberately not applied. `sync` already multiplies a tint onto the model's
+own materials for the wind-up, so a permanent per-kind tint is the same mechanism with a different
+colour — but it spends the pack's art to buy the separation, and how much to spend is art
+direction rather than a defect. `BASE_COLOUR`'s own comment now carries this so the next reader of
+that Record does not act on the half of its argument that no longer holds.
+
+**Open, smaller:**
+
+- **The wind-up is timing-verified but not eye-verified.** `windUpTimeScale` derives the clip speed
+  from each kind's own `windUpSeconds`, and a test asserts the clip lasts the telegraph's length to
+  the millisecond and refuses to pass vacuously. Nobody has *looked* at one: the bench's soldier
+  spec has no stance field, so no scene can pose a soldier mid-telegraph. Adding one would make the
+  game's most safety-critical read checkable without playing.
+- **`EnemyView` still has no `dispose`.** Recorded before the models arrived and now worth more:
+  seven skinned meshes, seven mixers and seven cloned material sets join `createHealthBar`'s own
+  uncalled `dispose`. There is still no call site that would use one, which is why it is still not
+  written.
+- **The model payload is 8.8 MB** across five files, each carrying a 1024-pixel atlas. The pack
+  says its atlas downsamples to 128 pixels without visible loss at this scale, so this is very
+  likely an easy order-of-magnitude saving on a browser game's first load. Untouched because it is
+  a build concern rather than a correctness one, and nothing measures load time yet.
+
+**Two comment corrections went with this**, both of the class this register was started to catch —
+a comment citing facts about a file that had moved. `fitToPlaceholder` in `avatar.ts` described the
+*previous* model's units (5.2594 tall, armature scale 100, vertex bounds 0.08); the current one
+builds to 2.9146 with no non-unit node scale anywhere. `enemy-mesh.ts`'s headline still opened "A
+soldier, as primitives. Placeholder art on purpose". Neither was caught by a test, and neither
+could be.

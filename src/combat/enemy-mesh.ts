@@ -13,16 +13,19 @@ import type { Enemy, EnemyConfig, EnemyKind, Stance } from './enemy'
 import type { Element } from '../elements/element'
 
 /**
- * A soldier, as primitives.
+ * A soldier: a real model when one has loaded, and primitives until then.
  *
- * Placeholder art on purpose: the point of this slice is that the fight reads, not
- * that the soldier does. What has to be legible is the stance, because the doc's
- * whole dodge window depends on the player seeing a wind-up coming — so the weapon
- * lifts on the telegraph and the body falls flat when downed.
+ * What has to be legible is the stance, because the doc's whole dodge window depends on the
+ * player seeing a wind-up coming. That was the point of the slice this file was built for, and
+ * it is still the point now the art has arrived — so every pose decision below is made twice,
+ * once for a body with a skeleton and once for a capsule with a prop bolted to it.
  *
- * All four kinds come off one rig with a swapped prop, a swapped body tint and, for the net
- * thrower, one extra piece drawn on the ground. Four rigs would have been four places for the
- * downed pose, the rise and the health bar's parenting to drift.
+ * **Both paths are live.** `loadGLTF` resolves null rather than rejecting, so the primitives are
+ * not a stage this file has moved past: they are what a player sees if a model 404s on the
+ * deployed site, and `enemy-mesh.test.ts` pins them in full for that reason. As primitives all
+ * four kinds come off one rig with a swapped prop and a swapped body tint; wearing models they
+ * come off one *skeleton*, shared bone for bone by all four, which is what lets `clipForStance`
+ * be a single table instead of four.
  *
  * The object is in two parts. The root carries position only; the `rig` carries the
  * rotation. That split exists so the health bar, which hangs off the root, can face the
@@ -70,6 +73,21 @@ const WINDUP = 0xe4763c
  * everybody would spend the vocabulary on nothing. The heavy is the exception because its
  * armour is a *rule* rather than a weapon — the player has to be able to tell at a glance
  * which soldier the gust will not touch, before they throw one.
+ *
+ * **That argument holds for the capsules and is only half true of the models.** These colours
+ * are applied to the placeholder body; a model wears its own texture and this Record never
+ * touches it. As primitives the silhouettes were chosen for maximum difference — a thin cone,
+ * an open arc, a wide flat slab, a closed ring — and they do the job the paragraph above claims.
+ * The `soldiers` bench scene was added to check whether the models still do, and the answer it
+ * photographs is: the heavy reads instantly, and spear, nets and archer are three dark bodies
+ * that are hard to separate at the 30-to-55 metres these kinds actually fight from. The heavy
+ * still reading is partly luck — the model cast for it is the pale one in the pack.
+ *
+ * Left alone deliberately rather than fixed here. The fix would be to multiply a per-kind tint
+ * onto the model's own materials the way `sync`'s wind-up tint already does, which is cheap and
+ * would separate the hues — but it spends the pack's art to buy the separation, and how much of
+ * it to spend is an art-direction decision rather than a defect to patch. Recorded in
+ * `docs/deferred-findings.md` so it is a decision waiting rather than an observation lost.
  */
 const BASE_COLOUR: Record<EnemyKind, number> = {
   spear: BODY,
