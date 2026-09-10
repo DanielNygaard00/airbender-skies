@@ -67,4 +67,26 @@ describe('planClips', () => {
   it('returns an empty plan for a model with no clips', () => {
     expect(planClips([]).size).toBe(0)
   })
+
+  it('freezes a roll for fall when the model has no airborne clip', () => {
+    // The shipped character pack's exact situation: eleven clips, not one of them off
+    // the ground. Before the borrow, `fall` resolved to nothing and `setAnimation`
+    // returned early on the missing clip, which left whichever clip was already playing
+    // running -- so walking off a ledge kept the run cycle going all the way down.
+    const plan = planClips(['Idle', 'Walk', 'Run', 'Roll', 'Death'])
+    expect(plan.get('fall')).toEqual({ source: 'Roll', freeze: true })
+  })
+
+  it('prefers any real airborne clip over the frozen roll', () => {
+    // Ordering, not availability: a pack that ships both must play its own clip rather
+    // than hold a substitute, or adding a fall animation would silently change nothing.
+    expect(planClips(['Roll', 'Jump']).get('fall')).toEqual({ source: 'Jump', freeze: false })
+    expect(planClips(['Roll', 'Falling']).get('fall')).toEqual({ source: 'Falling', freeze: false })
+  })
+
+  it('reaches glide through a borrowed fall', () => {
+    // glide falls back to a frozen fall, and fall is now itself reachable by a borrow,
+    // so a pack with only a roll still covers both airborne states.
+    expect(planClips(['Idle', 'Roll']).get('glide')).toEqual({ source: 'Roll', freeze: true })
+  })
 })

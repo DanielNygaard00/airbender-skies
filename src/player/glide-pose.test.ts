@@ -5,6 +5,7 @@ import { AnimationClip, AnimationMixer, Group, Vector3 } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import { buildGlideClip } from './glide-pose'
+import { BONES } from './rig'
 import { DEPLOYED_PITCH } from './glider'
 
 const MODEL_PATH = fileURLToPath(new URL('../../public/models/character.glb', import.meta.url))
@@ -37,17 +38,17 @@ function poseWith(gltf: GLTF, clip: AnimationClip) {
 
   // The body lies down when gliding, so "raised" arms and body tilt have to be
   // measured against the body's own axis rather than against world up.
-  const bodyAxis = at('Head').sub(at('Hips')).normalize()
+  const bodyAxis = at(BONES.head).sub(at(BONES.hips)).normalize()
 
   return {
-    kneeL: kneeAngle('LeftUpLeg', 'LeftLeg', 'LeftFoot'),
-    kneeR: kneeAngle('RightUpLeg', 'RightLeg', 'RightFoot'),
-    feetGap: at('LeftFoot').distanceTo(at('RightFoot')),
+    kneeL: kneeAngle(BONES.upperLegL, BONES.lowerLegL, BONES.footL),
+    kneeR: kneeAngle(BONES.upperLegR, BONES.lowerLegR, BONES.footR),
+    feetGap: at(BONES.footL).distanceTo(at(BONES.footR)),
     /** How far the hand sits towards the head end of the body. */
-    handAlongBody: at('LeftHand').sub(at('LeftShoulder')).dot(bodyAxis),
+    handAlongBody: at(BONES.handL).sub(at(BONES.shoulderL)).dot(bodyAxis),
     /** Degrees the body is tilted above horizontal. */
     pitchDegrees: (Math.asin(bodyAxis.y) * 180) / Math.PI,
-    headForwardOfHips: at('Head').z - at('Hips').z,
+    headForwardOfHips: at(BONES.head).z - at(BONES.hips).z,
   }
 }
 
@@ -111,7 +112,11 @@ describe('buildGlideClip', () => {
     expect(later).toBeCloseTo(start, 6)
   })
 
-  it('gives up when the model has neither source clip', () => {
+  it('gives up when the model has no upper-body source', () => {
+    // Named for the upper body specifically, because `idle` is now a lower-body source:
+    // this model's `Idle` is where the straight, together legs come from. So a model with
+    // Death and Idle has half a pose available, and half is not enough -- composing from
+    // it would glide with the arms in whatever the bind pose left them.
     const root = new Group()
     const clips = [new AnimationClip('Death', 1, []), new AnimationClip('Idle', 1, [])]
     expect(buildGlideClip(root, clips)).toBeNull()

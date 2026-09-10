@@ -25,6 +25,26 @@ const ALIASES: Record<AnimationName, readonly string[]> = {
   glide: ['glide', 'gliding', 'fly', 'flying'],
 }
 
+/**
+ * Clips that do not depict the state but can be held as a pose for it. Consulted
+ * only when nothing in `ALIASES` matched, and always frozen.
+ *
+ * The shipped pack contains no airborne clip whatsoever — no fall, no jump, not
+ * even a landing — so `fall` had nothing at all to resolve to, and an unresolved
+ * state does not degrade gracefully: `setAnimation` returns early on a missing
+ * clip and leaves whichever action was already running, so stepping off a ledge
+ * left the character running on air the whole way down.
+ *
+ * `Roll` is the borrow because it is the only ground move that leaves the ground:
+ * frozen at its tuck the knees come to 52 and 45 degrees with the hands drawn in,
+ * which reads as bracing in mid-air. Frozen and never looped, for the reason the
+ * glide is: a roll played as a loop reads as tumbling over and over, which is a
+ * different and much worse lie than holding one plausible frame.
+ */
+const BORROWED: Partial<Record<AnimationName, readonly string[]>> = {
+  fall: ['roll'],
+}
+
 export function planClips(clipNames: string[]): Map<AnimationName, ClipPlan> {
   const byKey = new Map<string, string>()
   for (const name of clipNames) {
@@ -39,6 +59,16 @@ export function planClips(clipNames: string[]): Map<AnimationName, ClipPlan> {
       const source = byKey.get(alias)
       if (source) {
         plan.set(state, { source, freeze: false })
+        break
+      }
+    }
+    // Only once the real names are exhausted, so a pack that does ship a fall clip
+    // never ends up holding a frozen roll instead of playing it.
+    if (plan.has(state)) continue
+    for (const alias of BORROWED[state] ?? []) {
+      const source = byKey.get(alias)
+      if (source) {
+        plan.set(state, { source, freeze: true })
         break
       }
     }
