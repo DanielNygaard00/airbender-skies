@@ -5,7 +5,7 @@ import {
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import type { AnimationName } from './avatar-anim'
 import { planClips } from './clip-map'
-import { buildGlideClip } from './glide-pose'
+import { buildFallClip, buildGlideClip } from './glide-pose'
 
 const FADE_SECONDS = 0.18
 
@@ -218,18 +218,31 @@ export function createAvatar() {
       // that way until something ticks a clip onto it. Anything that reads bones
       // straight after this call is reading that leftover, not the bind pose —
       // see `sampleBones` in glide-pose.ts, which carries the same warning.
-      const composed = plan.get('glide')?.freeze
+      const composed = new Map<AnimationName, AnimationClip>()
+      const glide = plan.get('glide')?.freeze
         ? buildGlideClip(gltf.scene, gltf.animations)
         : null
+      if (glide) composed.set('glide', glide)
+
+      // The same treatment for `fall`, and for the same reason rather than for symmetry. This
+      // pack has no airborne clip at all, so `fall` is a held frame of a borrowed roll — and
+      // held means the character drops the whole height of an island in one unchanging
+      // attitude. FREEZE_TIME is passed rather than a fraction so this file stays the single
+      // definition of which frame that is.
+      const fall = plan.get('fall')?.freeze
+        ? buildFallClip(gltf.scene, gltf.animations, FREEZE_TIME)
+        : null
+      if (fall) composed.set('fall', fall)
 
       mixer = new AnimationMixer(gltf.scene)
       const byName = new Map(gltf.animations.map((clip) => [clip.name, clip]))
       clips = new Map()
       for (const [state, entry] of plan) {
-        if (state === 'glide' && composed) {
-          // A real clip of its own, so it cross-fades normally and no longer
-          // shares an action with `fall`.
-          clips.set(state, { clip: composed, freeze: false })
+        const built = composed.get(state)
+        if (built) {
+          // A real clip of its own, so it cross-fades normally and no longer shares an action
+          // with whichever other state borrowed the same source.
+          clips.set(state, { clip: built, freeze: false })
           continue
         }
         const clip = byName.get(entry.source)

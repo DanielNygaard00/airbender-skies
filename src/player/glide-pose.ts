@@ -33,6 +33,24 @@ import { DEPLOYED_PITCH } from './glider'
 const LOWER_BODY = /Leg|Foot|Toe|Hips|^Root$|^Body$/
 
 /**
+ * The bone that carries the whole character, and the one every attitude here is applied to.
+ *
+ * `Root`, not `Hips`, and the difference is not cosmetic. This rig does not hang the body off
+ * its hips the way a Mixamo-style skeleton does: `Foot.L`, `Foot.R` and the two `PoleTarget`
+ * bones are children of `Root` (they are IK targets), `UpperLeg.L` and `UpperLeg.R` are children
+ * of `Body`, and `Hips` carries only the spine upward — Abdomen, Torso, Neck, Head and the arms.
+ *
+ * So a rotation applied at `Hips` lays the *torso* down and leaves the legs standing exactly
+ * where they were, with the feet not moving at all. That is what the glide pose did when this
+ * module was first pointed at this model, and no test caught it: the pitch is asserted by
+ * measuring the Hips-to-Head axis, which is precisely the part that does rotate.
+ *
+ * `Root` is the only node above all three of the spine, the legs and the IK targets, so it is
+ * the only one whose rotation moves the entire character as one piece.
+ */
+const CARRIER = 'Root'
+
+/**
  * Pitch laid onto the hips so the rider hangs flat beneath the wing rather than
  * dangling upright from it. A quarter turn would be dead level; backing off by
  * the wing's own nose-up tilt leaves the body parallel to it, so the two read as
@@ -182,6 +200,124 @@ function pitchOnto(root: Object3D, composed: Map<string, BonePose>): Quaternion 
 }
 
 /**
+ * How the body drifts while a composed pose is held, so the rider is never a frozen model.
+ *
+ * The two states want different motion, which is why this is a parameter rather than a
+ * constant. A glide is sustained and serene — the wing is carrying its weight, so the body
+ * banks slowly through a long cycle. A fall is neither: nothing is supporting the character,
+ * air is going past faster, and it lasts seconds rather than minutes. So the fall's cycle is
+ * under half the glide's length with a little more angle in it, which reads as being buffeted
+ * rather than riding.
+ */
+interface Sway {
+  seconds: number
+  roll: number
+  pitch: number
+  bob: number
+}
+
+/**
+ * No bob, unlike the fall's. Something is resting on this body: `glider.ts` sweeps
+ * `DEPLOYED_POSITION.y` down until the wing touches the rider's back and leaves three
+ * millimetres, and the wing hangs off the avatar root while the bob moves the model inside it.
+ * A centimetre and a half of rise against three millimetres of clearance would push the back up
+ * through the wing for half of every cycle. The roll and pitch stay because their vertical
+ * excursion is far smaller and the swept height accounts for the worst of it.
+ */
+const GLIDE_SWAY: Sway = {
+  seconds: SWAY_SECONDS,
+  roll: SWAY_ROLL,
+  pitch: SWAY_PITCH,
+  bob: 0,
+}
+
+/**
+ * The fall's own drift. Faster and slightly wider than the glide's, and with barely any bob:
+ * a rising-and-falling body reads as floating, which is the one thing a fall must not look
+ * like. Nearly all of the motion is angle instead.
+ */
+const FALL_SWAY: Sway = {
+  seconds: 1.4,
+  roll: 0.06,
+  pitch: 0.035,
+  bob: 0.008,
+}
+
+/**
+ * Turn a composed pose into a looping clip that holds every joint angle and drifts the body.
+ *
+ * The sway is applied at the hips and nowhere else, and that is what makes it safe: rotating
+ * the root of a skeleton changes the body's attitude in the world without altering a single
+ * joint angle below it. So whatever the pose was composed to achieve — straight knees, closed
+ * feet, raised hands — survives the motion exactly, and no caller has to re-check its own
+ * geometry after asking for life. Animating the limbs instead would be re-authoring the pose
+ * several times a second.
+ *
+ * Every offset is zero at t = 0, so the pose that gets measured is the pose that was composed.
+ */
+function buildSwayedClip(
+  name: string,
+  composed: Map<string, BonePose>,
+  pitch: Quaternion | null,
+  sway: Sway,
+): AnimationClip | null {
+  const times = Array.from(
+    { length: SWAY_SAMPLES },
+    (_, i) => (i / (SWAY_SAMPLES - 1)) * sway.seconds,
+  )
+
+  const tracks: (QuaternionKeyframeTrack | VectorKeyframeTrack)[] = []
+  for (const [boneName, pose] of composed) {
+    // Pitching the hips carries every descendant with it, so the whole body lies
+    // down at once. Pre-multiplying rotates in the parent's space rather than the
+    // bone's own, which is what makes this a world-axis pitch. A fall passes null:
+    // the pose it samples is already the attitude it wants.
+    const rotation = boneName === CARRIER && pitch
+      ? pitch.clone().multiply(pose.quaternion)
+      : pose.quaternion
+
+    const values: number[] = []
+    for (const time of times) {
+      const turn = (time / sway.seconds) * Math.PI * 2
+      const swayed = boneName === CARRIER
+        ? new Quaternion()
+          .setFromEuler(new Euler(
+            sway.pitch * Math.sin(turn * 2),
+            0,
+            sway.roll * Math.sin(turn),
+          ))
+          // In the parent's space, on the outside of the world-axis pitch, for the reason the
+          // pitch itself is pre-multiplied: these are attitudes in the world, not twists of
+          // the bone about its own axes.
+          .multiply(rotation)
+        : rotation
+      values.push(swayed.x, swayed.y, swayed.z, swayed.w)
+    }
+    tracks.push(new QuaternionKeyframeTrack(`${boneName}.quaternion`, times, values))
+
+    // A position track for *every* bone, not just the hips. This used to write one for the
+    // hips alone, on the stated grounds that nothing else translates — which was true of the
+    // model this module was written against and is false of the one here: its clips animate
+    // translation, rotation and scale on all 32 bones. Dropping the other 31 quietly rebuilt
+    // each pose with every bone back at its bind offset, which costs almost nothing for a pose
+    // sampled near the rest position and wrecks one sampled mid-motion. It is why the fall's
+    // tuck came back with the knee at 93 degrees instead of 52.
+    const { x: px, y: py, z: pz } = pose.position
+    const positions: number[] = []
+    for (const time of times) {
+      const turn = (time / sway.seconds) * Math.PI * 2
+      // The bob rides on the carrier only: it is the body rising, not every joint drifting.
+      const bob = boneName === CARRIER ? sway.bob * Math.sin(turn * 2) : 0
+      positions.push(px, py + bob, pz)
+    }
+    tracks.push(new VectorKeyframeTrack(`${boneName}.position`, times, positions))
+  }
+
+  if (tracks.length === 0) return null
+  return new AnimationClip(name, sway.seconds, tracks)
+}
+
+/**
  * Build the glide pose for a model that has no glide clip of its own. Returns
  * null when neither source clip is present, leaving the caller on its fallback.
  */
@@ -199,57 +335,41 @@ export function buildGlideClip(root: Object3D, clips: AnimationClip[]): Animatio
     if (pose) composed.set(name, pose)
   }
 
-  const pitch = pitchOnto(root, composed)
+  return buildSwayedClip('glide', composed, pitchOnto(root, composed), GLIDE_SWAY)
+}
 
-  const tracks: (QuaternionKeyframeTrack | VectorKeyframeTrack)[] = []
-  for (const [name, pose] of composed) {
-    // Pitching the hips carries every descendant with it, so the whole body lies
-    // down at once. Pre-multiplying rotates in the parent's space rather than the
-    // bone's own, which is what makes this a world-axis pitch.
-    const rotation = name === 'Hips'
-      ? pitch.clone().multiply(pose.quaternion)
-      : pose.quaternion
+/**
+ * Names a model might use for an airborne clip, best first — the same list `clip-map.ts`
+ * resolves `fall` through, including the borrowed `roll` it falls back on.
+ */
+const FALL_SOURCES = ['fall', 'falling', 'jump', 'roll'] as const
 
-    // Every bone but the hips holds its composed rotation for the whole cycle. The sway is
-    // applied at the hips alone, and that is what makes it safe: rotating the root of the
-    // skeleton changes the body's attitude in the world without altering a single joint angle
-    // below it, so the straight knees, the closed feet and the raised hands this module works
-    // to compose survive it exactly. Animating the limbs instead would be re-authoring the
-    // pose four times a second.
-    const values: number[] = []
-    for (const time of TIMES) {
-      const turn = (time / SWAY_SECONDS) * Math.PI * 2
-      const swayed = name === 'Hips'
-        ? new Quaternion()
-          .setFromEuler(new Euler(
-            SWAY_PITCH * Math.sin(turn * 2),
-            0,
-            SWAY_ROLL * Math.sin(turn),
-          ))
-          // In the parent's space, on the outside of the world-axis pitch, for the reason the
-          // pitch itself is pre-multiplied: these are attitudes in the world, not twists of
-          // the bone about its own axes.
-          .multiply(rotation)
-        : rotation
-      values.push(swayed.x, swayed.y, swayed.z, swayed.w)
-    }
-    tracks.push(new QuaternionKeyframeTrack(`${name}.quaternion`, TIMES, values))
+/**
+ * Build a living fall pose for a model whose `fall` is a held frame of a borrowed clip.
+ *
+ * The shipped pack has no airborne clip at all, so `fall` borrows a roll and freezes it at its
+ * tuck — knees drawn up, which reads as bracing in mid-air. That was the right frame and the
+ * wrong amount of life: frozen means the character drops the entire height of an island in one
+ * unchanging attitude, the same statue problem the glide had and for the same reason.
+ *
+ * So the frame is sampled once and handed the sway treatment instead. `atSeconds` is where in
+ * the source clip to take it, in seconds, so the caller's own freeze time stays the single
+ * definition of which frame this is — passing a fraction would have meant two places knowing
+ * that Roll is one second long. Clamped into the clip either way, because the freeze time was
+ * chosen against a one-second borrow and a pack with a shorter one must not sample past its end.
+ *
+ * No pitch is applied, unlike the glide: a falling body wants the attitude the tuck already has,
+ * not to be laid flat under a wing.
+ */
+export function buildFallClip(
+  root: Object3D, clips: AnimationClip[], atSeconds: number,
+): AnimationClip | null {
+  const source = firstMatch(clips, FALL_SOURCES)
+  if (!source || !(source.duration > 0)) return null
 
-    // Only the hips translate in these clips; every other bone keeps its bind
-    // position, so tracking them all would add tracks that never change.
-    if (name === 'Hips') {
-      const { x: px, y: py, z: pz } = pose.position
-      const positions: number[] = []
-      for (const time of TIMES) {
-        const turn = (time / SWAY_SECONDS) * Math.PI * 2
-        // Twice the roll's frequency, so the rider rises through the middle of each bank
-        // rather than at one end of it.
-        positions.push(px, py + SWAY_BOB * Math.sin(turn * 2), pz)
-      }
-      tracks.push(new VectorKeyframeTrack(`${name}.position`, TIMES, positions))
-    }
-  }
+  const fraction = Math.min(1, Math.max(0, atSeconds / source.duration))
+  const composed = sampleBones(root, source, fraction)
+  if (composed.size === 0) return null
 
-  if (tracks.length === 0) return null
-  return new AnimationClip('glide', SWAY_SECONDS, tracks)
+  return buildSwayedClip('fall', composed, null, FALL_SWAY)
 }

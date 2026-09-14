@@ -346,11 +346,16 @@ describe('createAvatar poseNow', () => {
     falling.poseNow('fall')
     // Knees drawn up into the tuck, which is the whole reason this frame was chosen.
     const tucked = lowestFoot(falling)
-    expect(tucked).toBeCloseTo(1.03, 2)
+    expect(tucked).toBeCloseTo(1.05, 2)
 
-    // Frozen, so running the mixer on leaves the pose exactly where it was.
+    // And it drifts rather than holding. `fall` used to be a frozen frame, so a player
+    // stepping off an island dropped its entire height in one unchanging attitude; the frame is
+    // now sampled once and given the same slow drift the glide has. Small, because the pose is
+    // still meant to read as a held brace rather than as a struggle.
     for (let i = 0; i < 30; i++) falling.update(1 / 60)
-    expect(lowestFoot(falling)).toBeCloseTo(tucked, 6)
+    const drifted = lowestFoot(falling)
+    expect(drifted).not.toBeCloseTo(tucked, 3)
+    expect(Math.abs(drifted - tucked)).toBeLessThan(0.1)
   })
 })
 
