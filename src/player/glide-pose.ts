@@ -1,5 +1,5 @@
 import {
-  AnimationClip, AnimationMixer, Quaternion, QuaternionKeyframeTrack,
+  AnimationClip, AnimationMixer, Euler, Quaternion, QuaternionKeyframeTrack,
   Vector3, VectorKeyframeTrack, type Object3D, type Bone,
 } from 'three'
 import { DEPLOYED_PITCH } from './glider'
@@ -70,8 +70,44 @@ const LOWER_SOURCES = ['glide', 'gliding', 'fly', 'flying', 'idle', 'walk'] as c
 const UPPER_FRACTION = 0.3
 const LOWER_FRACTION = 0
 
-/** Two keyframes holding the same value, so the clip has a usable duration. */
-const TIMES = [0, 1]
+/**
+ * The slow bank and bob the rider rides the wing with.
+ *
+ * The composed pose used to be two identical keyframes — a clip in name only, holding one
+ * attitude for as long as the player stayed airborne. In a game whose central activity is
+ * gliding that is most of the time on screen, and a rider who never moves reads as a model
+ * hanging off the wing rather than a person flying it. The wing itself has had life the whole
+ * time: `glider.ts` shudders it on a stall and swings it on a turn. Only the body was still.
+ *
+ * So the clip now loops a gentle bank with a bob under it. Both are deliberately tiny — under
+ * three degrees of roll and a centimetre and a half of rise — because the job is to stop the
+ * silhouette being frozen, not to add a motion the player has to read. Anything large enough to
+ * notice as an animation would compete with the wing's own stall shudder, which is a real tell.
+ *
+ * **Every offset is zero at t = 0**, which is what lets the pose the rest of this module
+ * composes stay exactly the pose that gets measured. `glide-pose.test.ts` samples at time zero,
+ * so the parallel-to-the-wing pitch and the prone body axis are asserted against the composed
+ * attitude itself rather than against some point part-way through a sway.
+ *
+ * The pitch runs at double the roll's frequency so the two do not simply trace one diagonal
+ * line back and forth; the body drifts through a shallow figure instead, which is what stops a
+ * short loop reading as a loop.
+ */
+const SWAY_SECONDS = 3.6
+const SWAY_ROLL = 0.045
+const SWAY_PITCH = 0.022
+const SWAY_BOB = 0.015
+/**
+ * Samples around the cycle. Nine is four per roll half-cycle plus the closing duplicate, which
+ * is enough for three.js's own interpolation to round a sine off smoothly — the motion is slow
+ * and small, so the error between samples is far below what the amplitudes themselves are.
+ */
+const SWAY_SAMPLES = 9
+
+const TIMES = Array.from(
+  { length: SWAY_SAMPLES },
+  (_, i) => (i / (SWAY_SAMPLES - 1)) * SWAY_SECONDS,
+)
 
 function baseName(clipName: string): string {
   const segments = clipName.split('|')
@@ -173,17 +209,47 @@ export function buildGlideClip(root: Object3D, clips: AnimationClip[]): Animatio
     const rotation = name === 'Hips'
       ? pitch.clone().multiply(pose.quaternion)
       : pose.quaternion
-    const { x, y, z, w } = rotation
-    tracks.push(new QuaternionKeyframeTrack(`${name}.quaternion`, TIMES, [x, y, z, w, x, y, z, w]))
+
+    // Every bone but the hips holds its composed rotation for the whole cycle. The sway is
+    // applied at the hips alone, and that is what makes it safe: rotating the root of the
+    // skeleton changes the body's attitude in the world without altering a single joint angle
+    // below it, so the straight knees, the closed feet and the raised hands this module works
+    // to compose survive it exactly. Animating the limbs instead would be re-authoring the
+    // pose four times a second.
+    const values: number[] = []
+    for (const time of TIMES) {
+      const turn = (time / SWAY_SECONDS) * Math.PI * 2
+      const swayed = name === 'Hips'
+        ? new Quaternion()
+          .setFromEuler(new Euler(
+            SWAY_PITCH * Math.sin(turn * 2),
+            0,
+            SWAY_ROLL * Math.sin(turn),
+          ))
+          // In the parent's space, on the outside of the world-axis pitch, for the reason the
+          // pitch itself is pre-multiplied: these are attitudes in the world, not twists of
+          // the bone about its own axes.
+          .multiply(rotation)
+        : rotation
+      values.push(swayed.x, swayed.y, swayed.z, swayed.w)
+    }
+    tracks.push(new QuaternionKeyframeTrack(`${name}.quaternion`, TIMES, values))
 
     // Only the hips translate in these clips; every other bone keeps its bind
     // position, so tracking them all would add tracks that never change.
     if (name === 'Hips') {
       const { x: px, y: py, z: pz } = pose.position
-      tracks.push(new VectorKeyframeTrack(`${name}.position`, TIMES, [px, py, pz, px, py, pz]))
+      const positions: number[] = []
+      for (const time of TIMES) {
+        const turn = (time / SWAY_SECONDS) * Math.PI * 2
+        // Twice the roll's frequency, so the rider rises through the middle of each bank
+        // rather than at one end of it.
+        positions.push(px, py + SWAY_BOB * Math.sin(turn * 2), pz)
+      }
+      tracks.push(new VectorKeyframeTrack(`${name}.position`, TIMES, positions))
     }
   }
 
   if (tracks.length === 0) return null
-  return new AnimationClip('glide', TIMES[1], tracks)
+  return new AnimationClip('glide', SWAY_SECONDS, tracks)
 }

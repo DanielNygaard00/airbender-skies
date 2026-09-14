@@ -74,7 +74,9 @@ import { createAimTell } from './fx/aim-tell'
 import { anyLiveGustTarget } from './combat/gust'
 import { gripShape } from './combat/water'
 import { stallSeverity } from './player/stall'
-import { animationFor, chargeSquashScale, wallRideLean } from './player/avatar-anim'
+import {
+  animationFor, chargeSquashScale, locomotionRate, wallRideLean,
+} from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
 import { createHud, hudModelFor, VIGNETTE_SCALE_PROPERTY } from './ui/hud'
 import { reticleModel } from './ui/reticle'
@@ -1335,7 +1337,13 @@ function start(): void {
     // above both consumers: `glider.update` below and the `hudModelFor` call after it.
     const stall = stallSeverity(player, DEFAULT_FLIGHT_CONFIG)
 
-    avatar.setAnimation(animationFor(player))
+    // The rate as well as the name. `walk` covers everything from 0.5 m/s to 9, and one clip
+    // played at one rate across that span slides the feet everywhere except the single speed it
+    // was authored for; `locomotionRate` matches the stride to what the player is actually doing.
+    // `deps.ground` rather than DEFAULT_GROUND_CONFIG, to match the line below it: the same
+    // config the controller is moving the player with is the one the stride should be measured
+    // against, so a boosted or otherwise substituted config cannot leave the two disagreeing.
+    avatar.setAnimation(animationFor(player), locomotionRate(player, deps.ground))
     avatar.setSquash(chargeSquashScale(player, deps.ground))
     followSun(player.position)
     avatar.update(dt)

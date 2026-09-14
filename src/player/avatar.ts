@@ -122,9 +122,23 @@ export function createAvatar() {
    * Cross-fade into the clip for `name`. A plain function rather than a method on the
    * returned object only so `poseNow` below can call it; the behaviour is unchanged.
    */
-  function setAnimation(name: AnimationName): void {
-    if (name === current) return
+  function setAnimation(name: AnimationName, rate = 1): void {
     const entry = clips.get(name)
+
+    // Applied before the early return, and that placement is the whole point of taking a rate
+    // here. The name changes on a state transition; the rate changes continuously *inside* one.
+    // A player accelerating from a crawl to a walking pace stays in `walk` the entire time, so a
+    // rate written only on the transition would be whatever the crawl's was, for as long as they
+    // kept walking — the exact skating this is meant to remove, just harder to see.
+    //
+    // A frozen state is exempt: its timeScale of 0 is what holds the pose, and multiplying that
+    // by anything is still 0, but writing a rate over it would be a live trap for whenever a
+    // frozen clip gains a real one.
+    if (mixer && entry && !entry.freeze && name === current) {
+      mixer.clipAction(entry.clip).timeScale = rate
+    }
+
+    if (name === current) return
     if (!mixer || !entry) {
       // No model or no matching clip: the placeholder simply does not animate.
       current = name
@@ -155,10 +169,11 @@ export function createAvatar() {
     }
     // A frozen state has no clip of its own — it holds one frame of a borrowed
     // one. timeScale = 0 stops playback while leaving the fade's weight
-    // blending to run, where `paused` would stall that too. Restoring 1 is not
-    // optional: fall and glide share the jump clip, and therefore share one
-    // action, so a glide that left timeScale at 0 would freeze falling as well.
-    next.timeScale = entry.freeze ? 0 : 1
+    // blending to run, where `paused` would stall that too. Restoring a live
+    // rate is not optional: fall and glide can share one borrowed clip, and
+    // therefore one action, so a glide that left timeScale at 0 would freeze
+    // falling as well.
+    next.timeScale = entry.freeze ? 0 : rate
     if (entry.freeze) next.time = FREEZE_TIME
     current = name
   }

@@ -39,6 +39,44 @@ export function animationFor(state: PlayerState): AnimationName {
   return horizontal >= RUN_THRESHOLD ? 'run' : 'walk'
 }
 
+/**
+ * How fast the walk or run cycle should play, as a multiple of its authored speed.
+ *
+ * Without this the cycle runs at one rate whatever the player is doing, and `walk` covers
+ * everything from `WALK_THRESHOLD`'s 0.5 m/s to `RUN_THRESHOLD`'s 9 — an eighteen-fold span of
+ * real speed set to a single stride rate. The feet slide the whole way across it: far too fast
+ * at a crawl, far too slow at a near-sprint, and correct at exactly one speed nobody holds. That
+ * mismatch is what reads as movement being disconnected from the ground.
+ *
+ * Derived from the config the movement itself uses rather than tuned by eye, the same way
+ * `windUpTimeScale` derives a soldier's telegraph speed: `walkSpeed` and `runSpeed` are what the
+ * controller accelerates toward, so a clip played at `speed / walkSpeed` runs at its authored
+ * rate exactly when the player is walking at walking pace. Nothing here needs revisiting when the
+ * movement is retuned.
+ *
+ * Clamped at both ends, and the lower one matters more. A player easing off the stick passes
+ * through arbitrarily small speeds on the way to `idle`, and an unclamped ratio would drag the
+ * cycle towards a frame-by-frame slideshow before the idle cross-fade took over — trading
+ * skating for something worse. The upper clamp is the cheaper guard: the only ways past it are a
+ * boost or a slope, and a cycle running at nearly twice speed already reads as scrambling.
+ */
+const MIN_RATE = 0.35
+const MAX_RATE = 1.8
+
+export function locomotionRate(state: PlayerState, c: GroundConfig): number {
+  const name = animationFor(state)
+  // Every other state is a pose or a single-speed action: a glide has no stride to match, and
+  // `fall` is a held frame whose rate is meaningless.
+  if (name !== 'walk' && name !== 'run') return 1
+
+  const reference = name === 'walk' ? c.walkSpeed : c.runSpeed
+  // A zero or missing reference would divide the rate to infinity rather than fail visibly.
+  if (!(reference > 0)) return 1
+
+  const speed = Math.hypot(state.velocity.x, state.velocity.z)
+  return Math.min(MAX_RATE, Math.max(MIN_RATE, speed / reference))
+}
+
 /** Vertical crouch while charging a jump. 1 = full height. */
 export function chargeSquashScale(state: PlayerState, c: GroundConfig): number {
   if (!state.grounded || !isCharging(state.chargeTime, c)) return 1

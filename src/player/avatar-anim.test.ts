@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Object3D, Vector3 } from 'three'
-import { animationFor, chargeSquashScale, wallRideLean } from './avatar-anim'
+import {
+  animationFor, chargeSquashScale, locomotionRate, wallRideLean,
+} from './avatar-anim'
 import type { PlayerState } from '../core/types'
 import { DEFAULT_GROUND_CONFIG as G } from '../core/config'
 
@@ -206,5 +208,51 @@ describe('wallRideLean', () => {
     expect(heading.x).toBeCloseTo(0, 9)
     expect(heading.y).toBeCloseTo(0, 9)
     expect(heading.z).toBeCloseTo(1, 9)
+  })
+})
+
+describe('locomotionRate', () => {
+  const moving = (speed: number) => p({ velocity: new Vector3(0, 0, speed) })
+
+  it('plays the cycle at its authored rate at the speed it was authored for', () => {
+    // The whole derivation: walkSpeed and runSpeed are what the controller accelerates toward,
+    // so the clip runs at 1.0 exactly when the player is moving at that pace. Nothing here
+    // needs revisiting when the movement is retuned.
+    expect(locomotionRate(moving(G.walkSpeed), G)).toBeCloseTo(1, 6)
+    expect(locomotionRate(moving(G.runSpeed), G)).toBeCloseTo(1, 6)
+  })
+
+  it('slows the stride down as the player slows down', () => {
+    // The defect: `walk` covers 0.5 m/s to 9, and one rate across that span slides the feet
+    // everywhere but the single speed it happened to match.
+    const slow = locomotionRate(moving(2), G)
+    const brisk = locomotionRate(moving(6), G)
+    expect(slow).toBeLessThan(brisk)
+    expect(brisk).toBeLessThan(1)
+  })
+
+  it('never drags the cycle down to a slideshow', () => {
+    // A player easing off passes through arbitrarily small speeds on the way to idle, and an
+    // unclamped ratio would trade skating for something worse on the way out.
+    expect(locomotionRate(moving(0.6), G)).toBeGreaterThan(0.3)
+    expect(locomotionRate(moving(0.0001), G)).toBeGreaterThan(0.3)
+  })
+
+  it('caps the cycle rather than letting a boost blur it', () => {
+    expect(locomotionRate(moving(500), G)).toBeLessThanOrEqual(1.8)
+  })
+
+  it('leaves every state without a stride at real time', () => {
+    // A glide has no stride to match, and `fall` is a held frame whose rate is meaningless.
+    expect(locomotionRate(p({ mode: 'glider', grounded: false }), G)).toBe(1)
+    expect(locomotionRate(p({ grounded: false }), G)).toBe(1)
+    expect(locomotionRate(p({ velocity: new Vector3() }), G)).toBe(1)
+  })
+
+  it('survives a config with no speeds rather than dividing by zero', () => {
+    // An infinite timeScale would not throw; it would silently stop the clip advancing.
+    const rate = locomotionRate(moving(5), { ...G, walkSpeed: 0, runSpeed: 0 })
+    expect(Number.isFinite(rate)).toBe(true)
+    expect(rate).toBe(1)
   })
 })
