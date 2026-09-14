@@ -82,23 +82,33 @@ const STOWED_ROTATION = new Vector3(0.1, 0, 1.05)
 // height alone: the wing's lowest point is a forward fan tip that overhangs past
 // the shoulders with no body under it, so bounding boxes mislead here. Measured
 // instead by sweeping the wing down until the closest wing-to-skin distance
-// reaches zero, which happens at 0.8888. 0.892 leaves 3mm — contact to the eye,
+// reaches zero, which happens at 0.6614. 0.664 leaves 3mm — contact to the eye,
 // while keeping the two surfaces off each other so they cannot z-fight.
 //
-// It was 1.19 against the previous character, and this is the number that had to
-// move when the model was replaced: a rider is a different shape, so a height
-// measured against one body is meaningless against another. At 1.19 the new rider
-// flew with the wing hovering 0.30 above their back — the reason
-// `avatar.test.ts` measures this surface to surface rather than trusting the
-// constant.
+// Swept against the *worst* moment of the glide's sway rather than a single frame,
+// which the sway is why: the rider now banks slowly under the wing, so the back
+// rises and falls beneath it and a height measured at one instant leaves the two
+// intersecting at another. Sampling a whole cycle moves the answer by about a
+// centimetre, which is three times the clearance it is protecting.
 //
-// z stays at 0.45 and is worth a line, because the body under it moved further
-// than the number suggests. Gliding used to lay the rider from z -0.96 to +0.92,
-// straddling the origin; this one lies from -0.136 to +1.110, because the pitch
-// pivots at the hips and this body's mass is further up the chest. So 0.45 has
-// gone from sitting just ahead of the body's centre to sitting almost exactly on
-// it — still across the back, which is all the number was ever chosen to do.
-const DEPLOYED_POSITION = new Vector3(0, 0.892, 0.45)
+// This number has now moved twice for the same reason, and both are worth keeping.
+// It was 1.19 against the previous character: a rider is a different shape, so a
+// height measured against one body is meaningless against another, and at 1.19 the
+// new rider flew with the wing hovering 0.30 above their back. It was then 0.892
+// against a glide pose that was quietly wrong — the pitch was being applied at
+// `Hips`, which on this rig carries only the spine, so the torso lay down under the
+// wing while the legs stayed standing. Laying the whole body down with it lowered
+// the back another 0.23. `avatar.test.ts` measures this surface to surface rather
+// than trusting the constant, which is what caught both.
+//
+// z stays at 0.45 and is worth a line, because the body under it has moved twice.
+// Gliding used to lay the previous rider from z -0.96 to +0.92, straddling the
+// origin. This one lies from -0.017 to +1.606 — the whole length ahead of the
+// avatar's feet, because the pose pivots at `Root` and swings the entire body
+// forward and down rather than folding it about its middle. So 0.45 now sits
+// roughly a quarter of the way along the body from the feet, which is the
+// shoulders and upper back: still what the number was chosen to mean.
+const DEPLOYED_POSITION = new Vector3(0, 0.664, 0.45)
 /**
  * Nose-up tilt of the deployed wing, in radians. Exported because the rider's
  * glide pose lies parallel to the wing, and the two must not drift apart: retune
