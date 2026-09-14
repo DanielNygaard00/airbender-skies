@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { AnimationClip, AnimationMixer, Group, Vector3 } from 'three'
+import { AnimationClip, AnimationMixer, Group, Quaternion, Vector3 } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import { buildGlideClip } from './glide-pose'
@@ -96,20 +96,64 @@ describe('buildGlideClip', () => {
     expect(pose.headForwardOfHips).toBeGreaterThan(1)
   })
 
-  it('holds a single pose rather than animating', async () => {
+  it('holds every joint angle while the body itself banks', async () => {
+    // This was 'holds a single pose rather than animating', from when the clip was two
+    // identical keyframes. It now loops a slow bank and bob so the rider is not a statue for
+    // the whole of a flight -- but the guarantee that mattered is unchanged and is what this
+    // still pins: the sway is applied at the hips alone, and rotating the root of a skeleton
+    // moves the body through the world without altering any joint angle beneath it. The defect
+    // it was written against was a borrowed jump clip flailing the limbs, and that would still
+    // fail here.
     const gltf = await loadModel()
     const clip = buildGlideClip(gltf.scene, gltf.animations)
     if (!clip) throw new Error('expected a glide clip')
 
-    const mixer = new AnimationMixer(gltf.scene)
-    mixer.clipAction(clip).play()
-    mixer.setTime(0)
-    const start = poseWith(gltf, clip).kneeL
-    mixer.setTime(clip.duration * 0.75)
-    gltf.scene.updateMatrixWorld(true)
-    const later = poseWith(gltf, clip).kneeL
+    const at = (fraction: number) => {
+      const mixer = new AnimationMixer(gltf.scene)
+      mixer.clipAction(clip).play()
+      mixer.setTime(0)
+      mixer.setTime(clip.duration * fraction)
+      gltf.scene.updateMatrixWorld(true)
+      return poseWith(gltf, clip)
+    }
 
-    expect(later).toBeCloseTo(start, 6)
+    const start = poseWith(gltf, clip)
+    for (const fraction of [0.25, 0.5, 0.75]) {
+      const later = at(fraction)
+      // Joint angles and the distances between limbs: all invariant under a hip rotation.
+      expect(later.kneeL).toBeCloseTo(start.kneeL, 4)
+      expect(later.kneeR).toBeCloseTo(start.kneeR, 4)
+      expect(later.feetGap).toBeCloseTo(start.feetGap, 4)
+    }
+  })
+
+  it('actually moves, so the rider is not frozen for the whole flight', async () => {
+    // The other half, and the reason the test above had to be rewritten rather than deleted:
+    // with the sway removed, every assertion up there would still pass on a dead clip. Gliding
+    // is this game's central activity, so a rider holding one attitude is most of the screen
+    // time spent looking at a statue.
+    const gltf = await loadModel()
+    const clip = buildGlideClip(gltf.scene, gltf.animations)
+    if (!clip) throw new Error('expected a glide clip')
+
+    expect(clip.duration).toBeGreaterThan(1)
+
+    const bankAt = (fraction: number) => {
+      const mixer = new AnimationMixer(gltf.scene)
+      mixer.clipAction(clip).play()
+      mixer.setTime(0)
+      mixer.setTime(clip.duration * fraction)
+      gltf.scene.updateMatrixWorld(true)
+      const hips = gltf.scene.getObjectByName(BONES.hips)
+      if (!hips) throw new Error('missing hips')
+      return hips.getWorldQuaternion(new Quaternion())
+    }
+
+    // A quarter of the way in is the roll's own peak, so if anything moves at all it is here.
+    const angle = bankAt(0).angleTo(bankAt(0.25))
+    expect(angle).toBeGreaterThan(0.01)
+    // Small on purpose: large enough to see, too small to compete with the wing's stall shudder.
+    expect(angle).toBeLessThan(0.2)
   })
 
   it('gives up when the model has no upper-body source', () => {
