@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Vector3 } from 'three'
-import { createInterpolatedVector, DEFAULT_SNAP_DISTANCE } from './interpolation'
+import { createInterpolatedVector, DEFAULT_SNAP_DISTANCE, approach } from './interpolation'
 
 describe('createInterpolatedVector', () => {
   it('samples midway between two recorded values', () => {
@@ -102,5 +102,48 @@ describe('createInterpolatedVector', () => {
     lerp.record(value)
     value.set(9, 9, 9)
     expect(lerp.sample(1, new Vector3()).toArray()).toEqual([1, 1, 1])
+  })
+})
+
+describe('approach', () => {
+  it('settles immediately when no time has passed', () => {
+    // REGRESSION, and it shipped: `main.ts` primes its presentation layer with a frame time of
+    // exactly 0, and `1 - Math.exp(-rate * 0)` is 0 -- so anything eased through the bare
+    // exponential stayed at its starting value on that frame, however far the target was. The
+    // rider's turn onto the air board is the case it was visible on: the primed frame drew a
+    // character standing square on a board they are meant to ride sideways.
+    expect(approach(0, 1.38, 12, 0)).toBe(1.38)
+  })
+
+  it('treats a negative frame time as no time rather than as a step backwards', () => {
+    expect(approach(0, 1.38, 12, -1)).toBe(1.38)
+  })
+
+  it('moves towards the target without overshooting it', () => {
+    const once = approach(0, 1, 12, 1 / 60)
+    expect(once).toBeGreaterThan(0)
+    expect(once).toBeLessThan(1)
+  })
+
+  it('converges to the same place whatever the frame rate', () => {
+    // The whole reason the blend is exponential: a fixed per-frame fraction would converge
+    // faster the more frames it got, so the same move would feel different on a 144Hz display.
+    let slow = 0
+    for (let i = 0; i < 30; i++) slow = approach(slow, 1, 12, 1 / 30)
+    let fast = 0
+    for (let i = 0; i < 144; i++) fast = approach(fast, 1, 12, 1 / 144)
+    expect(fast).toBeCloseTo(slow, 2)
+  })
+
+  it('holds still once it is already there', () => {
+    expect(approach(1.38, 1.38, 12, 1 / 60)).toBeCloseTo(1.38, 12)
+  })
+
+  it('refuses to propagate a corrupted value', () => {
+    // A NaN reaching a transform writes NaN into a matrix, and the character disappears for
+    // the rest of the session with nothing logged.
+    expect(approach(0.5, Number.NaN, 12, 1 / 60)).toBe(0.5)
+    expect(Number.isFinite(approach(Number.NaN, 1, 12, 1 / 60))).toBe(true)
+    expect(Number.isFinite(approach(0, 1, 12, Number.NaN))).toBe(true)
   })
 })
