@@ -531,6 +531,79 @@ describe('createAvatar with the real committed model', () => {
   })
 })
 
+describe('createAvatar board stance', () => {
+  it('lifts the body without lifting the board', async () => {
+    // The point of putting the hover on the body: `avatar.object` carries the simulation's
+    // position and the board hangs off it, so lifting there would raise the deck with the rider
+    // and the gap would never open.
+    const avatar = createAvatar()
+    avatar.attachModel(await loadCommittedModel())
+    const deck = new Object3D()
+    deck.name = 'deck'
+    avatar.object.add(deck)
+
+    const groundedFeet = spanOf(avatar.object).min.y
+    avatar.setHover(0.18)
+    avatar.object.updateMatrixWorld(true)
+
+    expect(spanOf(avatar.object).min.y).toBeCloseTo(groundedFeet + 0.18, 4)
+    // The board did not come up with it.
+    expect(deck.getWorldPosition(new Vector3()).y).toBeCloseTo(0, 6)
+  })
+
+  it('crouches towards the deck rather than through it', () => {
+    // The fit offset is a property of the model and compresses with a charge; the hover is the
+    // height of the deck underfoot and must not. Folding the two together would sink a rider
+    // charging a jump straight through their own board.
+    const avatar = createAvatar()
+    avatar.attachModel(fakeGltf(['Idle'], { height: 3.6, liftFeet: 0.5 }))
+
+    avatar.setHover(0.18)
+    const standing = spanOf(avatar.object).min.y
+    avatar.setSquash(0.7)
+    const crouched = spanOf(avatar.object).min.y
+
+    // Still at the deck, not below it.
+    expect(crouched).toBeCloseTo(standing, 4)
+    expect(crouched).toBeCloseTo(0.18, 4)
+  })
+
+  it('turns the body across the deck without turning the avatar', () => {
+    const avatar = createAvatar()
+    avatar.attachModel(fakeGltf(['Idle']))
+    avatar.setStanceYaw(1.38)
+
+    const wrapper = avatar.object.children[0]
+    if (!wrapper) throw new Error('model wrapper missing')
+    expect(wrapper.rotation.y).toBeCloseTo(1.38, 6)
+    // The node the board and the glider hang off is untouched, so they keep pointing along
+    // the direction of travel while the rider stands across them.
+    expect(avatar.object.rotation.y).toBe(0)
+  })
+
+  it('poses the placeholder too, for a model that never arrives', () => {
+    const avatar = createAvatar()
+    avatar.setHover(0.18)
+    avatar.setStanceYaw(1.38)
+    const placeholder = avatar.object.children[0]
+    if (!placeholder) throw new Error('placeholder missing')
+    expect(placeholder.position.y).toBeCloseTo(0.18, 6)
+    expect(placeholder.rotation.y).toBeCloseTo(1.38, 6)
+  })
+
+  it('refuses a corrupted hover or stance rather than losing the character', () => {
+    // A NaN here writes NaN into the wrapper's matrix, and the character vanishes for the rest
+    // of the session with nothing logged.
+    const avatar = createAvatar()
+    avatar.attachModel(fakeGltf(['Idle']))
+    avatar.setHover(Number.NaN)
+    avatar.setStanceYaw(Number.NaN)
+    const span = spanOf(avatar.object)
+    expect(Number.isFinite(span.min.y)).toBe(true)
+    expect(Number.isFinite(span.height)).toBe(true)
+  })
+})
+
 describe('createAvatar charge squash', () => {
   /** World-space Y scale, which is what a squash on any ancestor would change. */
   function worldScaleY(object: Object3D): number {

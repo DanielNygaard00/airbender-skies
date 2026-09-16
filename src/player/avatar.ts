@@ -98,23 +98,36 @@ export function createAvatar() {
   let fitScale = 1
   let fitOffsetY = 0
   let squash = 1
+  /** How far the body is lifted off its own feet, for the air board. See `setHover`. */
+  let hover = 0
+  /** How far the body is turned across its direction of travel. See `setStanceYaw`. */
+  let stanceYaw = 0
 
   /**
-   * Apply the squash to whichever visual currently stands in for the character.
-   * It targets that wrapper rather than `object`, because the glider is a child
-   * of `object` and scaling there would compress the staff too.
+   * Apply the squash, the hover and the stance to whichever visual currently stands in for the
+   * character. They target that wrapper rather than `object`, because the glider, the aura and
+   * any carried payload are children of `object` and would all be dragged along with them.
    *
    * The model's vertical offset scales alongside its height. That offset exists
    * to lift a model whose lowest vertex sits above its own origin, so leaving it
    * fixed while shrinking the model drops the feet through the ground — a crouch
    * has to compress towards the feet, not around them.
+   *
+   * The hover is added *after* that scaling rather than folded into it, and the distinction is
+   * the difference between standing on a board and sinking into one: the fit offset is a
+   * property of the model and must compress with a crouch, while the hover is the height of the
+   * deck underfoot and must not. A rider charging a jump on the board crouches towards the deck,
+   * not through it.
    */
-  function applySquash(): void {
+  function applyBodyTransform(): void {
     if (modelRoot) {
       modelRoot.scale.y = fitScale * squash
-      modelRoot.position.y = fitOffsetY * squash
+      modelRoot.position.y = fitOffsetY * squash + hover
+      modelRoot.rotation.y = MODEL_YAW + stanceYaw
     } else {
       placeholder.scale.y = squash
+      placeholder.position.y = hover
+      placeholder.rotation.y = stanceYaw
     }
   }
 
@@ -202,7 +215,7 @@ export function createAvatar() {
       object.add(modelRoot)
       // A squash already in progress must carry over to the new model, or a jump
       // charged while the model was still loading would pop back to full height.
-      applySquash()
+      applyBodyTransform()
 
       const plan = planClips(gltf.animations.map((c) => c.name))
 
@@ -302,7 +315,32 @@ export function createAvatar() {
      */
     setSquash(scaleY: number): void {
       squash = scaleY
-      applySquash()
+      applyBodyTransform()
+    },
+
+    /**
+     * Lift the body off its own feet, for standing on the air board.
+     *
+     * On the body rather than on `object`, which is the whole reason it is here: `object`
+     * carries the simulation's position, and the board, the glider and any carried payload all
+     * hang off it. Lifting there would raise the board along with the rider and there would be
+     * no hover at all — the two would rise together and the gap would never open.
+     */
+    setHover(height: number): void {
+      hover = Number.isFinite(height) ? height : 0
+      applyBodyTransform()
+    },
+
+    /**
+     * Turn the body across its direction of travel, for the board's side-on stance.
+     *
+     * Composes with `MODEL_YAW` rather than replacing it, so a model that needs a facing
+     * correction keeps it while riding. On the body for `setHover`'s reason: the deck has to go
+     * on pointing where the player is going while the rider stands across it.
+     */
+    setStanceYaw(radians: number): void {
+      stanceYaw = Number.isFinite(radians) ? radians : 0
+      applyBodyTransform()
     },
 
     update(dt: number): void {

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Object3D, Vector3 } from 'three'
 import {
-  animationFor, chargeSquashScale, locomotionRate, wallRideLean,
+  animationFor, chargeSquashScale, locomotionRate, scooterStanceYaw, wallRideLean,
+  SCOOTER_STANCE_YAW,
 } from './avatar-anim'
 import type { PlayerState } from '../core/types'
 import { DEFAULT_GROUND_CONFIG as G } from '../core/config'
@@ -254,5 +255,51 @@ describe('locomotionRate', () => {
     const rate = locomotionRate(moving(5), { ...G, walkSpeed: 0, runSpeed: 0 })
     expect(Number.isFinite(rate)).toBe(true)
     expect(rate).toBe(1)
+  })
+})
+
+describe('riding the air board', () => {
+  const riding = (over = {}) => p({ scooterActive: true, grounded: true, ...over })
+
+  it('stands on the board rather than sprinting on it', () => {
+    // The scooter's own speed factor doubles the player's pace, so the ordinary speed bands
+    // would put the rider into a flat sprint -- legs pumping on a deck that is carrying them.
+    expect(animationFor(riding({ velocity: new Vector3(0, 0, 20) }))).toBe('idle')
+    expect(animationFor(riding({ velocity: new Vector3(0, 0, 3) }))).toBe('idle')
+    expect(animationFor(riding({ velocity: new Vector3() }))).toBe('idle')
+  })
+
+  it('still runs on foot at the same speeds', () => {
+    // So the test above is about the board rather than about the speed.
+    expect(animationFor(p({ velocity: new Vector3(0, 0, 20) }))).toBe('run')
+  })
+
+  it('turns the rider across the deck', () => {
+    expect(scooterStanceYaw(riding())).toBeCloseTo(SCOOTER_STANCE_YAW, 6)
+  })
+
+  it('stands square again the moment the board is stowed', () => {
+    expect(scooterStanceYaw(p({ scooterActive: false, grounded: true }))).toBe(0)
+  })
+
+  it('stands square in the air, even before the scooter is stowed', () => {
+    // `stepScooter` stows the scooter on leaving the ground, but a frame later than the
+    // airborne pose starts -- and a character turned side-on through a fall reads as having
+    // been knocked sideways rather than as riding anything.
+    expect(scooterStanceYaw(p({ scooterActive: true, grounded: false }))).toBe(0)
+  })
+
+  it('keeps the rider facing far enough forward to be seen', () => {
+    // A full quarter turn would put the face out of shot for a camera that follows from
+    // behind, and riders do not stand square to the deck anyway.
+    expect(SCOOTER_STANCE_YAW).toBeLessThan(Math.PI / 2)
+    expect(SCOOTER_STANCE_YAW).toBeGreaterThan(1)
+  })
+
+  it('leaves the wall ride alone, which owns its own pose', () => {
+    // Checked before the scooter in `animationFor`, and it has to stay that way: a rider
+    // driving up a face is working their legs, board or no board.
+    const onWall = riding({ wallRideNormal: new Vector3(0, 0, 1), grounded: false })
+    expect(animationFor(onWall)).toBe('run')
   })
 })
