@@ -1,4 +1,4 @@
-import { Vector3, Mesh, OctahedronGeometry, MeshBasicMaterial, Group } from 'three'
+import { Vector3, Mesh, OctahedronGeometry, MeshBasicMaterial, Group, MathUtils } from 'three'
 import { createRenderer, hasWebGL, showFallback, WEBGL_MESSAGE } from './core/renderer'
 import { createPost } from './core/post'
 // Aliased: `./camera/follow-cam` already exports a `profileFor` for the camera's own
@@ -70,12 +70,14 @@ import {
 import { enableShadows } from './core/sun'
 import { createAvatar } from './player/avatar'
 import { createGlider } from './player/glider'
+import { createBoard, HOVER_HEIGHT } from './player/board'
 import { createAimTell } from './fx/aim-tell'
 import { anyLiveGustTarget } from './combat/gust'
 import { gripShape } from './combat/water'
 import { stallSeverity } from './player/stall'
 import {
-  animationFor, chargeSquashScale, locomotionRate, wallRideLean,
+  animationFor, chargeSquashScale, locomotionRate, scooterStanceYaw, wallRideLean,
+  SCOOTER_STANCE_YAW,
 } from './player/avatar-anim'
 import { profileFor, desiredCameraPosition, smoothTowards, pullInForTerrain } from './camera/follow-cam'
 import { createHud, hudModelFor, VIGNETTE_SCALE_PROPERTY } from './ui/hud'
@@ -174,6 +176,23 @@ const SCREEN_CENTRE = { x: 0.5, y: 0.5 }
  * would mean a future retune of one silently retuning the other.
  */
 const WALL_LEAN_RESPONSE = 16
+
+/**
+ * How fast the rider turns onto the board, the deck banks, and what counts as a full-lock turn.
+ *
+ * `STANCE_RESPONSE` is quicker than the wall lean's: stepping onto a board is a deliberate act
+ * the player just asked for, where leaning into a wall is a consequence of where they happen to
+ * be, so the stance should look decisive and the lean should look like physics.
+ *
+ * `BANK_FULL_TURN_RATE` is in radians per second and is what the measured turn is scaled
+ * against, so a rider swinging through a right angle in half a second reaches full bank. It is
+ * not read from `GroundConfig`: the turn rate that reaches the avatar has already been through
+ * the scooter's halved authority and whatever the charge took on top, so a config figure would
+ * describe a turn the rider cannot actually make on the board.
+ */
+const STANCE_RESPONSE = 12
+const BANK_RESPONSE = 9
+const BANK_FULL_TURN_RATE = Math.PI
 
 /** What the aim preview needs to know about whichever light verb `F` would currently throw. */
 interface LightVerbPreview {
@@ -389,6 +408,17 @@ function start(): void {
    * and it is exponential so it behaves the same at any refresh rate.
    */
   let wallLean = 0
+  /**
+   * The rider's turn onto the air board, smoothed, and the deck's bank into a corner.
+   *
+   * Render-time values for `wallLean`'s reason: `scooterStanceYaw` reads one frame of state and
+   * knows nothing about time, so the easing lives here and is exponential to behave the same at
+   * any refresh rate. `lastHeading` is the previous frame's heading, which is what the bank is
+   * measured from — the simulation carries no turn rate to read.
+   */
+  let stanceYaw = 0
+  let boardBank = 0
+  let lastHeading = 0
   const shakeVec = new Vector3()
   const combatAudio = createCombatAudio()
   /**
@@ -542,6 +572,12 @@ function start(): void {
   const glider = createGlider()
   // A child of the avatar, so it inherits the character's position and facing.
   avatar.object.add(glider.object)
+
+  // The air board, a child of `avatar.object` for the glider's reason and one of its own: the
+  // deck has to keep pointing along the direction of travel while the rider stands across it,
+  // so it inherits the facing and the stance turn is applied to the body alone.
+  const board = createBoard()
+  avatar.object.add(board.object)
 
   const aura = createAvatarAura()
   // A child of avatar.object, alongside the glider — never of the model, which lives in
@@ -2089,6 +2125,38 @@ function start(): void {
     // disagreement is a fraction of a percent of the lean — not worth a second interpolator.
     wallLean += (wallRideLean(player) - wallLean) * (1 - Math.exp(-WALL_LEAN_RESPONSE * frameDt))
     if (Math.abs(wallLean) > 1e-4) avatar.object.rotateZ(wallLean)
+
+    /*
+     * The air board, and the rider's stance on it.
+     *
+     * Eased rather than snapped, on the same exponential the wall lean uses and for the same
+     * reason: toggling the scooter would otherwise spin the character through 79 degrees in a
+     * single frame. The board's own appearance is not eased — a deck that faded in would read as
+     * a ghost rather than as air packing together — so the stance catches up to a board that is
+     * already there, which is the order that reads as stepping onto it.
+     */
+    const boardRiding = player.scooterActive && player.grounded
+    stanceYaw += (scooterStanceYaw(player) - stanceYaw) * (1 - Math.exp(-STANCE_RESPONSE * frameDt))
+    avatar.setStanceYaw(stanceYaw)
+    // The hover follows the stance rather than the state, so the body rises as it turns onto
+    // the deck instead of popping up a tenth of its own height on the toggle frame.
+    avatar.setHover(HOVER_HEIGHT * (stanceYaw / SCOOTER_STANCE_YAW))
+    // Banked from the turn the player is actually making, measured as the signed change in
+    // heading across this frame rather than read off an input: the controller's steering has
+    // already been through the scooter's own halved turn authority by the time it reaches the
+    // avatar, so the heading is the only honest account of how hard the ride is cornering.
+    const heading = Math.atan2(player.forward.x, player.forward.z)
+    let turned = heading - lastHeading
+    // Unwrapped, or a heading crossing the +/-pi seam reports a full turn in one frame and
+    // slams the deck over to its limit.
+    if (turned > Math.PI) turned -= Math.PI * 2
+    if (turned < -Math.PI) turned += Math.PI * 2
+    lastHeading = heading
+    boardBank += (
+      (frameDt > 0 ? MathUtils.clamp(turned / (frameDt * BANK_FULL_TURN_RATE), -1, 1) : 0)
+      - boardBank
+    ) * (1 - Math.exp(-BANK_RESPONSE * frameDt))
+    board.update(frameDt, boardRiding, player.scooterCharge, boardBank)
 
     for (const enemy of encounter.enemies) {
       const view = enemyViews.get(enemy.id)

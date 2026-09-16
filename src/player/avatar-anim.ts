@@ -34,9 +34,45 @@ export function animationFor(state: PlayerState): AnimationName {
   // so this cannot be reordered into a no-op.
   if (state.wallRideNormal !== null) return 'run'
   if (!state.grounded) return 'fall'
+  // Riding the board is standing on it, however fast it is going. Checked before the speed
+  // bands below, which is the whole point: the scooter's own speed factor doubles the player's
+  // pace, so those bands would put the rider into a flat sprint — legs pumping on a deck that
+  // is carrying them, which reads as running *through* the board rather than on it. `idle` is
+  // the standing pose, and `scooterStanceYaw` turns it across the deck so it reads as a stance
+  // rather than as a character who has forgotten to animate.
+  if (state.scooterActive) return 'idle'
   const horizontal = Math.hypot(state.velocity.x, state.velocity.z)
   if (horizontal < WALK_THRESHOLD) return 'idle'
   return horizontal >= RUN_THRESHOLD ? 'run' : 'walk'
+}
+
+/**
+ * How far the rider turns across the board, in radians, and 0 whenever they are not on it.
+ *
+ * A skateboard is ridden side-on: the deck runs along the direction of travel and the rider
+ * stands across it, one foot behind the other, shoulders square to the deck's long axis. The
+ * body is the only part that turns — `board.ts` is parented to `avatar.object`, which carries
+ * the facing, so the deck keeps pointing where the player is going while the rider rotates on
+ * top of it.
+ *
+ * Not the full quarter turn, which would put the rider exactly sideways and their face out of
+ * shot for a camera that follows from behind. Riders do not stand square to the deck either —
+ * the front foot opens toward the nose — so a little under 80 degrees both reads correctly and
+ * keeps the character's front visible, which is the same argument `WALL_RIDE_LEAN` makes for
+ * taking a third of a quarter turn rather than all of it.
+ *
+ * Positive, so the rider's left shoulder leads: a regular-footed stance, which is the one about
+ * nine in ten riders use. Nothing in the game distinguishes the two, so it picks the common one
+ * rather than exposing a choice the player cannot make.
+ */
+export const SCOOTER_STANCE_YAW = 1.38
+
+export function scooterStanceYaw(state: PlayerState): number {
+  // Grounded as well as active, because the stance belongs to the board and the board is only
+  // drawn while something is holding it up. `stepScooter` stows the scooter when the rider
+  // leaves the ground, but it does so one frame later than the airborne pose starts, and a
+  // character turned side-on through a `fall` clip reads as having been knocked sideways.
+  return state.scooterActive && state.grounded ? SCOOTER_STANCE_YAW : 0
 }
 
 /**
