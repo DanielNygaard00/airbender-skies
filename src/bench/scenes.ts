@@ -35,7 +35,10 @@ export type BenchEffectId =
   | 'slipstream'
   | 'water-grip'
   | 'ice-shell'
+  | 'water-sheet'
+  | 'fire-flames'
   | 'earth-reach'
+  | 'earth-rocks'
   | 'fire-burst'
   | 'fire-thrust'
   // None of the ids in this union are deferred behind a placeholder shape any more. Several once
@@ -385,6 +388,49 @@ export const BENCH_SCENES: readonly BenchScene[] = [
     effect: 'earth-reach',
     fireAt: 0.1,
     duration: 0.23,
+  },
+  {
+    /**
+     * The rocks a Stone Throw throws, which `earth-reach` above deliberately does not show.
+     *
+     * A separate scene rather than both effects in one shot, and for the reason the two are
+     * separate effects at all: the sector is a statement about area and lives 0.26s, while the
+     * volley is the move and lives 0.62s. Photographed together at any one instant, whichever
+     * has faded reads as missing rather than as finished.
+     *
+     * The same camera as `earth-reach` so the two shots can be held side by side, but caught
+     * much later in the effect's life. `createEarthRocks`'s `LIFETIME` is 0.62s and the rocks
+     * are launched to cover their share of the throw's range across all of it, so an early frame
+     * shows them still bunched at the caster's hands — which says nothing about whether they
+     * travel. `fireAt: 0.1, duration: 0.52` freezes the shot at age 0.42, two thirds of the way
+     * out: the fan has opened, the arc has visibly turned the leading rocks downward, and the
+     * fade over the last third has not yet started to take them.
+     */
+    id: 'fire-flames',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'fire-flames',
+    fireAt: 0.1,
+    duration: 0.26,
+  },
+  {
+    id: 'water-sheet',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'water-sheet',
+    fireAt: 0.1,
+    duration: 0.22,
+  },
+  {
+    id: 'earth-rocks',
+    regionId: ARCHIPELAGO_ID,
+    camera: { position: new Vector3(0, 21.9, 20), target: new Vector3(0, 11.9, 0) },
+    elevation: SUN_ELEVATION_DEGREES,
+    effect: 'earth-rocks',
+    fireAt: 0.1,
+    duration: 0.52,
   },
   {
     /**

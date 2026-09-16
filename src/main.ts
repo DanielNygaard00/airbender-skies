@@ -94,12 +94,14 @@ import { canBurst, canGust, canGrip, canStone, canVortex } from './combat/encoun
 import { canIceLock, anyLiveWaterGripTarget } from './combat/water'
 import { anyLiveStoneThrowTarget, canRaisePillar, stoneShape, type Pillar } from './combat/earth'
 import { createEarthReach } from './fx/earth-reach'
+import { createEarthRocks } from './fx/earth-rocks'
 import { createPillarView, type PillarView } from './fx/pillar-view'
 import {
   anyLiveFireBurstTarget, burstShape, canFireThrust, fireThrustImpulse, fullCharges, spendCharges,
   stepFireCharges,
 } from './combat/fire'
 import { createFireBurst } from './fx/fire-burst'
+import { createFireFlames } from './fx/fire-flames'
 import { createFireThrust } from './fx/fire-thrust'
 import {
   DEFAULT_ELEMENT_CONFIG, radialModel, restingElements, stepElements,
@@ -110,6 +112,7 @@ import type { ConeShape } from './combat/cone'
 import type { PlayerState } from './core/types'
 import { createElementRadial } from './ui/element-radial'
 import { createWaterReach } from './fx/water-reach'
+import { createWaterSheet } from './fx/water-sheet'
 import { createIceShell } from './fx/ice-shell'
 import { isArmed } from './focus/avatar-state'
 import { createWindAudio } from './fx/audio'
@@ -1614,6 +1617,9 @@ function start(): void {
     // declined press from drawing a cone and playing a voice for a move that never happened.
     if (fight.gripFired) {
       effects.add(createWaterReach(player.position, player.forward, 'grip', fightConfig.water))
+      // The grip only. The freeze below keeps the flat tell alone: a curtain of moving water is
+      // the wrong picture for a move whose whole point is that the water stops.
+      effects.add(createWaterSheet(player.position, player.forward, fightConfig.water))
       combatAudio.grip()
     }
     if (fight.freezeFired) {
@@ -1625,6 +1631,10 @@ function start(): void {
     // all three refusals are invisible to this file.
     if (fight.stoneFired) {
       effects.add(createEarthReach(player.position, player.forward, fightConfig.earth))
+      // Both, and the split is deliberate: the sector states the reach honestly and is gone in a
+      // quarter of a second, while the rocks are the move itself and need long enough to be seen
+      // travelling. Neither does the other's job.
+      effects.add(createEarthRocks(player.position, player.forward, fightConfig.earth))
       combatAudio.stone()
     }
     // Voiced here; drawn by the pillar views below, which sync off `encounter.pillars`. The split is
@@ -1673,6 +1683,7 @@ function start(): void {
     // ever does reach fire's reach or its half angle.
     if (fight.burstFired) {
       effects.add(createFireBurst(player.position, player.forward, fightConfig.fire))
+      effects.add(createFireFlames(player.position, player.forward, fightConfig.fire))
       combatAudio.fireBurst()
     }
 

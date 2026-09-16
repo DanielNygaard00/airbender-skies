@@ -9,6 +9,9 @@ import { createAvatarAura } from '../fx/avatar-aura'
 import { createDashTrail } from '../fx/dash-trail'
 import type { Effect } from '../fx/effect'
 import { createEarthReach } from '../fx/earth-reach'
+import { createEarthRocks } from '../fx/earth-rocks'
+import { createWaterSheet } from '../fx/water-sheet'
+import { createFireFlames } from '../fx/fire-flames'
 import { createFireBurst } from '../fx/fire-burst'
 import { createFireThrust } from '../fx/fire-thrust'
 import { createFinisherFlare } from '../fx/finisher'
@@ -233,6 +236,9 @@ export const BENCH_EFFECTS: Record<BenchEffectId, (origin: Vector3, forward: Vec
   // `clock.ts`) has less life to run past `duration` on a scene mistuned to outlive it.
   'ice-shell': (origin) => createIceShell(origin, DEFAULT_COMBAT_CONFIG.water.gripHoldSeconds),
   'earth-reach': (origin, forward) => createEarthReach(origin, forward, DEFAULT_COMBAT_CONFIG.earth),
+  'earth-rocks': (origin, forward) => createEarthRocks(origin, forward, DEFAULT_COMBAT_CONFIG.earth),
+  'water-sheet': (origin, forward) => createWaterSheet(origin, forward, DEFAULT_COMBAT_CONFIG.water),
+  'fire-flames': (origin, forward) => createFireFlames(origin, forward, DEFAULT_COMBAT_CONFIG.fire),
   'fire-burst': (origin, forward) => createFireBurst(origin, forward, DEFAULT_COMBAT_CONFIG.fire),
   // `createFireThrust` takes an impulse, not a unit forward — its own doc comment says the
   // plume's length comes from the impulse it is drawn for rather than from a constant, so the
