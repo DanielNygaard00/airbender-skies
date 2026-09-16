@@ -5,7 +5,7 @@ import { createPost } from './core/post'
 // per-mode profile, used throughout this file, and that name is not free to reuse.
 import { profileFor as qualityProfileFor } from './core/quality'
 import { createStepper } from './core/loop'
-import { createInterpolatedVector, type InterpolatedVector } from './core/interpolation'
+import { approach, createInterpolatedVector, type InterpolatedVector } from './core/interpolation'
 import { InputTracker } from './core/input'
 import {
   DEFAULT_COLLISION_CONFIG, DEFAULT_DOWN_CONFIG, DEFAULT_FLIGHT_CONFIG, DEFAULT_GROUND_CONFIG,
@@ -193,6 +193,7 @@ const WALL_LEAN_RESPONSE = 16
 const STANCE_RESPONSE = 12
 const BANK_RESPONSE = 9
 const BANK_FULL_TURN_RATE = Math.PI
+
 
 /** What the aim preview needs to know about whichever light verb `F` would currently throw. */
 interface LightVerbPreview {
@@ -2136,7 +2137,12 @@ function start(): void {
      * already there, which is the order that reads as stepping onto it.
      */
     const boardRiding = player.scooterActive && player.grounded
-    stanceYaw += (scooterStanceYaw(player) - stanceYaw) * (1 - Math.exp(-STANCE_RESPONSE * frameDt))
+    // `approach` rather than the bare exponential, because `syncVisuals` is also called once to
+    // prime the presentation layer with `frameDt` of 0 — and at zero the exponential blend is
+    // exactly 0, so an eased value stays wherever it started. A primed frame has to show the
+    // settled pose, not the first instant of a transition into it: without this a character
+    // already on the board when the frame is drawn stands square on it.
+    stanceYaw = approach(stanceYaw, scooterStanceYaw(player), STANCE_RESPONSE, frameDt)
     avatar.setStanceYaw(stanceYaw)
     // The hover follows the stance rather than the state, so the body rises as it turns onto
     // the deck instead of popping up a tenth of its own height on the toggle frame.
@@ -2152,10 +2158,12 @@ function start(): void {
     if (turned > Math.PI) turned -= Math.PI * 2
     if (turned < -Math.PI) turned += Math.PI * 2
     lastHeading = heading
-    boardBank += (
-      (frameDt > 0 ? MathUtils.clamp(turned / (frameDt * BANK_FULL_TURN_RATE), -1, 1) : 0)
-      - boardBank
-    ) * (1 - Math.exp(-BANK_RESPONSE * frameDt))
+    boardBank = approach(
+      boardBank,
+      frameDt > 0 ? MathUtils.clamp(turned / (frameDt * BANK_FULL_TURN_RATE), -1, 1) : 0,
+      BANK_RESPONSE,
+      frameDt,
+    )
     board.update(frameDt, boardRiding, player.scooterCharge, boardBank)
 
     for (const enemy of encounter.enemies) {

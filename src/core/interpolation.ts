@@ -52,3 +52,28 @@ export function createInterpolatedVector(
     },
   }
 }
+
+/**
+ * Ease `current` toward `target` at `rate`, frame-rate independently, snapping when no time has
+ * passed.
+ *
+ * The exponential form is what makes the easing behave the same on a 60 Hz display and a 144 Hz
+ * one: a fixed per-frame fraction would converge faster the more frames it got, so the same move
+ * would feel different on different hardware.
+ *
+ * The snap at `dt <= 0` is the part worth naming, because it is a defect that has already
+ * shipped once. `main.ts` calls its `syncVisuals` a second time to prime the presentation layer
+ * before the loop ever runs, with a frame time of exactly 0 — and `1 - Math.exp(-rate * 0)` is
+ * exactly 0, so a value eased through it stays where it started however far away the target is.
+ * For a quantity that begins settled, such as the avatar's lean toward a wall at spawn, that is
+ * invisible. For one that can already be mid-transition when the first frame is drawn — the
+ * rider's turn onto the air board — it means the primed frame shows a character standing square
+ * on a board they are supposed to be riding sideways. A non-positive frame time is not a small
+ * step toward the target; it is no step at all, and the settled value is the only honest answer.
+ */
+export function approach(current: number, target: number, rate: number, dt: number): number {
+  if (!Number.isFinite(target)) return current
+  if (!Number.isFinite(dt) || dt <= 0) return target
+  if (!Number.isFinite(current)) return target
+  return current + (target - current) * (1 - Math.exp(-rate * dt))
+}
