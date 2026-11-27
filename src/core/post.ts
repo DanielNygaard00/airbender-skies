@@ -1,8 +1,13 @@
+// At the very top or it is only a comment: triple-slash directives count nowhere else. It is here
+// at all because the test project includes test files only, and an ambient declaration is not
+// followed through an import -- so without it `post.test.ts` would see n8ao as an implicit any.
+/// <reference path="./n8ao.d.ts" />
 import { HalfFloatType, Vector2, type Camera, type Scene, type WebGLRenderer } from 'three'
 import {
   BloomEffect, BrightnessContrastEffect, type Effect, EffectComposer, EffectPass,
   HueSaturationEffect, RenderPass, SMAAEffect, ToneMappingEffect, ToneMappingMode,
 } from 'postprocessing'
+import { N8AOPostPass } from 'n8ao'
 import type { QualityProfile } from './quality'
 
 /**
@@ -141,6 +146,46 @@ export interface Post {
 }
 
 /** The effects one name stands for. `grade` is two, which is why this returns a list. */
+/**
+ * Ambient occlusion, sized for a world measured in metres and seen from a follow camera.
+ *
+ * A pass rather than an effect, and first after the scene render, because occlusion darkens the
+ * lit image *before* bloom picks out its brights and before tone mapping compresses it — the
+ * order light actually works in. Applied after tone mapping it would darken an already-graded
+ * frame and crush the shadows that AgX takes care to keep open.
+ *
+ * `gammaCorrection` is forced off and `autosetGamma` with it. N8AO encodes to sRGB itself when it
+ * believes it is the final pass, and here it is the second of several working in linear light: an
+ * encode at this point would be encoded again at the end, and the whole frame would wash pale.
+ *
+ * **The radius is the number that decides whether this reads as contact or as dirt.** One metre:
+ * roughly a soldier's stance, so the darkening sits tight under feet, rock bases and tree trunks.
+ * Two metres was tried first and spread each soldier's occlusion into a smudge trailing across
+ * the grass; the library's default of five suits interiors and paints whole slopes grey.
+ *
+ * **Intensity is an exponent, not a gain, so its useful range is far above the default.** On the
+ * bench's soldiers scene, A/B against the pass switched off: 3 changed nothing visible, 8 barely
+ * registered, 30 drew black halos, and 15 is where the figures stop looking pasted on the grass
+ * without the ground under them turning dark.
+ *
+ * `distanceFalloff` keeps a near surface from being darkened by geometry far behind it, which
+ * matters more here than in most scenes: islands float with nothing below them, so an
+ * occlusion test that ignored depth difference would shadow an island's edge with the sky.
+ */
+function createOcclusion(scene: Scene, camera: Camera, mode: 'full' | 'half'): N8AOPostPass {
+  const pass = new N8AOPostPass(scene, camera)
+  pass.autosetGamma = false
+  pass.configuration.gammaCorrection = false
+  pass.configuration.halfRes = mode === 'half'
+  pass.configuration.aoRadius = 1
+  pass.configuration.distanceFalloff = 1
+  pass.configuration.intensity = 15
+  pass.configuration.aoSamples = mode === 'half' ? 12 : 16
+  pass.configuration.denoiseSamples = 8
+  pass.configuration.denoiseRadius = 12
+  return pass
+}
+
 function effectsFor(name: PostEffectName): Effect[] {
   switch (name) {
     case 'bloom':
@@ -183,6 +228,7 @@ export function createPost(
       frameBufferType: HalfFloatType, multisampling: MULTISAMPLING,
     })
     made.addPass(new RenderPass(scene, camera))
+    if (p.ao) made.addPass(createOcclusion(scene, camera, p.ao))
     for (const group of postPasses(p)) {
       made.addPass(new EffectPass(camera, ...group.flatMap(effectsFor)))
     }
