@@ -2374,7 +2374,7 @@ function start(): void {
     render: (alpha, frameDt) => {
       syncVisuals(alpha, frameDt)
       // After syncVisuals, which is what places the camera for this frame.
-      world.grass.update(camera.position)
+      world.updateView(camera.position)
       post.render(frameDt)
     },
   })
@@ -2496,7 +2496,7 @@ function start(): void {
       // pass in the list), and the simulation is frozen on this branch, so advancing the
       // pipeline's own clock here would be the one place the pipeline moved and the game did
       // not.
-      world.grass.update(camera.position)
+      world.updateView(camera.position)
       post.render(0)
     } else {
       stepper.advance((now - last) / 1000)

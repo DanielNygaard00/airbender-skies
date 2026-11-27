@@ -1,4 +1,5 @@
-import { Group, Mesh, type BufferGeometry } from 'three'
+import { Group, Mesh, type BufferGeometry, type Vector3 } from 'three'
+import { createCloudSea, type CloudSea } from './cloud-sea'
 import { createSurface } from '../core/surface'
 import type { TerrainQuery } from '../core/types'
 import { createIslandGeometry } from './island'
@@ -14,6 +15,10 @@ export interface World {
   group: Group
   /** Blades on the grass islands' tops; also a child of `group`. See `grass.ts`. */
   grass: GrassField
+  /** The cloud deck at the world floor; also a child of `group`. See `cloud-sea.ts`. */
+  cloudSea: CloudSea
+  /** Everything in the world that depends on where the camera is. Once a frame, before drawing. */
+  updateView(camera: Vector3): void
 }
 
 /** Validate, generate geometry, and assemble the scene graph for a level. */
@@ -57,6 +62,14 @@ export function buildWorld(level: Level): World {
 
   const grass = createGrassField(tufts, level.islands.length)
   group.add(grass.group)
+  const cloudSea = createCloudSea(level.worldFloorY)
+  group.add(cloudSea.mesh)
 
-  return { islands, terrain, group, grass }
+  return {
+    islands, terrain, group, grass, cloudSea,
+    updateView(camera: Vector3): void {
+      grass.update(camera)
+      cloudSea.update(camera)
+    },
+  }
 }

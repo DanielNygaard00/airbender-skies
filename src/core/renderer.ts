@@ -3,6 +3,7 @@ import {
   AgXToneMapping, NoToneMapping, PCFShadowMap,
 } from 'three'
 import { createSkyEnvironment, environmentIntensityFor } from './environment'
+import { installHaze } from './haze'
 import { BASE_FOV } from '../fx/mapping'
 import { createSkyDome } from './sky'
 import { aimSun, createSun } from './sun'
@@ -67,6 +68,9 @@ export function createRenderer(
    */
   elevationDegrees: number = SUN_ELEVATION_DEGREES,
 ) {
+  // Before anything compiles: the haze rewrites three's fog chunks, and a program built first
+  // would keep the old ones. See haze.ts.
+  installHaze()
   const renderer = new WebGLRenderer({ canvas, antialias: true })
   /*
    * `antialias` stays on for the life of the renderer, and it is not a leftover.
