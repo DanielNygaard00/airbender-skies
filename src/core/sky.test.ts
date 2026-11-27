@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { BackSide, Color, Mesh, ShaderMaterial, SphereGeometry, type Vector3 } from 'three'
 import { createSkyDome, SKY_RADIUS, SKY_HORIZON, SKY_ZENITH } from './sky'
 import { SUN_COLOUR, SUN_DIRECTION } from './sun'
+import { CLOUD_DRIFT } from './weather'
 import { FOG_FAR } from './renderer'
 
 function materialOf(dome: Mesh): ShaderMaterial {
@@ -97,11 +98,13 @@ describe('the sky dome', () => {
       .toBe(SUN_COLOUR)
   })
 
-  it('draws clouds without a clock, so two photographs of the sky match', () => {
-    // The FX bench compares screenshots across commits; a drifting cloud layer would make every
-    // sky shot differ. Nothing time-like may reach the dome.
+  it('drifts its clouds on the shared weather offset and on nothing else', () => {
+    // The same object the cloud shadows read, so sky and ground move together; and the only
+    // moving input, so the FX bench -- which never advances the weather -- still photographs
+    // the same sky every time.
     const material = materialOf(createSkyDome())
-    expect(material.fragmentShader).toContain('fbm')
+    expect(material.fragmentShader).toContain('cloudFbm')
+    expect(material.uniforms.cloudDrift).toBe(CLOUD_DRIFT)
     expect(Object.keys(material.uniforms).some((name) => /time|clock|cycle/i.test(name)))
       .toBe(false)
   })

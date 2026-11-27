@@ -1,5 +1,6 @@
 import { BackSide, Color, Mesh, ShaderMaterial, SphereGeometry } from 'three'
 import { SUN_COLOUR, SUN_DIRECTION } from './sun'
+import { CLOUD_COVER, CLOUD_DRIFT, CLOUD_NOISE_GLSL } from './weather'
 
 /**
  * A gradient dome instead of a flat background colour. For a game about altitude,
@@ -36,8 +37,9 @@ const VERTEX_SHADER = /* glsl */ `
 // direction.xz / direction.y -- which is what makes them shrink and crowd toward the horizon the
 // way a real cloud layer does, and they fade out over the last stretch above the horizon, where
 // that projection stretches a texel across kilometres and would shimmer. Lit from the sun's side
-// and greyed toward their undersides so they read as volumes rather than as stickers. Static:
-// the dome has no clock, and the FX bench depends on two photographs of the sky matching.
+// and greyed toward their undersides so they read as volumes rather than as stickers. They drift
+// downwind on `CLOUD_DRIFT` from `weather.ts`, the same offset that moves their shadows over the
+// islands; the FX bench never advances it, so two photographs of its sky still match.
 //
 // The sun: a small HDR disk above 1.0, so bloom catches it, inside a wide soft glow. The glow is
 // the part that matters from gameplay angles -- the disk sits high, and is mostly out of frame.
@@ -54,34 +56,9 @@ const FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 horizon;
   uniform vec3 sunColour;
   uniform vec3 sunDirection;
+  uniform vec2 cloudDrift;
   varying vec3 vDirection;
-
-  float hash(vec2 p) {
-    p = fract(p * vec2(123.34, 456.21));
-    p += dot(p, p + 45.32);
-    return fract(p.x * p.y);
-  }
-  float valueNoise(vec2 p) {
-    vec2 i = floor(p);
-    vec2 f = fract(p);
-    vec2 u = f * f * (3.0 - 2.0 * f);
-    return mix(
-      mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
-      mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
-      u.y
-    );
-  }
-  float fbm(vec2 p) {
-    float sum = 0.0;
-    float amplitude = 0.5;
-    mat2 turn = mat2(1.6, 1.2, -1.2, 1.6);
-    for (int k = 0; k < 5; k++) {
-      sum += amplitude * valueNoise(p);
-      p = turn * p;
-      amplitude *= 0.5;
-    }
-    return sum;
-  }
+  ${CLOUD_NOISE_GLSL}
 
   void main() {
     vec3 dir = normalize(vDirection);
@@ -93,8 +70,10 @@ const FRAGMENT_SHADER = /* glsl */ `
 
     float up = max(dir.y, 0.0);
     vec2 ceiling = dir.xz / (up + 0.06) * 1.4;
-    float shape = fbm(ceiling + vec2(3.7, 1.9));
-    float cover = smoothstep(0.52, 0.78, shape) * smoothstep(0.03, 0.22, up);
+    // Minus the drift: sampling ahead along the wind moves the pattern back against it.
+    float shape = cloudFbm(ceiling + vec2(3.7, 1.9) - cloudDrift);
+    float cover = smoothstep(${CLOUD_COVER[0].toFixed(2)}, ${CLOUD_COVER[1].toFixed(2)}, shape)
+      * smoothstep(0.03, 0.22, up);
     // Thicker cloud is darker underneath; the sun's side of every cloud is lit.
     float thickness = smoothstep(0.55, 0.95, shape);
     vec3 lit = mix(vec3(1.0), sunColour, 0.35) * (0.95 + 0.25 * toSun);
@@ -127,6 +106,8 @@ export function createSkyDome(
       sunColour: { value: new Color(sun) },
       // The same direction the light shines from, so the glow sits where the shadows point away.
       sunDirection: { value: SUN_DIRECTION.clone() },
+      // The shared object itself, so advancing the weather moves this dome's clouds too.
+      cloudDrift: CLOUD_DRIFT,
     },
     vertexShader: VERTEX_SHADER,
     fragmentShader: FRAGMENT_SHADER,
