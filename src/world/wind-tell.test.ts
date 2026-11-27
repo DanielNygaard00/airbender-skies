@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Points, PointsMaterial, ShaderLib, Vector3 } from 'three'
 import {
-  createWindTell, moteCount, POINT_SIZE_ANCHOR, POINT_SIZE_CLAMPED,
+  createWindTell, moteCount, MOTE_SHAPE_ANCHOR, POINT_SIZE_ANCHOR, POINT_SIZE_CLAMPED,
 } from './wind-tell'
 import type { WindDef, WindKind } from './wind'
 
@@ -97,6 +97,21 @@ describe('the near-size clamp', () => {
     material.onBeforeCompile(shader as never, null as never)
     expect(shader.vertexShader).toContain(POINT_SIZE_CLAMPED)
     expect(shader.vertexShader).not.toContain(POINT_SIZE_ANCHOR)
+  })
+
+  it('draws each mote as a soft disc rather than a hard square', () => {
+    // Against three's shipped fragment shader, for the reason the anchor test above gives: a
+    // replace that matches nothing would quietly put the squares back.
+    expect(ShaderLib.points.fragmentShader).toContain(MOTE_SHAPE_ANCHOR)
+    const material = materialOf(createWindTell(def('dead')))
+    const shader = {
+      vertexShader: ShaderLib.points.vertexShader,
+      fragmentShader: ShaderLib.points.fragmentShader,
+      uniforms: {},
+    }
+    material.onBeforeCompile(shader as never, null as never)
+    expect(shader.fragmentShader).toContain('gl_PointCoord')
+    expect(shader.fragmentShader).toContain('discard')
   })
 
   it('leaves the size attenuation on, because distant motes still have to shrink', () => {

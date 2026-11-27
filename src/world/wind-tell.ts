@@ -169,8 +169,31 @@ const OPEN_TRIES = 6
 function clampNearPointSize(material: PointsMaterial): void {
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader.replace(POINT_SIZE_ANCHOR, POINT_SIZE_CLAMPED)
+    shader.fragmentShader = shader.fragmentShader.replace(MOTE_SHAPE_ANCHOR, MOTE_SHAPE)
   }
 }
+
+/** Where the round mote shape is spliced into three's points fragment shader. */
+export const MOTE_SHAPE_ANCHOR = '#include <color_fragment>'
+
+/**
+ * A soft round mote rather than a hard square.
+ *
+ * A point sprite is drawn as a screen-aligned square, and with nothing shaping it that is what
+ * every mote was: a crisp white square hanging in the air, the most obviously computer-generated
+ * thing left in the frame. Fading the alpha out from the centre makes each one a soft disc that
+ * reads as a speck of dust or seed catching the light. The additive blend weighs colour by alpha,
+ * so the soft edge is a real falloff in light and not a grey ring. Colour, size and count -- the
+ * parts of a tell the player actually reads -- are untouched.
+ */
+const MOTE_SHAPE = /* glsl */ `
+  #include <color_fragment>
+  {
+    float moteRadius = length( gl_PointCoord - vec2( 0.5 ) ) * 2.0;
+    if ( moteRadius > 1.0 ) discard;
+    diffuseColor.a *= 1.0 - smoothstep( 0.25, 1.0, moteRadius );
+  }
+`
 
 /**
  * Deterministic scatter, so a level looks the same on every load. Seeded from the
