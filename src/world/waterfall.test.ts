@@ -1,5 +1,5 @@
-import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest'
-import { Mesh, MeshBasicMaterial, Vector3 } from 'three'
+import { describe, it, expect } from 'vitest'
+import { Mesh, MeshBasicMaterial, ShaderMaterial, Vector2, Vector3 } from 'three'
 import { waterfallAnchor, advanceScroll, createWaterfall, type WaterfallDef } from './waterfall'
 import { createIslandGeometry, type IslandDef } from './island'
 import { createTerrainQuery, type IslandMesh } from './terrain-query'
@@ -93,29 +93,12 @@ describe('waterfallAnchor', () => {
 })
 
 describe('createWaterfall', () => {
-  /*
-   * This suite runs in vitest's `node` environment, which has no DOM, while
-   * `createWaterfallTexture` draws its streaks into a real 2D canvas. The stub below
-   * stands in for the handful of calls that generator makes. three.js's `CanvasTexture`
-   * stores whatever object it is handed and only inspects it during a WebGL upload,
-   * which never happens in this suite, so a plain object is enough.
-   */
-  beforeAll(() => {
-    vi.stubGlobal('document', {
-      createElement: () => ({
-        width: 0,
-        height: 0,
-        getContext: () => ({ fillStyle: '', fillRect: () => {} }),
-      }),
-    })
-  })
-  afterAll(() => {
-    vi.unstubAllGlobals()
-  })
+  // No DOM stub any more: the streaks used to be drawn into a 2D canvas, which `node` cannot
+  // provide, and are now computed in the shader.
 
   it('casts no shadow, and contributes no depth under an override material', () => {
-    // The curtain is translucent — `transparent: true` at `opacity: 0.55` with
-    // `depthWrite: false` — and it overlaps the rim rock by LIP_RAISE, so any pass that
+    // The curtain is translucent — `transparent: true` with `depthWrite: false` — and it
+    // overlaps the rim rock by LIP_RAISE, so any pass that
     // treats it as an opaque surface darkens rock the player can see straight through.
     // `enableShadows` in `src/core/sun.ts` is the consumer today, and it replaces the
     // curtain's own material, as would any later pass rendering depth under
@@ -123,6 +106,52 @@ describe('createWaterfall', () => {
     // found the gap; the pass has since been removed and the flag is still correct.
     const waterfall = createWaterfall(island, def(), solid)!
     expect(waterfall.mesh.userData.excludeFromShadows).toBe(true)
+  })
+
+  it('draws through the shared effect builder rather than a hand-built shader', () => {
+    // The builder is what catches a fragment body that redeclares chunks the renderer already
+    // injects -- a failure that throws nowhere and simply stops the mesh drawing.
+    const waterfall = createWaterfall(island, def(), solid)!
+    const material = waterfall.mesh.material as ShaderMaterial
+    expect(material).toBeInstanceOf(ShaderMaterial)
+    expect(material.transparent).toBe(true)
+    expect(material.depthWrite).toBe(false)
+  })
+
+  it('authors its detail in metres, so every fall carries the same water', () => {
+    // The six falls run from 55 to 90 metres long; a pattern written in UV would be stretched
+    // to a different density on each.
+    const waterfall = createWaterfall(island, def(), solid)!
+    const size = (waterfall.mesh.material as ShaderMaterial).uniforms['size']!.value as Vector2
+    expect(size.x).toBe(def().width)
+    expect(size.y).toBe(def().length)
+  })
+
+  it('advances a wrapped phase rather than a growing time', () => {
+    // A float32 time loses precision over a session and a waterfall is on screen for all of
+    // one. The phase stays in [0, 1) however long the game runs.
+    const waterfall = createWaterfall(island, def(), solid)!
+    const uniform = (waterfall.mesh.material as ShaderMaterial).uniforms['cycle']!
+    for (let i = 0; i < 100000; i++) waterfall.advance(1 / 60)
+    expect(uniform.value).toBeGreaterThanOrEqual(0)
+    expect(uniform.value).toBeLessThan(1)
+  })
+
+  it('wraps its phase seamlessly: every temporal term turns a whole number of times', () => {
+    // The wrap is only invisible if the pattern at the end of a cycle is the pattern at the
+    // start, which holds exactly when each multiplier of t is an integer.
+    const source = (createWaterfall(island, def(), solid)!.mesh.material as ShaderMaterial)
+      .fragmentShader
+    // A word boundary on `t`, or `glint * 1.2` matches as `t * 1.2`.
+    const multipliers = [...source.matchAll(/\bt \* ([0-9.]+)/g)].map((m) => Number(m[1]))
+    expect(multipliers.length).toBeGreaterThan(0)
+    for (const value of multipliers) expect(Number.isInteger(value)).toBe(true)
+  })
+
+  it('fades out at its foot instead of ending on a hard line', () => {
+    const source = (createWaterfall(island, def(), solid)!.mesh.material as ShaderMaterial)
+      .fragmentShader
+    expect(source).toMatch(/smoothstep\(0\.0, size\.y \* 0\.25, wy\)/)
   })
 })
 
