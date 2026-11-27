@@ -234,7 +234,9 @@ export function createAvatar() {
       // see `sampleBones` in glide-pose.ts, which carries the same warning.
       const composed = new Map<AnimationName, AnimationClip>()
       const glide = plan.get('glide')?.freeze
-        ? buildGlideClip(gltf.scene, gltf.animations)
+        // `object` is the avatar's own node, which is the space the staff's position is
+        // stated in -- see `inAvatarSpace` in glide-pose.ts for why that has to be said.
+        ? buildGlideClip(gltf.scene, gltf.animations, object)
         : null
       if (glide) composed.set('glide', glide)
 

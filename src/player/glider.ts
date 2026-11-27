@@ -79,37 +79,29 @@ const STOWED_ROTATION = new Vector3(0.1, 0, 1.05)
 // an "ahead" to stay in front of — the wing lies over the body instead, and 0.45
 // puts the staff across the shoulders and upper back.
 //
-// y is where the staff comes to rest on the rider. Not derivable from the back's
-// height alone: the wing's lowest point is a forward fan tip that overhangs past
-// the shoulders with no body under it, so bounding boxes mislead here. Measured
-// instead by sweeping the wing down until the closest wing-to-skin distance
-// reaches zero, which happens at 0.6614. 0.664 leaves 3mm — contact to the eye,
-// while keeping the two surfaces off each other so they cannot z-fight.
+// Where the staff sits, and it is now derived from the rider's grip rather than from their back.
 //
-// Swept against the *worst* moment of the glide's sway rather than a single frame,
-// which the sway is why: the rider now banks slowly under the wing, so the back
-// rises and falls beneath it and a height measured at one instant leaves the two
-// intersecting at another. Sampling a whole cycle moves the answer by about a
-// centimetre, which is three times the clearance it is protecting.
+// This constant has moved four times and every move has the same cause: it describes a
+// relationship between two things, and one of them kept changing. It was 1.19 against the
+// original character, 0.892 against the current one, then 0.664 once the glide pose was fixed to
+// lay the *whole* body down rather than just the torso — each of those swept downward until the
+// wing came to rest on the rider's back.
 //
-// This number has now moved twice for the same reason, and both are worth keeping.
-// It was 1.19 against the previous character: a rider is a different shape, so a
-// height measured against one body is meaningless against another, and at 1.19 the
-// new rider flew with the wing hovering 0.30 above their back. It was then 0.892
-// against a glide pose that was quietly wrong — the pitch was being applied at
-// `Hips`, which on this rig carries only the spine, so the torso lay down under the
-// wing while the legs stayed standing. Laying the whole body down with it lowered
-// the back another 0.23. `avatar.test.ts` measures this surface to surface rather
-// than trusting the constant, which is what caught both.
+// Resting on the back was the wrong relationship. A hang glider is held, not carried, and the
+// rider's hands were touching no part of it. So the pose now solves the arms onto the staff, and
+// this is the position that puts the staff where those arms can actually reach: measured by
+// posing the rider, reading where the hands ended up, and moving the bar to meet them.
 //
-// z stays at 0.45 and is worth a line, because the body under it has moved twice.
-// Gliding used to lay the previous rider from z -0.96 to +0.92, straddling the
-// origin. This one lies from -0.017 to +1.606 — the whole length ahead of the
-// avatar's feet, because the pose pivots at `Root` and swings the entire body
-// forward and down rather than folding it about its middle. So 0.45 now sits
-// roughly a quarter of the way along the body from the feet, which is the
-// shoulders and upper back: still what the number was chosen to mean.
-const DEPLOYED_POSITION = new Vector3(0, 0.664, 0.45)
+// Iterated rather than solved in one step, because the two chase each other — moving the bar
+// changes the reach, which moves the hands. Three passes took the gap from 0.122 to 0.014, which
+// is a finger's width on a 1.8-unit character and closes faster than it is worth pursuing.
+// `avatar.test.ts` measures the grip rather than trusting these numbers, which is what caught
+// every one of the four moves.
+//
+// z is no longer a separate argument about staying ahead of the body. Both numbers now come out
+// of the same measurement, because both are answering one question: where does a bar have to be
+// for these hands to be on it?
+export const DEPLOYED_POSITION = new Vector3(0, 0.598, 0.633)
 /**
  * Nose-up tilt of the deployed wing, in radians. Exported because the rider's
  * glide pose lies parallel to the wing, and the two must not drift apart: retune
@@ -181,6 +173,10 @@ export function createGlider(): {
     new CylinderGeometry(STAFF_RADIUS, STAFF_RADIUS, STAFF_LENGTH, 8), staffMaterial,
   )
   staff.rotation.z = Math.PI / 2
+  // Named so the rider's grip can be measured against it. The fan panels and the fin already
+  // carry names for the same reason; the staff went without one only because nothing had needed
+  // to find it until the hands did.
+  staff.name = 'staff'
   object.add(staff)
 
   // Each side fans from a single shared pivot, the way a real fan turns on its rivet.

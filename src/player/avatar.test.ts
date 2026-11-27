@@ -469,17 +469,26 @@ describe('createAvatar with the real committed model', () => {
     expect(Math.abs(bodyAxis.y)).toBeLessThan(0.3)
   })
 
-  it("rests the deployed wing on the gliding rider's back", async () => {
-    // Where the wing sits is only meaningful against the rider it rests on, which
-    // is why this lives here rather than in glider-mesh.test.ts: it needs the posed
-    // model. Bounding boxes cannot express it either — the wing's lowest point is a
-    // forward fan tip overhanging past the shoulders with no body beneath it, so
-    // this measures surface to surface instead.
+  it('hangs the rider from the staff, with both hands on it', async () => {
+    /*
+     * This replaces a test that asserted the wing came to *rest on the rider's back*, and the
+     * replacement is a change of premise rather than a loosened threshold.
+     *
+     * That arrangement was wrong and the numbers said so once anyone measured them. The staff
+     * sits at the glider's own z of 0.45 while the prone body runs from roughly 0 to 1.6 along
+     * the same axis, so what the wing was resting on was somewhere around the rider's thighs —
+     * and the rider's hands, left wherever the borrowed clip frame put them, were not touching
+     * any part of it. A hang glider is not carried on the back; it is held, and the whole body
+     * hangs off the grip.
+     *
+     * So the relationship worth pinning is the grip. The old surface-to-surface sweep measured
+     * a contact that should no longer exist, and its constant has already been re-swept three
+     * times chasing a rider whose shape kept changing underneath it.
+     */
     const gltf = await loadCommittedModel()
 
     const avatar = createAvatar()
     avatar.attachModel(gltf)
-    // Parented exactly as main.ts parents it, so the wing inherits avatar space.
     const glider = createGlider()
     avatar.object.add(glider.object)
     avatar.setAnimation('glide')
@@ -489,45 +498,121 @@ describe('createAvatar with the real committed model', () => {
     }
     avatar.object.updateMatrixWorld(true)
 
-    let skinned: SkinnedMesh | null = null
-    avatar.object.traverse((node) => {
-      if ((node as SkinnedMesh).isSkinnedMesh) skinned = node as SkinnedMesh
-    })
-    if (!skinned) throw new Error('no skinned mesh')
-    const mesh: SkinnedMesh = skinned
+    const staff = glider.object.getObjectByName('staff')
+    if (!staff) throw new Error('staff missing')
+    const bar = staff.getWorldPosition(new Vector3())
+    /*
+     * The bar's axis is the GLIDER group's local X, not the staff mesh's.
+     *
+     * Worth stating because taking it off the mesh is the obvious thing to do and is wrong: the
+     * staff is a cylinder authored about its own Y and laid on its side by a quarter turn about
+     * Z, so a direction pulled through the mesh's own rotation comes out square to the bar. The
+     * first version of this measurement did exactly that and reported hands 0.22 adrift that
+     * were in fact sitting on the bar, 0.22 apart along it.
+     */
+    const axis = new Vector3(1, 0, 0)
+      .applyQuaternion(glider.object.getWorldQuaternion(new Quaternion()))
+      .normalize()
 
-    const skin: Vector3[] = []
-    const attribute = mesh.geometry.attributes.position
-    if (!attribute) throw new Error('no position attribute')
-    for (let i = 0; i < attribute.count; i++) {
-      const point = new Vector3().fromBufferAttribute(attribute, i)
-      mesh.applyBoneTransform(i, point)
-      skin.push(mesh.localToWorld(point))
+    const at = (name: string) => {
+      const bone = avatar.object.getObjectByName(name)
+      if (!bone) throw new Error(`missing bone ${name}`)
+      return bone.getWorldPosition(new Vector3())
+    }
+    /** Perpendicular distance from a point to the bar's line: how far off the grip is. */
+    const offBar = (point: Vector3) => {
+      const along = point.clone().sub(bar)
+      return along.clone().sub(axis.clone().multiplyScalar(along.dot(axis))).length()
     }
 
-    const wing: Vector3[] = []
-    glider.object.traverse((node) => {
-      const candidate = node as Mesh
-      if (!candidate.isMesh) return
-      const positions = candidate.geometry.attributes.position
-      if (!positions) return
-      for (let i = 0; i < positions.count; i++) {
-        wing.push(candidate.localToWorld(new Vector3().fromBufferAttribute(positions, i)))
-      }
-    })
+    // Both hands on the bar, within a couple of centimetres on a 1.8-unit character.
+    expect(offBar(at(BONES.handL))).toBeLessThan(0.06)
+    expect(offBar(at(BONES.handR))).toBeLessThan(0.06)
 
-    // Closest vertical distance from the wing down to the skin below it.
-    const NEAR = 0.09
-    let gap = Infinity
-    for (const w of wing) {
-      for (const s of skin) {
-        if (Math.abs(w.x - s.x) > NEAR || Math.abs(w.z - s.z) > NEAR) continue
-        gap = Math.min(gap, w.y - s.y)
-      }
+    // And gripping it apart rather than both at the centre, which is what holding a bar means.
+    const spread = at(BONES.handL).distanceTo(at(BONES.handR))
+    expect(spread).toBeGreaterThan(0.25)
+    // Still well inside the staff, so the rider is steering it rather than being carried by it.
+    expect(spread).toBeLessThan(1.4)
+  })
+
+  it('keeps the grip when the model loads while the avatar is turned and away from the origin', async () => {
+    /*
+     * The case the test above cannot see. Every other test here builds the avatar at the world
+     * origin facing +Z, where avatar space and world space are the same space, so a pose that
+     * confused the two baked perfectly. In the game the model finishes loading after the first
+     * frame, by which time the avatar stands on the spawn island facing whichever way the
+     * player spawned -- and the glide pose was baked a half turn wrong, the hands 0.65 from the
+     * bar. Baked here facing the spawn heading, then turned again afterwards, because the clip
+     * must not remember which way the avatar was facing when it was made.
+     */
+    const gltf = await loadCommittedModel()
+    const avatar = createAvatar()
+    avatar.object.position.set(12, 13.87, -40)
+    avatar.object.rotation.set(Math.PI, 0, Math.PI)
+    avatar.object.updateMatrixWorld(true)
+    avatar.attachModel(gltf)
+    const glider = createGlider()
+    avatar.object.add(glider.object)
+    avatar.object.rotation.set(0, 1.1, 0)
+    avatar.setAnimation('glide')
+    for (let i = 0; i < 60; i++) {
+      avatar.update(1 / 60)
+      glider.update(1 / 60, true, null, 0)
+    }
+    avatar.object.updateMatrixWorld(true)
+
+    const staff = glider.object.getObjectByName('staff')
+    if (!staff) throw new Error('staff missing')
+    const bar = staff.getWorldPosition(new Vector3())
+    const axis = new Vector3(1, 0, 0)
+      .applyQuaternion(glider.object.getWorldQuaternion(new Quaternion()))
+      .normalize()
+    for (const name of [BONES.handL, BONES.handR]) {
+      const bone = avatar.object.getObjectByName(name)
+      if (!bone) throw new Error(`missing bone ${name}`)
+      const along = bone.getWorldPosition(new Vector3()).sub(bar)
+      const off = along.clone().sub(axis.clone().multiplyScalar(along.dot(axis))).length()
+      expect(off).toBeLessThan(0.06)
+    }
+  })
+
+  it('holds the lower body in a straight plank while gliding', async () => {
+    // The standing pose this is composed from stands with its knees at about 156 degrees, which
+    // is a gentle crouch and reads at distance as sitting in mid-air. A glider rider holds a
+    // line from shoulder to heel.
+    const gltf = await loadCommittedModel()
+    const avatar = createAvatar()
+    avatar.attachModel(gltf)
+    avatar.setAnimation('glide')
+    for (let i = 0; i < 60; i++) avatar.update(1 / 60)
+    avatar.object.updateMatrixWorld(true)
+
+    const at = (name: string) => {
+      const bone = avatar.object.getObjectByName(name)
+      if (!bone) throw new Error(`missing bone ${name}`)
+      return bone.getWorldPosition(new Vector3())
+    }
+    const angle = (a: Vector3, b: Vector3) =>
+      (Math.acos(Math.max(-1, Math.min(1, a.dot(b)))) * 180) / Math.PI
+
+    // Knees straight.
+    for (const [hip, knee, foot] of [
+      [BONES.upperLegL, BONES.lowerLegL, BONES.footL],
+      [BONES.upperLegR, BONES.lowerLegR, BONES.footR],
+    ] as const) {
+      const thigh = at(hip).sub(at(knee)).normalize()
+      const shin = at(foot).sub(at(knee)).normalize()
+      expect(angle(thigh, shin)).toBeGreaterThan(170)
     }
 
-    expect(gap).toBeLessThan(0.02) // touching, not hovering above the back
-    expect(gap).toBeGreaterThanOrEqual(0) // resting on it, not sunk through it
+    // And the whole line from shoulders through the hips to the ankles, which is what makes it a
+    // plank rather than two straight legs hanging off a bent waist.
+    const shoulders = at(BONES.upperArmL).add(at(BONES.upperArmR)).multiplyScalar(0.5)
+    const ankles = at(BONES.footL).add(at(BONES.footR)).multiplyScalar(0.5)
+    const upper = at(BONES.hips).sub(shoulders).normalize()
+    const lower = ankles.sub(at(BONES.hips)).normalize()
+    expect(angle(upper, lower)).toBeLessThan(15)
   })
 })
 
