@@ -45,6 +45,25 @@ const PATCH_SIZE = 28
 export const PATCH_DEPTH = 0.12
 
 /**
+ * Horizontal strata on exposed rock: the cliffs and the island's underside.
+ *
+ * Bare rock in the real world is layered -- sediment laid down flat, then cut through -- and a
+ * cliff face is read as rock largely by those bands. Without them every cliff was one even grey,
+ * which at the scale of an island's flank reads as plaster. The bands run with height, wobble
+ * with the patch noise so no two cliffs share the same lines, and are left off the walkable top,
+ * which is soil and grass rather than exposed stone.
+ *
+ * `STRATA_SPACING` is the band's wavelength in metres; `STRATA_DEPTH` the most a band moves
+ * lightness either way.
+ *
+ * 9 m, because the colour is per face and an island's cliff faces are six to eight metres tall:
+ * 3.6 m bands were finer than the faces sampling them and came out as random shading rather than
+ * layers. At 9 m neighbouring faces at one height agree, and the bands read.
+ */
+const STRATA_SPACING = 9
+export const STRATA_DEPTH = 0.12
+
+/**
  * Paint a non-indexed island geometry with per-face colors zoned by slope and
  * height: walkable top, cliff sides, and a darker underside. Deterministic for
  * a given seed.
@@ -88,13 +107,18 @@ export function paintIsland(geometry: BufferGeometry, biome: Biome, seed: number
       : palette.cliff
 
     const jitter = 1 + (rng() * 2 - 1) * JITTER
-    const patch = 1 + patches(
+    const field = patches(
       (a.x + b.x + c.x) / 3 / PATCH_SIZE, (a.z + b.z + c.z) / 3 / PATCH_SIZE,
-    ) * PATCH_DEPTH
+    )
+    const patch = 1 + field * PATCH_DEPTH
+    const strata = zone === palette.top
+      ? 1
+      : 1 + Math.sin((centroidY / STRATA_SPACING + field * 0.8) * Math.PI * 2) * STRATA_DEPTH
     base.setHex(zone)
-    const r = Math.min(base.r * jitter * patch, 1)
-    const g = Math.min(base.g * jitter * patch, 1)
-    const bl = Math.min(base.b * jitter * patch, 1)
+    const shade = jitter * patch * strata
+    const r = Math.min(base.r * shade, 1)
+    const g = Math.min(base.g * shade, 1)
+    const bl = Math.min(base.b * shade, 1)
     for (let vtx = 0; vtx < 3; vtx++) {
       colors[(f * 3 + vtx) * 3] = r
       colors[(f * 3 + vtx) * 3 + 1] = g
