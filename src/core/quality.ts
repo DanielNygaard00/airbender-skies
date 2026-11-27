@@ -40,6 +40,13 @@ export interface QualityProfile {
    * carry it does not run at all.
    */
   ao: 'full' | 'half' | false
+  /**
+   * The fraction of grass tufts drawn, 0 to 1. Grass is the one feature whose cost grows with how
+   * much ground is near the player, every vertex of every blade in reach, so it scales with the
+   * tier rather than switching. Half on medium still reads as a field; none on low, where the
+   * painted ground carries the look on its own.
+   */
+  grass: number
   /** Upper bound on `devicePixelRatio`. The single biggest lever on fill cost. */
   pixelRatioCap: number
   /** Square edge of the sun's shadow map, in texels. */
@@ -65,15 +72,15 @@ export interface QualityProfile {
  */
 export const QUALITY_PROFILES: Record<Quality, QualityProfile> = {
   high: {
-    composer: true, bloom: true, grade: true, smaa: true, ao: 'full',
+    composer: true, bloom: true, grade: true, smaa: true, ao: 'full', grass: 1,
     pixelRatioCap: 2, shadowMapSize: 4096,
   },
   medium: {
-    composer: true, bloom: true, grade: true, smaa: true, ao: 'half',
+    composer: true, bloom: true, grade: true, smaa: true, ao: 'half', grass: 0.5,
     pixelRatioCap: 1.5, shadowMapSize: 2048,
   },
   low: {
-    composer: false, bloom: false, grade: false, smaa: false, ao: false,
+    composer: false, bloom: false, grade: false, smaa: false, ao: false, grass: 0,
     pixelRatioCap: 1, shadowMapSize: 1024,
   },
 }

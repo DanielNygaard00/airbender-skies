@@ -198,6 +198,13 @@ function createOcclusion(scene: Scene, camera: Camera, mode: 'full' | 'half'): N
   pass.configuration.aoSamples = mode === 'half' ? 12 : 16
   pass.configuration.denoiseSamples = 8
   pass.configuration.denoiseRadius = 12
+  // Pinned on, where the library would decide for itself. It is what honours
+  // `userData.cannotReceiveAO`, which the grass relies on (see grass.ts), and the library only
+  // turns it on when it finds a transparent material somewhere in the scene. The game always has
+  // one -- the air board's deck, hidden or not -- so it already ran this way; the FX bench's
+  // scenes often have none, and there every grass blade was darkened to black. Pinning it makes
+  // the bench draw what the game draws.
+  pass.configuration.transparencyAware = true
   return pass
 }
 

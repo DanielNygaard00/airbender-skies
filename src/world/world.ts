@@ -4,6 +4,7 @@ import type { TerrainQuery } from '../core/types'
 import { createIslandGeometry } from './island'
 import { paintIsland } from './island-paint'
 import { buildProps } from './props'
+import { createGrassField, scatterTufts, type GrassField, type Tuft } from './grass'
 import { createTerrainQuery, type IslandMesh } from './terrain-query'
 import { validateLevel, type Level } from './level'
 
@@ -11,6 +12,8 @@ export interface World {
   islands: IslandMesh[]
   terrain: TerrainQuery
   group: Group
+  /** Blades on the grass islands' tops; also a child of `group`. See `grass.ts`. */
+  grass: GrassField
 }
 
 /** Validate, generate geometry, and assemble the scene graph for a level. */
@@ -19,10 +22,18 @@ export function buildWorld(level: Level): World {
 
   const group = new Group()
   const islands: IslandMesh[] = []
+  const tufts: Tuft[] = []
 
   for (const def of level.islands) {
     const geometry: BufferGeometry = createIslandGeometry(def)
     paintIsland(geometry, def.biome, def.noiseSeed)
+    // Grass only where the ground is grass: temple sand and bare rock stay bare. +2 keeps the
+    // grass's stream independent of the geometry's (+0) and the props' (+1).
+    // A loop rather than a spread: a large island grows tens of thousands of tufts, past the
+    // argument count a spread into `push` can safely pass.
+    if (def.biome === 'grass') {
+      for (const tuft of scatterTufts(geometry, def.position, def.noiseSeed + 2)) tufts.push(tuft)
+    }
     const material = createSurface('ground', { vertexColors: true })
     const mesh = new Mesh(geometry, material)
     mesh.position.copy(def.position)
@@ -44,5 +55,8 @@ export function buildWorld(level: Level): World {
     if (props) group.add(props)
   }
 
-  return { islands, terrain, group }
+  const grass = createGrassField(tufts, level.islands.length)
+  group.add(grass.group)
+
+  return { islands, terrain, group, grass }
 }
