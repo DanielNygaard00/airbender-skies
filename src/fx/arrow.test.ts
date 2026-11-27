@@ -50,7 +50,7 @@ describe('the arrow view', () => {
     // terrain is information they should not have. Same reasoning as the health bars.
     //
     // Asserted against the exported options rather than against the built material.
-    // `new MeshLambertMaterial({ color })` already yields depthTest === true, because
+    // `createSurface('wood', { color })` already yields depthTest === true, because
     // Material's constructor backfills its own defaults, so reading it back off the mesh
     // passes whether or not arrow.ts asks for it -- deleting the option left this test
     // green. On the options object a removed key reads undefined instead.
@@ -60,7 +60,7 @@ describe('the arrow view', () => {
   it('builds the shaft material out of those options, so the mesh really carries them', () => {
     // The test above pins the intent -- that this file asks for depth testing. This one
     // pins that the shaft mesh is actually built from what it asks for, which is a
-    // separate thing: a refactor giving the shaft its own `new MeshLambertMaterial({
+    // separate thing: a refactor giving the shaft its own `createSurface('wood', {
     // color: TINT })` would leave the options object still reading true, so the test
     // above would stay green while the mesh silently stopped carrying anything the
     // object specifies. Nothing on screen would show that either, because depthTest's

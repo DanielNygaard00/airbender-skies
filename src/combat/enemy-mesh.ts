@@ -1,9 +1,10 @@
 import {
   AnimationMixer, Box3, BoxGeometry, BufferAttribute, BufferGeometry, CapsuleGeometry,
-  ConeGeometry, DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial, MeshLambertMaterial,
+  ConeGeometry, DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial, MeshStandardMaterial,
   TorusGeometry, Vector3, type AnimationAction, type AnimationClip, type Object3D,
   type Quaternion,
 } from 'three'
+import { createSurface } from '../core/surface'
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js'
 import { isDowned } from './health'
@@ -383,17 +384,17 @@ function createMarkPipGeometry(size: number): BufferGeometry {
 const PROPS: Record<EnemyKind, () => Mesh> = {
   // Geometry, position and name all unchanged from before there were four kinds: other tests find
   // this node by name, and the silhouette is the read.
-  spear: () => new Mesh(new ConeGeometry(0.09, 1.9, 6), new MeshLambertMaterial({ color: SPEAR })),
+  spear: () => new Mesh(new ConeGeometry(0.09, 1.9, 6), createSurface('wood', { color: SPEAR })),
   archer: () => new Mesh(
     new TorusGeometry(0.42, 0.05, 6, 12, Math.PI * 1.2),
-    new MeshLambertMaterial({ color: BOW }),
+    createSurface('wood', { color: BOW }),
   ),
   // A slab shield rather than a weapon. The heavy's read is what it holds *up*, not what it swings:
   // a wide flat plate is the silhouette that says "this does not move".
-  heavy: () => new Mesh(new BoxGeometry(0.12, 1.15, 0.75), new MeshLambertMaterial({ color: PLATE })),
+  heavy: () => new Mesh(new BoxGeometry(0.12, 1.15, 0.75), createSurface('metal', { color: PLATE })),
   // A closed ring, where the archer's bow is an open arc: both are tori and the difference has to
   // be visible at distance, so this one is complete, thicker and a different colour.
-  nets: () => new Mesh(new TorusGeometry(0.34, 0.1, 6, 12), new MeshLambertMaterial({ color: NET })),
+  nets: () => new Mesh(new TorusGeometry(0.34, 0.1, 6, 12), createSurface('fabric', { color: NET })),
 }
 
 /** The node name each kind's prop answers to. Kept beside `PROPS` so the two cannot drift. */
@@ -418,7 +419,7 @@ export function createEnemyView(kind: EnemyKind, c: EnemyConfig): EnemyView {
   if (kind === 'heavy') rig.scale.set(1.3, 1, 1.3)
   object.add(rig)
 
-  const bodyMaterial = new MeshLambertMaterial({ color: BASE_COLOUR[kind] })
+  const bodyMaterial = createSurface('fabric', { color: BASE_COLOUR[kind] })
   const body = new Mesh(new CapsuleGeometry(0.35, 1.0, 4, 8), bodyMaterial)
   body.name = 'body'
   body.position.y = 0.85
@@ -484,7 +485,7 @@ export function createEnemyView(kind: EnemyKind, c: EnemyConfig): EnemyView {
   let currentAction: AnimationAction | null = null
   let currentClip: string | null = null
   /** The model's own materials beside the colour each arrived with, for the wind-up tint. */
-  let modelMaterials: { material: MeshLambertMaterial; colour: number }[] = []
+  let modelMaterials: { material: MeshStandardMaterial; colour: number }[] = []
   /**
    * Where this soldier was at the previous sync, so the view can tell walking from standing
    * still without a velocity on `Enemy` to read. Null until the first sync, which therefore
@@ -564,7 +565,7 @@ export function createEnemyView(kind: EnemyKind, c: EnemyConfig): EnemyView {
       model.traverse((node) => {
         const mesh = node as Mesh
         if (!mesh.isMesh || Array.isArray(mesh.material)) return
-        if (!(mesh.material instanceof MeshLambertMaterial)) return
+        if (!(mesh.material instanceof MeshStandardMaterial)) return
         const own = mesh.material.clone()
         mesh.material = own
         modelMaterials.push({ material: own, colour: own.color.getHex() })

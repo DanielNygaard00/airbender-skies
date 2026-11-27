@@ -28,6 +28,13 @@ import { SUN_COLOUR, SUN_DIRECTION, SUN_INTENSITY } from './sun'
 export interface Daylight {
   sunColour: number
   sunIntensity: number
+  /**
+   * The three `hemi*` fields once fed a `HemisphereLight`. The fill is now the sky environment
+   * (`environment.ts`), which takes its ground colour from `hemiGround` and its strength from
+   * `hemiIntensity`. `hemiSky` no longer reaches the screen — the environment's upper half is the
+   * sky gradient itself — and is kept because the three stops still describe a coherent palette
+   * and the daylight tests hold it to the horizon colour.
+   */
   hemiSky: number
   hemiGround: number
   hemiIntensity: number

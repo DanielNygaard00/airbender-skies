@@ -1,9 +1,10 @@
 import {
   BoxGeometry, BufferAttribute, Color, ConeGeometry, CylinderGeometry,
-  IcosahedronGeometry, Matrix4, Mesh, MeshLambertMaterial, Quaternion, Vector3,
+  IcosahedronGeometry, Matrix4, Mesh, Quaternion, Vector3,
   type BufferGeometry,
 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+import { createSurface } from '../core/surface'
 import { mulberry32 } from '../core/rng'
 import type { TerrainQuery, TerrainHit } from '../core/types'
 import type { IslandDef } from './island'
@@ -218,5 +219,6 @@ export function buildProps(
   if (!geometry) return null
   geometry.computeBoundingBox()
   geometry.computeBoundingSphere()
-  return new Mesh(geometry, new MeshLambertMaterial({ vertexColors: true }))
+  // One material for the merged mesh, so trees and rocks share one finish; see `foliage`.
+  return new Mesh(geometry, createSurface('foliage', { vertexColors: true }))
 }

@@ -1,8 +1,9 @@
 import {
-  BoxGeometry, IcosahedronGeometry, Mesh, MeshLambertMaterial, Vector3,
+  BoxGeometry, IcosahedronGeometry, Mesh, Vector3,
   type BufferGeometry,
 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+import { createSurface } from '../core/surface'
 import type { TerrainQuery } from '../core/types'
 import type { IslandDef } from './island'
 import type { Level } from './level'
@@ -197,5 +198,5 @@ export function buildPayloadMesh(): Mesh {
   geometry.translate(0, -lowest, 0)
   geometry.computeBoundingBox()
   geometry.computeBoundingSphere()
-  return new Mesh(geometry, new MeshLambertMaterial({ vertexColors: true }))
+  return new Mesh(geometry, createSurface('stone', { vertexColors: true }))
 }

@@ -1,8 +1,9 @@
 import {
   Object3D, Group, Mesh, CapsuleGeometry, ConeGeometry, Box3,
-  MeshLambertMaterial, AnimationMixer, type AnimationClip,
+  AnimationMixer, type AnimationClip,
 } from 'three'
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
+import { createSurface } from '../core/surface'
 import type { AnimationName } from './avatar-anim'
 import { planClips } from './clip-map'
 import { buildFallClip, buildGlideClip } from './glide-pose'
@@ -31,7 +32,7 @@ function createPlaceholder(): Group {
 
   const body = new Mesh(
     new CapsuleGeometry(0.4, 1.0, 4, 8),
-    new MeshLambertMaterial({ color: 0xf0e6d2 }),
+    createSurface('fabric', { color: 0xf0e6d2 }),
   )
   body.position.y = 0.9
   group.add(body)
@@ -44,7 +45,7 @@ function createPlaceholder(): Group {
   // only the position was on the wrong side (the character's back, not its front).
   const nose = new Mesh(
     new ConeGeometry(0.22, 0.5, 8),
-    new MeshLambertMaterial({ color: 0xd9863f }),
+    createSurface('fabric', { color: 0xd9863f }),
   )
   nose.rotation.x = Math.PI / 2
   nose.position.set(0, 1.1, 0.45)

@@ -2,11 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import {
-  BoxGeometry, Group, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshStandardMaterial, Texture,
+  BoxGeometry, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, Texture,
 } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import { relightUnlitMaterials } from './assets'
+import { SURFACES } from './surface'
 
 const MODEL_PATH = fileURLToPath(new URL('../../public/models/character.glb', import.meta.url))
 
@@ -20,7 +21,7 @@ function meshWith(material: Mesh['material']): Mesh {
 }
 
 describe('relightUnlitMaterials', () => {
-  it('converts an unlit material to Lambert, carrying the texture across', () => {
+  it('converts an unlit material to a painted surface, carrying the texture across', () => {
     const map = new Texture()
     const mesh = meshWith(new MeshBasicMaterial({ map, color: 0x336699 }))
     const scene = new Group()
@@ -31,10 +32,14 @@ describe('relightUnlitMaterials', () => {
     // A thrown narrowing rather than only `toBeInstanceOf`, because the assertion does
     // not narrow the type and the two reads below need `map` and `color` to exist.
     const material = mesh.material
-    if (!(material instanceof MeshLambertMaterial)) throw new Error('expected a Lambert material')
+    if (!(material instanceof MeshStandardMaterial)) throw new Error('expected a lit surface')
     // The texture is the art; losing it would leave a flat-coloured character.
     expect(material.map).toBe(map)
     expect(material.color.getHex()).toBe(0x336699)
+    // The painted finish, not Standard's glossy-plastic defaults: the art has its shading baked
+    // in, and a sharp highlight on top would light it twice.
+    expect(material.roughness).toBe(SURFACES.painted.roughness)
+    expect(material.metalness).toBe(SURFACES.painted.metalness)
   })
 
   it('disposes the material it replaces', () => {
@@ -106,10 +111,10 @@ describe('relightUnlitMaterials', () => {
       const mesh = node as Mesh
       if (!mesh.isMesh || Array.isArray(mesh.material)) return
       after.push(mesh.material.type)
-      if ((mesh.material as MeshLambertMaterial).map) maps++
+      if ((mesh.material as MeshStandardMaterial).map) maps++
     })
     expect(after).not.toContain('MeshBasicMaterial')
-    expect(new Set(after)).toEqual(new Set(['MeshLambertMaterial']))
+    expect(new Set(after)).toEqual(new Set(['MeshStandardMaterial']))
     // The atlas survived on every mesh that had one.
     expect(maps).toBe(after.length)
   })

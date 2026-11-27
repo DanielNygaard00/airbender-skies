@@ -1,4 +1,5 @@
-import { Group, Mesh, MeshLambertMaterial, type BufferGeometry } from 'three'
+import { Group, Mesh, type BufferGeometry } from 'three'
+import { createSurface } from '../core/surface'
 import type { TerrainQuery } from '../core/types'
 import { createIslandGeometry } from './island'
 import { paintIsland } from './island-paint'
@@ -22,7 +23,7 @@ export function buildWorld(level: Level): World {
   for (const def of level.islands) {
     const geometry: BufferGeometry = createIslandGeometry(def)
     paintIsland(geometry, def.biome, def.noiseSeed)
-    const material = new MeshLambertMaterial({ vertexColors: true })
+    const material = createSurface('ground', { vertexColors: true })
     const mesh = new Mesh(geometry, material)
     mesh.position.copy(def.position)
     mesh.updateMatrixWorld(true)

@@ -1,7 +1,7 @@
 import {
-  CylinderGeometry, Group, Mesh, MeshLambertMaterial, Vector3,
-  type MeshLambertMaterialParameters, type Object3D,
+  CylinderGeometry, Group, Mesh, Vector3, type Object3D,
 } from 'three'
+import { createSurface, type SurfaceParameters } from '../core/surface'
 import type { Projectile } from '../combat/projectile'
 
 const LENGTH = 0.9
@@ -17,7 +17,7 @@ const TINT = 0x4a3c2a
  * it, and deleting the line below would leave that test green. Read from this object a
  * removed key is `undefined`, which is a failure.
  */
-export const SHAFT_MATERIAL_OPTIONS: MeshLambertMaterialParameters = {
+export const SHAFT_MATERIAL_OPTIONS: SurfaceParameters = {
   color: TINT,
   // Depth-tested, unlike the attack tells in this directory. An arrow visible through
   // a hill is information the player should not have — the same reasoning already
@@ -46,7 +46,7 @@ export function createArrowView(): ArrowView {
 
   // The cylinder's axis is local Y, so lay it along local Z to point along the flight.
   const geometry = new CylinderGeometry(RADIUS, RADIUS, LENGTH, 5)
-  const material = new MeshLambertMaterial(SHAFT_MATERIAL_OPTIONS)
+  const material = createSurface('wood', SHAFT_MATERIAL_OPTIONS)
   const shaft = new Mesh(geometry, material)
   shaft.name = 'arrow-shaft'
   shaft.rotation.x = Math.PI / 2

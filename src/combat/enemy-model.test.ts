@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { Box3, Mesh, MeshLambertMaterial, Quaternion, Vector3, type SkinnedMesh } from 'three'
+import { Box3, Mesh, MeshStandardMaterial, Quaternion, Vector3, type SkinnedMesh } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import {
@@ -20,7 +20,7 @@ function loadModel(kind: EnemyKind): Promise<GLTF> {
   return new Promise((resolve, reject) => {
     new GLTFLoader().parse(buffer, '', (gltf) => {
       // Through the same door main.ts uses, because the wind-up tint only reaches materials
-      // that relighting has already turned into Lambert ones.
+      // that relighting has already turned into lit surfaces.
       relightUnlitMaterials(gltf)
       resolve(gltf)
     }, reject)
@@ -43,13 +43,13 @@ const CAMERA = new Quaternion()
 /** A health record at zero, which is what `isDowned` reads. */
 const DOWNED = { current: 0, max: 3, sinceHit: 0 }
 
-/** Every Lambert material on the view, which is what the wind-up tint writes to. */
-function materialsOf(view: ReturnType<typeof viewFor>): MeshLambertMaterial[] {
-  const found: MeshLambertMaterial[] = []
+/** Every lit surface on the view, which is what the wind-up tint writes to. */
+function materialsOf(view: ReturnType<typeof viewFor>): MeshStandardMaterial[] {
+  const found: MeshStandardMaterial[] = []
   view.object.traverse((node) => {
     const mesh = node as Mesh
     if (!mesh.isMesh || Array.isArray(mesh.material)) return
-    if (mesh.material instanceof MeshLambertMaterial) found.push(mesh.material)
+    if (mesh.material instanceof MeshStandardMaterial) found.push(mesh.material)
   })
   return found
 }
