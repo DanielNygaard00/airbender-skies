@@ -57,8 +57,11 @@ export function advanceWind(dt: number): void {
  */
 export const SWAY_AMPLITUDE = 0.4
 
-/** The direction the wind blows across the archipelago, in the ground plane (unit length). */
-const WIND_DIRECTION = [0.8, 0.6] as const
+/**
+ * The direction the wind blows across the archipelago, in the ground plane (unit length).
+ * Exported so the grass bends the same way as the trees above it.
+ */
+export const WIND_DIRECTION = [0.8, 0.6] as const
 
 /**
  * Add a `sway` weight to every vertex of a part.

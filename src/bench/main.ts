@@ -114,6 +114,9 @@ async function start(): Promise<void> {
   camera.position.copy(scene.camera.position)
   camera.lookAt(scene.camera.target)
   followSun(scene.camera.target)
+  // The bench's camera never moves, so one culling pass at the tier's density is the whole job.
+  world.grass.setDensity(profile.grass)
+  world.grass.update(camera.position)
 
   /**
    * A scene's own `soldiers`, if it names any — see that field's doc comment on `BenchScene`

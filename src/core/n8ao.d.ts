@@ -33,6 +33,11 @@ declare module 'n8ao' {
     gammaCorrection: boolean
     /** Render the occlusion at half resolution and upsample it. */
     halfRes: boolean
+    /**
+     * Composite transparent objects, and any mesh with `userData.cannotReceiveAO`, over the
+     * occlusion rather than darkening them with it. Setting it stops the library choosing it.
+     */
+    transparencyAware: boolean
   }
 
   export class N8AOPostPass extends Pass {

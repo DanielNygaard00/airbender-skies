@@ -16,6 +16,15 @@ export const BIOME_PALETTES: Record<Biome, BiomePalette> = {
 
 /** Faces steeper than this (by normal y) are cliff, not walkable top. */
 const TOP_SLOPE = 0.65
+
+/**
+ * Whether a face is walkable top rather than cliff or underside. Exported so `grass.ts` plants
+ * blades on exactly the faces painted as top — grass on a cliff painted rock colour would be the
+ * one place the two disagreed.
+ */
+export function isTopFace(normalY: number, centroidY: number): boolean {
+  return normalY > TOP_SLOPE && centroidY > 0
+}
 /** Faces whose centroid sits below this fraction of min.y are underside. */
 const UNDER_FRACTION = 0.4
 /** Per-face lightness jitter, so facets vary instead of reading as one sheet. */
@@ -75,7 +84,7 @@ export function paintIsland(geometry: BufferGeometry, biome: Biome, seed: number
 
     const zone =
       centroidY < minY * UNDER_FRACTION ? palette.under
-      : normalY > TOP_SLOPE && centroidY > 0 ? palette.top
+      : isTopFace(normalY, centroidY) ? palette.top
       : palette.cliff
 
     const jitter = 1 + (rng() * 2 - 1) * JITTER
