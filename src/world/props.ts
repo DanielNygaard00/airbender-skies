@@ -5,6 +5,7 @@ import {
 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { createSurface } from '../core/surface'
+import { applyWindSway, createSwayDepthMaterial, withSway } from './wind-sway'
 import { mulberry32 } from '../core/rng'
 import type { TerrainQuery, TerrainHit } from '../core/types'
 import type { IslandDef } from './island'
@@ -146,8 +147,12 @@ function treeParts(variant: number): BufferGeometry[] {
   lower.translate(0, 3.4, 0)
   const upper = colored(new ConeGeometry(1.5, 2.2, 7), green)
   upper.translate(0, 5.2, 0)
-  return [trunk, lower, upper]
+  // Weighted against the crown's tip, 6.3 above the base, so all three parts bend as one tree.
+  return [trunk, lower, upper].map((part) => withSway(part, TREE_TOP))
 }
+
+/** Height of a tree's crown tip above its base at scale 1: the upper cone's apex. */
+const TREE_TOP = 5.2 + 2.2 / 2
 
 function boulderParts(cliffColor: number): BufferGeometry[] {
   const rock = colored(new IcosahedronGeometry(1.3, 0), cliffColor)
@@ -209,6 +214,9 @@ export function buildProps(
       new Vector3(placement.scale, placement.scale, placement.scale),
     )
     for (const part of parts) {
+      // Stone never sways; trees already carry their weights. Every part needs the attribute,
+      // because `mergeGeometries` refuses parts whose attribute sets differ.
+      if (!part.attributes['sway']) withSway(part, 0)
       part.applyMatrix4(matrix)
       merged.push(part)
     }
@@ -220,5 +228,9 @@ export function buildProps(
   geometry.computeBoundingBox()
   geometry.computeBoundingSphere()
   // One material for the merged mesh, so trees and rocks share one finish; see `foliage`.
-  return new Mesh(geometry, createSurface('foliage', { vertexColors: true }))
+  const mesh = new Mesh(
+    geometry, applyWindSway(createSurface('foliage', { vertexColors: true })),
+  )
+  mesh.customDepthMaterial = createSwayDepthMaterial()
+  return mesh
 }

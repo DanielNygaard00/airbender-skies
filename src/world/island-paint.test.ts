@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { Vector3 } from 'three'
+import { Color, Vector3 } from 'three'
 import { createIslandGeometry, type IslandDef } from './island'
-import { paintIsland, BIOME_PALETTES } from './island-paint'
+import { paintIsland, BIOME_PALETTES, JITTER, PATCH_DEPTH } from './island-paint'
 
 const def: IslandDef = {
   id: 'paint-test',
@@ -37,14 +37,20 @@ function faces(biome: IslandDef['biome'] = 'grass', seed = 99) {
   return { geometry, faces: out }
 }
 
-/** True when the face color is the palette color within the ±4% jitter. */
+/**
+ * True when the face color is the palette color, in linear light, within the jitter and the
+ * meadow patches combined — and with the channel ratios intact, which is what says the face got
+ * this zone's colour rather than a neighbouring zone's at a different brightness.
+ */
 function matches(color: [number, number, number], hex: number): boolean {
-  const r = ((hex >> 16) & 0xff) / 255
-  const g = ((hex >> 8) & 0xff) / 255
-  const b = (hex & 0xff) / 255
-  const within = (got: number, want: number) =>
-    Math.abs(got - want) <= want * 0.05 + 1e-3
-  return within(color[0], r) && within(color[1], g) && within(color[2], b)
+  const want = new Color(hex)
+  const scale = (1 + JITTER) * (1 + PATCH_DEPTH) + 1e-3
+  const within = (got: number, target: number) =>
+    got <= target * scale && got >= target / scale
+  const ratio = (x: number, y: number) => x / Math.max(y, 1e-6)
+  return within(color[0], want.r) && within(color[1], want.g) && within(color[2], want.b)
+    && Math.abs(ratio(color[0], color[1]) - ratio(want.r, want.g)) < 1e-3
+    && Math.abs(ratio(color[2], color[1]) - ratio(want.b, want.g)) < 1e-3
 }
 
 describe('paintIsland', () => {
@@ -90,6 +96,22 @@ describe('paintIsland', () => {
     const a = faces('grass', 7).geometry.attributes.color!.array
     const b = faces('grass', 7).geometry.attributes.color!.array
     expect(Array.from(a)).toEqual(Array.from(b))
+  })
+
+  it('writes the palette in linear light, the space a vertex colour attribute is read in', () => {
+    // The raw sRGB byte for the grass top's green channel is 0xa8 / 255 = 0.659. Written as is,
+    // the renderer read it as linear and the island came out pale; converted, it is about 0.39.
+    const top = faces().faces.filter((f) => f.normal.y > 0.9 && f.centroid.y > 1)
+    const raw = 0xa8 / 255
+    for (const f of top) expect(f.color[1]).toBeLessThan(raw * 0.75)
+  })
+
+  it('varies the ground in broad patches, not only face by face', () => {
+    // Faces far apart on the top differ by more than the per-face jitter alone could produce.
+    const top = faces().faces.filter((f) => f.normal.y > 0.9 && f.centroid.y > 1)
+    const greens = top.map((f) => f.color[1])
+    const spread = Math.max(...greens) / Math.min(...greens)
+    expect(spread).toBeGreaterThan((1 + JITTER) / (1 - JITTER))
   })
 
   it('rejects indexed geometry', () => {

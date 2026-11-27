@@ -139,7 +139,7 @@ export function createRenderer(
   scene.background = new Color(light.skyHorizon)
   // Fog hides the empty void between islands and sells the sense of altitude.
   scene.fog = new Fog(light.fogColour, FOG_NEAR, FOG_FAR)
-  scene.add(createSkyDome(light.skyZenith, light.skyHorizon))
+  scene.add(createSkyDome(light.skyZenith, light.skyHorizon, light.sunColour))
 
   // The sky, prefiltered, as the fill light for every surface — it replaced a HemisphereLight;
   // see environment.ts for what that bought and how the strength was matched.

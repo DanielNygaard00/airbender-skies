@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { BackSide, Color, Mesh, ShaderMaterial, SphereGeometry } from 'three'
+import { BackSide, Color, Mesh, ShaderMaterial, SphereGeometry, type Vector3 } from 'three'
 import { createSkyDome, SKY_RADIUS, SKY_HORIZON, SKY_ZENITH } from './sky'
+import { SUN_COLOUR, SUN_DIRECTION } from './sun'
 import { FOG_FAR } from './renderer'
 
 function materialOf(dome: Mesh): ShaderMaterial {
@@ -83,6 +84,26 @@ describe('the sky dome', () => {
     const c = coloursOf(createSkyDome())
     expect(c.zenith.getHex()).toBe(SKY_ZENITH)
     expect(c.horizon.getHex()).toBe(SKY_HORIZON)
+  })
+
+  it('puts the sun where the light comes from, in the colour it is given', () => {
+    // A glow on one side of the sky and shadows cast away from the other would be the kind of
+    // disagreement players notice without being able to name.
+    const { sunDirection, sunColour } = materialOf(createSkyDome(SKY_ZENITH, SKY_HORIZON, 0xffb066))
+      .uniforms
+    expect((sunDirection?.value as Vector3).equals(SUN_DIRECTION)).toBe(true)
+    expect((sunColour?.value as Color).getHex()).toBe(0xffb066)
+    expect((materialOf(createSkyDome()).uniforms.sunColour?.value as Color).getHex())
+      .toBe(SUN_COLOUR)
+  })
+
+  it('draws clouds without a clock, so two photographs of the sky match', () => {
+    // The FX bench compares screenshots across commits; a drifting cloud layer would make every
+    // sky shot differ. Nothing time-like may reach the dome.
+    const material = materialOf(createSkyDome())
+    expect(material.fragmentShader).toContain('fbm')
+    expect(Object.keys(material.uniforms).some((name) => /time|clock|cycle/i.test(name)))
+      .toBe(false)
   })
 
   it('takes the gradient it is given', () => {
