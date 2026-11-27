@@ -29,6 +29,17 @@ export interface QualityProfile {
   /** The brightness/contrast/saturation trim. Cheap, and the whole "graded" look. */
   grade: boolean
   smaa: boolean
+  /**
+   * Screen-space ambient occlusion: the darkening where one surface meets another — a tree's
+   * foot in the grass, a boulder's underside, the folds of an island's cliffs. On a low-poly,
+   * flat-shaded world this is the single largest step toward reading as a real place, because
+   * without it every object looks pasted onto the ground rather than sitting in it.
+   *
+   * `'full'` and `'half'` are both on; half renders the occlusion at half resolution and
+   * upsamples, which is where medium saves its cost. Off on low, where the composer that would
+   * carry it does not run at all.
+   */
+  ao: 'full' | 'half' | false
   /** Upper bound on `devicePixelRatio`. The single biggest lever on fill cost. */
   pixelRatioCap: number
   /** Square edge of the sun's shadow map, in texels. */
@@ -54,15 +65,15 @@ export interface QualityProfile {
  */
 export const QUALITY_PROFILES: Record<Quality, QualityProfile> = {
   high: {
-    composer: true, bloom: true, grade: true, smaa: true,
+    composer: true, bloom: true, grade: true, smaa: true, ao: 'full',
     pixelRatioCap: 2, shadowMapSize: 4096,
   },
   medium: {
-    composer: true, bloom: true, grade: true, smaa: true,
+    composer: true, bloom: true, grade: true, smaa: true, ao: 'half',
     pixelRatioCap: 1.5, shadowMapSize: 2048,
   },
   low: {
-    composer: false, bloom: false, grade: false, smaa: false,
+    composer: false, bloom: false, grade: false, smaa: false, ao: false,
     pixelRatioCap: 1, shadowMapSize: 1024,
   },
 }
