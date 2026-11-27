@@ -5,7 +5,7 @@
 import { HalfFloatType, Vector2, type Camera, type Scene, type WebGLRenderer } from 'three'
 import {
   BloomEffect, BrightnessContrastEffect, type Effect, EffectComposer, EffectPass,
-  HueSaturationEffect, RenderPass, SMAAEffect, ToneMappingEffect, ToneMappingMode,
+  HueSaturationEffect, RenderPass, SMAAEffect, ToneMappingEffect, ToneMappingMode, VignetteEffect,
 } from 'postprocessing'
 import { N8AOPostPass } from 'n8ao'
 import type { QualityProfile } from './quality'
@@ -117,6 +117,21 @@ const BLOOM = { intensity: 0.9, luminanceThreshold: 0.82, luminanceSmoothing: 0.
 const GRADE = { brightness: 0, contrast: 0.08, saturation: 0.18 }
 
 /**
+ * A lens's light falloff toward the frame's corners, part of the grade.
+ *
+ * Every real camera darkens its corners a little, and an image with perfectly even corners is one
+ * of the quieter signs that it was rendered rather than photographed. Applied with the grade, in
+ * scene light before tone mapping, which is where a lens does it: the falloff multiplies the light
+ * arriving, rather than darkening an image already mapped for display. Kept faint enough that it
+ * never hides a soldier or an attack tell in a corner -- a reading aid, not a frame.
+ *
+ * Measured off the bench's light scene, top corner against top centre: 0.32 darkness took about
+ * 5% off the corner, which no one would see. 0.5 takes about a sixth, in the range a real lens
+ * shows wide open, and the corners still read clearly.
+ */
+const VIGNETTE = { offset: 0.3, darkness: 0.5 }
+
+/**
  * Hardware MSAA *inside* the composer, because the canvas's own is unreachable from here.
  *
  * The canvas is created with `antialias: true`, but that buffer only antialiases what is
@@ -196,6 +211,7 @@ function effectsFor(name: PostEffectName): Effect[] {
           brightness: GRADE.brightness, contrast: GRADE.contrast,
         }),
         new HueSaturationEffect({ saturation: GRADE.saturation }),
+        new VignetteEffect(VIGNETTE),
       ]
     case 'tone-mapping':
       // AgX rather than ACES. ACES pushes saturated highlights toward a different hue as they
