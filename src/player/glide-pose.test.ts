@@ -6,7 +6,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
 import { buildFallClip, buildGlideClip } from './glide-pose'
 import { BONES } from './rig'
-import { DEPLOYED_PITCH } from './glider'
+import { DEPLOYED_PITCH, DEPLOYED_POSITION } from './glider'
 
 const MODEL_PATH = fileURLToPath(new URL('../../public/models/character.glb', import.meta.url))
 
@@ -89,13 +89,49 @@ describe('buildGlideClip', () => {
     expect(pose.feetGap).toBeLessThan(1.2)
   })
 
-  it('takes the arms from a clip that raises them', async () => {
+  it('reaches the arms towards the grip rather than leaving them hanging', async () => {
+    /*
+     * This used to assert that the hands sat towards the head end of the body, which was the
+     * right question while the arms were sampled from a clip frame: hanging arms are what made
+     * the borrowed jump frame look wrong.
+     *
+     * It is the wrong question now that the arms are solved onto the glider's staff, and it was
+     * failing for a reason worth recording rather than for a real defect. This file poses a
+     * *raw* `gltf.scene` — 2.9 units tall, exactly as exported — while the game poses one the
+     * avatar has fitted to 1.8. The staff's position is a fixed point in the avatar's space, so
+     * on the unscaled model it lands around the knees and the arms quite correctly reach down
+     * and back for it. The sign of the old measurement was reporting the scale difference, not
+     * the pose.
+     *
+     * So this asserts the thing that is true at either scale: the reach happens at all. Whether
+     * the hands land *on* the bar is a question about the fitted character and belongs with it —
+     * `avatar.test.ts` measures that against the real staff through `createAvatar`.
+     */
     const gltf = await loadModel()
     const clip = buildGlideClip(gltf.scene, gltf.animations)
     if (!clip) throw new Error('expected a glide clip')
 
-    // Hanging arms are what made the borrowed jump frame look wrong.
-    expect(poseWith(gltf, clip).handAlongBody).toBeGreaterThan(0)
+    const mixer = new AnimationMixer(gltf.scene)
+    mixer.clipAction(clip).play()
+    mixer.setTime(0)
+    gltf.scene.updateMatrixWorld(true)
+    const at = (name: string) => {
+      const bone = gltf.scene.getObjectByName(name)
+      if (!bone) throw new Error(`missing bone ${name}`)
+      return bone.getWorldPosition(new Vector3())
+    }
+
+    // The default `avatarSpace` is the model root, so the target is the staff's own coordinates
+    // read in that space -- the same point the solve above aimed at.
+    const target = new Vector3(0, DEPLOYED_POSITION.y, DEPLOYED_POSITION.z)
+    for (const [shoulder, hand] of [
+      [BONES.upperArmL, BONES.handL],
+      [BONES.upperArmR, BONES.handR],
+    ] as const) {
+      // The hand is nearer the grip than the shoulder it hangs from: the arm is extended
+      // towards the bar rather than dropped by the side.
+      expect(at(hand).distanceTo(target)).toBeLessThan(at(shoulder).distanceTo(target))
+    }
   })
 
   it('lies parallel to the deployed wing', async () => {

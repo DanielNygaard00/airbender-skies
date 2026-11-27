@@ -1,8 +1,9 @@
 import {
-  AnimationClip, AnimationMixer, Euler, Quaternion, QuaternionKeyframeTrack,
+  AnimationClip, AnimationMixer, Euler, MathUtils, Quaternion, QuaternionKeyframeTrack,
   Vector3, VectorKeyframeTrack, type Object3D, type Bone,
 } from 'three'
-import { DEPLOYED_PITCH } from './glider'
+import { DEPLOYED_PITCH, DEPLOYED_POSITION } from './glider'
+import { BONES } from './rig'
 
 /**
  * Stock character packs ship no gliding animation, and freezing a frame of the
@@ -175,8 +176,24 @@ function sampleBones(root: Object3D, clip: AnimationClip, fraction: number): Map
  * if either source frame is retuned, or if the model is replaced.
  *
  * Falls back to a plain pitch when the rig lacks the bones to measure.
+ *
+ * **Three spaces meet here, and the function used to treat them as one.** The body's axis is
+ * measured from bone world positions. The wing's heading is a fact about the avatar: "forward and
+ * nose-up" means the avatar's forward, whichever way the player happens to be facing. And the
+ * rotation returned is pre-multiplied onto the carrier bone's *local* quaternion, so it has to be
+ * stated in the carrier's parent's frame. The earlier version compared a world axis against an
+ * avatar-local heading and handed the answer back as if it were local, which is right only when
+ * the avatar faces down world +Z — exactly where every test stands it.
+ *
+ * In the game the avatar is already turned by the time the model finishes loading. At the spawn
+ * heading it faces world -Z, the rotation came out a half turn wrong, and the rider was baked
+ * lying the wrong way along the wing with the hands solved toward a bar that was not there:
+ * measured in the live game, 0.65 from the staff, against 0.013 for the same model baked facing
+ * +Z and turned afterwards.
  */
-function pitchOnto(root: Object3D, composed: Map<string, BonePose>): Quaternion {
+function pitchOnto(
+  root: Object3D, composed: Map<string, BonePose>, avatarSpace: Object3D,
+): Quaternion {
   const fixed = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), GLIDE_PITCH)
 
   const hips = root.getObjectByName('Hips')
@@ -194,9 +211,17 @@ function pitchOnto(root: Object3D, composed: Map<string, BonePose>): Quaternion 
     .normalize()
   if (axis.lengthSq() < 1e-6) return fixed
 
-  // Where the body should point: the wing's own heading, nose tilted up.
+  // Where the body should point: the wing's own heading, nose tilted up -- in the avatar's
+  // frame, carried into world space to meet the axis it is compared against.
   const target = new Vector3(0, Math.sin(DEPLOYED_PITCH), Math.cos(DEPLOYED_PITCH))
-  return new Quaternion().setFromUnitVectors(axis, target)
+    .applyQuaternion(avatarSpace.getWorldQuaternion(new Quaternion()))
+  const turn = new Quaternion().setFromUnitVectors(axis, target)
+
+  // Restated in the carrier's parent frame: the caller multiplies this onto the carrier's local
+  // quaternion, so a world-space turn R becomes P^-1 R P for a parent whose world rotation is P.
+  const parent = root.getObjectByName(CARRIER)?.parent
+  const frame = parent ? parent.getWorldQuaternion(new Quaternion()) : new Quaternion()
+  return frame.clone().invert().multiply(turn).multiply(frame)
 }
 
 /**
@@ -217,12 +242,11 @@ interface Sway {
 }
 
 /**
- * No bob, unlike the fall's. Something is resting on this body: `glider.ts` sweeps
- * `DEPLOYED_POSITION.y` down until the wing touches the rider's back and leaves three
- * millimetres, and the wing hangs off the avatar root while the bob moves the model inside it.
- * A centimetre and a half of rise against three millimetres of clearance would push the back up
- * through the wing for half of every cycle. The roll and pitch stay because their vertical
- * excursion is far smaller and the swept height accounts for the worst of it.
+ * No bob, unlike the fall's. The rider's hands are on the staff, and the staff hangs off the
+ * avatar root while the bob moves the model inside it: a centimetre and a half of rise would lift
+ * both fists off the bar and back onto it every cycle, against a grip measured to about one. (This
+ * used to argue from the wing resting on the rider's back, which is how the glider sat before the
+ * rider held it.) The roll and pitch stay because their excursion at the hands is far smaller.
  */
 const GLIDE_SWAY: Sway = {
   seconds: SWAY_SECONDS,
@@ -321,7 +345,295 @@ function buildSwayedClip(
  * Build the glide pose for a model that has no glide clip of its own. Returns
  * null when neither source clip is present, leaving the caller on its fallback.
  */
-export function buildGlideClip(root: Object3D, clips: AnimationClip[]): AnimationClip | null {
+/**
+ * How far apart the hands grip the staff, each side of its centre, in avatar units.
+ *
+ * A shoulder-width grip on a 1.9-unit staff, which leaves most of the span either side of the
+ * hands — a rider holding a control bar at its very ends looks like they are being carried by it
+ * rather than steering it.
+ */
+const GRIP_HALF_SPAN = 0.22
+
+/**
+ * Where the hands have to end up, in avatar-local space.
+ *
+ * Avatar-local, and every caller has to convert before using it — see `inAvatarSpace`.
+ *
+ * Read off `DEPLOYED_POSITION` rather than written out again, which matters more here than it
+ * usually does: that constant has already moved three times — 1.19, then 0.892, then 0.664, each
+ * time because the rider's shape changed underneath it — and a copy of the number in this file
+ * would have been wrong after the first of those and silently so. The staff is laid along the
+ * glider's local X and the deployed tilt is a rotation *about* X, so a point on the staff's axis
+ * is unmoved by that tilt and the target is simply the glider's own position offset sideways.
+ */
+function gripTarget(side: number): Vector3 {
+  return new Vector3(
+    DEPLOYED_POSITION.x + side * GRIP_HALF_SPAN, DEPLOYED_POSITION.y, DEPLOYED_POSITION.z,
+  )
+}
+
+/**
+ * Carry an avatar-local point into world space.
+ *
+ * This exists because its absence was the whole bug, and the bug was invisible in every test.
+ *
+ * The staff's position is stated in the avatar's own space: `glider.ts` hangs off
+ * `avatar.object`, so `DEPLOYED_POSITION` means "this far in front of the character", not "this
+ * point in the world". The bones, meanwhile, report world positions. Feeding one to the other
+ * reads an avatar-local target as a world one, which is the *same number* whenever the avatar
+ * happens to be standing at the world origin — which is exactly where every unit test puts it,
+ * and nowhere the game ever does.
+ *
+ * So the pose solved perfectly in node and, in the running game, dragged the entire body from
+ * the player's position at y 13.87 down to the world origin. The mesh was present, visible,
+ * un-culled, with finite bone matrices and a valid material, and drew nothing anywhere near the
+ * camera. It was diagnosed by reading bone world positions out of the live scene: the mesh node
+ * at y 13.869 and its own skeleton at y 1.
+ */
+function inAvatarSpace(point: Vector3, avatarSpace: Object3D): Vector3 {
+  avatarSpace.updateMatrixWorld(true)
+  return avatarSpace.localToWorld(point.clone())
+}
+
+/** Turn a bone so the direction to `child` points along `aim`, given in world space. */
+function aimBone(bone: Object3D, child: Object3D, aim: Vector3): void {
+  const from = child.getWorldPosition(new Vector3())
+    .sub(bone.getWorldPosition(new Vector3()))
+  if (from.lengthSq() < 1e-12 || aim.lengthSq() < 1e-12) return
+  from.normalize()
+
+  // Built in world space and then carried back into the parent's, because a bone's own axes are
+  // whatever the rigger left them as: this rig's arms do not run down any one local axis, so a
+  // rotation authored in bone space would need a per-bone convention nothing here can know.
+  const turn = new Quaternion().setFromUnitVectors(from, aim.clone().normalize())
+  const world = turn.multiply(bone.getWorldQuaternion(new Quaternion()))
+  const parent = bone.parent
+    ? bone.parent.getWorldQuaternion(new Quaternion()).invert()
+    : new Quaternion()
+  bone.quaternion.copy(parent.multiply(world))
+  bone.updateMatrixWorld(true)
+}
+
+/**
+ * Bend a two-bone chain so its end lands on `target`.
+ *
+ * The ordinary analytic solve: the two bone lengths and the distance to the target give the
+ * angle at the shoulder by the law of cosines, and `pole` picks which way the elbow breaks out
+ * of the infinitely many solutions that circle the shoulder-to-target line.
+ *
+ * The target is clamped inside the arm's own reach rather than left to produce a `NaN` from an
+ * out-of-domain `acos`. An unreachable target is not a failure case to guard against here, it is
+ * the *normal* one: the staff sits where the glider put it and the arm is as long as the model
+ * makes it, so the honest answer for a rider who cannot quite reach is a fully extended arm
+ * pointing at the bar, which is exactly what the clamp produces.
+ */
+function reachTo(
+  upper: Object3D, lower: Object3D, end: Object3D, target: Vector3, pole: Vector3,
+): void {
+  const shoulder = upper.getWorldPosition(new Vector3())
+  const elbow = lower.getWorldPosition(new Vector3())
+  const hand = end.getWorldPosition(new Vector3())
+
+  const upperLength = elbow.distanceTo(shoulder)
+  const lowerLength = hand.distanceTo(elbow)
+  if (upperLength < 1e-6 || lowerLength < 1e-6) return
+
+  const toTarget = target.clone().sub(shoulder)
+  const distance = MathUtils.clamp(
+    toTarget.length(),
+    Math.abs(upperLength - lowerLength) + 1e-4,
+    upperLength + lowerLength - 1e-4,
+  )
+  if (toTarget.lengthSq() < 1e-12) return
+  const direction = toTarget.clone().normalize()
+
+  const cosShoulder = MathUtils.clamp(
+    (upperLength * upperLength + distance * distance - lowerLength * lowerLength)
+    / (2 * upperLength * distance),
+    -1, 1,
+  )
+
+  // The bend plane. Degenerate when the pole happens to lie along the reach, which a fixed pole
+  // eventually will, so fall back to any perpendicular rather than producing a zero axis.
+  let axis = new Vector3().crossVectors(direction, pole)
+  if (axis.lengthSq() < 1e-8) axis = new Vector3().crossVectors(direction, new Vector3(0, 0, 1))
+  if (axis.lengthSq() < 1e-8) axis = new Vector3(1, 0, 0)
+  axis.normalize()
+
+  const elbowDirection = direction.clone()
+    .applyQuaternion(new Quaternion().setFromAxisAngle(axis, Math.acos(cosShoulder)))
+
+  aimBone(upper, lower, elbowDirection)
+  // Re-read the elbow: aiming the upper arm has just moved it.
+  const bentElbow = lower.getWorldPosition(new Vector3())
+  aimBone(lower, end, target.clone().sub(bentElbow))
+}
+
+/** Put a bone at a world position, expressed in whatever space its parent uses. */
+function placeBoneAt(bone: Object3D, world: Vector3): void {
+  const parent = bone.parent
+  bone.position.copy(parent ? parent.worldToLocal(world.clone()) : world)
+  bone.updateMatrixWorld(true)
+}
+
+/**
+ * Point a foot along the leg, the way a body held in a line points its toes.
+ *
+ * Straightening the legs leaves each foot at the standing pose's right angle to the shin, and on
+ * a prone body that right angle aims the boots straight at the ground: in the live game the rider
+ * flew with a straight body and two feet hanging off the end of it like a figure standing on a
+ * wall. This rig has no toe bone to aim, so the toe's direction is taken as the part of the
+ * avatar's "down" that is square to the leg — which is where a foot perpendicular to a horizontal
+ * shin points — and the foot is turned about the ankle until that direction runs along the leg.
+ */
+function pointToes(foot: Object3D, along: Vector3, belly: Vector3): void {
+  const toe = belly.clone().addScaledVector(along, -belly.dot(along))
+  if (toe.lengthSq() < 1e-8) return
+  const turn = new Quaternion().setFromUnitVectors(toe.normalize(), along)
+  const world = turn.multiply(foot.getWorldQuaternion(new Quaternion()))
+  const parent = foot.parent
+    ? foot.parent.getWorldQuaternion(new Quaternion()).invert()
+    : new Quaternion()
+  foot.quaternion.copy(parent.multiply(world))
+  foot.updateMatrixWorld(true)
+}
+
+/**
+ * Put the rider's hands on the staff and straighten the lower body into a plank.
+ *
+ * Everything above this point composes the glide pose out of frames the character pack happens
+ * to contain, which is what a pack with no gliding clip allows. It got the body prone and the
+ * arms roughly forward, and it could never do more than that: the arms ended wherever `Roll`'s
+ * thirtieth percentile left them, and the staff ended wherever `glider.ts` put it, and nothing
+ * made those two agree. The rider flew alongside their glider rather than on it.
+ *
+ * So the arms are solved rather than sampled. The hands are placed on the staff by an ordinary
+ * two-bone reach, which means they stay on it if the staff moves — and the staff has moved three
+ * times already.
+ *
+ * The legs are straightened along the body's own axis instead of being left at the standing
+ * pose's 156-degree knees. A glider rider holds a line from shoulder to heel; 156 degrees is a
+ * gentle crouch, which reads at distance as sitting in mid-air.
+ *
+ * **The feet need moving as well as the shins turning, and that is this rig rather than a
+ * mistake.** `Foot.L` and `Foot.R` are children of `Root` — they are IK targets, not the ends of
+ * the leg chains — so straightening a knee leaves the foot exactly where it was and the ankle
+ * pulls away from it. They are repositioned onto the end of each straightened shin, which the
+ * clip can carry because `buildSwayedClip` now writes a position track for every bone.
+ *
+ * Works on the live scene graph and reads the result back, the way `pitchOnto` already does: the
+ * whole module poses these bones destructively and bakes what it finds, and `sampleBones` carries
+ * that warning for callers.
+ */
+function gripTheGlider(
+  root: Object3D, composed: Map<string, BonePose>, avatarSpace: Object3D,
+): void {
+  // The composed pose has to be standing in the bones before anything can be solved against it:
+  // an IK solve reads world positions, and those are meaningless until the pose is applied.
+  for (const [name, pose] of composed) {
+    const bone = root.getObjectByName(name)
+    if (!bone) continue
+    bone.quaternion.copy(pose.quaternion)
+    bone.position.copy(pose.position)
+  }
+  root.updateMatrixWorld(true)
+
+  /*
+   * No unit conversion, and the absence is the point.
+   *
+   * The obvious reading is that a target expressed in the game's space has to be scaled into the
+   * model's, because the avatar fits whatever model loads to a fixed height and this one takes a
+   * factor of about 0.62. That reading is wrong here, and measurably so: by the time this runs,
+   * `attachModel` has already parented the model inside the fitted wrapper, so every
+   * `getWorldPosition` below reports a position that has *been* through the fit. Dividing the
+   * target by the scale as well pushed the grip 1.6 times too far out, and the solve then reached
+   * it exactly — hands a third of a unit clear of the staff, with nothing failing anywhere.
+   */
+
+  const hips = root.getObjectByName(BONES.hips)
+  const head = root.getObjectByName(BONES.head)
+  const carrier = root.getObjectByName(CARRIER)
+
+  /*
+   * The body is left where the composed pose put it, and `glider.ts` carries the staff to meet
+   * the hands instead of the body being moved to meet the staff.
+   *
+   * Moving the body was tried first, twice. It is the obvious approach — shift the rider back
+   * along their own axis until the bar is inside arm's length — and it fails in a way worth
+   * recording: the translation and the prone pitch fight each other, and the rider ends up
+   * standing on the bar head-up rather than hanging behind it in a line. Solving the shift
+   * against an axis measured before the shift, then reaching afterwards, is a small circular
+   * dependency that a single pass does not settle.
+   *
+   * Placing the staff is better founded anyway. `DEPLOYED_POSITION` used to be swept against the
+   * wing resting on the rider's back; now that the rider holds the bar, the grip is the thing
+   * that constant should be derived from, and it is.
+   */
+  for (const [side, upperName, lowerName, handName] of [
+    [-1, BONES.upperArmL, BONES.lowerArmL, BONES.handL],
+    [1, BONES.upperArmR, BONES.lowerArmR, BONES.handR],
+  ] as const) {
+    const upper = root.getObjectByName(upperName)
+    const lower = root.getObjectByName(lowerName)
+    const hand = root.getObjectByName(handName)
+    if (!upper || !lower || !hand) continue
+    // Elbows break downward, which is how anyone holds a bar in front of them -- and for a rider
+    // lying prone under a wing it is also the only direction with room.
+    reachTo(
+      upper, lower, hand, inAvatarSpace(gripTarget(side), avatarSpace), new Vector3(0, -1, 0),
+    )
+  }
+
+  if (!hips || !head) return
+
+  // Back along the body's own axis rather than along world -Z, so the legs stay in line with a
+  // torso whose pitch is the wing's and not a constant.
+  const along = head.getWorldPosition(new Vector3())
+    .sub(hips.getWorldPosition(new Vector3()))
+  if (along.lengthSq() < 1e-12) return
+  const back = along.normalize().multiplyScalar(-1)
+  // The avatar's own down, carried into world space: the side a prone rider's toes hang toward.
+  const belly = new Vector3(0, -1, 0)
+    .applyQuaternion(avatarSpace.getWorldQuaternion(new Quaternion()))
+
+  for (const [upperName, lowerName, footName] of [
+    [BONES.upperLegL, BONES.lowerLegL, BONES.footL],
+    [BONES.upperLegR, BONES.lowerLegR, BONES.footR],
+  ] as const) {
+    const upper = root.getObjectByName(upperName)
+    const lower = root.getObjectByName(lowerName)
+    const foot = root.getObjectByName(footName)
+    if (!upper || !lower || !foot) continue
+
+    const ankleLength = foot.getWorldPosition(new Vector3())
+      .distanceTo(lower.getWorldPosition(new Vector3()))
+
+    aimBone(upper, lower, back)
+    aimBone(lower, foot, back)
+
+    // The ankle is now at the end of a straight leg; the foot bone is not, because it hangs off
+    // `Root` rather than off the shin.
+    placeBoneAt(
+      foot,
+      lower.getWorldPosition(new Vector3()).addScaledVector(back, ankleLength),
+    )
+    pointToes(foot, back, belly)
+  }
+
+  // Read the solved pose back out, so the clip is built from what was actually reached rather
+  // than from what was sampled.
+  for (const name of [...composed.keys()]) {
+    const bone = root.getObjectByName(name)
+    if (!bone) continue
+    composed.set(name, {
+      quaternion: bone.quaternion.clone(), position: bone.position.clone(),
+    })
+  }
+}
+
+export function buildGlideClip(
+  root: Object3D, clips: AnimationClip[], avatarSpace: Object3D = root,
+): AnimationClip | null {
   const upperSource = firstMatch(clips, UPPER_SOURCES)
   const lowerSource = firstMatch(clips, LOWER_SOURCES)
   if (!upperSource || !lowerSource) return null
@@ -335,7 +647,24 @@ export function buildGlideClip(root: Object3D, clips: AnimationClip[]): Animatio
     if (pose) composed.set(name, pose)
   }
 
-  return buildSwayedClip('glide', composed, pitchOnto(root, composed), GLIDE_SWAY)
+  // The pitch is baked into the pose here rather than left for `buildSwayedClip` to apply, and
+  // the order is the reason: the hands are solved onto a staff whose position is fixed in the
+  // avatar's space, so the body has to already be lying down when the arms reach for it.
+  // Solving first and pitching afterwards would rotate the solved arms off the bar by exactly
+  // the angle of the pitch.
+  const pitch = pitchOnto(root, composed, avatarSpace)
+  const carrier = composed.get(CARRIER)
+  if (carrier) {
+    composed.set(CARRIER, {
+      quaternion: pitch.clone().multiply(carrier.quaternion),
+      position: carrier.position,
+    })
+  }
+
+  gripTheGlider(root, composed, avatarSpace)
+
+  // Null, because the pitch is already in the pose above.
+  return buildSwayedClip('glide', composed, null, GLIDE_SWAY)
 }
 
 /**
