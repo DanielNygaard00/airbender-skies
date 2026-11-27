@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Color, Vector3 } from 'three'
 import { createIslandGeometry, type IslandDef } from './island'
-import { paintIsland, BIOME_PALETTES, JITTER, PATCH_DEPTH } from './island-paint'
+import { paintIsland, BIOME_PALETTES, JITTER, PATCH_DEPTH, STRATA_DEPTH } from './island-paint'
 
 const def: IslandDef = {
   id: 'paint-test',
@@ -44,7 +44,9 @@ function faces(biome: IslandDef['biome'] = 'grass', seed = 99) {
  */
 function matches(color: [number, number, number], hex: number): boolean {
   const want = new Color(hex)
-  const scale = (1 + JITTER) * (1 + PATCH_DEPTH) + 1e-3
+  // Strata only touch cliff and underside, but one tolerance keeps the helper simple; the top's
+  // own exclusion is pinned by its own test below.
+  const scale = (1 + JITTER) * (1 + PATCH_DEPTH) * (1 + STRATA_DEPTH) + 1e-3
   const within = (got: number, target: number) =>
     got <= target * scale && got >= target / scale
   const ratio = (x: number, y: number) => x / Math.max(y, 1e-6)
@@ -112,6 +114,20 @@ describe('paintIsland', () => {
     const greens = top.map((f) => f.color[1])
     const spread = Math.max(...greens) / Math.min(...greens)
     expect(spread).toBeGreaterThan((1 + JITTER) / (1 - JITTER))
+  })
+
+  it('bands the exposed rock with height and leaves the walkable top unbanded', () => {
+    const all = faces().faces
+    const greenOf = (f: (typeof all)[number]) => f.color[1]
+    const want = new Color(BIOME_PALETTES.grass.top).g
+    // The top stays within jitter and patches alone.
+    for (const f of all.filter((f) => f.normal.y > 0.9 && f.centroid.y > 1)) {
+      expect(greenOf(f)).toBeLessThanOrEqual(want * (1 + JITTER) * (1 + PATCH_DEPTH) + 1e-3)
+    }
+    // Cliff faces spread further than jitter and patches could take them.
+    const cliff = all.filter((f) => Math.abs(f.normal.y) < 0.3 && f.centroid.y > 1).map(greenOf)
+    const spread = Math.max(...cliff) / Math.min(...cliff)
+    expect(spread).toBeGreaterThan(((1 + JITTER) * (1 + PATCH_DEPTH)) / ((1 - JITTER) * (1 - PATCH_DEPTH)))
   })
 
   it('rejects indexed geometry', () => {
