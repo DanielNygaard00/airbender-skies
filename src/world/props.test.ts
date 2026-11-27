@@ -113,6 +113,17 @@ describe('buildProps', () => {
     expect(mesh!.geometry.boundingSphere!.radius).toBeGreaterThan(0)
   })
 
+  it('lets trees sway and keeps stone still, with a shadow that sways along', () => {
+    const grass = buildProps(def(), flat(), [])!
+    const weights = Array.from(grass.geometry.attributes['sway']!.array)
+    expect(weights.some((w) => w > 0.5)).toBe(true)
+    expect(grass.customDepthMaterial).toBeDefined()
+
+    // A rock island has no trees, so nothing on it may move at all.
+    const rock = buildProps(def({ biome: 'rock' }), flat(), [])!
+    expect(Array.from(rock.geometry.attributes['sway']!.array).every((w) => w === 0)).toBe(true)
+  })
+
   it('returns null when nothing can be placed', () => {
     expect(buildProps(def(), voidTerrain, [])).toBeNull()
   })

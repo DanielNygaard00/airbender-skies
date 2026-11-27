@@ -1,0 +1,83 @@
+import { describe, it, expect, beforeEach } from 'vitest'
+import { ConeGeometry, MeshDepthMaterial, MeshStandardMaterial, type WebGLProgramParametersWithUniforms } from 'three'
+import {
+  advanceWind, applyWindSway, createSwayDepthMaterial, withSway, WIND_CLOCK,
+} from './wind-sway'
+
+/** Run a patched material's onBeforeCompile against a minimal stand-in shader. */
+function patched(material: MeshStandardMaterial | MeshDepthMaterial) {
+  const shader = {
+    uniforms: {},
+    vertexShader: 'void main() {\n#include <begin_vertex>\n}',
+    fragmentShader: '',
+  } as unknown as WebGLProgramParametersWithUniforms
+  material.onBeforeCompile(shader, undefined as never)
+  return shader
+}
+
+describe('withSway', () => {
+  it('plants the base and gives the crown tip the full weight, rising toward the top', () => {
+    const cone = new ConeGeometry(1, 4, 6)
+    cone.translate(0, 2, 0)
+    withSway(cone, 4)
+    const sway = cone.attributes['sway']!
+    const position = cone.attributes.position!
+    for (let i = 0; i < sway.count; i++) {
+      const y = position.getY(i)
+      if (Math.abs(y) < 1e-6) expect(sway.getX(i)).toBe(0)
+      if (Math.abs(y - 4) < 1e-6) expect(sway.getX(i)).toBeCloseTo(1, 6)
+      // Square of height: half way up carries a quarter of the motion, like a bending cantilever.
+      expect(sway.getX(i)).toBeCloseTo((y / 4) ** 2, 6)
+    }
+  })
+
+  it('gives a part that must never move a weight of zero everywhere', () => {
+    const rock = withSway(new ConeGeometry(1, 2, 5), 0)
+    expect(Array.from(rock.attributes['sway']!.array).every((w) => w === 0)).toBe(true)
+  })
+})
+
+describe('advanceWind', () => {
+  beforeEach(() => { WIND_CLOCK.value = 0 })
+
+  it('runs the shared clock forward', () => {
+    advanceWind(0.5)
+    advanceWind(0.25)
+    expect(WIND_CLOCK.value).toBeCloseTo(0.75, 10)
+  })
+
+  it('wraps rather than growing without bound, so float precision never decays', () => {
+    for (let i = 0; i < 100000; i++) advanceWind(1 / 60)
+    expect(WIND_CLOCK.value).toBeGreaterThanOrEqual(0)
+    expect(WIND_CLOCK.value).toBeLessThan(600)
+  })
+
+  it('ignores a bad step rather than poisoning every tree with NaN', () => {
+    advanceWind(Number.NaN)
+    advanceWind(-1)
+    advanceWind(Number.POSITIVE_INFINITY)
+    expect(WIND_CLOCK.value).toBe(0)
+  })
+})
+
+describe('applyWindSway', () => {
+  it('bends the vertex after begin_vertex, driven by the one shared clock', () => {
+    const shader = patched(applyWindSway(new MeshStandardMaterial()))
+    expect(shader.vertexShader).toContain('attribute float sway')
+    expect(shader.vertexShader).toContain('#include <begin_vertex>')
+    expect(shader.vertexShader).toContain('transformed.x +=')
+    // The same object, not a copy: one assignment a frame must reach every island's material.
+    expect(shader.uniforms['windClock']).toBe(WIND_CLOCK)
+  })
+
+  it('gives the patched program its own cache key', () => {
+    // Without one three reuses the unpatched program of the same material type and nothing sways.
+    expect(applyWindSway(new MeshStandardMaterial()).customProgramCacheKey()).toBe('wind-sway')
+  })
+
+  it('patches the shadow depth material the same way, so the shadow sways with the tree', () => {
+    const depth = createSwayDepthMaterial()
+    expect(depth).toBeInstanceOf(MeshDepthMaterial)
+    expect(patched(depth).uniforms['windClock']).toBe(WIND_CLOCK)
+  })
+})
