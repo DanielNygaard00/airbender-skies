@@ -107,7 +107,9 @@ const BLOOM = { intensity: 0.9, luminanceThreshold: 0.82, luminanceSmoothing: 0.
  * into any program that declares it. So the renderer's exposure still reaches ACES on the
  * composited tiers, which is what keeps the curve identical to the pre-composer build.
  */
-const GRADE = { brightness: 0, contrast: 0.06, saturation: 0.08 }
+// Saturation raised from 0.08 with the move to AgX, which desaturates more than ACES did; the
+// lift restores the sky's blue and the foliage's green that AgX's roll-off greys toward neutral.
+const GRADE = { brightness: 0, contrast: 0.08, saturation: 0.18 }
 
 /**
  * Hardware MSAA *inside* the composer, because the canvas's own is unreachable from here.
@@ -151,7 +153,14 @@ function effectsFor(name: PostEffectName): Effect[] {
         new HueSaturationEffect({ saturation: GRADE.saturation }),
       ]
     case 'tone-mapping':
-      return [new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC })]
+      // AgX rather than ACES. ACES pushes saturated highlights toward a different hue as they
+      // brighten -- orange fire drifts yellow, cyan water drifts toward white-blue, a sunlit
+      // green goes chalky -- which is a large part of why a tone-mapped scene reads as computer
+      // graphics rather than as a photograph. AgX desaturates toward white along the colour's
+      // own hue instead, the way film and the eye do, and it compresses midtones less, so the
+      // flat washed look ACES gave the grass is gone without touching a single material.
+      // Must match the renderer's own choice in `renderer.ts`, which applies it on the low tier.
+      return [new ToneMappingEffect({ mode: ToneMappingMode.AGX })]
     case 'smaa':
       return [new SMAAEffect()]
   }

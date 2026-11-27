@@ -1,6 +1,6 @@
 import {
   WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, Vector3,
-  HemisphereLight, ACESFilmicToneMapping, NoToneMapping, PCFShadowMap,
+  HemisphereLight, AgXToneMapping, NoToneMapping, PCFShadowMap,
 } from 'three'
 import { BASE_FOV } from '../fx/mapping'
 import { createSkyDome } from './sky'
@@ -20,14 +20,18 @@ export const FOG_FAR = 2200
  * Tone mapping is what stops flat-lit geometry reading as raw WebGL: it rolls the
  * sunlit highlights off instead of clipping them to a hard white.
  *
- * 1.0, which is neutral: nothing here compensates for ACES darkening the midtones, and no
- * earlier version of this file did either. The comment this replaced claimed both an exposure
- * compensation and light intensities raised to match it, and the number has been 1.0
- * throughout. It stays a named constant because it is uploaded on every `applyProfile`, and
- * because it still reaches ACES when the composer owns tone mapping — see `GRADE` in
- * `post.ts` for how.
+ * 1.25, and the first value here that is not neutral. It was 1.0 for the whole of the ACES era,
+ * with nothing compensating for ACES darkening the midtones. AgX replaced ACES and is darker
+ * and greyer still at the same exposure — it rolls highlights off toward white rather than
+ * clipping them, which is the point of it, and the price is that a scene lit for ACES lands a
+ * stop low. Photographed on the bench `light` scene at 1.0, the grass went the right colour and
+ * the whole frame went dim and the sky lost its blue; this lifts the frame back without moving a
+ * single light or material, so every intensity tuned against the old image still holds.
+ *
+ * It stays a named constant because it is uploaded on every `applyProfile`, and because it still
+ * reaches the tone mapper when the composer owns tone mapping — see `GRADE` in `post.ts` for how.
  */
-const EXPOSURE = 1.0
+const EXPOSURE = 1.25
 
 export function hasWebGL(): boolean {
   try {
@@ -179,7 +183,8 @@ export function createRenderer(
   function applyProfile(p: QualityProfile): void {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, p.pixelRatioCap))
     renderer.toneMapping =
-      toneMappingOwner(p) === 'renderer' ? ACESFilmicToneMapping : NoToneMapping
+      // AgX, matching the composer's ToneMappingEffect in post.ts; see the note there.
+      toneMappingOwner(p) === 'renderer' ? AgXToneMapping : NoToneMapping
     renderer.toneMappingExposure = EXPOSURE
     if (sun.shadow.mapSize.x !== p.shadowMapSize) {
       sun.shadow.mapSize.set(p.shadowMapSize, p.shadowMapSize)
