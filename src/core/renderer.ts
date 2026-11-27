@@ -1,7 +1,8 @@
 import {
   WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, Vector3,
-  HemisphereLight, AgXToneMapping, NoToneMapping, PCFShadowMap,
+  AgXToneMapping, NoToneMapping, PCFShadowMap,
 } from 'three'
+import { createSkyEnvironment, environmentIntensityFor } from './environment'
 import { BASE_FOV } from '../fx/mapping'
 import { createSkyDome } from './sky'
 import { aimSun, createSun } from './sun'
@@ -140,7 +141,10 @@ export function createRenderer(
   scene.fog = new Fog(light.fogColour, FOG_NEAR, FOG_FAR)
   scene.add(createSkyDome(light.skyZenith, light.skyHorizon))
 
-  scene.add(new HemisphereLight(light.hemiSky, light.hemiGround, light.hemiIntensity))
+  // The sky, prefiltered, as the fill light for every surface — it replaced a HemisphereLight;
+  // see environment.ts for what that bought and how the strength was matched.
+  scene.environment = createSkyEnvironment(renderer, light)
+  scene.environmentIntensity = environmentIntensityFor(light)
   const sun = createSun(profile.shadowMapSize)
   // The light's colour is a property with a public setter, and a three-argument factory
   // would put two things that always travel together behind separate parameters.

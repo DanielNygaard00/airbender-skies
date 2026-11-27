@@ -1,7 +1,8 @@
 import {
   BufferAttribute, BufferGeometry, DoubleSide, Group, MathUtils, Mesh, MeshBasicMaterial,
-  MeshLambertMaterial, type Object3D,
+  type Object3D,
 } from 'three'
+import { createSurface } from '../core/surface'
 
 /**
  * The air scooter, as a board.
@@ -143,7 +144,7 @@ export function createBoard(): BoardView {
   object.name = 'air-board'
   object.visible = false
 
-  const deckMaterial = new MeshLambertMaterial({
+  const deckMaterial = createSurface('glass', {
     color: DECK_COLOUR,
     transparent: true,
     opacity: DECK_OPACITY,

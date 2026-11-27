@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { Mesh, Vector3, type MeshLambertMaterial } from 'three'
+import { Mesh, Vector3, type MeshStandardMaterial } from 'three'
 import { createEarthRocks } from './earth-rocks'
 import { DEFAULT_COMBAT_CONFIG } from '../combat/config'
 import { inStoneThrow, stoneShape } from '../combat/earth'
@@ -95,7 +95,7 @@ describe('createEarthRocks', () => {
     const effect = createEarthRocks(ORIGIN, FORWARD, EARTH)
     run(effect, 0.3)
     for (const rock of rocksOf(effect)) {
-      expect((rock.material as MeshLambertMaterial).opacity).toBeCloseTo(1, 6)
+      expect((rock.material as MeshStandardMaterial).opacity).toBeCloseTo(1, 6)
     }
     effect.dispose()
   })

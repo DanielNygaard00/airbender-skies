@@ -1,7 +1,7 @@
 import {
-  CylinderGeometry, Mesh, MeshLambertMaterial, Vector3,
-  type MeshLambertMaterialParameters, type Object3D,
+  CylinderGeometry, Mesh, Vector3, type Object3D,
 } from 'three'
+import { createSurface, type SurfaceParameters } from '../core/surface'
 import type { Pillar } from '../combat/earth'
 
 /**
@@ -41,7 +41,8 @@ export interface PillarView {
  *
  * **Measured in a browser rather than chosen, and the first two attempts were both wrong.** The
  * reach effect is an unlit `MeshBasicMaterial` painted at exactly the tint it is given; this is a
- * `MeshLambertMaterial` that the light then multiplies, so the same hex is two different colours and
+ * lit material (Lambert when this was measured, a rough `stone` surface since) that the light then
+ * multiplies, so the same hex is two different colours and
  * the lit one is always darker. `0xe0ae78` — a value that looks like sandstone written down — rendered
  * as a muddy chocolate brown against the archipelago's pale green, close enough to `props.ts`'s
  * `TRUNK_BROWN` of `0x6b4f35` that a raised rock read as a tree stump. Correcting it by
@@ -64,7 +65,7 @@ const TINT = 0xf2b877
  * `depthTest` reads as `true` whether or not this file asks for it and deleting the line would
  * leave a test green. Read off this object instead, a removed key is `undefined`, which fails.
  */
-export const PILLAR_MATERIAL_OPTIONS: MeshLambertMaterialParameters = {
+export const PILLAR_MATERIAL_OPTIONS: SurfaceParameters = {
   color: TINT,
   // Depth-tested, unlike the attack tells in this directory. See the interface comment: an object
   // that stops arrows must not be the one thing in the game you can see through a hill.
@@ -121,7 +122,7 @@ export function createPillarView(pillar: Pillar): PillarView {
   // The cylinder is authored centred on its own origin, so lift it by half its height to seat the
   // base on the ground the record names.
   geometry.translate(0, pillar.height / 2, 0)
-  const material = new MeshLambertMaterial(PILLAR_MATERIAL_OPTIONS)
+  const material = createSurface('stone', PILLAR_MATERIAL_OPTIONS)
   const mesh = new Mesh(geometry, material)
   mesh.name = 'pillar'
 

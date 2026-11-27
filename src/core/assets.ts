@@ -1,4 +1,5 @@
-import { Mesh, MeshBasicMaterial, MeshLambertMaterial } from 'three'
+import { Mesh, MeshBasicMaterial } from 'three'
+import { createSurface } from './surface'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js'
 
@@ -16,10 +17,13 @@ const cache = new Map<string, Promise<GLTF | null>>()
  * a sticker on the screen, which is the one thing a replacement for the grey placeholder must
  * not do.
  *
- * So the map is carried onto a `MeshLambertMaterial`, which is what every other surface in the
- * game already uses — the terrain, the props, the soldiers. Lambert rather than Standard for the
- * same reason they chose it: there is no metalness or roughness information anywhere in this
- * texture to feed a PBR model, so Standard would cost more per pixel to draw the same thing.
+ * So the map is carried onto a lit material of the `painted` surface kind, the same physically
+ * based family every other surface in the game uses — the terrain, the props, the soldiers. The
+ * texture has no metalness or roughness channel, so the finish comes from the kind rather than the
+ * asset; what the model gains is the sky environment's directional fill and a soft sheen at grazing
+ * angles, which is what stops a character looking flatter than the rocks it stands next to. (This
+ * was a `MeshLambertMaterial` until the world moved to `surface.ts`; a Lambert character in a
+ * physically lit world would be the one thing the sky's fill did not reach.)
  *
  * The baked shading stays in the texture and is now multiplied by the light, which double-shades
  * slightly on surfaces already painted dark. That is deliberate and it is the cheaper error: the
@@ -38,7 +42,7 @@ export function relightUnlitMaterials(gltf: GLTF): void {
     const material = mesh.material
     if (Array.isArray(material) || !(material instanceof MeshBasicMaterial)) return
 
-    mesh.material = new MeshLambertMaterial({
+    mesh.material = createSurface('painted', {
       map: material.map,
       color: material.color,
       transparent: material.transparent,

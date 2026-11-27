@@ -1,7 +1,8 @@
 import {
   MathUtils, Object3D, Group, Mesh, CylinderGeometry, BufferGeometry, BufferAttribute,
-  MeshLambertMaterial, Vector3, DoubleSide,
+  Vector3, DoubleSide,
 } from 'three'
+import { createSurface } from '../core/surface'
 
 /** How long the fan takes to travel from fully stowed to fully deployed. */
 export const OPEN_SECONDS = 0.3
@@ -172,8 +173,8 @@ export function createGlider(): {
 } {
   const object = new Group()
 
-  const staffMaterial = new MeshLambertMaterial({ color: 0x6b4a2f })
-  const fabricMaterial = new MeshLambertMaterial({ color: 0xe0913f, side: DoubleSide })
+  const staffMaterial = createSurface('wood', { color: 0x6b4a2f })
+  const fabricMaterial = createSurface('fabric', { color: 0xe0913f, side: DoubleSide })
 
   // The cylinder's axis is local Y, so lay it along local X to be the spanwise staff.
   const staff = new Mesh(

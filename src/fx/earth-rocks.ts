@@ -1,7 +1,8 @@
 import {
-  Group, IcosahedronGeometry, MathUtils, Mesh, MeshLambertMaterial, Vector3,
+  Group, IcosahedronGeometry, MathUtils, Mesh, Vector3, type MeshStandardMaterial,
 } from 'three'
 import { stoneShape, type EarthConfig } from '../combat/earth'
+import { createSurface } from '../core/surface'
 import type { Effect } from './effect'
 
 /**
@@ -161,7 +162,7 @@ export function createEarthRocks(
     mesh: Mesh
     velocity: Vector3
     spin: Vector3
-    material: MeshLambertMaterial
+    material: MeshStandardMaterial
   }[] = []
 
   for (let i = 0; i < COUNT; i++) {
@@ -173,7 +174,7 @@ export function createEarthRocks(
       1, MathUtils.lerp(0.7, 1.05, scatter(i, 3)), MathUtils.lerp(0.8, 1.25, scatter(i, 4)),
     )
 
-    const material = new MeshLambertMaterial({
+    const material = createSurface('stone', {
       color: COLOURS[i % COLOURS.length],
       transparent: true,
       opacity: 1,

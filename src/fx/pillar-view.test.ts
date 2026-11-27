@@ -122,7 +122,7 @@ describe('createPillarView', () => {
     // `Material`'s constructor backfills it to `true` and a test reading the material would pass with
     // the line deleted. The same trick `arrow.ts` uses.
     const material = meshOf(createPillarView(pillar())).material as Material
-    expect(material.type).toBe('MeshLambertMaterial')
+    expect(material.type).toBe('MeshStandardMaterial')
     expect(PILLAR_MATERIAL_OPTIONS.depthTest).toBe(true)
     // Opaque: cover the player can see through is cover they will misjudge.
     expect(material.transparent).toBe(false)

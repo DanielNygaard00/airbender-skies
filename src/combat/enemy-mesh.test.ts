@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  Euler, Group, Mesh, MeshBasicMaterial, MeshLambertMaterial, Object3D, Quaternion, Vector3,
+  Euler, Group, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, Quaternion, Vector3,
 } from 'three'
 import { createEnemyView } from './enemy-mesh'
 import { spawnEnemy, hitEnemy, type Enemy, type EnemyKind, type Stance } from './enemy'
@@ -40,7 +40,7 @@ function rig(view: { object: Object3D }): Group {
 function bodyColour(view: { object: Object3D }): number {
   const body = child(view, 'body')
   if (!(body instanceof Mesh)) throw new Error('expected the body to be a Mesh')
-  return (body.material as MeshLambertMaterial).color.getHex()
+  return (body.material as MeshStandardMaterial).color.getHex()
 }
 
 describe('createEnemyView', () => {
@@ -181,7 +181,7 @@ describe('the two kinds look different', () => {
     // what the player's whole dodge window depends on seeing.
     const view = viewFor('archer')
     const body = view.object.getObjectByName('body') as Mesh
-    const material = body.material as MeshLambertMaterial
+    const material = body.material as MeshStandardMaterial
     view.sync(archerAt('advance'), new Quaternion(), 0)
     const calm = material.color.getHex()
     view.sync(archerAt('wind-up'), new Quaternion(), 0)
