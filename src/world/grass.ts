@@ -2,10 +2,10 @@ import {
   BufferAttribute, BufferGeometry, Color, DoubleSide, Group, InstancedMesh, Matrix4, Quaternion,
   ShaderChunk, Vector3, type Material,
 } from 'three'
-import { createSurface } from '../core/surface'
+import { addShaderPatch, createSurface } from '../core/surface'
 import { mulberry32 } from '../core/rng'
+import { WIND_CLOCK, WIND_DIRECTION } from '../core/weather'
 import { isTopFace } from './island-paint'
-import { WIND_CLOCK, WIND_DIRECTION } from './wind-sway'
 
 /**
  * Grass blades on the island tops.
@@ -224,15 +224,14 @@ const GRASS_NORMAL_BEGIN = ShaderChunk.normal_fragment_begin
 /** The one material every chunk shares. */
 export function createGrassMaterial(): Material {
   const material = createSurface('foliage', { vertexColors: true, side: DoubleSide })
-  material.onBeforeCompile = (shader) => {
+  // Chained onto the cloud-shadow patch `createSurface` already added, so clouds shade the grass.
+  return addShaderPatch(material, 'grass', (shader) => {
     shader.uniforms['windClock'] = WIND_CLOCK
     shader.vertexShader = 'uniform float windClock;\n' + shader.vertexShader
       .replace('#include <project_vertex>', GRASS_PROJECT)
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <normal_fragment_begin>', GRASS_NORMAL_BEGIN)
-  }
-  material.customProgramCacheKey = () => 'grass'
-  return material
+  })
 }
 
 /** Grow the grass for every island in a level, bucketed into chunks. */

@@ -6,7 +6,7 @@ import {
   CHUNK_SIZE, GRASS_FAR, TUFTS_PER_SQUARE_METRE, createGrassField, createGrassMaterial,
   createTuftGeometry, scatterTufts,
 } from './grass'
-import { WIND_CLOCK } from './wind-sway'
+import { WIND_CLOCK } from '../core/weather'
 
 const def: IslandDef = {
   id: 'grass-test',
@@ -158,6 +158,7 @@ describe('createGrassMaterial', () => {
     expect(shader.vertexShader).not.toContain('#include <project_vertex>')
     expect(shader.vertexShader).toContain('cameraPosition')
     expect(shader.fragmentShader).not.toContain('gl_FrontFacing ? 1.0 : - 1.0')
-    expect(material.customProgramCacheKey()).toBe('grass')
+    // Both patches named, so it never shares a program with a surface carrying only one.
+    expect(material.customProgramCacheKey()).toBe('cloud-shadow|grass')
   })
 })

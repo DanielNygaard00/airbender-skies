@@ -1,6 +1,8 @@
 import {
   BufferAttribute, MeshDepthMaterial, RGBADepthPacking, type BufferGeometry, type Material,
 } from 'three'
+import { addShaderPatch } from '../core/surface'
+import { WIND_CLOCK, WIND_DIRECTION } from '../core/weather'
 
 /**
  * Trees that move in the wind.
@@ -27,26 +29,11 @@ import {
  * mesh's depth material, which knows nothing about this bend unless it is given the same patch;
  * without it every swaying crown would cast a shadow that stood still beneath it.
  *
- * **One clock for every island.** `WIND_CLOCK` is a single uniform object shared by every patched
- * material, so `advanceWind` is one assignment a frame however many islands there are. Nothing
- * on the FX bench advances it, so the bench's trees stand at phase zero and its photographs stay
- * comparable across commits.
+ * **One clock for every island.** `WIND_CLOCK`, in `core/weather.ts`, is a single uniform object
+ * shared by every patched material, so advancing it is one assignment a frame however many
+ * islands there are. Nothing on the FX bench advances it, so the bench's trees stand at phase zero
+ * and its photographs stay comparable across commits.
  */
-
-/** The shared clock, in seconds, wrapped so float32 precision never decays in a long session. */
-export const WIND_CLOCK = { value: 0 }
-
-/**
- * Wrap point for the clock. The two oscillators' periods (2 pi / 1.1 and 2 pi / 2.7 seconds)
- * share no common multiple, so the wrap cannot be seamless; ten minutes makes the seam one frame
- * in ten minutes, a jump of a few centimetres at a crown tip, which mid-sway is invisible.
- */
-const WRAP_SECONDS = 600
-
-export function advanceWind(dt: number): void {
-  if (!Number.isFinite(dt) || dt <= 0) return
-  WIND_CLOCK.value = (WIND_CLOCK.value + dt) % WRAP_SECONDS
-}
 
 /**
  * How far a crown tip travels downwind at the peak of a gust, in metres at prop scale 1.
@@ -56,12 +43,6 @@ export function advanceWind(dt: number): void {
  * all; this is a world of constant strong wind, which is what the player is flying on.
  */
 export const SWAY_AMPLITUDE = 0.4
-
-/**
- * The direction the wind blows across the archipelago, in the ground plane (unit length).
- * Exported so the grass bends the same way as the trees above it.
- */
-export const WIND_DIRECTION = [0.8, 0.6] as const
 
 /**
  * Add a `sway` weight to every vertex of a part.
@@ -106,14 +87,13 @@ const SWAY_BEGIN = /* glsl */ `
 
 /** Patch a material so geometry carrying a `sway` attribute bends in the wind. */
 export function applyWindSway<T extends Material>(material: T): T {
-  material.onBeforeCompile = (shader) => {
+  // Chained rather than assigned: the prop material already carries the cloud-shadow patch from
+  // `createSurface`, and assigning `onBeforeCompile` would silently throw it away.
+  addShaderPatch(material, 'wind-sway', (shader) => {
     shader.uniforms['windClock'] = WIND_CLOCK
     shader.vertexShader = SWAY_PARS + shader.vertexShader
       .replace('#include <begin_vertex>', SWAY_BEGIN)
-  }
-  // Without a distinct key three would hand this material the unpatched program another
-  // material of the same type already compiled, and nothing would sway.
-  material.customProgramCacheKey = () => 'wind-sway'
+  })
   return material
 }
 

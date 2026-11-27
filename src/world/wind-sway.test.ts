@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { ConeGeometry, MeshDepthMaterial, MeshStandardMaterial, type WebGLProgramParametersWithUniforms } from 'three'
-import {
-  advanceWind, applyWindSway, createSwayDepthMaterial, withSway, WIND_CLOCK,
-} from './wind-sway'
+import { applyWindSway, createSwayDepthMaterial, withSway } from './wind-sway'
+import { WIND_CLOCK } from '../core/weather'
+import { createSurface } from '../core/surface'
 
 /** Run a patched material's onBeforeCompile against a minimal stand-in shader. */
 function patched(material: MeshStandardMaterial | MeshDepthMaterial) {
@@ -37,29 +37,6 @@ describe('withSway', () => {
   })
 })
 
-describe('advanceWind', () => {
-  beforeEach(() => { WIND_CLOCK.value = 0 })
-
-  it('runs the shared clock forward', () => {
-    advanceWind(0.5)
-    advanceWind(0.25)
-    expect(WIND_CLOCK.value).toBeCloseTo(0.75, 10)
-  })
-
-  it('wraps rather than growing without bound, so float precision never decays', () => {
-    for (let i = 0; i < 100000; i++) advanceWind(1 / 60)
-    expect(WIND_CLOCK.value).toBeGreaterThanOrEqual(0)
-    expect(WIND_CLOCK.value).toBeLessThan(600)
-  })
-
-  it('ignores a bad step rather than poisoning every tree with NaN', () => {
-    advanceWind(Number.NaN)
-    advanceWind(-1)
-    advanceWind(Number.POSITIVE_INFINITY)
-    expect(WIND_CLOCK.value).toBe(0)
-  })
-})
-
 describe('applyWindSway', () => {
   it('bends the vertex after begin_vertex, driven by the one shared clock', () => {
     const shader = patched(applyWindSway(new MeshStandardMaterial()))
@@ -73,6 +50,20 @@ describe('applyWindSway', () => {
   it('gives the patched program its own cache key', () => {
     // Without one three reuses the unpatched program of the same material type and nothing sways.
     expect(applyWindSway(new MeshStandardMaterial()).customProgramCacheKey()).toBe('wind-sway')
+  })
+
+  it('keeps the cloud shadows a surface already has, rather than replacing them', () => {
+    const shader = {
+      uniforms: {},
+      vertexShader: 'void main() {\n#include <begin_vertex>\n}',
+      fragmentShader: 'void main() {\n#include <lights_fragment_begin>\n}',
+    } as unknown as WebGLProgramParametersWithUniforms
+    const material = applyWindSway(createSurface('foliage'))
+    material.onBeforeCompile(shader, undefined as never)
+    expect(shader.uniforms['windClock']).toBe(WIND_CLOCK)
+    expect(shader.uniforms['cloudDrift']).toBeDefined()
+    expect(shader.fragmentShader).toContain('cloudShade')
+    expect(material.customProgramCacheKey()).toBe('cloud-shadow|wind-sway')
   })
 
   it('patches the shadow depth material the same way, so the shadow sways with the tree', () => {

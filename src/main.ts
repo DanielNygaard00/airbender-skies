@@ -56,7 +56,7 @@ import { vortexRadius } from './combat/vortex'
 import { createEnemyView, MODEL_FILE } from './combat/enemy-mesh'
 import { createArrowView, type ArrowView } from './fx/arrow'
 import { createWaterfall } from './world/waterfall'
-import { advanceWind } from './world/wind-sway'
+import { advanceWeather } from './core/weather'
 import { createPlayerState, spawnPointFor } from './player/state'
 import { actFromShrines } from './progress/acts'
 import { applyTangle } from './player/tangle'
@@ -1426,7 +1426,7 @@ function start(): void {
 
     for (const marker of markers.values()) marker.rotation.y += dt * 1.5
     for (const waterfall of waterfalls) waterfall.advance(dt)
-    advanceWind(dt)
+    advanceWeather(dt)
     for (const tell of windTells) tell.advance(dt * (avatarActive ? WIND_TELL_SURGE : 1))
 
     effects.advance(dt)

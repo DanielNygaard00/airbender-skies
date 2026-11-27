@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DoubleSide, MeshStandardMaterial } from 'three'
-import { createSurface, SURFACES, type SurfaceKind } from './surface'
+import { DoubleSide, MeshStandardMaterial, type WebGLProgramParametersWithUniforms } from 'three'
+import { addShaderPatch, createSurface, SURFACES, type SurfaceKind } from './surface'
+import { CLOUD_DRIFT } from './weather'
 
 const SRC = fileURLToPath(new URL('..', import.meta.url))
 
@@ -50,6 +51,47 @@ describe('createSurface', () => {
     const glossy = (Object.keys(SURFACES) as SurfaceKind[])
       .filter((kind) => SURFACES[kind].roughness < 0.6)
     expect(new Set(glossy)).toEqual(new Set(['metal', 'glass']))
+  })
+})
+
+function compile(material: MeshStandardMaterial): WebGLProgramParametersWithUniforms {
+  const shader = {
+    uniforms: {},
+    vertexShader: 'void main() {\n#include <begin_vertex>\n}',
+    fragmentShader: 'void main() {\n#include <lights_fragment_begin>\n}',
+  } as unknown as WebGLProgramParametersWithUniforms
+  material.onBeforeCompile(shader, undefined as never)
+  return shader
+}
+
+describe('cloud shadows', () => {
+  it('reach every surface, dimming only the sun, driven by the shared drift', () => {
+    const shader = compile(createSurface('ground'))
+    expect(shader.uniforms['cloudDrift']).toBe(CLOUD_DRIFT)
+    expect(shader.fragmentShader).toContain('directLight.color *= cloudShade')
+    // The sky's light is not touched: shade a tree already casts stays as it was.
+    expect(shader.fragmentShader).not.toContain('irradiance *= cloudShade')
+  })
+})
+
+describe('addShaderPatch', () => {
+  it('runs every patch in the order added rather than letting the last one win', () => {
+    const order: string[] = []
+    const material = createSurface('stone')
+    addShaderPatch(material, 'a', () => { order.push('a') })
+    addShaderPatch(material, 'b', () => { order.push('b') })
+    const shader = compile(material)
+    expect(order).toEqual(['a', 'b'])
+    expect(shader.fragmentShader).toContain('cloudShade')
+  })
+
+  it('names every patch in the program key, so different patch sets never share a program', () => {
+    const one = addShaderPatch(createSurface('stone'), 'wind', () => {})
+    const two = createSurface('stone')
+    expect(one.customProgramCacheKey()).toBe('cloud-shadow|wind')
+    expect(two.customProgramCacheKey()).toBe('cloud-shadow')
+    expect(addShaderPatch(new MeshStandardMaterial(), 'solo', () => {}).customProgramCacheKey())
+      .toBe('solo')
   })
 })
 
